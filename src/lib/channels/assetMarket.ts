@@ -400,15 +400,23 @@ export async function onAssetSalePaid(code: string) {
     await notifySaleParties(code, `💳 تأكد دفع الصفقة ${code}. يستطيع البائع الآن بدء التسليم. احتفظا بمرجع الصفقة، ولا ترسلا أي رموز دخول أو كلمات مرور.`);
     return;
   }
-  const late = await prisma.$executeRaw`UPDATE telegram_asset_sales SET payment_late = TRUE, updated_at = now()
-    WHERE code = ${code} AND status = 'CANCELLED'`;
+  const late = await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
+    WHERE code = ${code} AND status IN ('PENDING_PAYMENT','CANCELLED') AND expires_at < now()`;
   if (late === 1) {
-    const detail = await assetSaleDetails(code, String(process.env.SUPER_ADMIN_TELEGRAM_ID || ""));
+    // Release only this expired reservation. If another buyer already reserved the listing, keep it reserved.
+    await prisma.$executeRaw`UPDATE telegram_asset_listings l SET status = 'LISTED', updated_at = now()
+      WHERE l.id = (SELECT listing_id FROM telegram_asset_sales WHERE code = ${code}) AND l.status = 'RESERVED'
+        AND NOT EXISTS (SELECT 1 FROM telegram_asset_sales active WHERE active.listing_id = l.id
+          AND active.status NOT IN ('RELEASED','REFUNDED','CANCELLED'))`;
+    const rows = await prisma.$queryRaw<any[]>`SELECT s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot,
+      l.title, l.identifier FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id=s.listing_id
+      WHERE s.code = ${code} LIMIT 1`;
+    const x = rows[0] || {};
     await notifyMarketAdmin(`⚠️ وصلت دفعة بعد انتهاء حجز أصل تيليجرام
 الصفقة: ${code}
-الأصل: ${detail?.title || ""} · ${detail?.identifier || ""}
-المشتري: ${detail?.buyer.firstName || ""} (@${detail?.buyer.username || ""}) · ID ${detail?.buyerTelegramId || ""}
-البائع: ${detail?.seller.firstName || ""} (@${detail?.seller.username || ""}) · ID ${detail?.sellerTelegramId || ""}
+الأصل: ${x.title || ""} · ${x.identifier || ""}
+المشتري: ${x.buyer_snapshot?.firstName || ""} (@${x.buyer_snapshot?.username || ""}) · ID ${x.buyer_telegram_id || ""}
+البائع: ${x.seller_snapshot?.firstName || ""} (@${x.seller_snapshot?.username || ""}) · ID ${x.seller_telegram_id || ""}
 لا تبدأوا التسليم؛ يجب على الإدارة مراجعة الاسترداد.`);
     await notifySaleParties(code, `⚠️ وصلت دفعة الصفقة ${code} بعد انتهاء الحجز. لم تُعتمد الصفقة ولم يبدأ التسليم؛ ستراجع الإدارة عملية الاسترداد. لا تنقلوا الأصل بناءً على هذه الدفعة.`);
   }
