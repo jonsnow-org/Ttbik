@@ -415,7 +415,7 @@ export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], m
 }
 
 /** The two media paths a Sham Studio really has, by the exact label its panel API validates (ai-system/modelscope-sham/app.py PANEL_BACKENDS). */
-export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)", ready: "المسار البديل (أوزان محلية جاهزة)" } as const;
+export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)" } as const;
 export type ShamMediaBackend = keyof typeof SHAM_BACKEND_LABELS;
 
 /**

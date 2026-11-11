@@ -13,7 +13,7 @@ What comes out is whatever the model's tokens decode to — at this stage of tra
 tokenizers' and the model's own training, never dressed up. Video IS made from the model's own tokens: it writes one keyframe image span plus a motion
 span (motion_tokenizer.py's flow tokens) inside <VIDEO_START>...<VIDEO_END>, and the clip is decoded frame by frame through that motion — real temporal
 content, not two stitched stills. NO_VIDEO is returned only when no motion tokenizer is available (an older checkpoint with no motion rows trained), and it
-points to the ready text-to-video path (sham_media_ready.py / cpu_video.py) rather than to a slideshow.
+says plainly that this checkpoint has no motion rows (never a slideshow, never an outside generator).
 
 The result is a dict {"type": "text|image|audio|video|notice", "text": ..., "mime": ..., "b64": ...}. This file lives in sham_small, so it reaches the Studio
 through the signed hot copy (app.py loads it from there).
@@ -28,7 +28,7 @@ import torch
 
 
 # modules that hold the Studio's LIVE state (the loaded model, caches, background jobs): never re-imported from the hot copy
-_KEEP_LOADED = frozenset({"serve", "web_access", "cpu_video", "sham_media_ready", "sham_general_text", "sham_auto_config", "sham_cell_sync",
+_KEEP_LOADED = frozenset({"serve", "web_access", "sham_general_text", "sham_auto_config", "sham_cell_sync",
                           "sham_trigger_restarter", "sham_bank", "sham_kb", "sham_gguf", "sham_encoder_np"})
 
 
@@ -160,7 +160,7 @@ def _video_frames() -> int:
 # fabricated file, never silent. The model's OWN motion-token video is the
 # normal path above (_video_result), and the separate video Studio is the
 # alternative for a checkpoint with no motion rows.
-NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. استخدم استوديو الفيديو أو أعد التدريب مع motion_tokenizer. لن يُعاد إليك فيديو مُفبرك."}
+NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. شام يصنع فيديوه بمولّده وحده، فيلزم تدريب مُرمِّز الحركة (motion_tokenizer) أولًا. لن يُعاد إليك فيديو مُفبرك."}
 
 
 def _video_chunk_frames() -> int:

@@ -12,8 +12,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# The "ready weights" media route exists only in the v2 Studio (app.py: `_V2 = "sham-v2" in MODEL_ID`; v1 refuses it with no_donor_generator since 2026-11-08), and these tests
-# exercise that route, so they run as the v2 Studio. The v1 refusal has its own test below.
+# These tests run as the v2 Studio (the same app serves both Shams).
 os.environ.setdefault("SHAM_MS_MODEL", "novaai2026/sham-v2")
 
 import app as sham_app  # noqa: E402
@@ -28,7 +27,7 @@ GOOD_MP4 = base64.b64encode(fx.mp4_shell()).decode()
 class MediaBackendSelectionTests(unittest.TestCase):
     def setUp(self):
         self.old_state = dict(sham_app.STATE)
-        sham_app.STATE.update(phase="ready", media_root="")
+        sham_app.STATE.update(phase="ready")
         self.fake_serve = types.ModuleType("serve")
         self.fake_serve._state = {
             "model": object(),
@@ -98,82 +97,12 @@ class MediaBackendSelectionTests(unittest.TestCase):
         self.assertEqual(result["type"], "video")
         self.assertEqual(self.make_media.call_args.kwargs.get("motion_tokenizer"), sentinel)
 
-    def test_generate_any_receives_the_loaded_motion_tokenizer(self):
-        """The model-decides path must forward the motion tokenizer too, so a model that starts a
-        clip by itself gets a real video instead of the NO_VIDEO notice."""
-        sentinel = object()
-        self.fake_serve._state["motion_tokenizer"] = sentinel
-        generate_any = Mock(return_value={"type": "text", "text": "hello"})
-        self.modules_patch.stop()
-        self.modules_patch = patch.object(
-            sham_app, "_studio_modules",
-            return_value=(None, types.SimpleNamespace(make_media=self.make_media, generate_any=generate_any)),
-        )
-        self.modules_patch.start()
-        sham_app.generate_any("hello", 30)
-        self.assertEqual(generate_any.call_args.kwargs.get("motion_tokenizer"), sentinel)
-
-    def test_alternative_requires_local_weights_and_never_silently_falls_back(self):
-        result = json.loads(
-            sham_app.generate_media_from_panel("image", "a tree", "المسار البديل (أوزان محلية جاهزة)")
-        )
-        self.assertEqual(result["type"], "error")
-        self.assertIn("المسار البديل غير جاهز", result["text"])
-        self.make_media.assert_not_called()
-
-    def test_ready_weights_generate_even_when_text_checkpoint_is_not_ready(self):
-        sham_app.STATE.update(phase="waiting", media_root="/tmp/sham-v2-media")
-        ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock(return_value={"type": "image", "b64": GOOD_PNG})
-        with patch.dict(sys.modules, {"sham_media_ready": ready}):
-            result = json.loads(
-                sham_app.generate_media_from_panel(
-                    "image", "a tree", "المسار البديل (أوزان محلية جاهزة)"
-                )
-            )
-        self.assertEqual(result["type"], "image")
-        self.assertEqual(result["backend"], "ready")
-        ready.make.assert_called_once_with(Path("/tmp/sham-v2-media"), "image", "a tree", scenes=[], narration="")
-        self.make_media.assert_not_called()
-
-    @patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": "1"})
-    @patch("media_quality.check_mp4", lambda data, **k: {"decoded": False})      # the fixture is a container shell; real decoding is covered in test_sham_media_quality
-    def test_ready_backend_receives_video_scenes_and_narration(self):
-        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
-        ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock(return_value={"type": "video", "b64": GOOD_MP4})
-        scenes = ["wide shot of a rabbit", "close-up of the rabbit"]
-        with patch.dict(sys.modules, {"sham_media_ready": ready}):
-            result = json.loads(
-                sham_app.generate_media_from_panel(
-                    "video",
-                    "a rabbit in a garden",
-                    "المسار البديل (أوزان محلية جاهزة)",
-                    json.dumps(scenes),
-                    "الأرنب يقفز في الحديقة",
-                )
-            )
-        self.assertEqual(result["type"], "video")
-        self.assertEqual(result["backend"], "ready")
-        args, kwargs = ready.make.call_args
-        self.assertEqual(args[0], Path("/tmp/sham-v2-media"))
-        self.assertEqual(args[1:3], ("video", "a rabbit in a garden"))
-        self.assertEqual(kwargs["scenes"], scenes)
-        self.assertEqual(kwargs["narration"], "الأرنب يقفز في الحديقة")
-        self.make_media.assert_not_called()
-
-    def test_blank_picture_from_either_path_never_leaves_the_studio(self):
+    def test_blank_picture_never_leaves_the_studio(self):
         blank = base64.b64encode(fx.png("black", 512)).decode()
         self.make_media.return_value = {"type": "image", "b64": blank}
         internal = json.loads(sham_app.generate_media_from_panel("image", "a tree", "شام الداخلي (الأساسي)"))
         self.assertEqual((internal["type"], internal["reason"], internal["backend"]), ("error", "blank_image", "internal"))
         self.assertNotIn("b64", internal)
-        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
-        ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock(return_value={"type": "image", "b64": blank})
-        with patch.dict(sys.modules, {"sham_media_ready": ready}):
-            out = json.loads(sham_app.generate_media_from_panel("image", "a tree", "المسار البديل (أوزان محلية جاهزة)"))
-        self.assertEqual((out["type"], out["reason"], out["backend"]), ("error", "blank_image", "ready"))
 
     def test_generate_any_is_vetted_too(self):
         blank = base64.b64encode(fx.png("black", 512)).decode()
@@ -184,35 +113,13 @@ class MediaBackendSelectionTests(unittest.TestCase):
             out = json.loads(sham_app.generate_any("ارسم قطة"))
         self.assertEqual((out["type"], out["reason"]), ("error", "blank_image"))
 
-    def test_chat_studio_refuses_video_without_loading_anything(self):
-        """Sham v2's chat Studio died (502) when it loaded the video pipeline next to the text model: video is the video Studio's job."""
-        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
-        ready = types.ModuleType("sham_media_ready")
-        ready.make = Mock()
-        with patch.dict(sys.modules, {"sham_media_ready": ready}), patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": ""}):
-            result = json.loads(sham_app.generate_media_from_panel("video", "a rabbit", "المسار البديل (أوزان محلية جاهزة)", "[]", ""))
-        self.assertEqual((result["type"], result["reason"]), ("error", "video_elsewhere"))
-        ready.make.assert_not_called()
-
-    @patch.dict(os.environ, {"SHAM_LOCAL_VIDEO": "1"})
-    def test_invalid_scenes_json_returns_explicit_error(self):
-        sham_app.STATE["media_root"] = "/tmp/sham-v2-media"
-        result = json.loads(
-            sham_app.generate_media_from_panel(
-                "video", "a rabbit", "المسار البديل (أوزان محلية جاهزة)", "not-json", ""
-            )
-        )
-        self.assertEqual(result["type"], "error")
-        self.assertIn("JSON", result["text"])
-        self.make_media.assert_not_called()
-
-
-class V1RefusesTheReadyRoute(unittest.TestCase):
-    def test_v1_has_no_donor_generator(self):
-        with patch.object(sham_app, "_V2", False):
-            out = json.loads(sham_app._generate_media_with_backend("image", "a cat", "ready"))
+    def test_the_donor_generator_route_no_longer_exists(self):
+        """Sham and Sham v2 have exactly one generator, their own (owner 2026-11-11): the old "ready weights" label is an unknown route and a direct "ready" backend is refused."""
+        result = json.loads(sham_app.generate_media_from_panel("image", "a tree", "المسار البديل (أوزان محلية جاهزة)"))
+        self.assertEqual((result["type"], result["reason"]), ("error", "unknown_route"))
+        out = json.loads(sham_app._generate_media_with_backend("image", "a cat", "ready"))
         self.assertEqual(out["type"], "error")
-        self.assertEqual(out["reason"], "no_donor_generator")
+        self.make_media.assert_not_called()
 
 
 if __name__ == "__main__":

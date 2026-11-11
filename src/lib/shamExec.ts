@@ -546,7 +546,7 @@ export async function shamClaimUpdate(chatId: number, updateId: number | undefin
 }
 
 // ---------------------------------------------------------------- Explicit media route selector. Nova is not a Sham media route.
-export type ShamMediaRoute = "sham_v1" | "sham_v2_internal" | "sham_v2_ready";
+export type ShamMediaRoute = "sham_v1" | "sham_v2_internal";
 export type ShamMediaOrder = "reserve_first" | "own_first";
 let settingsReady = false;
 async function settingsTable(db: Db): Promise<void> {
@@ -554,7 +554,7 @@ async function settingsTable(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS sham_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   if (db === prismaDb) settingsReady = true;
 }
-/** Media routes retained for Sham v1, Sham v2 internal tokens, and local ready donor weights. External HF routes are quarantined. */
+/** Media routes: Sham v1 and Sham v2 internal tokens only. Stored legacy values (ready donor weights, HF, Nova) map to the internal route. */
 export async function shamMediaRoute(db: Db = prismaDb): Promise<ShamMediaRoute> {
   try {
     await settingsTable(db);
@@ -574,7 +574,7 @@ export async function setShamMediaRoute(route: ShamMediaRoute, db: Db = prismaDb
   await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_route_v4', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, route);
 }
 export type ShamMediaEnabled = Record<ShamMediaRoute, boolean>;
-const MEDIA_ROUTES: ShamMediaRoute[] = ["sham_v1", "sham_v2_internal", "sham_v2_ready"];
+const MEDIA_ROUTES: ShamMediaRoute[] = ["sham_v1", "sham_v2_internal"];
 export async function shamMediaRouteEnabled(route: ShamMediaRoute, db: Db = prismaDb): Promise<boolean> {
   try {
     await settingsTable(db);

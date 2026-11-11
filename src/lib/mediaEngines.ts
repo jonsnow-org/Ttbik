@@ -21,7 +21,6 @@ export type ModelMedia = {
 };
 
 const OPTION_TEXT: Record<ShamEngine, EngineOption> = {
-  ready: { id: "ready", ar: "أوزان جاهزة (موصى به)", en: "Ready weights (recommended)", hint: { ar: "نماذج صور وصوت وفيديو جاهزة تعمل محليًا على المعالج داخل استوديوهات شام v2. تخرج وسائط حقيقية.", en: "Ready image, speech and video models running on the CPU inside Sham v2's Studios. Real output." } },
   internal: { id: "internal", ar: "مولّد شام الداخلي (تجريبي)", en: "Sham's own generator (experimental)", hint: { ar: "مولّد شام نفسه. ما زال قيد التدريب فيرفض فاحص الجودة أغلب ما ينتجه. استخدمه للتجربة فقط.", en: "Sham's own generator. Still training: the quality gate refuses most of its output. For testing only." } },
 };
 const opts = (m: ShamModelId): EngineOption[] => SHAM_ENGINE_OPTIONS[m].map((e) => (e === "internal" && m === "sham" ? { ...OPTION_TEXT.internal, ar: "استوديو شام القديم الأصلي (تجريبي)", en: "Old Sham's own Studio (experimental)" } : OPTION_TEXT[e]));
