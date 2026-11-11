@@ -418,7 +418,7 @@ function AssetIdentityCard({ identity, onRequest }: { identity: any; onRequest: 
 function AssetMarket() {
   const { api, toast, open, copy } = useApp();
   const [tab, setTab] = useState<"browse" | "sell" | "deals">("browse");
-  const [data, setData] = useState<{ listings: AssetListingView[]; myListings: any[]; mySales: string[]; identity: any } | null>(null);
+  const [data, setData] = useState<{ listings: AssetListingView[]; myListings: any[]; mySales: string[]; identity: any; verifierBots: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [sale, setSale] = useState<AssetSaleView | null>(null);
   const [manualPay, setManualPay] = useState<any>(null);
@@ -545,7 +545,7 @@ function AssetMarket() {
 
       {tab === "sell" && (
         <>
-          <Section title="➕ اعرض قناة أو مجموعة أو بوت" hint="القنوات والمجموعات: يجب إضافة أحد بوتي التحقق كمشرف حتى يفحص صفة المالك. البوتات: مراجعة BotFather يدوية قبل إتاحتها.">
+          <Section title="➕ اعرض قناة أو مجموعة أو بوت" hint="القنوات والمجموعات: أضف أحد هذه الحسابات كمشرف ثم سنفحص صفة المالك: ${(data.verifierBots || []).join(" أو ") || "لا يوجد بوت تحقق متاح حالياً"}. البوتات: مراجعة BotFather يدوية قبل إتاحتها.">
             <Field label="نوع الأصل">
               <select className={inputCls} style={inputStyle} value={form.assetType} onChange={(e) => setForm({ ...form, assetType: e.target.value as AssetType })}>
                 <option value="CHANNEL">قناة تيليجرام</option><option value="GROUP">مجموعة تيليجرام</option><option value="BOT">بوت تيليجرام</option>
@@ -560,6 +560,11 @@ function AssetMarket() {
             <Field label="محفظة استلام مستحق البيع (USDT-TRC20 أو TON)"><input dir="ltr" className={`${inputCls} font-mono text-xs`} style={inputStyle} value={form.payoutAddress} onChange={(e) => setForm({ ...form, payoutAddress: e.target.value.trim() })} placeholder="عنوان المحفظة" /></Field>
           </Section>
           <MainAction text="إرسال العرض للتحقق" onClick={create} disabled={busy || !identityReady} busy={busy} color="#7c3aed" />
+          <Section title="عروضي الحالية">
+            {data.myListings.length === 0 ? <Empty icon="📭" title="لم تعرض أي أصل بعد" /> : data.myListings.map((x) => (
+              <Row key={x.id} icon={x.assetType === "BOT" ? "🤖" : x.assetType === "GROUP" ? "👥" : "📣"} title={`${x.title} · @${x.identifier}`} sub={`${x.price}$ · ${x.status === "LISTED" ? "معروض" : x.status === "PENDING_REVIEW" ? "بانتظار مراجعة المالك" : x.status === "RESERVED" ? "محجوز لمشترٍ" : x.status}`} right={<Pill tone={x.status === "LISTED" ? "ok" : "warn"}>{x.status === "LISTED" ? "نشط" : "متابعة"}</Pill>} />
+            ))}
+          </Section>
         </>
       )}
 
