@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-11 01:25 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-11 11:14 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -22,11 +22,11 @@
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
-⏳ في الانتظار | المرحلة الأولى 4 | primary
+❌ فشل | المرحلة الأولى 4 | duplicate
 ❌ فشل | المرحلة الأولى 3 | duplicate
-❌ فشل | المرحلة الأولى 5 | duplicate
+⏳ يعمل الآن | المرحلة الأولى 5 | primary
 ❌ فشل | المرحلة الثالثة 5 | duplicate
-⏳ يعمل الآن | الدفتر الشامل 1 | primary
+❌ فشل | الدفتر الشامل 1 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate
 ⏳ يعمل الآن | دفتر المحادثة والمرمزات 1 | primary
 ⛔ أُوقف | تجربة بوت شام 1 | tool
