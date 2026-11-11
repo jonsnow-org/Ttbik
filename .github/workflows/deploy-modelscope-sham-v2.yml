@@ -183,6 +183,31 @@ jobs:
             done
           }
 
+          # ModelScope's build runner can keep a stale cached checkout: its build log then says "The last commitId was not fetched"
+          # and it builds an OLD "add build dockerfile" commit (live 2026-11-11: every build since Oct 29 on that runner shipped the
+          # Oct 29 code, so model.py had no MOTION_VOCAB_BASE and chat died with ImportError). The Dockerfile bakes the code in
+          # (COPY . .), so a stale build = stale app. Check the commit the build used and redeploy (another runner) when it is old.
+          DEPLOY_EPOCH=$(date +%s)
+          redeploys=0
+          build_checked=0
+          stale_build() {
+            curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" > build-log.json || return 1
+            python3 - "$DEPLOY_EPOCH" <<'PY'
+          import re, sys, json
+          from datetime import datetime
+          start = int(sys.argv[1])
+          raw = open("build-log.json", encoding="utf-8", errors="replace").read()
+          m = re.findall(r"###commitTime###:([A-Za-z]{3} [A-Za-z]{3} +\d+ [\d:]+ \d{4} [+-]\d{4})", raw)
+          if not m:
+              print("build log: no commit line found (cannot tell; treating as fresh)"); sys.exit(1)
+          t = int(datetime.strptime(m[-1], "%a %b %d %H:%M:%S %Y %z").timestamp())
+          stale = t < start - 900
+          print(f"build used a commit from {m[-1]} ({start - t}s before this deploy){' -> STALE cached checkout' if stale else ''}"
+                + (" | runner said: The last commitId was not fetched" if "last commitId was not fetched" in raw else ""))
+          sys.exit(0 if stale else 1)
+          PY
+          }
+
           # At most 40 minutes of readiness polling; every network operation has a deadline.
           SECONDS=0
           while [ "$SECONDS" -lt 2400 ]; do
@@ -202,6 +227,21 @@ jobs:
                 exit 1
                 ;;
               Running|running|Ready|ready)
+                if [ "$build_checked" = "0" ]; then
+                  build_checked=1
+                  if stale_build; then
+                    if [ "$redeploys" -ge 3 ]; then
+                      echo "::error::ModelScope built a stale cached commit 4 times in a row; the Studio runs old code"
+                      exit 1
+                    fi
+                    redeploys=$((redeploys + 1))
+                    echo "::warning::stale ModelScope build; redeploying (attempt $redeploys)"
+                    curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                    DEPLOY_EPOCH=$(date +%s); build_checked=0
+                    sleep 30
+                    continue
+                  fi
+                fi
                 event_code=$(curl -sS --connect-timeout 5 --max-time 12 \
                   -o status-event.json -w '%{http_code}' -X POST \
                   -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
