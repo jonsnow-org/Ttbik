@@ -9,11 +9,15 @@ Kaggle runs at most 5 CPU sessions at once and Sham v1's notebooks use most of t
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,9 +42,60 @@ def parse_status(text: str) -> str:
     return {"running": "running", "queued": "queued", "complete": "complete", "error": "error", "cancel_requested": "cancelled", "cancel_acknowledged": "cancelled"}.get(word, "unknown")
 
 
+QUEUED_TOO_LONG_S = 8 * 3600      # a stage that sat "queued" this long is pushed again (2026-11-11: media sat queued 33 h and blocked every later stage)
+
+
+def stage_sources(d: Path) -> list[Path]:
+    """What a stage notebook is built from: its own folder, the v2 notebook it is generated from, and the v2 trainer."""
+    return [d, K / "sham_v2", ROOT / "ai-system" / "colab" / "sham_small" / "sham_v2_train.py"]
+
+
+def source_changed_at(d: Path) -> float:
+    """Unix time of the last commit that touched a stage's sources (0 when git is unavailable / shallow)."""
+    try:
+        out = subprocess.run(["git", "-C", str(ROOT), "log", "-1", "--format=%ct", "--", *map(str, stage_sources(d))], capture_output=True, text=True, timeout=30).stdout.strip()
+        return float(out or 0)
+    except Exception:
+        return 0.0
+
+
+def parse_run_times(csv_text: str) -> dict[str, float]:
+    """{slug: lastRunTime (unix)} from `kaggle kernels list --mine --csv`."""
+    out: dict[str, float] = {}
+    try:
+        for row in csv.DictReader(io.StringIO(csv_text or "")):
+            ref, when = (row.get("ref") or "").strip(), (row.get("lastRunTime") or "").strip()
+            if "/" not in ref or not when:
+                continue
+            try:
+                dt = datetime.fromisoformat(when.replace("Z", "+00:00").replace(" ", "T"))
+            except ValueError:
+                continue
+            out[ref.split("/", 1)[1]] = (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+    except csv.Error:
+        pass
+    return out
+
+
+def adjust(statuses: dict[str, str], run_times: dict[str, float], changed: dict[str, float], now: float) -> dict[str, str]:
+    """An errored stage whose sources changed AFTER its last run is started again (the fix is in: the #768 OOM fix never re-ran the tools stage);
+    a stage queued longer than QUEUED_TOO_LONG_S is pushed again. Unchanged errors stay errors (never a blind retry loop)."""
+    out = dict(statuses)
+    for name, _d, _f, slug in STAGES:
+        last = run_times.get(slug, 0.0)
+        if out.get(name) == "error" and last and changed.get(name, 0.0) > last:
+            out[name] = "missing"
+        elif out.get(name) == "queued" and last and now - last > QUEUED_TOO_LONG_S:
+            out[name] = "stale-queued"
+    return out
+
+
 def decide(statuses: dict[str, str]) -> str | None:
     """The stage to push now, or None. Nothing starts while any stage is running / queued / unreadable; a stage that was never pushed is started, in order; complete / error / cancelled stages are skipped (an errored one is reported with the tail of its log, never retried blindly). If every stage is complete the queue is finished."""
-    if any(s in ("running", "queued", "unknown") for s in statuses.values()):
+    stale = [name for name, *_ in STAGES if statuses.get(name) == "stale-queued"]
+    if stale and not any(s in ("running", "unknown") for s in statuses.values()):
+        return stale[0]
+    if any(s in ("running", "queued", "stale-queued", "unknown") for s in statuses.values()):
         return None
     for name, *_ in STAGES:
         if statuses.get(name, "missing") == "missing":          # a stage that ended in error / cancelled is NOT started again by the queue (it would loop on a real bug): it is reported, and the queue moves on
@@ -59,6 +114,12 @@ def _kaggle(args: list[str], timeout: int = 180) -> str:
 def main(plan_only: bool = False) -> int:
     raw = {name: _kaggle(["kernels", "status", f"{OWNER}/{slug}"]) for name, _d, _f, slug in STAGES}
     statuses = {name: parse_status(text) for name, text in raw.items()}
+    run_times = parse_run_times(_kaggle(["kernels", "list", "--mine", "--csv", "--page-size", "100"]))
+    changed = {name: source_changed_at(d) for name, d, _f, _s in STAGES}
+    adjusted = adjust(statuses, run_times, changed, time.time())
+    for name in statuses:
+        if adjusted[name] != statuses[name]:
+            print(f"  {name}: {statuses[name]} -> {adjusted[name]} (last run {run_times.get(next(x[3] for x in STAGES if x[0] == name), 0):.0f}, sources changed {changed[name]:.0f})")
     for name, text in raw.items():
         if statuses[name] == "unknown":
             print(f"  (unread status of {name}: {text.strip()[:240]!r})")
@@ -66,13 +127,18 @@ def main(plan_only: bool = False) -> int:
     for name, st in statuses.items():
         if st == "error":                                   # what went wrong: the last lines of the kernel's own log
             slug = next(x[3] for x in STAGES if x[0] == name)
+            print(f"--- {name} ended in ERROR; Kaggle says: {raw[name].strip()[:600]}")
             with tempfile.TemporaryDirectory() as ld:
-                # only the text log (the kernel's output folder can hold gigabytes of checkpoints); a slow download never stops the queue
-                _kaggle(["kernels", "output", f"{OWNER}/{slug}", "-p", ld, "--file-pattern", r".*\.log$"], timeout=120)
-                for lf in sorted(Path(ld).glob("*.log"))[:1]:
+                # small text files only (the output folder can hold gigabytes of checkpoints). The kernel log itself is written by the CLI as
+                # <slug>.log whatever the pattern; when Kaggle returns no log, any small .txt/.json/.log output the notebook left is shown instead.
+                out = _kaggle(["kernels", "output", f"{OWNER}/{slug}", "-p", ld, "--file-pattern", r"\.(log|txt|json)$"], timeout=120)
+                logs = sorted(Path(ld).rglob("*.log")) + sorted(p for p in Path(ld).rglob("*") if p.suffix in (".txt", ".json") and p.stat().st_size < 2_000_000)
+                if not logs:
+                    print(f"    (no log came back: {out.strip()[-300:]!r})")
+                for lf in logs[:3]:
                     tail = lf.read_text(encoding="utf-8", errors="replace")[-2500:]
-                    print(f"--- {name} ended in ERROR; the end of its log:\n{tail}\n---")
-    todo = decide(statuses)
+                    print(f"--- {lf.name}:\n{tail}\n---")
+    todo = decide(adjusted)
     if todo is None:
         print("nothing to start (a stage is running / waiting, or every stage is complete)")
         return 0
@@ -112,6 +178,17 @@ def _selftest() -> None:
     assert decide({"tools": "error", "media": "missing", "candidate-tools": "missing", "candidate": "missing"}) == "media"
     assert decide({n: "complete" for n in names}) is None
     assert decide({"tools": "complete", "media": "complete", "candidate-tools": "unknown", "candidate": "missing"}) is None
+    assert decide({"tools": "error", "media": "stale-queued", "candidate-tools": "missing", "candidate": "missing"}) == "media"
+    assert decide({"tools": "running", "media": "stale-queued", "candidate-tools": "missing", "candidate": "missing"}) is None
+    rt = parse_run_times("ref,title,author,lastRunTime,totalVotes\njonsnowjonsnow/sham-v2-tools-train,t,a,2026-11-09 15:12:00,0\n")
+    assert abs(rt["sham-v2-tools-train"] - datetime(2026, 11, 9, 15, 12, tzinfo=timezone.utc).timestamp()) < 1, rt
+    t0 = rt["sham-v2-tools-train"]
+    a = adjust({"tools": "error", "media": "queued", "candidate-tools": "missing", "candidate": "missing"},
+               {"sham-v2-tools-train": t0, "sham-v2-media-train": t0}, {"tools": t0 + 60, "media": 0}, t0 + 9 * 3600)
+    assert a["tools"] == "missing" and a["media"] == "stale-queued", a
+    b = adjust({"tools": "error", "media": "queued", "candidate-tools": "missing", "candidate": "missing"},
+               {"sham-v2-tools-train": t0, "sham-v2-media-train": t0}, {"tools": t0 - 60, "media": 0}, t0 + 3600)
+    assert b["tools"] == "error" and b["media"] == "queued", b
     for _n, d, f, _s in STAGES:
         assert (d / f).exists() and (d / "kernel-metadata.json").exists(), f"missing {d / f}"
     print("sham_v2_stage_queue self-test OK")
