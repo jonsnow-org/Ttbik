@@ -136,6 +136,10 @@ async function verifierBots(): Promise<Verifier[]> {
   return found;
 }
 
+export async function assetVerifierBotNames(): Promise<string[]> {
+  return (await verifierBots()).map((b) => b.username ? `@${b.username}` : b.source);
+}
+
 async function telegramCall<T = any>(token: string, method: string, body: Record<string, unknown>): Promise<T | null> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
