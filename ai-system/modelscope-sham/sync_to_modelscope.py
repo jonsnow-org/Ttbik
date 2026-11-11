@@ -28,7 +28,7 @@ SRC = HERE.parent / "colab" / "sham_small"
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 CODE_FILES_EXCLUDE = {"sham_small_api_keys.db"}
 FILES = ("final_merged.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "merge_progress.json",
-         "final_chat_self.pt", "final_chat.pt")      # 2026-10-14: the chat checkpoints too, when the merge dataset has them (optional; app.py prefers them by name)
+         "final_chat_self.pt", "final_chat.pt", "motion_tokenizer.pt")      # 2026-11-11: the motion tokenizer (video codec) too, when the workflow found one: serve.py loads motion_tokenizer*.pt next to the checkpoint; without it the Studio answers "no video" although one was trained. 2026-10-14: the chat checkpoints too, when the merge dataset has them (optional; app.py prefers them by name)
 CHAT_CKPTS = ("final_chat_self.pt", "final_chat.pt")
 
 
@@ -72,7 +72,7 @@ def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
     except Exception as exc:
         print(f"⚠ المُرمِّز المصقول لم يُعتمد ({type(exc).__name__}: {str(exc)[:100]}) — يُرفع ما في نقطة الدمج كما هو")
     sha_ckpt = sha256(out / "final_merged.pt")
-    tok_sha = {n: sha256(out / n) for n in ("image_tokenizer.pt", "audio_tokenizer.pt") if (out / n).exists()}
+    tok_sha = {n: sha256(out / n) for n in ("image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt") if (out / n).exists()}
     # one fingerprint for the Studio's reload decision (app.py reloads when "sha" changes): the model AND its media tokenizers
     sha = hashlib.sha256((sha_ckpt + "".join(f"|{k}:{v}" for k, v in sorted(tok_sha.items()))).encode()).hexdigest() if tok_sha else sha_ckpt
     code_sig = stage_code(out / "studio_code")
