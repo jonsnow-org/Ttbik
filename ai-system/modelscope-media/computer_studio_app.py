@@ -7,8 +7,33 @@ from __future__ import annotations
 import json, os, shutil, threading, time
 from pathlib import Path
 
-os.environ.setdefault("BOX_STORE", "/mnt/workspace/computer")
-os.environ.setdefault("BROWSER_STORE", "/mnt/workspace/browser")
+print("computer hub: python started, importing", flush=True)   # first line in the run log: tells a launcher hang from an import hang
+
+
+def _mount_answers(path: str = "/mnt/workspace", seconds: float = 5.0) -> bool:
+    """Touch the persistent-storage (ossfs) mount from a side thread with a deadline. Live 2026-11-11: the Studio stayed "Deploying"
+    with the run log ending right after the ossfs mounts — a blocked mount must never keep the app from starting."""
+    ok = {"v": False}
+
+    def probe() -> None:
+        try:
+            p = Path(path) / ".hub_probe"
+            p.write_text(str(time.time()), encoding="utf-8")
+            ok["v"] = True
+        except Exception:
+            pass
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(seconds)
+    return ok["v"]
+
+
+if "BOX_STORE" not in os.environ or "BROWSER_STORE" not in os.environ:
+    _persistent = _mount_answers()
+    _base = "/mnt/workspace" if _persistent else os.path.join(os.path.expanduser("~"), "hub-store")   # local disk if the mount hangs
+    print(f"computer hub store: {_base} ({'persistent mount' if _persistent else 'mount not answering: local, non-persistent'})", flush=True)
+    os.environ.setdefault("BOX_STORE", f"{_base}/computer")
+    os.environ.setdefault("BROWSER_STORE", f"{_base}/browser")
 os.environ.setdefault("COMPUTER_MAX_GLOBAL_JOBS", "6")  # several users at once, each private; the free-memory gate protects the Studio
 os.environ.setdefault("COMPUTER_MIN_AVAILABLE_MB", "2048")
 os.environ.setdefault("COMPUTER_MEMORY_KILL_MB", "8192")
@@ -17,7 +42,7 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-11-r8-fast-start"
+APP_REVISION = "computer-hub-16gb-2026-11-11-r9-mount-probe"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
