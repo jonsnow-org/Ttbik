@@ -89,7 +89,7 @@ def run(hours: float = 5.3, publish_every_hours: float = 1.5, workers: int = 14,
         print(f"استئناف الجمع: {carried} ملف نص سابق، {len(sham_spider.URL_SEEN):,} عنوان مقروء")
     seen = Seen()
     raw_q: queue.Queue = queue.Queue(maxsize=512)
-    spider = Spider(sources if sources is not None else gh_sources(text_only=True), seen, raw_q, {"text": 1.0},
+    spider = Spider(sources if sources is not None else [x for x in gh_sources(text_only=True) if x.name != "crawl_corpus"], seen, raw_q, {"text": 1.0},
                     workers=workers, seed=int(t0) % 100000).start()
 
     shard_path = text_dir / f"gh_{int(t0)}.txt"
