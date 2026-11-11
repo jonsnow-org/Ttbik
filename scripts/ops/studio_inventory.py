@@ -27,7 +27,14 @@ KNOWN = {
     "sham-v2-server": "Sham v2 chat + packaged image/audio weights",
     "sham-v2-overflow-server": "Sham v2 text overflow replica",
     "sham-v2-video-server": "Sham v2 dedicated video generation",
+    "lfm25-inference-server": "LFM2.5-8B-A1B chat (its own Studio)",
+    "lfm25-media-server": "LFM2.5 own media: image + speech + video",
 }
+# Studios of the three donor candidates the owner removed from the code on 2026-11-08 (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5):
+# ModelScope has no delete API, so they stay listed until the owner deletes them on modelscope.cn.
+for _c in ("qwen35-9b", "gemma4-e4b", "minicpmo45"):
+    for _k in ("test", "media"):
+        KNOWN[f"sham-donor-{_c}-{_k}"] = "REMOVED candidate (owner, 2026-11-08): delete by hand on modelscope.cn"
 KEEP = (
     "phase", "detail", "error", "model", "model_repo", "app_revision", "ctx", "context_tokens",
     "threads", "vision", "audio", "speech", "tts", "cpus", "queue", "uptime_s",
