@@ -14,19 +14,8 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           pip install -q kaggle==2.2.5
-          kaggle kernels list -m --page-size 100 --csv > k.csv; wc -l k.csv; head -1 k.csv
-          python3 - <<'PY'
-          import csv, subprocess, collections
-          rows = list(csv.DictReader(open("k.csv")))
-          titles = collections.Counter(r.get("title") for r in rows)
-          print("DUPLICATE TITLES:", {t: n for t, n in titles.items() if n > 1})
-          for r in rows:
-              ref = r["ref"]
-              st = subprocess.run(["kaggle", "kernels", "status", ref], capture_output=True, text=True).stdout.strip().splitlines()
-              print(ref, "|", r.get("title"), "|", r.get("lastRunTime"), "|", (st[-1] if st else "?")[:120])
-          PY
           for k in sham-v2-tools-train sham-repair-remerge sham-arabic-sft; do
-            echo "===== LOG $k"; mkdir -p o/$k; kaggle kernels output jonsnowjonsnow/$k -p o/$k > /dev/null 2>&1 || true
+            echo "===== LOG $k"; mkdir -p o/$k; kaggle kernels output jonsnowjonsnow/$k -p o/$k --file-pattern "^NO_FILES_ONLY_LOG$" > /dev/null 2>&1 || true
             ls o/$k | head; f=$(ls o/$k/*.log 2>/dev/null | head -1)
             [ -n "$f" ] && python3 -c "
           import json,sys
