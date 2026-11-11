@@ -14,6 +14,9 @@ back-off, URL memory, fingerprints) drives them.
          hackernews     Hacker News comments and stories (technical discussion)
          stackexchange  Questions with their top answers from many Stack Exchange sites and languages
          github         Source code + READMEs from permissively licensed repositories (needs GITHUB_TOKEN to go fast)
+         crawl_corpus   What the collectors already published (every sham-crawl-*-corpus dataset of the account, e.g.
+                        sham-crawl-gh-collect-corpus: text/*.txt, documents separated by a blank line) — read locally,
+                        so the ~1 GB the GitHub collector gathered is trained on instead of sitting unused
   image  loc            Library of Congress prints and photographs (with their titles)
          cleveland      Cleveland Museum of Art open-access works (CC0)
          ia_images      Internet Archive images (Flickr Commons and other public collections)
@@ -432,11 +435,59 @@ def src_ia_video(rng):
 
 # ---------------------------------------------------------------- registry
 
+_CC: dict = {"files": None, "busy": False}
+_CC_LOCK = threading.Lock()
+
+
+def _crawl_corpus_files() -> None:
+    """Downloads (once, in the background) every sham-crawl-*-corpus dataset and lists its text files."""
+    files = []
+    try:
+        from pathlib import Path
+        from sham_inputs import crawl_dataset_names, fetch_dataset
+        for name in crawl_dataset_names()["corpora"]:
+            try:
+                root = fetch_dataset(name)
+            except Exception:
+                root = None
+            if root:
+                found = sorted(Path(root).rglob("text/**/*.txt"))
+                print(f"  • crawl_corpus: {name}: {len(found)} files", flush=True)
+                files += found
+    except Exception as exc:
+        print(f"  • crawl_corpus unavailable: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+    _CC["files"] = files
+
+
+def src_crawl_corpus(rng, files=None):
+    """A few random documents from the published crawl corpora (random file, random 256 KB window)."""
+    if files is None:
+        with _CC_LOCK:
+            if _CC["files"] is None and not _CC["busy"]:
+                _CC["busy"] = True
+                threading.Thread(target=_crawl_corpus_files, daemon=True).start()
+        files = _CC["files"] or []
+    if not files:
+        return []
+    f = rng.choice(files)
+    try:
+        size = os.path.getsize(f)
+        with open(f, "rb") as fh:
+            fh.seek(rng.randrange(0, max(1, size - 262_144)))
+            raw = fh.read(262_144).decode("utf-8", errors="ignore")
+    except OSError:
+        return []
+    docs = [d.strip() for d in raw.split("\n\n")[1:-1] if len(d.strip()) >= 350]
+    rng.shuffle(docs)
+    return [Item("text", d[:8000], "crawl_corpus", license="as published by the collector") for d in docs[:8]]
+
+
 def gh_sources(text_only: bool = False):
     s = [SourceState("gutenberg", "text", src_gutenberg), SourceState("ia_books", "text", src_ia_books),
          SourceState("arxiv", "text", src_arxiv), SourceState("europepmc", "text", src_europepmc),
          SourceState("crossref", "text", src_crossref), SourceState("hackernews", "text", src_hackernews),
-         SourceState("stackexchange", "text", src_stackexchange), SourceState("github", "text", src_github)]
+         SourceState("stackexchange", "text", src_stackexchange), SourceState("github", "text", src_github),
+         SourceState("crawl_corpus", "text", src_crawl_corpus)]
     if not text_only:
         s += [SourceState("loc", "image", src_loc), SourceState("cleveland", "image", src_cleveland),
               SourceState("ia_images", "image", src_ia_images), SourceState("librivox", "audio", src_librivox),
@@ -454,7 +505,15 @@ if __name__ == "__main__":
     seg = passage(long, rng, 3000)
     assert 1500 < len(seg) <= 3000, len(seg)
     names = [s.name for s in gh_sources()]
-    assert len(names) == len(set(names)) == 14, names
+    assert len(names) == len(set(names)) == 15, names
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        fp = os.path.join(d, "gh_1.txt")
+        with open(fp, "w", encoding="utf-8") as fh:
+            fh.write("\n\n".join(f"Document {i}. " + "word " * 100 for i in range(3000)))
+        got = src_crawl_corpus(random.Random(3), files=[fp])
+        assert got and all(i.kind == "text" and i.source == "crawl_corpus" and len(i.text) >= 350 for i in got), got[:1]
+    assert src_crawl_corpus(random.Random(3), files=[]) == []
     only = {s.kind for s in gh_sources(text_only=True)}
     assert only == {"text"}
 
