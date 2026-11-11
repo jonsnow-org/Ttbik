@@ -22,8 +22,21 @@ jobs:
           print("DUPLICATE TITLES:", {t: n for t, n in titles.items() if n > 1})
           for r in rows:
               ref = r["ref"]
-              if not any(w in ref.lower() for w in ("audio", "token", "sham")):
-                  continue
               st = subprocess.run(["kaggle", "kernels", "status", ref], capture_output=True, text=True).stdout.strip().splitlines()
               print(ref, "|", r.get("title"), "|", r.get("lastRunTime"), "|", (st[-1] if st else "?")[:120])
           PY
+          for k in sham-v2-tools-train sham-repair-remerge sham-arabic-sft; do
+            echo "===== LOG $k"; mkdir -p o/$k; kaggle kernels output jonsnowjonsnow/$k -p o/$k > /dev/null 2>&1 || true
+            ls o/$k | head; f=$(ls o/$k/*.log 2>/dev/null | head -1)
+            [ -n "$f" ] && python3 -c "
+          import json,sys
+          raw=open('$f',encoding='utf-8',errors='replace').read()
+          try:
+              ev=json.loads(raw); txt=''.join(e.get('data','') for e in ev)
+          except Exception:
+              txt=raw
+          lines=[l for l in txt.splitlines() if l.strip()]
+          err=[i for i,l in enumerate(lines) if 'Error' in l or 'Traceback' in l]
+          s=max(0,(err[0]-5) if err else len(lines)-40)
+          print('\\n'.join(l[:240] for l in lines[s:s+45]))"
+          done
