@@ -67,7 +67,7 @@ export function buildCampaign(p) {
   const instagram = bilingual + (englishOnly ? "" : "\n\n#شام_AI");
   const tiktok = englishOnly
     ? `${titleEn}: ${introEn} ${ctaEn} · ${url} · ${tags}`
-    : `${titleEn}: ${introEn}\n${titleAr}: ${introAr}\n${clean(p.cta?.[1])} · ${botLink || url} · ${tags} #شام_AI`;
+    : `${titleEn}: ${introEn}\n${titleAr}: ${introAr}\n${clean(p.cta?.[1])} · ${url}${botLink && botLink !== url ? ` · ${botLink}` : ""} · ${tags} #شام_AI`;
   const youtubeTitle = clean(`${titleEn} | ${introEn}`).slice(0, 100);
   const youtubeDescription = bilingual;
   return {
