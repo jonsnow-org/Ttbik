@@ -14,8 +14,16 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   let r: { ok: boolean; error?: string };
   if (b?.action === "pay") {
-    const m = ["stars", "nowpayments", "usdt"].includes(b.method) ? b.method : "usdt";
-    r = await payDeal(String(b.code || "").toUpperCase(), m).catch(() => ({ ok: false, error: "تعذّر إنشاء الدفع." }));
+    const code = String(b.code || "").toUpperCase();
+    const deal = await dealByCode(code).catch(() => null);
+    // Ownership sale payments must originate from the signed AD_BOT Mini App action,
+    // which supplies and checks the buyer's Telegram ID.
+    if (!deal || deal.kind === "ASSET_SALE") {
+      r = { ok: false, error: "الطلب غير موجود." };
+    } else {
+      const m = ["stars", "nowpayments", "usdt"].includes(b.method) ? b.method : "usdt";
+      r = await payDeal(code, m).catch(() => ({ ok: false, error: "تعذّر إنشاء الدفع." }));
+    }
   } else {
     r = await createAdDeal({ channel: String(b.channel || ""), adText: String(b.adText || ""), targetUrl: String(b.targetUrl || ""), contact: String(b.contact || "") })
       .catch(() => ({ ok: false, error: "تعذّر إنشاء الطلب." }));
