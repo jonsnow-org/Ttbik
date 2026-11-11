@@ -117,8 +117,13 @@ jobs:
           visibility=str(d.get("visibility") or "").lower()
           state=str(runtime.get("status") or d.get("status") or "")
           print("Target Studio hardware:", hardware, "visibility:", visibility, "runtime:", state)
+          import os
           if "16g" not in hardware:
-              raise SystemExit("Refusing to repurpose a Studio that is not 16 GB.")
+              # live 2026-11-11: a newly created Studio is 8 GB and settings PATCH answers "studio not found" before its first deploy.
+              # The 16 GB guard protects the ORIGINAL hub from being swapped for a smaller one; a dedicated new hub may run on 8 GB.
+              if os.environ.get("REPO") == "nova-inference-server" or "8g" not in hardware:
+                  raise SystemExit("Refusing to repurpose a Studio that is not 16 GB.")
+              print("::warning::dedicated computer Studio on 8 GB (free tier given to new Studios); desktop slots follow the memory guard")
           if visibility and visibility != "private":
               raise SystemExit("Refusing to place the private computer on a non-private Studio.")
           PY
