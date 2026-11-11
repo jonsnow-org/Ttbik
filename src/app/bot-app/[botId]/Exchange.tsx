@@ -386,14 +386,14 @@ type AssetType = "CHANNEL" | "GROUP" | "BOT";
 type AssetListingView = { id: string; assetType: AssetType; identifier: string; title: string; description: string; price: number; seller: { telegramId: string; firstName: string; lastName: string | null; username: string }; verificationMode: string; createdAt: string };
 type AssetSaleView = {
   code: string; status: string; sellerTelegramId: string; buyerTelegramId: string;
-  seller: any; buyer: any; sellerConfirmed: boolean; buyerConfirmed: boolean; transferEvidence: string | null;
+  seller: any; buyer: any; sellerConfirmed: boolean; buyerConfirmed: boolean; paymentLate?: boolean; transferEvidence: string | null;
   assetType: AssetType; identifier: string; title: string; price: number; commission: number; sellerAmount: number;
   paymentReference: string | null; settlementReference: string | null;
 };
 const ASSET_STATUS: Record<string, string> = {
   PENDING_PAYMENT: "بانتظار الدفع", PAID: "مدفوع · بانتظار التسليم", POSTED: "التسليم قيد التحقق",
   VERIFIED: "تم إثبات نقل الملكية · بانتظار التسوية", RELEASED: "اكتملت الصفقة",
-  REFUNDED: "تم الاسترداد", CANCELLED: "ملغاة",
+  REFUNDED: "تم الاسترداد", CANCELLED: "أُلغي الحجز قبل وصول الدفعة",
 };
 const ASSET_TYPE_LABEL: Record<AssetType, string> = { CHANNEL: "قناة", GROUP: "مجموعة", BOT: "بوت" };
 
@@ -582,7 +582,7 @@ function AssetMarket() {
                 {identityLine("البائع", sale.seller)}
                 {identityLine("المشتري", sale.buyer)}
               </Section>
-              <Section title="الدفع والتسوية">
+              {sale.paymentLate && <Section><Row icon="⚠️" title="وصل الدفع بعد انتهاء الحجز" sub="لم تُعتمد هذه الصفقة ولم يُسمح بنقل الأصل. ستراجع الإدارة الاسترداد؛ لا ترسل للبائع أي مبلغ ولا تنفذ النقل." /></Section>}\n              <Section title="الدفع والتسوية">
                 <Row icon="🔒" title="لا صرف قبل إثبات نقل الملكية" sub="مرجع الدفع الوارد ومرجع صرف مستحق البائع يسجلان منفصلين." />
                 {sale.paymentReference && <Copyable label="مرجع الدفع" value={sale.paymentReference} />}
                 {sale.settlementReference && <Copyable label="مرجع التسوية" value={sale.settlementReference} />}
