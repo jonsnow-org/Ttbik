@@ -30,6 +30,7 @@ describe("Telegram asset market identity rules", () => {
   it("normalizes public and private Telegram asset identifiers", () => {
     expect(normalizeAssetIdentifier("CHANNEL", "@my_channel")).toBe("my_channel");
     expect(normalizeAssetIdentifier("GROUP", "t.me/my_group")).toBe("my_group");
+    expect(normalizeAssetIdentifier("CHANNEL", "https://t.me/s/my_channel/77")).toBe("my_channel");
     expect(normalizeAssetIdentifier("GROUP", "-1001234567890")).toBe("-1001234567890");
     expect(normalizeAssetIdentifier("CHANNEL", "not a channel")).toBeNull();
     expect(normalizeAssetIdentifier("BOT", "https://t.me/my_helper_bot")).toBe("my_helper_bot");
