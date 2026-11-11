@@ -8,19 +8,23 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        studio: [nova-inference-server, sham-v2-server]
     steps:
       - env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
-          STUDIO: ${{ matrix.studio }}
+          STUDIO: nova-inference-server
         run: |
           echo "::add-mask::$T"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d;print('status',d.get('status'),'runtime',d.get('runtime'),'modified',d.get('last_modified'))"
-          echo "== build log"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -E "currentBranch|commitId###|not fetched|executionStep begins|ERROR|error|Successfully|push" | grep -v "Layer already" | head -30 | cut -c1-260
-          echo "== run log tail"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/run" | sed 's/\\n/\n/g; s/","/\n/g' | tail -25 | cut -c1-260
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/run" > run.json
+          wc -c run.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("run.json"))
+          logs = (d.get("data") or {}).get("logs") or d.get("logs") or []
+          text = "\n".join(logs) if isinstance(logs, list) else str(logs)
+          lines = text.splitlines()
+          print("lines", len(lines))
+          for l in lines[-120:]:
+              print(l[:260])
+          PY
           GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" s 2>&1 | sed "s/${T}/***/g" || true
-          cd s && git log --format='%h %ad %s' --date=iso -3 && git branch -r | tail -3
+          cd s && ls -la && head -c 1500 README.md; echo; head -40 app.py; cat requirements.txt 2>/dev/null | head; cat packages.txt 2>/dev/null | head
