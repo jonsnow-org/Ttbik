@@ -27,6 +27,7 @@ SHAM = HERE.parent / "colab" / "sham_small"
 sys.path.insert(0, str(SHAM))
 OUT = Path(os.environ.get("SHAM_DIAG_OUT", "/tmp/sham_image_diag"))
 DATASETS = ("sham-merged-checkpoint", "sham-multimodal-checkpoint", "sham-chat-checkpoint")
+CODEC_DATASETS = ("sham-image-tokenizer-checkpoint", "sham-image-tokenizer-v2-checkpoint", "sham-image-tokenizer-hd-checkpoint")   # tokenizer-only lineages: measured on their own
 
 
 def psnr(a, b) -> float:
@@ -146,6 +147,27 @@ def measure(model, text_tok, image_tok, imgs, caps, label: str, out_dir: Path, g
     return res
 
 
+def measure_codec(image_tok, imgs, label: str, out_dir: Path) -> dict:
+    """Tokenizer-only measure (no language model): PSNR of re-decoding real pictures, against the flat-colour baseline, code use, and a (real | decoded) grid."""
+    import torch
+    with torch.no_grad():
+        ids = image_tok.encode(imgs)
+        rec = image_tok.decode(ids)
+    ids = ids.reshape(ids.shape[0], -1)
+    c = image_tok.cfg
+    res = {"tok_psnr": psnr(rec, imgs), "flat_psnr": baseline_psnr(imgs), "codes_used": int(ids.unique().numel()), "tokens": c.tokens_per_image, "size": c.image_size}
+    print(f"  [{label}] {c.image_size}px، {c.tokens_per_image} رمزاً: PSNR {res['tok_psnr']:.1f} dB (تعبئة اللون المتوسط {res['flat_psnr']:.1f}) | رموز مستعملة {res['codes_used']}/{c.num_codes}")
+    try:
+        from PIL import Image
+        rows = [torch.cat([imgs[i].permute(1, 2, 0), rec[i].permute(1, 2, 0)], dim=1) for i in range(min(6, len(imgs)))]
+        grid = ((torch.cat(rows, dim=0).clamp(-1, 1) + 1) * 127.5).byte().numpy()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(grid).save(out_dir / f"codec-{label}.png")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [{label}] تعذّر حفظ الشبكة: {type(exc).__name__}")
+    return res
+
+
 def _selftest() -> None:
     import tempfile
     import torch
@@ -169,6 +191,8 @@ def _selftest() -> None:
         imgs, caps = synthetic_pictures(4, cfg.image_size)
         res = measure(model, text_tok, tok, imgs, caps, "selftest", Path(td) / "out", gen=2)
         assert (Path(td) / "out" / "selftest.png").exists()
+        cres = measure_codec(tok, imgs, "selftest-codec", Path(td) / "out2")
+        assert cres["tokens"] == cfg.tokens_per_image and (Path(td) / "out2" / "codec-selftest-codec.png").exists() and cres["tok_psnr"] > 0
     assert set(res) >= {"tok_psnr", "flat_psnr", "model_loss", "freq_loss", "uniform", "gen_distinct_per_image"}
     assert abs(res["uniform"] - math.log(8192)) < 1e-6
     print("sham_image_diag self-test OK (tokenizer PSNR, model loss vs frequency table, generated codes, grid image)")
@@ -221,6 +245,22 @@ def main() -> int:
         print(f"نقطة الحفظ {ckpt.name} خطوة {step:,} | مرمّز الصور خطوة {istep:,} ({size}px، {per_image} رمزاً)")
         measure(model, text_tok, image_tok, imgs, caps, name, OUT)
         del model
+    print("\n===== المُرمِّزات وحدها (دقة إعادة البناء) =====", flush=True)
+    for name in CODEC_DATASETS:
+        try:
+            root = fetch_dataset(name)
+            itk = next(iter(sorted(root.rglob("image_tokenizer.pt"))), None) if root else None
+            if itk is None:
+                print(f"  [{name}] غير موجودة / بلا مرمّز صور")
+                continue
+            image_tok, istep = load_image(itk)
+            image_tok.eval()
+            size = image_tok.cfg.image_size
+            imgs = imgs256 if size == 256 else torch.nn.functional.interpolate(imgs256, size=(size, size), mode="bilinear")
+            print(f"  [{name}] خطوة {istep:,}")
+            measure_codec(image_tok, imgs, name, OUT)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [{name}] تعذّر: {type(exc).__name__}: {str(exc)[:120]}")
     return 0
 
 

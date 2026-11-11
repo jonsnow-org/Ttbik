@@ -3,7 +3,7 @@
 // Owner-only (the caller checks). The probes are the Studios' own `status` call, a few seconds each, all in parallel.
 import type { Db } from "@/lib/coderAuth";
 import { novaMediaUrl } from "@/lib/novaMedia";
-import { DEFAULT_URL, DEFAULT_V2_URL, DEFAULT_V2_VIDEO_URL } from "@/lib/shamStudio";
+import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 import { overflowConfigured, overflowVerdict } from "@/lib/shamPool";
 import { SHAM_ENGINE_OPTIONS, shamEngine, type ShamEngine, type ShamModelId } from "@/lib/shamMediaEngine";
 import { photoWeightStatus } from "@/lib/photoWeightMedia";
@@ -74,7 +74,6 @@ const clean = (u: string | undefined, d: string) => (u || d).split(",")[0].trim(
 const ROLE = {
   nova: { ar: "استوديو وسائط نوفا (صورة وصوت وفيديو)", en: "Nova media Studio (image, speech, video)" },
   v2chat: { ar: "استوديو شام v2 (محادثة + صورة + صوت)", en: "Sham v2 Studio (chat + image + speech)" },
-  v2video: { ar: "استوديو فيديو شام v2", en: "Sham v2 video Studio" },
   v2over: { ar: "استوديو شام v2 الاحتياطي (للمحادثة وقت الازدحام)", en: "Sham v2 overflow Studio (chat when busy)" },
   v1: { ar: "استوديو شام القديم", en: "Old Sham Studio" },
 };
@@ -83,10 +82,10 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   const msToken = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   const novaToken = (process.env.OPEN_CODER_STUDIO_TOKEN || msToken).trim();
   const novaUrl = novaMediaUrl();
-  const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
+  const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
-  const [pNova, pV2, pV2v, pV1, photoWeights] = await Promise.all([
-    probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
+  const [pNova, pV2, pV1, photoWeights] = await Promise.all([
+    probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
   ]);
   const S = (id: string, role: { ar: string; en: string }, p: Pick<StudioProbe, "ok" | "phase" | "detail" | "media">): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();

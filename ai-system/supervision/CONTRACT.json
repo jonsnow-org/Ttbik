@@ -142,6 +142,10 @@
       "role": "مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning)",
       "writer": "lightning_probe"
     },
+    "sham-image-tokenizer-hd-checkpoint": {
+      "role": "مُرمِّز الصورة عالي الدقة (384 بكسل، 576 رمزاً)؛ سلالة جديدة لا تمس المُرمِّز المخدوم، يدرّبها استوديو ModelScope (وظيفة codec)",
+      "writer": "ms_studio_trainer"
+    },
     "sham-audio-tokenizer-v2-checkpoint": {
       "role": "مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning)",
       "writer": "lightning_probe"
@@ -707,7 +711,8 @@
       ],
       "writes": [
         "sham-crawl-ms1",
-        "sham-crawl-ms1-corpus"
+        "sham-crawl-ms1-corpus",
+        "sham-image-tokenizer-hd-checkpoint"
       ]
     },
     "ms_studio_trainer_deploy": {
@@ -784,14 +789,6 @@
       "title": "قراءة حالة وسجل تشغيل أي استوديو للقراءة فقط (تشخيص)",
       "kind": "workflow",
       "accelerator": "CPU (GitHub)",
-      "reads": [],
-      "writes": []
-    },
-    "deploy_sham_v2_video": {
-      "file": ".github/workflows/deploy-modelscope-sham-v2-video.yml",
-      "title": "نشر استوديو فيديو شام v2 الخاص (AnimateDiff على CPU) واختباره بمقطع حقيقي",
-      "kind": "workflow",
-      "accelerator": "CPU (ModelScope Studio)",
       "reads": [],
       "writes": []
     },
