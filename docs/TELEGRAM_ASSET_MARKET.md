@@ -13,7 +13,7 @@ The configured builder owner bot is tried first; the independent site owner bot 
 
 A bot's BotFather owner cannot be reliably queried through Telegram's public Bot API. Bot sales are therefore held for manual BotFather review: the seller reports the transfer, the buyer confirms receipt, and the platform owner records an explicit review reference. No sale is marked verified before that review.
 
-## Sale lifecycle
+## Pricing\n- Minimum listing price is $10, with no fixed upper cap in the application.\n- Asset-market commission is currently 0%; the seller receives the full listed price. Do not enable a fee or change the price limit without the owner setting those terms.\n\n## Sale lifecycle
 1. The seller's identity and phone are checked; the channel/group ownership is checked by Telegram where supported.
 2. The listing is reserved for one buyer for 30 minutes while awaiting payment.
    A payment arriving after expiry is flagged for owner refund review; it never re-opens transfer or unlocks a newer buyer reservation.
