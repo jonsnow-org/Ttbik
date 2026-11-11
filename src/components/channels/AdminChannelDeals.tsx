@@ -94,7 +94,7 @@ export default function AdminChannelDeals() {
               <p className="text-sm font-bold">صفقات الملكية المفتوحة</p>
               {assetSales.map((x) => (
                 <div key={x.code} className="rounded-lg border bg-slate-50 p-3 text-sm">
-                  <p className="font-bold">{x.code} · {x.asset_type} · {x.title} · ${Number(x.price).toFixed(2)} · {x.payment_late ? "دفعة وصلت بعد انتهاء الحجز — يلزم الاسترداد" : x.status}</p>
+                  <p className="font-bold">{x.code} · {x.asset_type} · {x.title} · ${Number(x.price).toFixed(2)} · {x.payment_late ? "دفعة خارج شروط الحجز — يلزم الاسترداد" : x.status}</p>
                   <p>البائع: {x.seller_snapshot?.firstName} {x.seller_snapshot?.lastName || ""} · @{x.seller_snapshot?.username} · ID {x.seller_telegram_id}</p>
                   <p dir="ltr" className="text-xs">Phone: {x.seller_snapshot?.phoneNumber}</p>
                   <p>المشتري: {x.buyer_snapshot?.firstName} {x.buyer_snapshot?.lastName || ""} · @{x.buyer_snapshot?.username} · ID {x.buyer_telegram_id}</p>
