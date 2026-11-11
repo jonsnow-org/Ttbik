@@ -389,7 +389,7 @@ export async function confirmAssetReceipt(code: string, buyerTelegramId: string)
   return { ok: true as const, verified: true };
 }
 
-export async function onAssetSalePaid(code: string) {
+export async function onAssetSalePaid(code: string, payerTelegramId?: string) {
   await ensureAssetMarketTables();
   const accepted = await prisma.$executeRaw`UPDATE telegram_asset_sales s
     SET status = 'PAID', updated_at = now()
@@ -402,6 +402,7 @@ export async function onAssetSalePaid(code: string) {
   const late = await prisma.$executeRaw`UPDATE telegram_asset_sales s SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
     WHERE s.code = ${code} AND s.status IN ('PENDING_PAYMENT','CANCELLED')
       AND (s.expires_at < now() OR s.status = 'CANCELLED'
+        OR (${payerTelegramId ?? null}::text IS NOT NULL AND s.buyer_telegram_id <> ${payerTelegramId ?? null}::text)
         OR NOT EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED'))`;
   if (late === 1) {
     // Release only this expired reservation. If another buyer already reserved the listing, keep it reserved.
@@ -413,13 +414,13 @@ export async function onAssetSalePaid(code: string) {
       l.title, l.identifier FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id=s.listing_id
       WHERE s.code = ${code} LIMIT 1`;
     const x = rows[0] || {};
-    await notifyMarketAdmin(`⚠️ وصلت دفعة بعد انتهاء حجز أصل تيليجرام
+    await notifyMarketAdmin(`⚠️ وصلت دفعة لا تطابق شروط حجز أصل تيليجرام
 الصفقة: ${code}
 الأصل: ${x.title || ""} · ${x.identifier || ""}
 المشتري: ${x.buyer_snapshot?.firstName || ""} (@${x.buyer_snapshot?.username || ""}) · ID ${x.buyer_telegram_id || ""}
 البائع: ${x.seller_snapshot?.firstName || ""} (@${x.seller_snapshot?.username || ""}) · ID ${x.seller_telegram_id || ""}
-لا تبدأوا التسليم؛ يجب على الإدارة مراجعة الاسترداد.`);
-    await notifySaleParties(code, `⚠️ وصلت دفعة الصفقة ${code} بعد انتهاء الحجز. لم تُعتمد الصفقة ولم يبدأ التسليم؛ ستراجع الإدارة عملية الاسترداد. لا تنقلوا الأصل بناءً على هذه الدفعة.`);
+سبب المراجعة: الحجز منتهٍ أو الحساب الدافع لا يطابق المشتري المسجل. لا تبدأوا التسليم؛ يجب على الإدارة مراجعة الاسترداد.`);
+    await notifySaleParties(code, `⚠️ وصلت دفعة الصفقة ${code} خارج شروط الحجز. لم تُعتمد الصفقة ولم يبدأ التسليم؛ ستراجع الإدارة عملية الاسترداد. لا تنقلوا الأصل بناءً على هذه الدفعة.`);
   }
 }
 
