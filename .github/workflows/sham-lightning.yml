@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: claude/free-services-marketplace-h6rwk2
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'claude/free-services-marketplace-h6rwk2' }}      # a dispatch runs the code of the branch it was started from
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"

@@ -37,6 +37,7 @@ def main() -> int:
                 break
             except Exception as exc:
                 last = exc
+                say(f"  اسم «{uname or '(مستنتَج)'}» رُفض: {type(exc).__name__}: {str(exc)[:160]}")     # every refusal, not only the last one
         if not spaces and last is not None:
             raise last
         say("مساحات الفريق في الحساب: " + ", ".join(str(getattr(s, "name", s)) for s in spaces))
