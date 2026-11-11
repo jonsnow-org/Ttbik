@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { Bot } from "grammy";
 import crypto from "crypto";
@@ -6,7 +7,7 @@ import { isOwnerServer } from "@/lib/isOwner";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 export async function POST(req: NextRequest) {
   if (!await isOwnerServer()) {

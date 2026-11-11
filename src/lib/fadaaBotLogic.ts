@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit } from "@/lib/botVisit";
@@ -9,7 +10,7 @@ import { startGuide } from "@/lib/botStartGuide";
  * التطبيق المصغر: /fadaa — جلسات مشتركة مخزنة على Supabase مع توثيق Telegram.
  */
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 function miniAppUrl(botId: string, sessionId?: string): string {
   const url = new URL(`${SITE}/fadaa`);

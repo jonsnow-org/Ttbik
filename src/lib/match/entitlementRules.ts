@@ -3,6 +3,7 @@
  * Single source of truth for the bot and the Mini App. DB side effects live
  * in entitlements.ts.
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import type { MatchProfile, MatchUser } from "@prisma/client";
 
 export const PRICE_BOOST_24H = 2;
@@ -103,7 +104,7 @@ export function isEffectivelyBoosted(profile: Pick<MatchProfile, "boostedUntil">
 }
 
 export function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const base = publicSiteUrl();
   return `${base}/pay/marriage?uid=${userId}`;
 }
 export function insufficientBalanceText(userId: string, needed: number, have: number): string {

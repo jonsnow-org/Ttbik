@@ -1,3 +1,4 @@
+import { publicSiteUrl, rewriteLegacyLinks } from "@/lib/siteUrl";
 import { prisma } from "@/lib/prisma";
 import { supabaseAdmin } from "@/lib/supabase";
 import { callGroq } from "@/lib/groq";
@@ -31,7 +32,7 @@ import sitemap from "@/app/sitemap";
  * kept in bot_settings under STATE_KEY.
  */
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE_URL = publicSiteUrl();
 const STATE_KEY = "channel_publisher_state";
 const MAX_UPDATES_PER_RUN = 2;
 const ANNOUNCEMENT_MAX_AGE_DAYS = 14;
@@ -264,7 +265,7 @@ export async function sendToChannel(
   const token = await channelBotToken();
   const channel = process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
   if (!token || !channel) return false;
-  text = freshenSiteLinks(text);
+  text = freshenSiteLinks(rewriteLegacyLinks(text)); // a stored text that still names ttbik.vercel.app goes out with the live address
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
 import { MEDIA_OWNER_ID, isBlockedEitherWay, loadRelations, mediaDb, mediaUser, namesFor } from "@/lib/mediaSocial";
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest) {
 async function notifyRecipient(msg: Msg) {
   const db = await mediaDb();
   if (!db) return;
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const site = publicSiteUrl();
   await pushToUser(db, {
     toId: msg.to_id, fromId: msg.from_id, type: "message",
     text: pushText("message", msg.from_name || "مستخدم", msg.body.slice(0, 120)),

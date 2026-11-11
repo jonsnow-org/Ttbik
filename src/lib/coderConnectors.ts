@@ -12,6 +12,7 @@
 // Callback: <site>/api/coder/app/connectors/<id>/callback (src/app/api/coder/app/connectors/[id]/callback/route.ts).
 // An MCP server by URL is the "advanced" option: its URL (+ optional bearer token) is stored the same way under "mcp:<id>".
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { publicBase } from "@/lib/siteUrl";
 import { coderChatKey, decryptToken, deleteConnection, encryptToken, prismaDb, saveConnection, type Db } from "@/lib/coderAuth";
 
 export type ConnectorId = "github" | "google_drive" | "google_calendar" | "gmail" | "notion" | "vercel" | "supabase" | "slack" | "discord" | "gitlab";
@@ -235,7 +236,8 @@ export function siteBase(): string {
   // ONE public address for every OAuth redirect_uri (the one registered in each service), whichever host (Oracle, gate, Vercel) serves the
   // request: a host's own address (e.g. the Oracle origin in NEXT_PUBLIC_SITE_URL) would not match the registered callback.
   // Tokens land in the shared database (coder_connections), so a callback finished on Vercel is read by the Oracle-served app too.
-  return (process.env.CODER_PUBLIC_BASE_URL || process.env.CODER_OAUTH_BASE_URL || "https://ttbik.vercel.app").trim().replace(/\/+$/, "");
+  // Vercel stopped (402, 2026-11-11): an unset or old vercel.app value falls back to the gate (src/lib/siteUrl.ts).
+  return publicBase(process.env.CODER_PUBLIC_BASE_URL || process.env.CODER_OAUTH_BASE_URL);
 }
 
 // ---------------------------------------------------------------- state (CSRF) and PKCE

@@ -7,6 +7,7 @@
  * accepted request to the existing random-chat relay (pendingAction
  * "random_chatting"), so ending/reporting/contact-exchange keep working as-is.
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow, MatchProfile } from "@prisma/client";
@@ -17,7 +18,7 @@ import {
   rateLimit, shortRef, toPublicProfile, type InlineFilter, type PublicProfile,
 } from "@/lib/match/inline";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 const REQUEST_TTL_S = 24 * 3600;
 const POOL = 500;
 

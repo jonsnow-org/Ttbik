@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureZenobiaTables } from "@/lib/zenobiaBotLogic";
@@ -6,7 +7,7 @@ import { rawAddress } from "@/lib/zenobiaSeason";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 /** Metadata the wallets read for a Caravan Passport: GET /api/zenobia/passport/<index>.json */
 export async function GET(_req: NextRequest, props: { params: Promise<{ file: string }> }) {

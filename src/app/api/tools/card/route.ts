@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
   // High-entropy bearer secret — never Math.random()
   const editToken = randomBytes(24).toString("hex");
 
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev";
+  const site = publicSiteUrl();
 
   try {
     const row = await prisma.digitalCard.create({

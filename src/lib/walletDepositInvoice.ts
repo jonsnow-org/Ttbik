@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 
 // The ads & earn wallet's crypto deposit (NOWPayments hosted invoice), shared by /pay (POST /api/payments/create-invoice) and the
@@ -14,7 +15,7 @@ export async function createWalletDepositInvoice(uid: string, amountIn: unknown)
   const amount = walletDepositAmount(amountIn);
   // Telegram ids are digits only: rejects junk that would create stray accounts or break the success/cancel URLs below.
   if (!/^\d{3,20}$/.test(uid) || !amount) return { ok: false, error: "رابط الإيداع غير صالح — افتحه من زر «إيداع» داخل البوت.", status: 400 };
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const base = publicSiteUrl();
   const result = await createInvoice({
     priceAmount: amount,
     orderId: uid,

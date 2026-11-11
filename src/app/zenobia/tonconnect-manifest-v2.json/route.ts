@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextResponse } from "next/server";
 
 // TonConnect manifest of the Zenobia pages. Generated from the site's public address (NEXT_PUBLIC_SITE_URL) instead of a fixed file, so that after
@@ -5,6 +6,6 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const site = publicSiteUrl();
   return NextResponse.json({ url: site, name: "Zenobia Caravan", iconUrl: `${site}/zenobia/coin-icon.png` }, { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" } });
 }

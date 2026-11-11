@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev";
+  const site = publicSiteUrl();
   const expiresAt = days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
 
   try {

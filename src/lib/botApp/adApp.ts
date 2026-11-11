@@ -6,6 +6,7 @@
  * Remittances (src/lib/remit/office.ts, ChangeNOW partner fee) and the channels & groups exchange (src/lib/channels/exchange.ts,
  * 15% escrow commission) earn 100% for the platform: no supervisor or user share is created for them here.
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -31,7 +32,7 @@ import { BADGE_PRICE_USD, COMMISSION_RATE, MAX_DEAL_USD, MIN_DEAL_USD } from "@/
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const site = () => publicSiteUrl();
 const SOCIAL: Record<string, SocialPlatform> = { TWITTER: "twitter", TIKTOK: "tiktok", FACEBOOK: "facebook", INSTAGRAM: "instagram", LINK: "link" };
 
 export type AppResult = { ok: true; [k: string]: unknown } | { ok: false; error: string; code?: string; [k: string]: unknown };

@@ -7,7 +7,7 @@
  */
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { SITE_URL } from "@/lib/siteUrl";
+import { SITE_URL, publicSiteUrl } from "@/lib/siteUrl";
 import { gateUrl } from "@/lib/hostingOps";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { adStars, bindSiteBot, findSiteBot, siteAdStarsEnabled } from "@/lib/siteAds";
@@ -57,7 +57,7 @@ export function validateApplication(i: ApplyInput): { ok: true; v: { name: strin
 }
 
 export const autoApprove = (env: Record<string, string | undefined> = process.env) => env.REMIT_AUTO_APPROVE === "1";
-const site = () => (process.env.NEXT_PUBLIC_SITE_URL || gateUrl() || SITE_URL).replace(/\/$/, "");
+const site = () => publicSiteUrl();
 export const listingUrl = (code: string, secret: string) => `${SITE_URL}/remit/listing/${code}?k=${secret}`;
 
 async function siteBotCall(method: string, body: unknown) {

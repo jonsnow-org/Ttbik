@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
@@ -7,7 +8,7 @@ import { hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE_URL = publicSiteUrl();
 
 async function tg(token: string, method: string) {
   try {

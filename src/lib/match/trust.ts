@@ -4,6 +4,7 @@
  * appStore.ts); bot tables are read, and the balance moves only through chargeMatchUser / a
  * refund row in MatchTransaction. Pure rules live in trustRules.ts (unit-tested).
  */
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, InlineKeyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -22,7 +23,7 @@ import {
 import { withShortLock, BUSY } from "@/lib/match/shortLock";
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 let ready: Promise<void> | null = null;
 export function ensureTrustTables(): Promise<void> {

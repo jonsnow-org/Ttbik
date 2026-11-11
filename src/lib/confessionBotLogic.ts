@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
@@ -99,7 +100,7 @@ async function setPending(userId: string, action: PendingAction | null) {
   await prisma.confessionUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
 function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+  const base = publicSiteUrl();
   return `${base}/pay/confession?uid=${userId}`;
 }
 function insufficientBalanceText(userId: string, needed: number, have: number): string {

@@ -1,3 +1,4 @@
+import { publicSiteUrl } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTonProof } from "@/lib/zenobiaTonProof";
@@ -6,7 +7,7 @@ import { ensureHiddenTable, hideSecret } from "@/lib/znbtHideDb";
 
 export const dynamic = "force-dynamic";
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik-gate.jonsnowx1r.workers.dev").replace(/\/$/, "");
+const SITE = publicSiteUrl();
 
 /** Public: the coins hidden from the lists. */
 export async function GET() {
