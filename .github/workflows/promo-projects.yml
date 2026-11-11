@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "one project id (athar, zenobia, palmyra-launch, sham-ai, literium), empty = all"
+        description: "one campaign id (zenobia, palmyra-launch, sham-ai, literium or a public bot), empty = all"
         default: ""
       format:
         description: "vertical (stories, shorts) or wide"
@@ -32,6 +32,13 @@ jobs:
           npm install --no-save --no-package-lock playwright-core@1.56.1
           npx playwright-core install --with-deps chromium
           pip install -q edge-tts
+      - name: verify promotional manifests and copy rules
+        run: |
+          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs
+          node --check scripts/promo/make.mjs
+          node --check scripts/promo/cards.mjs
+          node --check scripts/promo/copy.mjs
+          python -m py_compile scripts/promo/tts.py
       - name: prepare the original music bed
         run: (cd promo/remotion && sh scripts/music.sh)
       - name: make the narrated videos
