@@ -17,7 +17,7 @@ os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-04-r7-live"
+APP_REVISION = "computer-hub-16gb-2026-11-11-r8-fast-start"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()
@@ -263,10 +263,17 @@ def api_live_once(body):
     return last or json.dumps({"ok":False,"error":"no frame"})
 
 def main():
-    global LEGACY_CACHE_CLEANUP
-    LEGACY_CACHE_CLEANUP=remove_abandoned_minicpm_cache()
     print("Computer-only Studio "+APP_REVISION,flush=True)
-    print("MiniCPM cache cleanup: "+json.dumps(LEGACY_CACHE_CLEANUP),flush=True)
+    # 2026-11-11: the cleanup ran BEFORE the app started — an rmtree of the multi-GB MiniCPM cache over the ossfs-mounted /mnt/workspace (object storage,
+    # file by file) blocked the Studio in "Deploying" with nothing logged after the mount (runs 42931545997, 42946583552). It now runs in the background.
+    def _cleanup():
+        global LEGACY_CACHE_CLEANUP
+        LEGACY_CACHE_CLEANUP={**LEGACY_CACHE_CLEANUP,"phase":"running"}
+        t0=time.time()
+        result=remove_abandoned_minicpm_cache()
+        LEGACY_CACHE_CLEANUP={**result,"phase":"done","seconds":round(time.time()-t0,1)}
+        print("MiniCPM cache cleanup: "+json.dumps(LEGACY_CACHE_CLEANUP),flush=True)
+    threading.Thread(target=_cleanup,daemon=True,name="legacy-cache-cleanup").start()
     threading.Thread(target=_bootstrap_core,daemon=True,name="computer-core-bootstrap").start()
     import gradio as gr
     with gr.Blocks() as demo:
