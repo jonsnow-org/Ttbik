@@ -80,7 +80,8 @@ jobs:
                 echo "::warning::Oracle status report is ${age} min old: the reporter is silent, so the build cannot be confirmed from here. The sync of main is done."
                 exit 0
               fi
-              if [ "$got" = "$EXPECTED" ] && [ -n "$age" ] && [ "$age" -le 10 ] && [[ "$site" == *" OK "* ]]; then
+              # Oracle reports a short SHA of its own length (9 chars today); match it as a prefix of the full main SHA.
+              if [ "${#got}" -ge 7 ] && [[ "$MAIN_SHA" == "$got"* ]] && [ -n "$age" ] && [ "$age" -le 10 ] && [[ "$site" == *" OK "* ]]; then
                 echo "Oracle is serving the synced main commit and reports a successful site build."
                 exit 0
               fi
