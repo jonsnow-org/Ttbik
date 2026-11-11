@@ -4,7 +4,7 @@ Same job as the GitHub CPU trainer and the Oracle one: sham_live.run(...) starts
 (sham-crawl-<SHAM_TRAINER_NAME> + its corpus) to Kaggle; the merge job finds every sham-crawl-* dataset by itself and judges it through the same gate, so nothing else changes.
 Device: sham_live picks CUDA when the Studio has a GPU and CPU otherwise (the free tier is CPU), so the same file serves both.
 
-Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text|codec), HF_ENDPOINT (hf-mirror: huggingface.co is
+Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text|codec|motion), HF_ENDPOINT (hf-mirror: huggingface.co is
 blocked from China). Nothing here prints a secret. Offline self-test: python app.py --selftest
 """
 from __future__ import annotations
@@ -38,6 +38,8 @@ PROFILES = {
     # the picture codec itself (not the language model): a NEW high-resolution lineage, 384 px = 24x24 = 576 tokens, published as sham-image-tokenizer-hd-checkpoint. The serving tokenizer is never touched.
     # Measured (sham_vq_bench): a 2-thread CPU trains ~1,150 pictures/hour at 256 px, so this is a slow trickle here; the bulk of an HD codec needs a GPU (Kaggle's weekly quota).
     "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
+    # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
+    "motion": {"SHAM_TOK_THREADS": "2"},
 }
 
 
@@ -51,6 +53,17 @@ def run_codec(hours: float = 5.0, **_ignored) -> dict:
     code = tokenizer_job.main()
     prog = tokenizer_job._progress("image")
     return {"steps": int(prog.get("steps", 0)), "published": code == 0, "corpus": int(prog.get("samples", 0)), "hours": float(hours)}
+
+
+def run_motion(hours: float = 3.0, **_ignored) -> dict:
+    """The "motion" job: ai-system/lightning/motion_job.py for `hours`."""
+    for sub in ("lightning", "sham_small"):
+        sys.path.insert(0, str(HERE / sub))
+    os.environ.setdefault("SHAM_FACTORY_DIR", str(WORK / "factory"))
+    import motion_job
+    motion_job.HOURS = float(hours)
+    code = motion_job.main()
+    return {"published": code == 0, "hours": float(hours)}
 
 
 def settings(env=None) -> dict:
@@ -89,6 +102,8 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     if run_fn is None:
         if cfg["job"] == "codec":
             run_fn = run_codec
+        elif cfg["job"] == "motion":
+            run_fn = run_motion
         else:
             sys.path.insert(0, str(SHAM))
             import sham_live
@@ -135,7 +150,7 @@ if __name__ == "__main__":
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
         assert settings({"SHAM_TRAINER_JOB": "Images"})["job"] == "images" and settings({"SHAM_TRAINER_JOB": "zzz"})["job"] == "live"
-        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec"}
+        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec", "motion"}
         calls = []
 
         def fake(**kw):

@@ -24,7 +24,7 @@ on:
         required: false
         default: "5"
       job:
-        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer)"
+        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer) | motion (video motion tokenizer)"
         required: false
         default: "live"
 

@@ -35,6 +35,8 @@ jobs:
           python -m unittest discover -s scripts/transplant -p 'test_sham_v2_*.py' -v
           python -m unittest discover -s ai-agent -p 'test_*.py' -v       # the free i agent: tools, guard rails and the loop (no network)
           python ai-system/colab/sham_small/sham_intent.py
+          python ai-system/modelscope-trainer/app.py --selftest       # the Studio trainer app (jobs, cycles, no network)
+          python ai-system/lightning/motion_job.py --selftest         # the motion-tokenizer job
 
   nova-media-client-tests:
     runs-on: ubuntu-latest

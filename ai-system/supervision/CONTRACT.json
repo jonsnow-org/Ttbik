@@ -24,7 +24,7 @@
     },
     "sham-motion-tokenizer-checkpoint": {
       "role": "مُرمِّز الحركة الأصلي (MotionTokenizer) لمسار الفيديو — يرمّز الفرق بين الإطارات كرموز حركة، فلا يصبح الفيديو عرض شرائح",
-      "writer": "video_tokenizer"
+      "writer": "ms_studio_trainer"
     },
     "sham-multimodal-checkpoint": {
       "role": "نقطة حفظ المرحلة الثانية (نص + صورة + صوت)",
@@ -309,8 +309,7 @@
         "sham-video-corpus"
       ],
       "writes": [
-        "sham-video-corpus",
-        "sham-motion-tokenizer-checkpoint"
+        "sham-video-corpus"
       ]
     },
     "control_center": {
@@ -712,7 +711,8 @@
       "writes": [
         "sham-crawl-ms1",
         "sham-crawl-ms1-corpus",
-        "sham-image-tokenizer-hd-checkpoint"
+        "sham-image-tokenizer-hd-checkpoint",
+        "sham-motion-tokenizer-checkpoint"
       ]
     },
     "ms_studio_trainer_deploy": {
