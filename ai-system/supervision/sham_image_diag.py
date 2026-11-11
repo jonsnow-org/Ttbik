@@ -156,7 +156,8 @@ def measure_codec(image_tok, imgs, label: str, out_dir: Path) -> dict:
     ids = ids.reshape(ids.shape[0], -1)
     c = image_tok.cfg
     res = {"tok_psnr": psnr(rec, imgs), "flat_psnr": baseline_psnr(imgs), "codes_used": int(ids.unique().numel()), "tokens": c.tokens_per_image, "size": c.image_size}
-    print(f"  [{label}] {c.image_size}px، {c.tokens_per_image} رمزاً: PSNR {res['tok_psnr']:.1f} dB (تعبئة اللون المتوسط {res['flat_psnr']:.1f}) | رموز مستعملة {res['codes_used']}/{c.num_codes}")
+    per_image = c.tokens_per_image
+    print(f"  [{label}] {c.image_size}px، {per_image} رمزاً: PSNR {res['tok_psnr']:.1f} dB (تعبئة اللون المتوسط {res['flat_psnr']:.1f}) | رموز مستعملة {res['codes_used']}/{c.num_codes}")
     try:
         from PIL import Image
         rows = [torch.cat([imgs[i].permute(1, 2, 0), rec[i].permute(1, 2, 0)], dim=1) for i in range(min(6, len(imgs)))]

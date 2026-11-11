@@ -800,14 +800,6 @@
       "reads": [],
       "writes": []
     },
-    "sham_v2_media_weights": {
-      "file": ".github/workflows/sham-v2-media-weights.yml",
-      "title": "نسخ أوزان الوسائط الجاهزة (صور وصوت) إلى مستودع أوزان شام v2",
-      "kind": "workflow",
-      "accelerator": "CPU (GitHub)",
-      "reads": [],
-      "writes": []
-    },
     "sham_v2_chat_smoke": {
       "file": ".github/workflows/sham-v2-chat-smoke.yml",
       "title": "اختبار حي لقدرة Sham v2 على الإجابة الواقعية عبر استوديوه المنفصل (قراءة فقط)",
