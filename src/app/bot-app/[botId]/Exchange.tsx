@@ -462,8 +462,8 @@ function AssetMarket() {
   const create = async () => {
     if (!identityReady) { toast("أكمل توثيق هويتك ورقم هاتفك قبل عرض الأصل.", "err"); await requestIdentity(); return; }
     const price = Number(form.price);
-    if (!form.identifier.trim() || !(price >= 10 && price <= 25000) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
-      toast("أكمل المعرّف والوصف والسعر بين 10 و25000 دولار ومحفظة استلام صحيحة.", "err"); return;
+    if (!form.identifier.trim() || !(price >= 10) || !Number.isFinite(price) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
+      toast("أكمل المعرّف والوصف. الحد الأدنى للسعر 10 دولارات دون سقف أعلى، وأدخل محفظة استلام صحيحة.", "err"); return;
     }
     setBusy(true);
     const r = await api<any>("ex_asset_create", { ...form, price });
@@ -539,7 +539,7 @@ function AssetMarket() {
                 </div>
               ))}
             </div>}
-          <p className="mt-3 px-1 text-xs leading-5" style={{ color: "var(--app-hint)" }}>الأسعار بالدولار. عمولة المنصة 15%. لا يُصرف للبائع شيء قبل التأكد من نقل الملكية وتسجيل مرجع الصرف. لا تطلب كلمات مرور أو رموز دخول.</p>
+          <p className="mt-3 px-1 text-xs leading-5" style={{ color: "var(--app-hint)" }}>الأسعار بالدولار، ولا توجد عمولة سوق مفعّلة حالياً؛ يستحق البائع كامل السعر المعروض. لا يُصرف شيء قبل التأكد من نقل الملكية وتسجيل مرجع الصرف. لا تطلب كلمات مرور أو رموز دخول.</p>
         </>
       )}
 
@@ -556,7 +556,7 @@ function AssetMarket() {
             </Field>
             <Field label="اسم الأصل"><input className={inputCls} style={inputStyle} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="اسم القناة أو المجموعة أو البوت" /></Field>
             <Field label="وصف الأصل"><textarea rows={4} maxLength={1800} className={`${inputCls} resize-none`} style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="المجال، الجمهور، المميزات، سبب البيع، وأي معلومات مهمة..." /></Field>
-            <Field label="سعر البيع بالدولار (10–25000)"><input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="100" /></Field>
+            <Field label="سعر البيع بالدولار (10 فأكثر، دون سقف أعلى)"><input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="100" /></Field>
             <Field label="محفظة استلام مستحق البيع (USDT-TRC20 أو TON)"><input dir="ltr" className={`${inputCls} font-mono text-xs`} style={inputStyle} value={form.payoutAddress} onChange={(e) => setForm({ ...form, payoutAddress: e.target.value.trim() })} placeholder="عنوان المحفظة" /></Field>
           </Section>
           <MainAction text="إرسال العرض للتحقق" onClick={create} disabled={busy || !identityReady} busy={busy} color="#7c3aed" />
@@ -574,7 +574,7 @@ function AssetMarket() {
             <>
               <Section title={`صفقة ${sale.code}`}>
                 <p className="font-bold">{sale.title} · {ASSET_TYPE_LABEL[sale.assetType]} · @{sale.identifier}</p>
-                <p className="mt-1 text-sm">السعر ${sale.price.toFixed(2)} · عمولة المنصة ${sale.commission.toFixed(2)} · مستحق البائع ${sale.sellerAmount.toFixed(2)}</p>
+                <p className="mt-1 text-sm">السعر ${sale.price.toFixed(2)} · العمولة الحالية ${sale.commission.toFixed(2)} · مستحق البائع ${sale.sellerAmount.toFixed(2)}</p>
                 <Pill tone={sale.status === "VERIFIED" || sale.status === "RELEASED" ? "ok" : "warn"}>{ASSET_STATUS[sale.status] || sale.status}</Pill>
                 <p className="mt-2 text-xs" style={{ color: "var(--app-hint)" }}>تطابق الأطراف يتم بواسطة Telegram ID؛ الاسم واليوزرنيم والهاتف محفوظة كلقطة وقت الشراء.</p>
               </Section>
