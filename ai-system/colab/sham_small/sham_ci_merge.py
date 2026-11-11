@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import os
 import shutil
 import time
@@ -218,12 +219,18 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     # runner twice ("received a shutdown signal" after 55-74 min, nothing published). Candidates are now merged through the gate in rounds of CHUNK and freed.
     chunk = max(1, int(os.environ.get("SHAM_MERGE_CHUNK", "3")))
 
+    accepted_steps: list = []
+
     def flush():
         nonlocal changed
         if candidates:
             lines = guarded_merge(model, list(candidates), score, anchor=before)
             report.extend(lines)
             changed = changed or any(l.startswith("✅") for l in lines)
+            for l in lines:             # 2026-11-11: the head's step never moved (61,555) although trainers' work was merged in — carry the accepted candidate's step
+                m = re.match(r"✅ .*\(خطوة ([\d,]+)\)", l)
+                if m:
+                    accepted_steps.append(int(m.group(1).replace(",", "")))
             candidates.clear()
             import gc
             gc.collect()
@@ -271,6 +278,18 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             flush()
     flush()
     after = score(model)
+    # 2026-11-11 no-regress publish gate (run 42827855870 published text 4.590→4.624: each merge was inside its own tolerance, the sum was not): the head
+    # is published only when NO skill on the gate is worse than before by more than SHAM_PUBLISH_MAX_REGRESS (relative, default 0.2%). Otherwise the
+    # base is kept unchanged (the record of tried sources is still published so the same files are not retried).
+    max_regress = float(os.environ.get("SHAM_PUBLISH_MAX_REGRESS", "0.002"))
+    worse = {k: (before[k], after[k]) for k in before if after.get(k, 0.0) > before[k] * (1 + max_regress)}
+    if changed and worse:
+        report.append("⛔ بوابة عدم التراجع: لا يُنشر الدمج (ساءت مهارة) — " + ", ".join(f"{k} {a:.3f}→{b:.3f}" for k, (a, b) in worse.items()))
+        model, step, _ = load_checkpoint(ckpt, map_location=device)
+        after, changed, accepted_steps = dict(before), False, []
+    if changed and accepted_steps and max(accepted_steps) > step:
+        report.append(f"🔢 خطوة الرأس تتقدم {step:,} → {max(accepted_steps):,} (أعلى خطوة مدموجة)")
+        step = max(accepted_steps)
     progress.update(base=progress.get("base", label), base_step=progress.get("base_step", step), merged=merged,
                     updated=time.time(), gate_before=before, gate_after=after)
 
@@ -285,7 +304,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             report.append(auto_line)
             if candidate is not None:       # the copy trained on worked solutions + replay: adopted only if NO skill got worse
                 after_c = score(candidate)
-                worse = {k: (after[k], after_c[k]) for k in after if after_c.get(k, 1e9) > after[k] * 1.01}
+                worse = {k: (after[k], after_c[k]) for k in after if after_c.get(k, 1e9) > min(after[k] * 1.01, before[k] * (1 + max_regress))}   # no-regress vs the published base too
                 if not worse:
                     model, after, changed = candidate.to(device), after_c, True
                     progress["gate_after"] = after
@@ -442,6 +461,35 @@ if __name__ == "__main__":
         res4 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[],
                    auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", ruined))
         assert not res4["changed"] and "رُفضت" in res4["report"], res4
+        # no-regress publish gate: a merge round that makes a gate skill worse is NOT published; an accepted merge carries the candidate's step
+        import sham_merge as _sm
+        real_gm = _sm.guarded_merge
+        try:
+            def bad_gm(model, cands, score_fn, anchor=None):
+                with torch.no_grad():
+                    for p_ in model.parameters():
+                        p_.add_(2.0 * torch.randn_like(p_))
+                return [f"✅ {cands[0][0]}: دُمج بنسبة 0.50"]
+            _sm.guarded_merge = bad_gm
+            (td / "sham-crawl-good").mkdir(exist_ok=True)         # the merge frees a merged source's files: put a fresh one back
+            save_checkpoint(td / "sham-crawl-good" / "final.pt", good, 7)
+            shutil.copy(tok_path, td / "sham-crawl-good" / "sham_small_tokenizer.json")
+            res5 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
+            assert not res5["changed"] and "عدم التراجع" in res5["report"] and res5["after"] == res5["before"], res5["report"]
+
+            def good_gm(model, cands, score_fn, anchor=None):
+                with torch.no_grad():
+                    for n_, p_ in model.named_parameters():
+                        p_.copy_(target[n_])
+                return [f"✅ {cands[0][0]}: دُمج بنسبة 1.00"]
+            _sm.guarded_merge = good_gm
+            (td / "sham-crawl-good").mkdir(exist_ok=True)
+            save_checkpoint(td / "sham-crawl-good" / "final.pt", good, 9)        # a new file (new fingerprint) at a later step
+            shutil.copy(tok_path, td / "sham-crawl-good" / "sham_small_tokenizer.json")
+            res6 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
+            assert res6["changed"] and "5 → 9" in res6["report"], res6["report"]
+        finally:
+            _sm.guarded_merge = real_gm
         print("sham_ci_merge self-test OK")
     else:
         main()
