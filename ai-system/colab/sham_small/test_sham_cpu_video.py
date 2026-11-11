@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import cpu_video
 import media_fixtures as fx
-import sham_media_ready
 
 HERE = Path(__file__).resolve().parent
 AI = HERE.parent.parent
@@ -33,7 +32,7 @@ class CopiesAndHonesty(unittest.TestCase):
         # longer banned here — they encode frames decoded through real motion,
         # not repeated stills (see test_sham_vq_and_video.py, which checks the
         # frames actually move).
-        for path in (HERE / "cpu_video.py", HERE / "sham_media_ready.py", AI / "modelscope-media" / "app.py"):
+        for path in (HERE / "cpu_video.py", AI / "modelscope-media" / "app.py"):
             text = path.read_text(encoding="utf-8")
             for bad in ("WanPipeline", "Wan-AI", "export_to_video", 'cuda"', ".cuda(", "device_map"):
                 self.assertFalse(bad in text, f"{bad!r} found in {path.name}")
@@ -258,29 +257,6 @@ class Weights(unittest.TestCase):
     def test_empty_prompt(self):
         with self.assertRaises(ValueError):
             cpu_video.cv_generate("/nonexistent", "  ")
-
-
-class Wiring(unittest.TestCase):
-    def test_make_video_passes_requested_duration_through_local_segmented_engine_and_gate(self):
-        root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate_long", return_value=fx.mp4_shell()) as g, patch.object(sham_media_ready, "check_mp4", return_value={}):
-            r = sham_media_ready.make(root, "video", "a lighthouse", seconds=15)
-        self.assertEqual(r["type"], "video")
-        self.assertEqual(base64.b64decode(r["b64"])[4:8], b"ftyp")
-        self.assertEqual(g.call_args.args[1:3], ("a lighthouse", 15))
-
-    def test_blank_clip_is_an_error(self):
-        root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate_long", side_effect=RuntimeError("not a video")):
-            r = sham_media_ready.make(root, "video", "x", seconds=10)
-        self.assertEqual(r["type"], "error")
-
-    def test_missing_weights_is_a_typed_error(self):
-        root = Path(tempfile.mkdtemp())
-        with patch("cpu_video.cv_generate_long", side_effect=RuntimeError("native-video-unavailable: could not fetch")):
-            r = sham_media_ready.make(root, "video", "x", seconds=10)
-        self.assertEqual(r["type"], "error")
-        self.assertIn("reason", r)
 
 
 @unittest.skipUnless(os.environ.get("CPU_VIDEO_TEST_DIR"), "set CPU_VIDEO_TEST_DIR to a folder with video_animatediff/{base,adapter} to run a real generation")

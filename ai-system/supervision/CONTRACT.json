@@ -24,7 +24,7 @@
     },
     "sham-motion-tokenizer-checkpoint": {
       "role": "مُرمِّز الحركة الأصلي (MotionTokenizer) لمسار الفيديو — يرمّز الفرق بين الإطارات كرموز حركة، فلا يصبح الفيديو عرض شرائح",
-      "writer": "video_tokenizer"
+      "writer": "ms_studio_trainer"
     },
     "sham-multimodal-checkpoint": {
       "role": "نقطة حفظ المرحلة الثانية (نص + صورة + صوت)",
@@ -141,6 +141,10 @@
     "sham-image-tokenizer-v2-checkpoint": {
       "role": "مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning)",
       "writer": "lightning_probe"
+    },
+    "sham-image-tokenizer-hd-checkpoint": {
+      "role": "مُرمِّز الصورة عالي الدقة (384 بكسل، 576 رمزاً)؛ سلالة جديدة لا تمس المُرمِّز المخدوم، يدرّبها استوديو ModelScope (وظيفة codec)",
+      "writer": "ms_studio_trainer"
     },
     "sham-audio-tokenizer-v2-checkpoint": {
       "role": "مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning)",
@@ -305,8 +309,7 @@
         "sham-video-corpus"
       ],
       "writes": [
-        "sham-video-corpus",
-        "sham-motion-tokenizer-checkpoint"
+        "sham-video-corpus"
       ]
     },
     "control_center": {
@@ -707,7 +710,9 @@
       ],
       "writes": [
         "sham-crawl-ms1",
-        "sham-crawl-ms1-corpus"
+        "sham-crawl-ms1-corpus",
+        "sham-image-tokenizer-hd-checkpoint",
+        "sham-motion-tokenizer-checkpoint"
       ]
     },
     "ms_studio_trainer_deploy": {
@@ -787,25 +792,9 @@
       "reads": [],
       "writes": []
     },
-    "deploy_sham_v2_video": {
-      "file": ".github/workflows/deploy-modelscope-sham-v2-video.yml",
-      "title": "نشر استوديو فيديو شام v2 الخاص (AnimateDiff على CPU) واختباره بمقطع حقيقي",
-      "kind": "workflow",
-      "accelerator": "CPU (ModelScope Studio)",
-      "reads": [],
-      "writes": []
-    },
     "media_studio_probe": {
       "file": ".github/workflows/media-studio-probe.yml",
       "title": "طلب صورة من استوديو الوسائط للقراءة فقط وحفظها للنظر",
-      "kind": "workflow",
-      "accelerator": "CPU (GitHub)",
-      "reads": [],
-      "writes": []
-    },
-    "sham_v2_media_weights": {
-      "file": ".github/workflows/sham-v2-media-weights.yml",
-      "title": "نسخ أوزان الوسائط الجاهزة (صور وصوت) إلى مستودع أوزان شام v2",
       "kind": "workflow",
       "accelerator": "CPU (GitHub)",
       "reads": [],

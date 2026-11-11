@@ -4,7 +4,7 @@ Same job as the GitHub CPU trainer and the Oracle one: sham_live.run(...) starts
 (sham-crawl-<SHAM_TRAINER_NAME> + its corpus) to Kaggle; the merge job finds every sham-crawl-* dataset by itself and judges it through the same gate, so nothing else changes.
 Device: sham_live picks CUDA when the Studio has a GPU and CPU otherwise (the free tier is CPU), so the same file serves both.
 
-Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text), HF_ENDPOINT (hf-mirror: huggingface.co is
+Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text|codec|motion), HF_ENDPOINT (hf-mirror: huggingface.co is
 blocked from China). Nothing here prints a secret. Offline self-test: python app.py --selftest
 """
 from __future__ import annotations
@@ -35,7 +35,35 @@ PROFILES = {
     "chat":   {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.45", "SHAM_GENERAL_SHARE": "0.25", "SHAM_TOOLS_MIX": "0.08", "SHAM_CHAT_MULTITURN": "1"},     # dialogue + memory
     "tools":  {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.30", "SHAM_GENERAL_SHARE": "0.25", "SHAM_TOOLS_MIX": "0.40"},                                # the 44 tools and their paths
     "text":   {"SHAM_LIVE_KINDS": "text", "SHAM_REHEARSAL_SHARE": "0.20", "SHAM_GENERAL_SHARE": "0.55", "SHAM_TOOLS_MIX": "0.03"},                                # general text and code (the plateau)
+    # the picture codec itself (not the language model): a NEW high-resolution lineage, 384 px = 24x24 = 576 tokens, published as sham-image-tokenizer-hd-checkpoint. The serving tokenizer is never touched.
+    # Measured (sham_vq_bench): a 2-thread CPU trains ~1,150 pictures/hour at 256 px, so this is a slow trickle here; the bulk of an HD codec needs a GPU (Kaggle's weekly quota).
+    "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
+    # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
+    "motion": {"SHAM_TOK_THREADS": "2"},
 }
+
+
+def run_codec(hours: float = 5.0, **_ignored) -> dict:
+    """The "codec" job: ai-system/lightning/tokenizer_job.py (collect pictures, train the image tokenizer in chunks, publish) for `hours`. Returns whitelisted numbers."""
+    for sub in ("lightning", "sham_small"):
+        sys.path.insert(0, str(HERE / sub))
+    os.environ.setdefault("SHAM_FACTORY_DIR", str(WORK / "factory"))
+    import tokenizer_job
+    tokenizer_job.HOURS = float(hours)
+    code = tokenizer_job.main()
+    prog = tokenizer_job._progress("image")
+    return {"steps": int(prog.get("steps", 0)), "published": code == 0, "corpus": int(prog.get("samples", 0)), "hours": float(hours)}
+
+
+def run_motion(hours: float = 3.0, **_ignored) -> dict:
+    """The "motion" job: ai-system/lightning/motion_job.py for `hours`."""
+    for sub in ("lightning", "sham_small"):
+        sys.path.insert(0, str(HERE / sub))
+    os.environ.setdefault("SHAM_FACTORY_DIR", str(WORK / "factory"))
+    import motion_job
+    motion_job.HOURS = float(hours)
+    code = motion_job.main()
+    return {"published": code == 0, "hours": float(hours)}
 
 
 def settings(env=None) -> dict:
@@ -72,9 +100,14 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     for k, v in PROFILES[cfg["job"]].items():          # the job's shares, before sham_live is imported (it reads some of them at import time)
         os.environ.setdefault(k, v)
     if run_fn is None:
-        sys.path.insert(0, str(SHAM))
-        import sham_live
-        run_fn = sham_live.run
+        if cfg["job"] == "codec":
+            run_fn = run_codec
+        elif cfg["job"] == "motion":
+            run_fn = run_motion
+        else:
+            sys.path.insert(0, str(SHAM))
+            import sham_live
+            run_fn = sham_live.run
         try:
             import torch
             _set(device="cuda" if torch.cuda.is_available() else "cpu")
@@ -117,7 +150,7 @@ if __name__ == "__main__":
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
         assert settings({"SHAM_TRAINER_JOB": "Images"})["job"] == "images" and settings({"SHAM_TRAINER_JOB": "zzz"})["job"] == "live"
-        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text"}
+        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec", "motion"}
         calls = []
 
         def fake(**kw):
