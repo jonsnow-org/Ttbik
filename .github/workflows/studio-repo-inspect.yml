@@ -7,13 +7,13 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           MS=https://www.modelscope.cn
-          R=sham-v2-server
-          echo "===== run log"; curl -sS --max-time 40 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/run" | sed 's/\\n/\n/g; s/\\r/\n/g; s/","/\n/g' | grep -v "^\s*\^" | grep -A45 "13:16:15" | tail -60 | cut -c1-260
-          R=nova-computer-hub
-          echo "===== hub record"; curl -sS --max-time 40 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R" | head -c 1500; echo
+          echo "===== stop nova-computer-hub (owner: no new Studios)"
+          curl -sS --max-time 30 -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/nova-computer-hub/stop" | head -c 400; echo
+          sleep 10
+          curl -sS --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/nova-computer-hub" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print('status', (d.get('runtime') or {}).get('status') or d.get('status'))"
