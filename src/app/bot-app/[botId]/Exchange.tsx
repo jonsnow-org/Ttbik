@@ -462,7 +462,7 @@ function AssetMarket() {
   const create = async () => {
     if (!identityReady) { toast("أكمل توثيق هويتك ورقم هاتفك قبل عرض الأصل.", "err"); await requestIdentity(); return; }
     const price = Number(form.price);
-    if (!form.identifier.trim() || !(price >= 10) || !Number.isFinite(price) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
+    if (!form.identifier.trim() || !(price > 0) || !Number.isFinite(price) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
       toast("أكمل المعرّف والوصف. الحد الأدنى للسعر 10 دولارات دون سقف أعلى، وأدخل محفظة استلام صحيحة.", "err"); return;
     }
     setBusy(true);
