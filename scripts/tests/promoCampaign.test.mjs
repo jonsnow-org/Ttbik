@@ -7,6 +7,7 @@ import {
   projectLanguage,
 } from "../promo/common.mjs";
 import { buildCampaign, renderCampaign } from "../promo/copy.mjs";
+import { chooseCampaign, PUBLISHABLE_CAMPAIGN_IDS } from "../promo/rotation.mjs";
 
 const projects = JSON.parse(fs.readFileSync("scripts/promo/projects.json", "utf8")).projects;
 const pair = (x) => Array.isArray(x) && x.length === 2 && x.every((s) => typeof s === "string" && s.trim());
@@ -89,4 +90,41 @@ test("Athar is omitted from the new copy pack and remains on the old silent-rend
   assert.match(copySource, /new Set\(\["athar"\]\)/);
   assert.match(videoSource, /if \(p\.id !== "athar"\)/);
   assert.equal(projectLanguage(athar), "both");
+});
+
+test("weekly auto-publisher rotates only campaigns not owned by the old Remotion episodes", () => {
+  const ids = PUBLISHABLE_CAMPAIGN_IDS;
+  assert.deepEqual(ids, ["sham-ai", "literium", "media-downloader", "jobs-and-store", "dating-marriage", "confessions"]);
+  assert.equal(chooseCampaign({ date: "2026-11-16" }).id, "sham-ai");
+  assert.equal(chooseCampaign({ date: "2026-11-23" }).id, "literium");
+  for (const excluded of ["athar", "zenobia", "palmyra-launch"]) {
+    assert.ok(!ids.includes(excluded), excluded);
+    assert.throws(() => chooseCampaign({ date: "2026-11-16", only: excluded }), /unknown or excluded/);
+  }
+});
+
+test("old and new video publishers have distinct release namespaces and calendars", () => {
+  const oldFlow = fs.readFileSync(".github/workflows/promo-remotion.yml", "utf8");
+  const newFlow = fs.readFileSync(".github/workflows/promo-projects.yml", "utf8");
+  const route = fs.readFileSync("src/app/api/cron/promo-publish/route.ts", "utf8");
+  const publisher = fs.readFileSync("scripts/promo/publish.mjs", "utf8");
+  assert.match(oldFlow, /promo-ep-\$ID/);
+  assert.match(oldFlow, /0 7 \* \* 0,2,4/);
+  assert.match(newFlow, /40 3 \* \* 1/);
+  assert.match(newFlow, /scripts\/promo\/publish\.mjs/);
+  assert.match(newFlow, /PUBLISH_ON/);
+  assert.match(publisher, /promo-campaign-/);
+  assert.match(publisher, /published-telegram-/);
+  assert.match(publisher, /published-youtube\.json/);
+  assert.match(route, /promo-campaign-/);
+  assert.ok(fs.existsSync("promo/PUBLISH_ON"), "the owner publish switch must remain enabled");
+});
+
+test("YouTube publishing uses the site's existing OAuth gate and never needs a new paid service", () => {
+  const youtube = fs.readFileSync("src/lib/youtubePublish.ts", "utf8");
+  const publisher = fs.readFileSync("scripts/promo/publish.mjs", "utf8");
+  assert.match(youtube, /youtubeReady/);
+  assert.match(youtube, /youtube_publish_refresh_token/);
+  assert.match(publisher, /to=\\"youtube\\"/);
+  assert.match(publisher, /YouTube upload not completed/);
 });
