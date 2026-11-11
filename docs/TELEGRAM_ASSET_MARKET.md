@@ -16,6 +16,7 @@ A bot's BotFather owner cannot be reliably queried through Telegram's public Bot
 ## Sale lifecycle
 1. The seller's identity and phone are checked; the channel/group ownership is checked by Telegram where supported.
 2. The listing is reserved for one buyer for 30 minutes while awaiting payment.
+   A payment arriving after expiry is flagged for owner refund review; it never re-opens transfer or unlocks a newer buyer reservation.
 3. A `CHM-` sale code is passed through the existing Stars / NOWPayments / USDT payment path.
 4. The seller reports transfer; the buyer confirms. Channel/group transfers are verified through `getChatMember` and the buyer's Telegram ID.
 5. Bot transfers need both party confirmations and owner review.
