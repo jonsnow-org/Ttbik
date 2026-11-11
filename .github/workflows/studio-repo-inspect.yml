@@ -14,6 +14,6 @@ jobs:
         run: |
           MS=https://www.modelscope.cn
           R=sham-v2-server
-          echo "===== run log"; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/run" | sed 's/\\n/\n/g; s/","/\n/g' | grep -iE "agent_step|Traceback|Error|error|Exception|File \\\\\"" | tail -40 | cut -c1-300
+          echo "===== run log"; curl -sS --max-time 40 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/run" | sed 's/\\n/\n/g; s/\\r/\n/g; s/","/\n/g' | grep -v "^\s*\^" | grep -A45 "13:16:15" | tail -60 | cut -c1-260
           R=nova-computer-hub
-          echo "===== hub record"; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R" | head -c 1500; echo
+          echo "===== hub record"; curl -sS --max-time 40 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R" | head -c 1500; echo
