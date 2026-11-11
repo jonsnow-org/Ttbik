@@ -9,7 +9,7 @@ This feature adds channel, group and bot ownership sales to the existing channel
 - Public listing cards expose the seller's display name and username only. Telegram ID and phone are visible only to the account owner, the two parties to the sale, and the platform owner.
 
 ## Verifiers
-The configured builder owner bot is tried first; the independent site owner bot is the fallback. The actual available bot usernames are displayed in the Mini App. For a channel or group, one verifier bot must be an administrator, the seller must be returned as `creator` before listing, and the buyer must be returned as `creator` after transfer. Private chats can be checked by supplying their chat ID after adding the verifier bot.
+Both configured verifier bots are checked in parallel: the builder owner bot and the independent site owner bot. Either one can prove ownership if it is an administrator in the target chat; the exact available usernames are displayed in the Mini App. If only one is configured or accessible, that single bot can verify. For a channel or group, one verifier bot must be an administrator, the seller must be returned as `creator` before listing, and the buyer must be returned as `creator` after transfer. Private chats can be checked by supplying their chat ID after adding the verifier bot.
 
 A bot's BotFather owner cannot be reliably queried through Telegram's public Bot API. Bot sales are therefore held for manual BotFather review: the seller reports the transfer, the buyer confirms receipt, and the platform owner records an explicit review reference. No sale is marked verified before that review.
 
