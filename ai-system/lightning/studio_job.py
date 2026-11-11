@@ -165,7 +165,7 @@ def main() -> int:
     if mode == "auto":
         mode = auto_mode()
         say(f"الوضع التلقائي لهذه النافذة: {mode}")
-    if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
+    if not ((os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")) or os.environ.get("LIGHTNING_AUTH_TOKEN")):
         say("لا مفاتيح Lightning — لا عمل")
         return 0
     try:

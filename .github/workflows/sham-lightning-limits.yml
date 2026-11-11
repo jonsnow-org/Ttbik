@@ -29,4 +29,6 @@ jobs:
         env:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          # the SDK (2026.10+, after the Oct 16 incident) refuses the old key login: "set LIGHTNING_AUTH_TOKEN" — the owner adds this secret
+          LIGHTNING_AUTH_TOKEN: ${{ secrets.LIGHTNING_AUTH_TOKEN }}
         run: python ai-system/lightning/studio_limits.py
