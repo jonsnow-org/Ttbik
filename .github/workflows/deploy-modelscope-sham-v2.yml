@@ -93,6 +93,9 @@ jobs:
           git config --global user.email "ci@sham-v2.local"
           git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           python3 scripts/transplant/stage_sham_v2_studio.py ms-studio
+          # Always a new Studio commit, so ModelScope builds THIS code (2026-11-11: a "no change" push + deploy restarted an old build whose
+          # app.py/model.py predate MOTION_VOCAB_BASE, and every Sham v2 chat failed with an ImportError).
+          printf '%s run %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > ms-studio/.deploy_stamp
           cd ms-studio
           git add -A
           git diff --cached --quiet && echo "no change" || git commit -m "sham v2: app (${GITHUB_SHA::8})"

@@ -37,7 +37,7 @@ const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS |
 // owner 2026-11-04 3:44 AM: «مرحبا» was answered with the media-failure note. A greeting must get a normal reply: no file, no "not sent" note, no claim.
 const MEDIA_NOTE = /لم يُرسل|لم أُرسل|تعذّر إنشاء|ها هي الصورة|أرسلت (?:لك )?(?:الصورة|المقطع|الفيديو)/;     // a 1-2 min clip on CPU needs far longer than 10 min
 // an error notice is not an answer (2026-11-11: LFM2.5's «مرحبا» showed "توقّف تنفيذ المهمة بسبب خطأ داخلي" and the probe printed OK)
-const ERROR_NOTE = /خطأ داخلي|معلّمة كفاشلة|أعد إرسال طلبك/;
+const ERROR_NOTE = /خطأ داخلي|معلّمة كفاشلة|أعد إرسال طلبك|generation failed|Traceback|ImportError/;
 
 async function once(model: string, kind: "image" | "video" | "audio" | "chat", text: string, tag = ""): Promise<string> {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
