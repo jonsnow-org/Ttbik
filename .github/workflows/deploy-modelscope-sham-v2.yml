@@ -192,20 +192,17 @@ jobs:
           build_checked=0
           stale_build() {
             curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" > build-log.json || return 1
-            python3 - "$DEPLOY_EPOCH" <<'PY'
-          import re, sys, json
-          from datetime import datetime
-          start = int(sys.argv[1])
-          raw = open("build-log.json", encoding="utf-8", errors="replace").read()
-          m = re.findall(r"###commitTime###:([A-Za-z]{3} [A-Za-z]{3} +\d+ [\d:]+ \d{4} [+-]\d{4})", raw)
-          if not m:
-              print("build log: no commit line found (cannot tell; treating as fresh)"); sys.exit(1)
-          t = int(datetime.strptime(m[-1], "%a %b %d %H:%M:%S %Y %z").timestamp())
-          stale = t < start - 900
-          print(f"build used a commit from {m[-1]} ({start - t}s before this deploy){' -> STALE cached checkout' if stale else ''}"
-                + (" | runner said: The last commitId was not fetched" if "last commitId was not fetched" in raw else ""))
-          sys.exit(0 if stale else 1)
-          PY
+            # live 2026-11-11 (inspector run 42959011500): the runner builds ModelScope's own branch sbuild-<id>-<epoch> = our
+            # master + an "add build dockerfile" commit whose date is a FIXED template date (Thu Oct 29 10:00:13 2026), so the
+            # commit date alone flagged every fresh build as stale. Ask git instead: is the commit we pushed inside that branch?
+            branch=$(python3 -c "import re,sys;m=re.findall(r'input branch is (sbuild-[A-Za-z0-9_-]+)',open('build-log.json',encoding='utf-8',errors='replace').read());print(m[-1] if m else '')")
+            pushed=$(git -C ms-studio rev-parse HEAD 2>/dev/null || true)
+            if [ -z "$branch" ] || [ -z "$pushed" ]; then echo "build log: no build branch found (cannot tell; treating as fresh)"; return 1; fi
+            if ! git -C ms-studio fetch -q origin "$branch" 2>/dev/null; then echo "build branch $branch not fetchable (treating as fresh)"; return 1; fi
+            if git -C ms-studio merge-base --is-ancestor "$pushed" FETCH_HEAD; then
+              echo "build branch $branch contains our commit ${pushed::8} -> fresh build"; return 1
+            fi
+            echo "build branch $branch does NOT contain our commit ${pushed::8} -> STALE cached checkout"; return 0
           }
 
           # At most 40 minutes of readiness polling; every network operation has a deadline.
