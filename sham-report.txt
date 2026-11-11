@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-10 21:27 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-11 01:25 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -22,9 +22,9 @@
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
-⏳ في الانتظار | المرحلة الأولى 4 | duplicate
+⏳ في الانتظار | المرحلة الأولى 4 | primary
 ❌ فشل | المرحلة الأولى 3 | duplicate
-⏳ يعمل الآن | المرحلة الأولى 5 | primary
+❌ فشل | المرحلة الأولى 5 | duplicate
 ❌ فشل | المرحلة الثالثة 5 | duplicate
 ⏳ يعمل الآن | الدفتر الشامل 1 | primary
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate

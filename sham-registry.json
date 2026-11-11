@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-10 21:27 UTC",
+  "generated_at": "2026-11-11 01:25 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -69,7 +69,7 @@
       "alias": "المرحلة الأولى 4",
       "track": "text_stage1",
       "status": "queued",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-11-09",
       "gpu": false,
       "failure": ""
@@ -86,8 +86,8 @@
     {
       "alias": "المرحلة الأولى 5",
       "track": "text_stage1",
-      "status": "running",
-      "role": "primary",
+      "status": "error",
+      "role": "duplicate",
       "last_run": "2026-11-10",
       "gpu": false,
       "failure": ""
@@ -249,15 +249,15 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 2",
-      "track": "image_tokenizer",
-      "size_mb": 719.1,
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 794.9,
       "last_updated": "2026-11-10",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
+      "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
       "size_mb": 792.9,
       "last_updated": "2026-11-10",
@@ -265,9 +265,25 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج مسار ترميز الصورة 2",
+      "track": "image_tokenizer",
+      "size_mb": 719.1,
+      "last_updated": "2026-11-11",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
       "size_mb": 4237.8,
+      "last_updated": "2026-11-10",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 4236.2,
       "last_updated": "2026-11-10",
       "progress": {},
       "has_key_files": true
@@ -297,14 +313,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 4236.2,
-      "last_updated": "2026-11-10",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
       "size_mb": 35.9,
@@ -324,14 +332,6 @@
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
       "size_mb": 4248.3,
-      "last_updated": "2026-11-10",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 794.9,
       "last_updated": "2026-11-10",
       "progress": {},
       "has_key_files": true
@@ -391,7 +391,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "queued",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
