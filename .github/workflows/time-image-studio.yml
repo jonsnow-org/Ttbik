@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "epicrealism-image-test | realistic-vision-v6-test"
+        description: "epicrealism-image-test"
         required: true
         default: "epicrealism-image-test"
       prompt:
@@ -42,11 +42,7 @@ jobs:
           prompt, steps = os.environ["PROMPT"], int(os.environ["STEPS"])
           neg = "lowres, blurry, deformed, text, watermark"
           # argument layouts of each Studio's image API (prompt, negative, shape/resolution, steps, cfg, seed)
-          if studio.startswith("cyberrealistic"):
-              data = [prompt, neg, "512 × 768 (author recommended)", steps, 5.0, 7]
-          elif studio.startswith("umranz"):
-              data = [prompt, neg, "512 × 768", steps, 6.5, 7]
-          elif studio.startswith("epicrealism"):
+          if studio.startswith("epicrealism"):
               data = [prompt, neg, "512 × 768", steps, 7.0, 7]
           else:
               data = [prompt, neg, "512 × 512", steps, 5.5, 7]

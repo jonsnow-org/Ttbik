@@ -29,19 +29,12 @@ on:
         description: "how long to wait for each clip (ms); e.g. 3000000 for 1-2 min clips"
         required: false
         default: "600000"
-  workflow_run:
-    workflows:
-      - "Candidate media Studios: each candidate gets its OWN speech + video Studio and its OWN copy of the media weights"
-    types: [completed]
-    branches:
-      - claude/free-services-marketplace-h6rwk2
 
 permissions:
   contents: read
 
 jobs:
   live:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
