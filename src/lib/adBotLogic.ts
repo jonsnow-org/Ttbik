@@ -12,6 +12,7 @@ import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { isTimedClickReady, UNOPENED_CLICK_AT } from "@/lib/watchTarget";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { recordAssetPhoneContact } from "@/lib/channels/assetMarket";
 import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
@@ -697,6 +698,10 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const contactLang = asLang(contactUser.language);
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.user.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
+      await recordAssetPhoneContact({
+        telegramId: tgUserId, contactUserId: String(msg.contact.user_id), phoneNumber: String(msg.contact.phone_number || ""),
+        firstName: String(msg.from.first_name || ""), lastName: String(msg.from.last_name || ""), username: String(msg.from.username || ""),
+      }).catch(() => null);
       await bot.api.sendMessage(chatId, t(contactLang, "phoneVerified"), { reply_markup: mainMenu(contactLang) });
     } else {
       await bot.api.sendMessage(chatId, t(contactLang, "phoneMismatch"));

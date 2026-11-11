@@ -18,6 +18,7 @@ import {
   splitDeal, validDealPrice, type AuditReport,
 } from "@/lib/channels/auditRules";
 import { detectChannelPayoutNetwork, isValidTronTransactionHash } from "@/lib/channels/payoutAddress";
+import { ensureAssetMarketTables, onAssetSalePaid, adminAssetMarketData, adminAssetMarketAction, assetSalePaymentIsAvailable, assetSaleDetails } from "@/lib/channels/assetMarket";
 
 export const CHANNEL_STARS_PREFIX = "CHDEAL:";
 const UA = "Mozilla/5.0 (compatible; ShamAI-ChannelAudit/1.0)";
@@ -174,7 +175,7 @@ export async function verifyListing(token: string, actorTgId?: string) {
 export type DealRow = { code: string; kind: string; channel: string; ad_text: string | null; target_url: string | null; advertiser_contact: string | null; advertiser_tg_id?: string | null; payment_reference?: string | null; settlement_reference?: string | null; settled_at?: Date | null; price: number; commission: number; payout: number; status: string; paid_via: string | null; post_link: string | null; created_at: Date; paid_at: Date | null; posted_at: Date | null };
 
 export async function dealByCode(code: string): Promise<DealRow | null> {
-  if (!/^CH[DB]-[A-Z0-9]{8}$/.test(code)) return null;
+  if (!/^CH[DBM]-[A-Z0-9]{8}$/.test(code)) return null;
   await ensureChannelTables();
   const r = await prisma.$queryRaw<any[]>`SELECT * FROM channel_deals WHERE code = ${code}`;
   if (!r[0]) return null;
@@ -225,6 +226,7 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
   const d = await dealByCode(code);
   if (!d) return { ok: false as const, error: "الكود غير موجود." };
   if (actorTgId && d.advertiser_tg_id && d.advertiser_tg_id !== actorTgId) return { ok: false as const, error: "هذا الطلب لا يخص حساب تيليجرام هذا." };
+  if (d.kind === "ASSET_SALE" && !(await assetSalePaymentIsAvailable(code))) return { ok: false as const, error: "انتهت مهلة حجز الأصل أو لم يعد العرض محجوزاً لهذه الصفقة. أنشئ حجزاً جديداً قبل الدفع." };
   if (d.status !== "PENDING_PAYMENT") return { ok: false as const, error: "هذا الطلب مدفوع أو مغلق." };
   if (method === "usdt") {
     return { ok: true as const, manual: true, amount: d.price, usdt: usdtAddress(), network: usdtNetwork(), note: `حوّل المبلغ واكتب الكود ${code} في ملاحظة التحويل. يؤكده الأدمن يدوياً.` };
@@ -238,8 +240,8 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
     const res = await fetch(`https://api.telegram.org/bot${bot.token}/createInvoiceLink`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        title: (d.kind === "BADGE" ? `توثيق @${d.channel}` : `إعلان في @${d.channel}`).slice(0, 32),
-        description: (d.kind === "BADGE" ? `☑️ شارة قناة موثّقة لمدة سنة في بورصة القنوات (${code})` : `طلب إعلان في @${d.channel}. تم تسجيل الدفع؛ أكمل صاحب القناة النشر ثم تابع التحقق والتسوية من صفحة الطلب (${code}).`).slice(0, 255),
+        title: (d.kind === "BADGE" ? `توثيق @${d.channel}` : d.kind === "ASSET_SALE" ? `شراء أصل ${d.channel}` : `إعلان في @${d.channel}`).slice(0, 32),
+        description: (d.kind === "BADGE" ? `☑️ شارة قناة موثّقة لمدة سنة في بورصة القنوات (${code})` : d.kind === "ASSET_SALE" ? `شراء أصل تيليجرام ${d.channel} — الصفقة ${code}. لا يُصرف المبلغ قبل التحقق من نقل الملكية.` : `طلب إعلان في @${d.channel}. تم تسجيل الدفع؛ أكمل صاحب القناة النشر ثم تابع التحقق والتسوية من صفحة الطلب (${code}).`).slice(0, 255),
         payload: `${CHANNEL_STARS_PREFIX}${code}`, currency: "XTR", prices: [{ label: code, amount: stars }],
       }),
     }).catch(() => null);
@@ -257,7 +259,7 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
 }
 
 /** The single "money arrived" transition (Stars, NOWPayments IPN, or the admin confirming a USDT transfer). Idempotent. */
-export async function markDealPaid(code: string, via: string, amountUsd?: number, paymentReference?: string): Promise<{ ok: boolean; first: boolean }> {
+export async function markDealPaid(code: string, via: string, amountUsd?: number, paymentReference?: string, payerTelegramId?: string): Promise<{ ok: boolean; first: boolean; assetSaleAccepted?: boolean }> {
   const d = await dealByCode(code);
   if (!d) return { ok: false, first: false };
   if (amountUsd != null && (!Number.isFinite(amountUsd) || amountUsd + 0.01 < d.price)) return { ok: false, first: false };
@@ -269,15 +271,38 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
     // The partial unique index rejects reusing one TRON TXID for two paid orders.
     return { ok: false, first: false };
   }
-  if (n !== 1) return { ok: true, first: false };
-  if (d.kind === "BADGE") {
+  if (n !== 1 && d.kind === "ASSET_SALE") {
+    // An invoice can be paid after an owner/admin closed the unpaid reservation.
+    // Record the real incoming payment so it is surfaced for refund review instead of disappearing.
+    try {
+      n = await prisma.$executeRaw`UPDATE channel_deals SET status = 'PAID', paid_via = ${via.slice(0, 120)},
+        payment_reference = ${paymentRef}, paid_at = now() WHERE code = ${code} AND status = 'CANCELLED'`;
+    } catch {
+      return { ok: false, first: false };
+    }
+  }
+  if (n !== 1) {
+    // A payment row may already be PAID while the linked asset-sale row still needs
+    // recovery (for example, a transient DB error after the first update).
+    if (d.kind === "ASSET_SALE" && d.status === "PAID") {
+      const assetSaleAccepted = await onAssetSalePaid(code, payerTelegramId);
+      return { ok: true, first: false, assetSaleAccepted };
+    }
+    return { ok: true, first: false };
+  }
+  let assetSaleAccepted: boolean | undefined;
+  if (d.kind === "ASSET_SALE") {
+    await ensureAssetMarketTables();
+    assetSaleAccepted = await onAssetSalePaid(code, payerTelegramId);
+    await siteBotSend(`🛍️ دفع صفقة أصل تيليجرام ${code}\n${d.channel} — ${d.price}$ (مستحق البائع ${d.payout}$، عمولة ${d.commission}$)\nلا تصرف قبل اعتماد نقل الملكية.`);
+  } else if (d.kind === "BADGE") {
     await prisma.$executeRaw`UPDATE channel_deals SET status = 'RELEASED', closed_at = now() WHERE code = ${code}`;
     await prisma.$executeRaw`UPDATE channel_listings SET verified_until = GREATEST(COALESCE(verified_until, now()), now()) + make_interval(days => ${BADGE_DAYS}), updated_at = now() WHERE username = ${d.channel}`;
     await siteBotSend(`☑️ دُفعت شارة توثيق @${d.channel} (${code}) — ${d.price}$ عبر ${via}`);
   } else {
     await siteBotSend(`📣 صفقة قناة مدفوعة ${code}\n@${d.channel} — ${d.price}$ (للقناة ${d.payout}$، عمولة ${d.commission}$)\nالمعلن: ${d.advertiser_contact}\nالرابط: ${d.target_url}\nعبر: ${via}\n\nأرسل نص الإعلان لصاحب القناة أو اطلب منه فتح رابط الإدارة.`);
   }
-  return { ok: true, first: true };
+  return { ok: true, first: true, ...(assetSaleAccepted === undefined ? {} : { assetSaleAccepted }) };
 }
 
 export async function dealsForAdvertiser(tgUserId: string): Promise<string[]> {
@@ -324,12 +349,14 @@ export async function submitPost(token: string, code: string, link: string, acto
 // ---------------------------------------------------------------------------
 export async function adminDeals() {
   await ensureChannelTables();
+  await ensureAssetMarketTables();
+  const assetMarket = await adminAssetMarketData();
   const deals = await prisma.$queryRaw<any[]>`SELECT d.*, l.payout_address, l.payout_network, l.owner_contact FROM channel_deals d LEFT JOIN channel_listings l ON l.username = d.channel ORDER BY d.created_at DESC LIMIT 200`;
   const listings = await prisma.$queryRaw<any[]>`SELECT username, title, owner_contact, price, status, verified_until, created_at FROM channel_listings ORDER BY created_at DESC LIMIT 200`;
   const num = (x: any) => ({ ...x, price: Number(x.price), commission: x.commission != null ? Number(x.commission) : undefined, payout: x.payout != null ? Number(x.payout) : undefined });
-  const held = deals.filter((d) => d.kind === "AD" && ["PAID", "POSTED", "VERIFIED"].includes(d.status)).reduce((s, d) => s + Number(d.price), 0);
-  const earned = deals.filter((d) => d.status === "RELEASED").reduce((s, d) => s + Number(d.commission), 0);
-  return { deals: deals.map(num), listings: listings.map(num), heldUsd: Math.round(held * 100) / 100, commissionUsd: Math.round(earned * 100) / 100 };
+  const held = deals.filter((d) => ["AD", "ASSET_SALE"].includes(d.kind) && ["PAID", "POSTED", "VERIFIED"].includes(d.status)).reduce((s, d) => s + Number(d.price), 0);
+  const earned = deals.filter((d) => ["AD", "ASSET_SALE"].includes(d.kind) && d.status === "RELEASED").reduce((s, d) => s + Number(d.commission), 0);
+  return { deals: deals.map(num), listings: listings.map(num), assetListings: assetMarket.listings, assetSales: assetMarket.sales, heldUsd: Math.round(held * 100) / 100, commissionUsd: Math.round(earned * 100) / 100 };
 }
 
 /** Admin moves: confirm a USDT payment, verify a post by hand, release (after paying the channel) or refund (after paying back). */
@@ -337,13 +364,26 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
   const d = await dealByCode(code);
   if (!d) return { ok: false, error: "غير موجود" };
   if (action === "confirm_paid") {
-    if (d.status !== "PENDING_PAYMENT") return { ok: false, error: "هذا الطلب ليس بانتظار الدفع." };
+    if (d.status !== "PENDING_PAYMENT" && !(d.kind === "ASSET_SALE" && d.status === "CANCELLED")) return { ok: false, error: "هذا الطلب ليس بانتظار الدفع أو مراجعة دفعة متأخرة." };
     const txHash = String(reference || "").trim();
     if (!isValidTronTransactionHash(txHash)) return { ok: false, error: "أدخل TXID صحيحاً من 64 خانة hex لشبكة TRC20." };
     const chain = await verifyTrc20UsdtPayment(txHash, usdtAddress(), Number(d.price));
     if (!chain.ok) return { ok: false, error: `لم يُعتمد الدفع: تعذّر التحقق من المعاملة على TRON (${chain.reason}). تحقق من TXID والعنوان والمبلغ وحاول التحديث بعد تأكيد الشبكة.` };
     const r = await markDealPaid(code, "USDT TRC20 (تحقق آلي عبر TronGrid)", undefined, txHash);
     return { ok: r.ok && r.first, error: r.ok && r.first ? undefined : "لم يتغير؛ ربما استُخدم TXID مسبقاً أو أُغلقت الصفقة." };
+  }
+  if (d.kind === "ASSET_SALE" && action === "verify") {
+    const reviewed = await adminAssetMarketAction(code, "verify_bot_sale", String(reference || ""));
+    return { ok: reviewed.ok, error: reviewed.error };
+  }
+  if (d.kind === "ASSET_SALE" && action === "refund") {
+    const sale = await assetSaleDetails(code, String(process.env.SUPER_ADMIN_TELEGRAM_ID || ""));
+    if (d.status === "VERIFIED" || sale?.sellerConfirmed || sale?.buyerConfirmed) {
+      return { ok: false, error: "تم الإبلاغ عن نقل الملكية أو إثباته. لا يمكن استرداد الصفقة آلياً؛ يجب فتح مراجعة نزاع والتحقق من إعادة الأصل أولاً." };
+    }
+  }
+  if (d.kind === "ASSET_SALE" && action === "refund" && d.status === "VERIFIED") {
+    return { ok: false, error: "لا يمكن استرداد صفقة بعد إثبات انتقال الملكية. افتح نزاعاً إدارياً بدلاً من عكس الصفقة تلقائياً." };
   }
   const to = action === "verify" ? "VERIFIED" : action === "release" ? "RELEASED" : action === "refund" ? "REFUNDED" : "CANCELLED";
   if (!canMove(d.status, to)) return { ok: false, error: `لا يمكن الانتقال من ${d.status} إلى ${to}` };
@@ -354,13 +394,23 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
     settled_at = CASE WHEN ${to} IN ('RELEASED','REFUNDED') THEN now() ELSE settled_at END,
     closed_at = CASE WHEN ${to} IN ('RELEASED','REFUNDED','CANCELLED') THEN now() ELSE closed_at END
     WHERE code = ${code} AND status = ${d.status}`;
+  if (n === 1 && d.kind === "ASSET_SALE") {
+    await ensureAssetMarketTables();
+    await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = ${to}, updated_at = now() WHERE code = ${code}`;
+    if (to === "REFUNDED" || to === "CANCELLED") {
+      await prisma.$executeRaw`UPDATE telegram_asset_listings l SET status = 'LISTED', updated_at = now()
+        WHERE l.id = (SELECT listing_id FROM telegram_asset_sales WHERE code = ${code}) AND l.status = 'RESERVED'
+          AND NOT EXISTS (SELECT 1 FROM telegram_asset_sales active WHERE active.listing_id = l.id
+            AND active.status NOT IN ('RELEASED','REFUNDED','CANCELLED'))`;
+    }
+  }
   return { ok: n === 1, error: n === 1 ? undefined : "تغيّرت الحالة، أعد التحميل" };
 }
 export async function channelExchangeRevenue(): Promise<{ commissionUsd: number; badgesUsd: number; heldUsd: number }> {
   await ensureChannelTables();
   const r = await prisma.$queryRaw<{ c: unknown; b: unknown; h: unknown }[]>`
-    SELECT COALESCE(SUM(commission) FILTER (WHERE kind='AD' AND status='RELEASED'),0) c,
+    SELECT COALESCE(SUM(commission) FILTER (WHERE kind IN ('AD','ASSET_SALE') AND status='RELEASED'),0) c,
            COALESCE(SUM(price) FILTER (WHERE kind='BADGE' AND status='RELEASED'),0) b,
-           COALESCE(SUM(price) FILTER (WHERE kind='AD' AND status IN ('PAID','POSTED','VERIFIED')),0) h FROM channel_deals`;
+           COALESCE(SUM(price) FILTER (WHERE kind IN ('AD','ASSET_SALE') AND status IN ('PAID','POSTED','VERIFIED')),0) h FROM channel_deals`;
   return { commissionUsd: Number(r[0]?.c || 0), badgesUsd: Number(r[0]?.b || 0), heldUsd: Number(r[0]?.h || 0) };
 }

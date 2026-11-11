@@ -28,7 +28,7 @@ function useList(key: string) {
 
 export default function ExchangeSection({ username }: { username: string }) {
   const { api } = useApp();
-  const [tab, setTab] = useState<"buy" | "mine" | "sell">("buy");
+  const [tab, setTab] = useState<"buy" | "mine" | "sell" | "assets">("buy");
   const [view, setView] = useState<View>({ v: "browse" });
   const [data, setData] = useState<{ listings: Listing[]; rules: Rules; myDeals?: string[]; myChannels?: string[] } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,10 +55,11 @@ export default function ExchangeSection({ username }: { username: string }) {
         <p className="mt-1 text-[12.5px] leading-5 opacity-85">يُطلب من مالك القناة إثبات التحكم بها. مؤشرات الجمهور مأخوذة من معاينة تيليجرام العامة لعينة من المنشورات، وهي تقديرات لا تضمن الوصول أو المبيعات. تتبع الدفع والنشر والتسوية من شاشة واحدة.</p>
       </div>
       {loadError && <Section><Empty icon="⚠️" title="تعذّر تحديث بعض البيانات" sub={loadError} action={<Btn small kind="ghost" onClick={() => void load()}>↻ إعادة المحاولة</Btn>} /></Section>}
-      <div className="mb-4"><Chips items={[{ id: "buy", label: "🛒 اشترِ إعلاناً" }, { id: "mine", label: `🧾 طلباتي${dealCodes.length ? ` (${dealCodes.length})` : ""}` }, { id: "sell", label: "💼 بِع إعلانات قناتك" }]} value={tab} onChange={(v) => setTab(v as any)} /></div>
+      <div className="mb-4"><Chips items={[{ id: "buy", label: "🛒 اشترِ إعلاناً" }, { id: "mine", label: `🧾 طلباتي${dealCodes.length ? ` (${dealCodes.length})` : ""}` }, { id: "sell", label: "💼 بِع إعلانات قناتك" }, { id: "assets", label: "🏪 بيع وشراء الأصول" }]} value={tab} onChange={(v) => setTab(v as any)} /></div>
       {tab === "buy" && <Browse data={data} onOpen={(l) => setView({ v: "channel", l })} onReload={load} />}
       {tab === "mine" && <MyDeals codes={dealCodes} onOpen={(code) => setView({ v: "deal", code })} onBrowse={() => setTab("buy")} />}
       {tab === "sell" && <SellHome rules={data.rules} tokens={channelTokens} onNew={() => setView({ v: "sell" })} onManage={(token) => setView({ v: "manage", token })} />}
+      {tab === "assets" && <AssetMarket />}
     </>
   );
 }
@@ -376,6 +377,247 @@ function Manage({ token, rules, onBadge }: { token: string; rules: Rules; onBadg
           </Section>
         </>
       )}
+    </>
+  );
+}
+
+
+type AssetType = "CHANNEL" | "GROUP" | "BOT";
+type AssetListingView = { id: string; assetType: AssetType; identifier: string; title: string; description: string; price: number; seller: { firstName: string; lastName: string | null; username: string }; verificationMode: string; createdAt: string };
+type AssetSaleView = {
+  code: string; status: string; sellerTelegramId: string; buyerTelegramId: string;
+  seller: any; buyer: any; sellerConfirmed: boolean; buyerConfirmed: boolean; paymentLate?: boolean; transferEvidence: string | null;
+  assetType: AssetType; identifier: string; title: string; price: number; commission: number; sellerAmount: number;
+  paymentReference: string | null; settlementReference: string | null;
+};
+const ASSET_STATUS: Record<string, string> = {
+  PENDING_PAYMENT: "بانتظار الدفع", PAID: "مدفوع · بانتظار التسليم", POSTED: "التسليم قيد التحقق",
+  VERIFIED: "تم إثبات نقل الملكية · بانتظار التسوية", RELEASED: "اكتملت الصفقة",
+  REFUNDED: "تم الاسترداد", CANCELLED: "أُلغي الحجز",
+};
+const ASSET_TYPE_LABEL: Record<AssetType, string> = { CHANNEL: "قناة", GROUP: "مجموعة", BOT: "بوت" };
+
+function AssetIdentityCard({ identity, onRequest }: { identity: any; onRequest: () => void }) {
+  const valid = !!identity?.phoneVerified && !!identity?.phoneNumber && !!identity?.username && identity.username !== "unknown";
+  return (
+    <Section title="🪪 هوية تيليجرام للطرفين" hint="المعرّف الرقمي هو مفتاح المطابقة. الاسم واليوزرنيم محفوظان كلقطة وقت الصفقة، ورقم الهاتف لا يُقبل إلا عبر مشاركة جهة الاتصال من حسابك.">
+      {identity ? (
+        <div className="space-y-1 px-3 py-2 text-sm">
+          <p className="font-bold">{identity.firstName} {identity.lastName || ""}</p>
+          <p dir="ltr" className="text-xs">@{identity.username || "لا يوجد Username"} · Telegram ID: {identity.telegramId}</p>
+          <p dir="ltr" className="text-xs">{identity.phoneVerified ? identity.phoneNumber : "رقم الهاتف غير موثّق"}</p>
+          <Pill tone={valid ? "ok" : "warn"}>{valid ? "الهوية مكتملة" : "أكمل توثيق الهوية قبل البيع أو الشراء"}</Pill>
+        </div>
+      ) : <p className="px-3 py-2 text-sm">لم يتم تسجيل هويتك بعد. أعد تحميل الصفحة.</p>}
+      {!valid && <Btn className="w-full" onClick={onRequest}>📱 توثيق رقم الهاتف من تيليجرام</Btn>}
+      {!identity?.username || identity?.username === "unknown" ? <p className="px-3 text-xs text-amber-700">عيّن Username عاماً في إعدادات تيليجرام، فالمعرّف الرقمي وحده لا يكفي لعرض بيانات التواصل للطرفين.</p> : null}
+    </Section>
+  );
+}
+
+function AssetMarket() {
+  const { api, toast, open } = useApp();
+  const [tab, setTab] = useState<"browse" | "sell" | "deals">("browse");
+  const [data, setData] = useState<{ listings: AssetListingView[]; myListings: any[]; mySales: string[]; identity: any; verifierBots: string[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sale, setSale] = useState<AssetSaleView | null>(null);
+  const [manualPay, setManualPay] = useState<any>(null);
+  const [form, setForm] = useState({ assetType: "CHANNEL" as AssetType, identifier: "", title: "", description: "", price: "", payoutAddress: "" });
+  const [evidence, setEvidence] = useState("");
+  const [query, setQuery] = useState("");
+
+  const load = useCallback(async () => {
+    const r = await api<any>("ex_asset_list");
+    if (r.ok) setData(r);
+    else toast(r.error || "تعذّر تحميل سوق الأصول.", "err");
+  }, [api, toast]);
+  useEffect(() => { void load(); }, [load]);
+
+  const identityReady = !!data?.identity?.phoneVerified && !!data.identity.phoneNumber && !!data.identity.username && data.identity.username !== "unknown";
+  const requestIdentity = async () => {
+    const r = await api<any>("ex_asset_identity_request");
+    if (!r.ok) { toast(r.error || "تعذّر طلب مشاركة رقم الهاتف.", "err"); return; }
+    toast("أرسلنا زر مشاركة جهة الاتصال إلى محادثة البوت. افتح المحادثة وشارك رقمك ثم حدّث الهوية.", "ok");
+    if (r.link) open(r.link);
+  };
+  const showSale = async (code: string) => {
+    setBusy(true);
+    const r = await api<any>("ex_asset_sale", { code });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "الصفقة غير متاحة.", "err"); return; }
+    setSale(r.sale);
+    setManualPay(null);
+    setEvidence("");
+    setTab("deals");
+  };
+  const buy = async (l: AssetListingView) => {
+    if (!identityReady) { toast("أكمل توثيق الاسم واليوزرنيم ورقم الهاتف أولاً.", "err"); await requestIdentity(); return; }
+    setBusy(true);
+    const r = await api<any>("ex_asset_buy", { listingId: l.id });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "تعذّر حجز الأصل.", "err"); return; }
+    toast("تم حجز العرض. أكمل الدفع خلال 30 دقيقة.", "ok");
+    await showSale(r.code);
+  };
+  const create = async () => {
+    if (!identityReady) { toast("أكمل توثيق هويتك ورقم هاتفك قبل عرض الأصل.", "err"); await requestIdentity(); return; }
+    const price = Number(form.price);
+    if (!form.identifier.trim() || !(price > 0) || !Number.isFinite(price) || form.description.trim().length < 30 || form.payoutAddress.trim().length < 20) {
+      toast("أكمل المعرّف والوصف، وأدخل سعراً موجباً ومحفظة استلام صحيحة.", "err"); return;
+    }
+    setBusy(true);
+    const r = await api<any>("ex_asset_create", { ...form, price });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "تعذّر إنشاء العرض.", "err"); return; }
+    toast(r.status === "LISTED" ? "تم إثبات ملكيتك وإتاحة العرض في السوق." : "أرسل العرض إلى مراجعة المالك؛ لن يظهر للمشترين قبل اعتماده.", "ok");
+    setForm({ assetType: "CHANNEL", identifier: "", title: "", description: "", price: "", payoutAddress: "" });
+    await load();
+    setTab("sell");
+  };
+  const pay = async (method: "stars" | "nowpayments" | "usdt") => {
+    if (!sale) return;
+    setBusy(true);
+    const r = await api<any>("ex_pay", { code: sale.code, method });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "تعذّر بدء الدفع.", "err"); return; }
+    if (r.manual) { setManualPay(r); return; }
+    if (r.url) open(r.url);
+  };
+  const sellerTransfer = async () => {
+    if (!sale) return;
+    setBusy(true);
+    const r = await api<any>("ex_asset_transfer", { code: sale.code, evidence });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "تعذّر تسجيل التسليم.", "err"); return; }
+    toast("سُجل تأكيد البائع. انتظر تحقق المشتري أو مراجعة الإدارة للبوت.", "ok");
+    await showSale(sale.code);
+  };
+  const buyerReceive = async () => {
+    if (!sale) return;
+    setBusy(true);
+    const r = await api<any>("ex_asset_receive", { code: sale.code });
+    setBusy(false);
+    if (!r.ok) { toast(r.error || "لم نثبت نقل الملكية.", "err"); return; }
+    toast(r.manualReview ? "أكدت الاستلام. تنتظر صفقة البوت مراجعة المالك في BotFather." : "تم إثبات أن حسابك أصبح المالك.", "ok");
+    await showSale(sale.code);
+    await load();
+  };
+
+  const identityLine = (label: string, x: any) => (
+    <div className="rounded-xl p-3 text-sm" style={{ background: "var(--app-chip)" }}>
+      <p className="mb-1 font-bold">{label}</p>
+      <p>{x?.firstName || "—"} {x?.lastName || ""}</p>
+      <p dir="ltr" className="text-xs">@{x?.username || "—"} · ID {x?.telegramId || "—"}</p>
+      <p dir="ltr" className="text-xs">{x?.phoneNumber || "الهاتف غير متاح"}</p>
+    </div>
+  );
+
+  if (!data) return <Section><Loading /></Section>;
+  return (
+    <>
+      <ScreenTitle icon="🏪" title="سوق ملكية أصول تيليجرام" sub="بيع وشراء القنوات والمجموعات والبوتات مع تسجيل هوية الطرفين وتتبع التسليم." />
+      <AssetIdentityCard identity={data.identity} onRequest={requestIdentity} />
+      <div className="mb-3"><Chips items={[{ id: "browse", label: "🛒 شراء أصل" }, { id: "sell", label: "➕ اعرض أصلاً" }, { id: "deals", label: `🧾 صفقاتي ${data.mySales.length ? `(${data.mySales.length})` : ""}` }]} value={tab} onChange={(v) => { setTab(v as any); setSale(null); setManualPay(null); }} /></div>
+
+      {tab === "browse" && (
+        <>
+          <div className="mb-3 rounded-2xl p-3" style={{ background: "var(--app-card)" }}>
+            <input className={inputCls} style={inputStyle} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث باسم الأصل أو معرّفه" />
+          </div>
+          {data.listings.filter((x) => !query || [x.title, x.identifier].some((v) => v.toLowerCase().includes(query.toLowerCase().replace(/^@/, "")))).length === 0
+            ? <Section><Empty icon="🏪" title="لا توجد أصول معروضة" sub="تأكد من عودتك بعد توثيق ملكية العرض." /></Section>
+            : <div className="space-y-2">
+              {data.listings.filter((x) => !query || [x.title, x.identifier].some((v) => v.toLowerCase().includes(query.toLowerCase().replace(/^@/, "")))).map((l) => (
+                <div key={l.id} className="rounded-2xl p-4" style={{ background: "var(--app-card)" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0"><p className="font-bold">{l.title}</p><p dir="ltr" className="text-xs" style={{ color: "var(--app-hint)" }}>{l.assetType} · @{l.identifier}</p></div>
+                    <p dir="ltr" className="shrink-0 font-black text-violet-700">${l.price.toFixed(2)}</p>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm">{l.description}</p>
+                  <div className="mt-2 text-xs" style={{ color: "var(--app-hint)" }}>البائع: {l.seller.firstName} {l.seller.lastName || ""} · @{l.seller.username} · التحقق: {l.verificationMode === "TELEGRAM_CREATOR_CHECK" ? "ملكية عبر بوت تيليجرام" : "مراجعة الإدارة"}</div>
+                  <Btn className="mt-3 w-full" onClick={() => buy(l)} disabled={busy || !identityReady}>شراء وحجز الأصل · ${l.price}</Btn>
+                </div>
+              ))}
+            </div>}
+          <p className="mt-3 px-1 text-xs leading-5" style={{ color: "var(--app-hint)" }}>الأسعار بالدولار، ولا توجد عمولة سوق مفعّلة حالياً؛ يستحق البائع كامل السعر المعروض. لا يُصرف شيء قبل التأكد من نقل الملكية وتسجيل مرجع الصرف. لا تطلب كلمات مرور أو رموز دخول.</p>
+        </>
+      )}
+
+      {tab === "sell" && (
+        <>
+          <Section title="➕ اعرض قناة أو مجموعة أو بوت" hint={`القنوات والمجموعات: أضف أحد هذه الحسابات كمشرف ثم سنفحص صفة المالك: ${(data.verifierBots || []).join(" أو ") || "لا يوجد بوت تحقق متاح حالياً"}. البوتات: مراجعة BotFather يدوية قبل إتاحتها.`}>
+            <Field label="نوع الأصل">
+              <select className={inputCls} style={inputStyle} value={form.assetType} onChange={(e) => setForm({ ...form, assetType: e.target.value as AssetType })}>
+                <option value="CHANNEL">قناة تيليجرام</option><option value="GROUP">مجموعة تيليجرام</option><option value="BOT">بوت تيليجرام</option>
+              </select>
+            </Field>
+            <Field label={form.assetType === "BOT" ? "معرّف البوت" : "معرّف القناة أو المجموعة"} hint="اكتب @username العام أو chat ID يبدأ بـ -100 للمجموعات/القنوات الخاصة بعد إضافة بوت التحقق.">
+              <input dir="ltr" className={inputCls} style={inputStyle} value={form.identifier} onChange={(e) => setForm({ ...form, identifier: e.target.value.trim() })} placeholder="@username أو -100..." />
+            </Field>
+            <Field label="اسم الأصل"><input className={inputCls} style={inputStyle} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="اسم القناة أو المجموعة أو البوت" /></Field>
+            <Field label="وصف الأصل"><textarea rows={4} maxLength={1800} className={`${inputCls} resize-none`} style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="المجال، الجمهور، المميزات، سبب البيع، وأي معلومات مهمة..." /></Field>
+            <Field label="سعر البيع بالدولار (مبلغ موجب)"><input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="100" /></Field>
+            <Field label="محفظة استلام مستحق البيع (USDT-TRC20 أو TON)"><input dir="ltr" className={`${inputCls} font-mono text-xs`} style={inputStyle} value={form.payoutAddress} onChange={(e) => setForm({ ...form, payoutAddress: e.target.value.trim() })} placeholder="عنوان المحفظة" /></Field>
+          </Section>
+          <MainAction text="إرسال العرض للتحقق" onClick={create} disabled={busy || !identityReady} busy={busy} color="#7c3aed" />
+          <Section title="عروضي الحالية">
+            {data.myListings.length === 0 ? <Empty icon="📭" title="لم تعرض أي أصل بعد" /> : data.myListings.map((x) => (
+              <Row key={x.id} icon={x.assetType === "BOT" ? "🤖" : x.assetType === "GROUP" ? "👥" : "📣"} title={`${x.title} · @${x.identifier}`} sub={`${x.price}$ · ${x.status === "LISTED" ? "معروض" : x.status === "PENDING_REVIEW" ? "بانتظار مراجعة المالك" : x.status === "RESERVED" ? "محجوز لمشترٍ" : x.status}`} right={<Pill tone={x.status === "LISTED" ? "ok" : "warn"}>{x.status === "LISTED" ? "نشط" : "متابعة"}</Pill>} />
+            ))}
+          </Section>
+        </>
+      )}
+
+      {tab === "deals" && (
+        <>
+          {sale ? (
+            <>
+              <Section title={`صفقة ${sale.code}`}>
+                <p className="font-bold">{sale.title} · {ASSET_TYPE_LABEL[sale.assetType]} · @{sale.identifier}</p>
+                <p className="mt-1 text-sm">السعر ${sale.price.toFixed(2)} · العمولة الحالية ${sale.commission.toFixed(2)} · مستحق البائع ${sale.sellerAmount.toFixed(2)}</p>
+                <Pill tone={sale.status === "VERIFIED" || sale.status === "RELEASED" ? "ok" : "warn"}>{ASSET_STATUS[sale.status] || sale.status}</Pill>
+                <p className="mt-2 text-xs" style={{ color: "var(--app-hint)" }}>تطابق الأطراف يتم بواسطة Telegram ID؛ الاسم واليوزرنيم والهاتف محفوظة كلقطة وقت الشراء.</p>
+              </Section>
+              <Section title="هويات الطرفين">
+                {identityLine("البائع", sale.seller)}
+                {identityLine("المشتري", sale.buyer)}
+              </Section>
+              {sale.paymentLate && <Section><Row icon="⚠️" title="وصل الدفع خارج شروط الحجز" sub="لم تُعتمد هذه الصفقة ولم يُسمح بنقل الأصل. ستراجع الإدارة الاسترداد؛ لا ترسل للبائع أي مبلغ ولا تنفذ النقل." /></Section>}
+              <Section title="الدفع والتسوية">
+                <Row icon="🔒" title="لا صرف قبل إثبات نقل الملكية" sub="مرجع الدفع الوارد ومرجع صرف مستحق البائع يسجلان منفصلين." />
+                {sale.paymentReference && <Copyable label="مرجع الدفع" value={sale.paymentReference} />}
+                {sale.settlementReference && <Copyable label="مرجع التسوية" value={sale.settlementReference} />}
+                <p className="text-xs" style={{ color: "var(--app-hint)" }}>قيمة الصفقة ${sale.price.toFixed(2)} · مستحق البائع ${sale.sellerAmount.toFixed(2)}</p>
+              </Section>
+              {sale.status === "PENDING_PAYMENT" && (
+                <Section title="أكمل الدفع">
+                  <p className="text-sm">الحجز صالح 30 دقيقة من إنشائه. ادفع عبر طريقة متاحة أدناه.</p>
+                  <div className="flex flex-wrap gap-2"><Btn small onClick={() => pay("stars")}>⭐ نجوم</Btn><Btn small onClick={() => pay("nowpayments")}>🪙 دفع إلكتروني</Btn><Btn small onClick={() => pay("usdt")}>USDT</Btn></div>
+                  {manualPay && <div className="mt-3 space-y-2"><Copyable label="المبلغ" value={String(manualPay.amount)} /><Copyable label="العنوان" value={manualPay.usdt} /><Copyable label="مرجع الصفقة" value={sale.code} /><p className="text-xs">{manualPay.note}</p></div>}
+                </Section>
+              )}
+              {sale.status === "PAID" && sale.sellerTelegramId === data.identity?.telegramId && (
+                <Section title="تأكيد تسليم الأصل" hint={sale.assetType === "BOT" ? "أكمل نقل الملكية من BotFather أولاً، ثم أدخل رابط الدليل الذي ستراجعه الإدارة." : "نفّذ نقل الملكية داخل تيليجرام أولاً. بعد ذلك يضغط المشتري على التحقق من الملكية."}>
+                  {sale.assetType === "BOT" && <Field label="رابط دليل BotFather (HTTPS)"><input dir="ltr" className={inputCls} style={inputStyle} value={evidence} onChange={(e) => setEvidence(e.target.value)} placeholder="https://..." /></Field>}
+                  <Btn className="w-full" onClick={sellerTransfer} disabled={busy || (sale.assetType === "BOT" && !/^https:\/\//i.test(evidence))}>📦 أتممت نقل الملكية</Btn>
+                </Section>
+              )}
+              {sale.status === "POSTED" && sale.buyerTelegramId === data.identity?.telegramId && (
+                <Section title="تحقق من استلام الملكية" hint={sale.assetType === "BOT" ? "أكد الاستلام بعد نقل البوت إلى حسابك. سيبقى الصرف متوقفاً حتى مراجعة BotFather من الإدارة." : "سنتحقق عبر بوت المنصة من أن Telegram ID الخاص بك أصبح صاحب صفة creator."}>
+                  <Btn className="w-full" onClick={buyerReceive} disabled={busy}>✅ تحقق من الملكية الآن</Btn>
+                </Section>
+              )}
+              {sale.status === "VERIFIED" && <Section><Row icon="✅" title="تم إثبات نقل الملكية" sub="بقي على الإدارة تحويل مستحق البائع وتسجيل مرجع العملية قبل إغلاق الصفقة." /></Section>}
+              <Btn kind="ghost" onClick={() => { setSale(null); setManualPay(null); }}>رجوع إلى صفقاتي</Btn>
+            </>
+          ) : (
+            <Section title="صفقاتي" hint="تظهر الصفقات التي كنت فيها مشترياً أو بائعاً.">
+              {data.mySales.length === 0 ? <Empty icon="🧾" title="لا توجد صفقات بعد" sub="احجز أصلاً معروضاً أو اعرض أصلك لتظهر الصفقة هنا." /> : data.mySales.map((code) => <Row key={code} icon="🛍️" title={code} sub="افتح لتفاصيل الهوية والتسليم والدفع" onClick={() => void showSale(code)} right={<Pill tone="info">فتح</Pill>} />)}
+            </Section>
+          )}
+        </>
+      )}
+      <div className="mt-3 flex justify-end"><Btn small kind="ghost" onClick={() => void load()}>↻ تحديث سوق الأصول</Btn></div>
     </>
   );
 }
