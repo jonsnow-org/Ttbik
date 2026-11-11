@@ -47,7 +47,7 @@ export async function ensureAssetMarketTables(): Promise<void> {
         seller_telegram_id TEXT NOT NULL, buyer_telegram_id TEXT NOT NULL,
         seller_snapshot JSONB NOT NULL, buyer_snapshot JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',
         seller_confirmed BOOLEAN NOT NULL DEFAULT FALSE, buyer_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
-        transfer_evidence TEXT, verification_bot TEXT, verification_reference TEXT, expires_at TIMESTAMPTZ NOT NULL,
+        transfer_evidence TEXT, verification_bot TEXT, verification_reference TEXT, payment_late BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS telegram_asset_one_open_sale_idx ON telegram_asset_sales (listing_id)
@@ -56,6 +56,7 @@ export async function ensureAssetMarketTables(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS telegram_asset_sales_seller_idx ON telegram_asset_sales (seller_telegram_id, created_at DESC)`,
     ];
     for (const q of ddl) await prisma.$executeRawUnsafe(q);
+    await prisma.$executeRawUnsafe("ALTER TABLE telegram_asset_sales ADD COLUMN IF NOT EXISTS payment_late BOOLEAN NOT NULL DEFAULT FALSE");
     const security = [
       "ALTER TABLE telegram_asset_identities ENABLE ROW LEVEL SECURITY",
       "ALTER TABLE telegram_asset_listings ENABLE ROW LEVEL SECURITY",
@@ -182,15 +183,33 @@ async function verifyChatOwner(type: "CHANNEL" | "GROUP", identifier: string, te
 
 async function releaseExpiredReservations() {
   await ensureAssetMarketTables();
+  // Close expired reservations atomically. Never unlock a newer reservation on the same listing.
   await prisma.$executeRaw`
+    WITH expired AS (
+      UPDATE telegram_asset_sales SET status = 'CANCELLED', updated_at = now()
+      WHERE status = 'PENDING_PAYMENT' AND expires_at < now()
+      RETURNING listing_id
+    )
     UPDATE telegram_asset_listings l SET status = 'LISTED', updated_at = now()
-    FROM telegram_asset_sales s
-    WHERE s.listing_id = l.id AND s.status = 'PENDING_PAYMENT' AND s.expires_at < now() AND l.status = 'RESERVED'
+    FROM (SELECT DISTINCT listing_id FROM expired) e
+    WHERE l.id = e.listing_id AND l.status = 'RESERVED'
+      AND NOT EXISTS (
+        SELECT 1 FROM telegram_asset_sales active
+        WHERE active.listing_id = l.id AND active.status NOT IN ('RELEASED','REFUNDED','CANCELLED')
+      )
   `;
-  await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = 'CANCELLED', updated_at = now() WHERE status = 'PENDING_PAYMENT' AND expires_at < now()`;
-  await prisma.$executeRaw`UPDATE channel_deals SET status = 'CANCELLED', closed_at = now() WHERE code IN (SELECT code FROM telegram_asset_sales WHERE status = 'CANCELLED') AND status = 'PENDING_PAYMENT'`;
 }
 
+export async function assetSalePaymentIsAvailable(code: string): Promise<boolean> {
+  await releaseExpiredReservations();
+  const rows = await prisma.$queryRaw<any[]>`
+    SELECT s.status, s.expires_at, l.status AS listing_status
+    FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id = s.listing_id
+    WHERE s.code = ${code} LIMIT 1
+  `;
+  const row = rows[0];
+  return !!row && row.status === "PENDING_PAYMENT" && new Date(row.expires_at).getTime() > Date.now() && row.listing_status === "RESERVED";
+}
 export async function publicAssetListings() {
   await releaseExpiredReservations();
   const rows = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, description, asking_price, seller_snapshot, verification_mode, created_at
@@ -319,7 +338,7 @@ export async function createAssetSale(listingId: string, buyerTelegramId: string
 export async function assetSaleDetails(code: string, actorTelegramId: string) {
   await ensureAssetMarketTables();
   const rows = await prisma.$queryRaw<any[]>`SELECT s.code, s.status, s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot,
-      s.seller_confirmed, s.buyer_confirmed, s.transfer_evidence, s.verification_bot, s.verification_reference,
+      s.seller_confirmed, s.buyer_confirmed, s.transfer_evidence, s.payment_late, s.verification_bot, s.verification_reference,
       l.asset_type, l.identifier, l.title, l.asking_price, d.price, d.commission, d.payout, d.payment_reference, d.settlement_reference, d.created_at
     FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id = s.listing_id
     JOIN channel_deals d ON d.code = s.code WHERE s.code = ${code} LIMIT 1`;
@@ -328,7 +347,7 @@ export async function assetSaleDetails(code: string, actorTelegramId: string) {
   return {
     code: String(x.code), status: String(x.status), sellerTelegramId: String(x.seller_telegram_id), buyerTelegramId: String(x.buyer_telegram_id),
     seller: x.seller_snapshot as AssetIdentitySnapshot, buyer: x.buyer_snapshot as AssetIdentitySnapshot, sellerConfirmed: !!x.seller_confirmed,
-    buyerConfirmed: !!x.buyer_confirmed, transferEvidence: x.transfer_evidence || null, verifierBot: x.verification_bot || null,
+    buyerConfirmed: !!x.buyer_confirmed, paymentLate: !!x.payment_late, transferEvidence: x.transfer_evidence || null, verifierBot: x.verification_bot || null,
     verificationReference: x.verification_reference || null, assetType: x.asset_type as TelegramAssetType, identifier: String(x.identifier),
     title: String(x.title), price: Number(x.price), commission: Number(x.commission), sellerAmount: Number(x.payout),
     paymentReference: x.payment_reference || null, settlementReference: x.settlement_reference || null, createdAt: new Date(x.created_at).toISOString(),
@@ -374,8 +393,25 @@ export async function confirmAssetReceipt(code: string, buyerTelegramId: string)
 
 export async function onAssetSalePaid(code: string) {
   await ensureAssetMarketTables();
-  await prisma.$executeRaw`UPDATE telegram_asset_sales SET status = 'PAID', updated_at = now() WHERE code = ${code} AND status = 'PENDING_PAYMENT'`;
-  await notifySaleParties(code, `💳 تأكد دفع الصفقة ${code}. يستطيع البائع الآن بدء التسليم. احتفظا بمرجع الصفقة، ولا ترسلا أي رموز دخول أو كلمات مرور.`);
+  const accepted = await prisma.$executeRaw`UPDATE telegram_asset_sales
+    SET status = 'PAID', updated_at = now()
+    WHERE code = ${code} AND status = 'PENDING_PAYMENT' AND expires_at >= now()`;
+  if (accepted === 1) {
+    await notifySaleParties(code, `💳 تأكد دفع الصفقة ${code}. يستطيع البائع الآن بدء التسليم. احتفظا بمرجع الصفقة، ولا ترسلا أي رموز دخول أو كلمات مرور.`);
+    return;
+  }
+  const late = await prisma.$executeRaw`UPDATE telegram_asset_sales SET payment_late = TRUE, updated_at = now()
+    WHERE code = ${code} AND status = 'CANCELLED'`;
+  if (late === 1) {
+    const detail = await assetSaleDetails(code, String(process.env.SUPER_ADMIN_TELEGRAM_ID || ""));
+    await notifyMarketAdmin(`⚠️ وصلت دفعة بعد انتهاء حجز أصل تيليجرام
+الصفقة: ${code}
+الأصل: ${detail?.title || ""} · ${detail?.identifier || ""}
+المشتري: ${detail?.buyer.firstName || ""} (@${detail?.buyer.username || ""}) · ID ${detail?.buyerTelegramId || ""}
+البائع: ${detail?.seller.firstName || ""} (@${detail?.seller.username || ""}) · ID ${detail?.sellerTelegramId || ""}
+لا تبدأوا التسليم؛ يجب على الإدارة مراجعة الاسترداد.`);
+    await notifySaleParties(code, `⚠️ وصلت دفعة الصفقة ${code} بعد انتهاء الحجز. لم تُعتمد الصفقة ولم يبدأ التسليم؛ ستراجع الإدارة عملية الاسترداد. لا تنقلوا الأصل بناءً على هذه الدفعة.`);
+  }
 }
 
 export async function adminAssetMarketData() {
@@ -383,9 +419,9 @@ export async function adminAssetMarketData() {
   const listings = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, asking_price, payout_address, payout_network, status, seller_telegram_id, seller_snapshot, verification_mode, review_reference, created_at
     FROM telegram_asset_listings WHERE status IN ('PENDING_REVIEW','LISTED','RESERVED') ORDER BY created_at DESC LIMIT 100`;
   const sales = await prisma.$queryRaw<any[]>`SELECT s.code, s.status, s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot, s.seller_confirmed, s.buyer_confirmed,
-      s.transfer_evidence, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
+      s.transfer_evidence, s.payment_late, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
     FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id=s.listing_id JOIN channel_deals d ON d.code=s.code
-    WHERE s.status NOT IN ('RELEASED','REFUNDED','CANCELLED') ORDER BY s.created_at DESC LIMIT 100`;
+    WHERE s.status NOT IN ('RELEASED','REFUNDED','CANCELLED') OR s.payment_late = TRUE ORDER BY s.created_at DESC LIMIT 100`;
   return {
     listings: listings.map((x) => ({ ...x, asking_price: Number(x.asking_price) })),
     sales: sales.map((x) => ({ ...x, price: Number(x.price), payout: Number(x.payout) })),
