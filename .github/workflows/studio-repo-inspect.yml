@@ -13,10 +13,8 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           MS=https://www.modelscope.cn
-          for R in sham-v2-server; do
-            echo "===== $R git log"
-            git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${R}.git" r 2>&1 | sed "s/${T}/***/g"
-            git -C r log --format='%H %ad %s' --date=iso -8; git -C r branch -a
-            echo "===== $R build log (commit / fetch lines)"
-            curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -iE "commit|fetch|checkout|clone|branch|###" | head -40 | cut -c1-300
-          done
+          R=nova-inference-server
+          echo "===== record"; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R" | python3 -c "import json,sys;d=json.load(sys.stdin).get('Data') or json.load(open('/dev/null')) if False else json.load(sys.stdin)" 2>/dev/null; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R" | python3 -c "
+          import json,sys;d=json.load(sys.stdin);d=d.get('data') or d.get('Data') or d
+          for k in ('status','base_image','sdk_type','sdk_version','hardware','runtime'): print(k, str(d.get(k))[:300])"
+          for kind in build run; do echo "===== $kind log tail"; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$R/logs/$kind" | sed 's/\\n/\n/g; s/","/\n/g' | grep -v "^\s*$" | tail -25 | cut -c1-260; done
