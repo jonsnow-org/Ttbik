@@ -79,6 +79,20 @@ jobs:
           [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above)"; exit 1; }
           sleep 10
 
+      - name: Make sure the Studio is on the free 16 GB CPU tier
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -uo pipefail
+          # live 2026-11-11 (run 42963822660): a newly created Studio comes up on platform/2v-cpu-8g-mem whatever the create body asks
+          hw=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d.get('Data') or {};print(d.get('hardware') or (d.get('runtime') or {}).get('hardware') or '')" 2>/dev/null || true)
+          echo "hardware now: $hw"
+          case "$hw" in *16g*) exit 0;; esac
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o hw.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d '{"hardware":"platform/2v-cpu-16g-mem"}' "$MS/openapi/v1/studios/$OWNER/$REPO/settings" || true)
+          echo "hardware PATCH HTTP $code"; head -c 600 hw.json; echo
+          sleep 5
+
       - name: Verify the target is the private 16 GB Studio
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
