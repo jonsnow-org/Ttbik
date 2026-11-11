@@ -9,17 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
-          STUDIO: sham-v2-server
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
-          echo "::add-mask::$T"
-          echo "== build log"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -v "Layer already exists" | head -150 | cut -c1-300
-          GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" s 2>&1 | sed "s/${T}/***/g" || true
-          cd s
-          b=origin/sbuild-371239-1793316753
-          echo "== files changed by build commit"; git show --stat --format='%h %P %s' $b | head -20
-          for f in $(git show --name-only --format= $b); do echo "--- $f"; git show $b:$f | head -60; done
-          echo "== old sham_app has generate_chat failed print: $(git show $b:sham_app.py | grep -c 'generate_chat failed (')"
-          git log --format='%h %ad %s' --date=iso -12 origin/master
+          pip install -q kaggle==2.2.5
+          kaggle datasets list -m -s sham-crawl- --csv -p 1 | head -5; echo ---
+          kaggle datasets list -m --csv -p 1 | head -5; echo ---
+          kaggle datasets list --user jonsnowjonsnow -s sham-crawl --csv | head -5; echo ---
+          cd ai-system/colab/sham_small && python3 -c "import sham_inputs; print(sham_inputs.crawl_dataset_names())"
