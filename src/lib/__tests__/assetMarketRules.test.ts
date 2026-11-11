@@ -38,11 +38,11 @@ describe("Telegram asset market identity rules", () => {
 });
 
 describe("Telegram asset sale accounting", () => {
-  it("splits platform commission without rounding the seller twice", () => {
-    expect(splitAssetSale(100)).toEqual({ price: 100, commission: 15, payout: 85 });
-    expect(splitAssetSale(19.99)).toEqual({ price: 19.99, commission: 3, payout: 16.99 });
+  it("keeps the full price for the seller until the owner configures a market fee", () => {
+    expect(splitAssetSale(100)).toEqual({ price: 100, commission: 0, payout: 100 });
+    expect(splitAssetSale(19.99)).toEqual({ price: 19.99, commission: 0, payout: 19.99 });
+    expect(ASSET_MARKET_COMMISSION_RATE).toBe(0);
     expect(ASSET_MARKET_MIN_PRICE).toBe(10);
-    expect(ASSET_MARKET_MAX_PRICE).toBe(25000);
   });
 
   it("creates asset sale reference codes accepted by the payment ledger", () => {
