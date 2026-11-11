@@ -1,7 +1,7 @@
 // ONE mode system for every model (src/lib/modes.ts, docs/MODES.md): classification, the mode table, thinking rules, Nova's real loop, Sham's agent, the owner's force.
 import { classifyRequest, effectiveMode, resolveProfile, normalizePref, NOVA_LITE_SYSTEM, requiresProgressCard } from "@/lib/modes";
 import { _setForcedForTests, forcedMode, refreshForced } from "@/lib/modeForce";
-import { drive, saveState, loadState, withModelIdentity, type Db } from "@/lib/coderSections";
+import { drive, saveState, loadState, withModelIdentity, LITE_ARABIC_NOTE, type Db } from "@/lib/coderSections";
 import { shamAgentRun } from "@/lib/shamAgent";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
 import { shamToolDefs } from "@/lib/shamAgent";
@@ -169,6 +169,11 @@ describe("Nova's real loop uses the profile", () => {
     const first = chats(calls)[0].body;
     expect(first.tools).toBe(""); expect(first.think).toBe(""); expect(first.max_tokens).toBe(200);
     expect(JSON.parse(first.messages)[0].content).toBe(withModelIdentity(NOVA_LITE_SYSTEM, "coder") + "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English.");
+    const wire = JSON.parse(first.messages);
+    expect(wire[wire.length - 1].role).toBe("user");
+    expect(wire[wire.length - 1].content.startsWith("مرحبا")).toBe(true);
+    expect(wire[wire.length - 1].content.endsWith("\n\n" + LITE_ARABIC_NOTE)).toBe(true);           // the last thing the model reads (after the English context block); this call only
+    expect((await loadState(CHAT, db)).messages[0].content).toBe("مرحبا");                              // the saved conversation is unchanged
     expect(sent.map((s) => s.text)).toContain("أهلاً بك!");
   });
   it("a greeting right after a question or a tool call keeps the full path (it may be the answer to it)", async () => {
