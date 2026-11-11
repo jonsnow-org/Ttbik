@@ -12,6 +12,12 @@ export function bootWarm(): void {
   void (async () => {
     const { runtime } = await import("@/lib/coderRuntime");
     if (runtime() !== "node") return;
+    try {      // every model's own Studios stay awake from this always-on server (GitHub's cron fired only ~every 2 h)
+      const { startKeepAwake } = await import("@/lib/studioKeepAwake");
+      startKeepAwake();
+    } catch (e) {
+      console.warn("[studio-keep-awake]", String((e as Error)?.message || e).slice(0, 160));
+    }
     const timer = setTimeout(() => {
       void (async () => {
         try {
