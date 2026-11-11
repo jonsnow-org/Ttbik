@@ -271,6 +271,16 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
     // The partial unique index rejects reusing one TRON TXID for two paid orders.
     return { ok: false, first: false };
   }
+  if (n !== 1 && d.kind === "ASSET_SALE") {
+    // An invoice can be paid after an owner/admin closed the unpaid reservation.
+    // Record the real incoming payment so it is surfaced for refund review instead of disappearing.
+    try {
+      n = await prisma.$executeRaw`UPDATE channel_deals SET status = 'PAID', paid_via = ${via.slice(0, 120)},
+        payment_reference = ${paymentRef}, paid_at = now() WHERE code = ${code} AND status = 'CANCELLED'`;
+    } catch {
+      return { ok: false, first: false };
+    }
+  }
   if (n !== 1) return { ok: true, first: false };
   if (d.kind === "ASSET_SALE") {
     await ensureAssetMarketTables();
