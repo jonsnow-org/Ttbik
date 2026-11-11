@@ -355,7 +355,7 @@ export async function adminDealAction(code: string, action: "confirm_paid" | "ve
   const d = await dealByCode(code);
   if (!d) return { ok: false, error: "غير موجود" };
   if (action === "confirm_paid") {
-    if (d.status !== "PENDING_PAYMENT") return { ok: false, error: "هذا الطلب ليس بانتظار الدفع." };
+    if (d.status !== "PENDING_PAYMENT" && !(d.kind === "ASSET_SALE" && d.status === "CANCELLED")) return { ok: false, error: "هذا الطلب ليس بانتظار الدفع أو مراجعة دفعة متأخرة." };
     const txHash = String(reference || "").trim();
     if (!isValidTronTransactionHash(txHash)) return { ok: false, error: "أدخل TXID صحيحاً من 64 خانة hex لشبكة TRC20." };
     const chain = await verifyTrc20UsdtPayment(txHash, usdtAddress(), Number(d.price));
