@@ -34,7 +34,7 @@ jobs:
   sync:
     if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
         with:
@@ -197,7 +197,7 @@ jobs:
             echo "Deploying Sham v1 Studio (attempt $attempt/2)"
             curl -fsS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1000; echo
             retry_build_ref=0
-            for i in $(seq 1 80); do
+            for i in $(seq 1 170); do   # the image build alone takes 40+ min (pip layer ~21 min + registry push): 85 min budget, not 40
               sleep 30
               st=$(curl -fsS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
               echo "$(date -u +%H:%M:%S) Sham v1 Studio: $st"
