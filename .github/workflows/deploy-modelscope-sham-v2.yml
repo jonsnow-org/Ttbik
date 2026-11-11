@@ -273,9 +273,25 @@ jobs:
                     # `|| true`: under this step's `bash -e`, a failing grep in the assignment would
                     # otherwise abort the whole deploy with no message.
                     ctx=$(echo "$response" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
-                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ]; then
-                      echo "Sham v2 Studio model server is ready (context_tokens=$ctx)."
+                    built=$(echo "$response" | grep -oE '\\?"build\\?"[[:space:]]*:[[:space:]]*\\?"[0-9a-f]*' | grep -oE '[0-9a-f]+$' | head -1 || true)
+                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && [ "$built" = "${GITHUB_SHA::12}" ]; then
+                      echo "Sham v2 Studio model server is ready (context_tokens=$ctx, build=$built)."
                       exit 0
+                    fi
+                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ]; then
+                      # live 2026-11-11: the runner reused a cached checkout and shipped an old app.py (chat ImportError, agent_step arg mismatch).
+                      # The container reports the commit it was built from; wait 6 min for the new one, then redeploy (same budget of 3).
+                      [ -z "${mismatch_since:-}" ] && mismatch_since=$SECONDS
+                      echo "ready, but container build=${built:-none} != pushed ${GITHUB_SHA::12} (old container or stale cached build)"
+                      if [ $((SECONDS - mismatch_since)) -ge 360 ]; then
+                        if [ "$redeploys" -ge 3 ]; then echo "::error::ModelScope kept serving a stale build (build=${built:-none})"; exit 1; fi
+                        redeploys=$((redeploys + 1)); mismatch_since=""
+                        echo "::warning::stale build served; redeploying (attempt $redeploys)"
+                        curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                        DEPLOY_EPOCH=$(date +%s); build_checked=0
+                        sleep 30
+                        continue
+                      fi
                     fi
                     echo "status says ready but without a fresh context window (context_tokens=${ctx:-none}); waiting for the new app"
                   fi

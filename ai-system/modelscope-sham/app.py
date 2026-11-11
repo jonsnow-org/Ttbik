@@ -342,6 +342,10 @@ def _worker() -> None:
 def status() -> str:
     msg = dict(STATE)
     msg["model"] = MODEL_ID
+    try:        # the commit this container was BUILT from (written by the deploy's staging step): lets the deploy tell a stale cached build
+        msg["build"] = (HERE / "BUILD_STAMP").read_text(encoding="utf-8").strip()[:40]
+    except OSError:
+        msg["build"] = ""
     try:
         disk = shutil.disk_usage(HERE)
         msg["disk"] = {
