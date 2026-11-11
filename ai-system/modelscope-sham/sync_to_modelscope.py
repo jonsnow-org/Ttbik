@@ -96,7 +96,9 @@ def stale_remote_code(remote_paths, local_code: Path) -> list[str]:
     """Files under studio_code/ in the model repo that the signed local folder no longer has. push_model only ADDS files, and codesign.verify fails on any extra
     file, so one deleted source file (sham_media_ready.py, 2026-11-11) made every Studio refuse the new signed code until it was removed by hand."""
     keep = {p.relative_to(local_code.parent).as_posix() for p in Path(local_code).rglob("*") if p.is_file()}
-    return sorted(r for r in remote_paths if r.startswith("studio_code/") and r not in keep)
+    remote = [r for r in remote_paths if r]
+    dirs = {r for r in remote if any(o.startswith(r + "/") for o in remote)}          # a folder entry is not a file: deleting it in a commit is rejected by the repository policy
+    return sorted(r for r in remote if r.startswith("studio_code/") and r not in keep and r not in dirs)
 
 
 def prune_remote_code(model_dir: Path, model_id: str = "") -> str:
@@ -184,6 +186,7 @@ if __name__ == "__main__":
             assert not codesign.verify(md / "studio_code", (md / "studio_code" / codesign.SIG_NAME).read_text(), {"MODELSCOPE_API_TOKEN": "another"})
             remote = ["studio_code/CODE_SIG", "studio_code/ms_worker.py", "studio_code/sham_small/model.py", "studio_code/sham_small/sham_media_ready.py", "model.pt"]
             assert stale_remote_code(remote, md / "studio_code") == ["studio_code/sham_small/sham_media_ready.py"], stale_remote_code(remote, md / "studio_code")
+            assert stale_remote_code(remote + ["studio_code/sham_small"], md / "studio_code") == ["studio_code/sham_small/sham_media_ready.py"]      # the folder entry is never deleted
             os.environ.pop("MODELSCOPE_TOKEN", None)
             assert push_model(ck).startswith("⏭")
         print("sync_to_modelscope self-test OK")
