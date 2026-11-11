@@ -444,7 +444,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
           publicAssetListings(), myAssetListings(tgId), myAssetSales(tgId), assetIdentityForUser(tgId), assetVerifierBotNames(),
         ]);
         return { ok: true, listings, myListings, mySales, identity, verifierBots,
-          rules: { commissionPct: 15, minPrice: 10, maxPrice: 25000, phoneRequired: true } };
+          rules: { commissionPct: 0, minPrice: 10, phoneRequired: true } };
       } catch {
         return fail("تعذّر تحميل سوق الأصول حالياً. أعد المحاولة.");
       }
