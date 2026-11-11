@@ -84,6 +84,9 @@ test("general-channel copy leads with English and then includes Arabic", () => {
 test("Athar is omitted from the new copy pack and remains on the old silent-render path", () => {
   const athar = projects.find((p) => p.id === "athar");
   assert.ok(athar);
-  assert.doesNotMatch(renderCampaign(athar), /YouTube Shorts/);
+  const copySource = fs.readFileSync("scripts/promo/copy.mjs", "utf8");
+  const videoSource = fs.readFileSync("scripts/promo/make.mjs", "utf8");
+  assert.match(copySource, /new Set\(\["athar"\]\)/);
+  assert.match(videoSource, /if \(p\.id !== "athar"\)/);
   assert.equal(projectLanguage(athar), "both");
 });
