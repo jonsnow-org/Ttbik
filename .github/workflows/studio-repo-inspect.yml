@@ -14,23 +14,12 @@ jobs:
           STUDIO: sham-v2-server
         run: |
           echo "::add-mask::$T"
-          echo "== API record"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO" | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin); d=d.get('data') or d
-          def walk(x,p=''):
-              if isinstance(x,dict):
-                  for k,v in x.items(): walk(v,p+'.'+k)
-              elif isinstance(x,list):
-                  for i,v in enumerate(x[:5]): walk(v,p+'[%d]'%i)
-              else:
-                  s=str(x)
-                  if any(w in p.lower() for w in ('token','secret','key','password')): s='<hidden>'
-                  print(p, '=', s[:200])
-          walk(d)"
-          echo "== old API record"
-          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/api/v1/studio/novaai2026/$STUDIO" | head -c 3000 | sed -E 's/(ms|sk|hf)-[A-Za-z0-9_-]{16,}/[removed]/g'; echo
+          echo "== build log"
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -v "Layer already exists" | head -150 | cut -c1-300
           GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" s 2>&1 | sed "s/${T}/***/g" || true
           cd s
-          for b in $(git branch -r | grep sbuild); do echo "== $b: $(git log -1 --format='%h %ad %s' --date=iso $b) | traceback-print: $(git show $b:sham_app.py 2>/dev/null | grep -c 'generate_chat traceback') | MOTION in model.py: $(git show $b:sham_small/model.py 2>/dev/null | grep -c MOTION_VOCAB_BASE) | catch: $(git show $b:sham_app.py 2>/dev/null | grep -c 'unavailable until the next redeploy')"; done
-          echo "== master: $(git log -1 --format='%h %ad' --date=iso) traceback-print: $(grep -c 'generate_chat traceback' sham_app.py)"
+          b=origin/sbuild-371239-1793316753
+          echo "== files changed by build commit"; git show --stat --format='%h %P %s' $b | head -20
+          for f in $(git show --name-only --format= $b); do echo "--- $f"; git show $b:$f | head -60; done
+          echo "== old sham_app has generate_chat failed print: $(git show $b:sham_app.py | grep -c 'generate_chat failed (')"
+          git log --format='%h %ad %s' --date=iso -12 origin/master
