@@ -7,20 +7,23 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
-          echo "::add-mask::$T"
-          M=https://www.modelscope.cn/openapi/v1/studios/novaai2026
-          echo "== hub build"
-          true && curl -sS -H "Authorization: Bearer $T" "$M/nova-inference-server/logs/build" > /dev/null; echo skip-build | sed 's/\\n/\n/g; s/","/\n/g' | grep -E "commitTime|ERROR|Successfully|push|STEP|error" | grep -v "Layer already\|Fetch error" | head -20 | cut -c1-240
-          echo "== hub status"; curl -sS -H "Authorization: Bearer $T" "$M/nova-inference-server" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d;print(d.get('status'),d.get('runtime'),d.get('hardware'),d.get('base_image'),d.get('sdk_version'))"
-          echo "== sham-v2 run log head (a working Studio, for comparison)"
-          curl -sS -H "Authorization: Bearer $T" "$M/sham-v2-server/logs/run" | python3 -c "
-          import json,sys;d=json.load(sys.stdin);l=(d.get('data') or {}).get('logs') or []
-          t='\n'.join(l) if isinstance(l,list) else str(l)
-          print('\n'.join([x[:200] for x in t.splitlines() if x.strip() and '█' not in x][:30]))"
-          GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" s 2>&1 | sed "s/${T}/***/g" || true
-          cd s && git log --format='%h %ad %s' --date=iso -2 && grep -n "APP_REVISION =" app.py; ls; cat .gitattributes; head -c 600 README.md
+          pip install -q kaggle==2.2.5
+          kaggle kernels list -m --page-size 100 --csv > k.csv; wc -l k.csv; head -1 k.csv
+          python3 - <<'PY'
+          import csv, subprocess, collections
+          rows = list(csv.DictReader(open("k.csv")))
+          titles = collections.Counter(r.get("title") for r in rows)
+          print("DUPLICATE TITLES:", {t: n for t, n in titles.items() if n > 1})
+          for r in rows:
+              ref = r["ref"]
+              if not any(w in ref.lower() for w in ("audio", "token", "sham")):
+                  continue
+              st = subprocess.run(["kaggle", "kernels", "status", ref], capture_output=True, text=True).stdout.strip().splitlines()
+              print(ref, "|", r.get("title"), "|", r.get("lastRunTime"), "|", (st[-1] if st else "?")[:120])
+          PY
