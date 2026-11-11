@@ -10,7 +10,8 @@ const only = arg("only", ""), out = arg("out", "promo-cards"), EN = arg("lang", 
 const SIZES = { square: [1080, 1080], story: [1080, 1920], link: [1200, 630] };
 
 const card = (p, [W, H], kind) => {
-  const tall = kind === "story", wide = kind === "link";\n  const onlyEnglish = EN || projectLanguage(p) === "en";
+  const tall = kind === "story", wide = kind === "link";
+  const onlyEnglish = EN || projectLanguage(p) === "en";
   const u = tall ? 1.15 : wide ? 0.72 : 0.8; // type scale
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box;margin:0}
