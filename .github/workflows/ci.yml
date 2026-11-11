@@ -31,7 +31,7 @@ jobs:
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_bank_search.py' -v       # the Studio's bank_search over the central knowledge bank
           python -m py_compile ai-system/modelscope-media/desktop_computer.py ai-system/supervision/test_desktop_computer.py scripts/ops/modelscope_computer_smoke.py scripts/transplant/stage_sham_v2_studio.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py
-          python -m py_compile ai-system/supervision/sham_v2_media_smoke.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_media_ready.py ai-system/colab/sham_small/sham_toolcall.py
+          python -m py_compile ai-system/supervision/sham_v2_media_smoke.py ai-system/supervision/sham_v2_chat_smoke.py ai-system/supervision/test_sham_v2_chat_smoke.py ai-system/modelscope-sham/app.py ai-system/modelscope-sham/sync_to_modelscope.py ai-system/colab/sham_small/sham_toolcall.py
           python -m unittest discover -s scripts/transplant -p 'test_sham_v2_*.py' -v
           python -m unittest discover -s ai-agent -p 'test_*.py' -v       # the free i agent: tools, guard rails and the loop (no network)
           python ai-system/colab/sham_small/sham_intent.py
@@ -54,7 +54,7 @@ jobs:
           python -m unittest discover -s ai-system/modelscope-media -p 'test_media_app_startup.py' -v
           python -m unittest discover -s ai-system/modelscope-media -p 'test_desktop_panel.py' -v
           python -m unittest ai-system/modelscope-coder/tests/test_priority_queue.py -v
-          python -m py_compile ai-system/app/main.py ai-system/app/council.py ai-system/app/nova_media_studio.py ai-system/app/nova_media_routing.py ai-system/app/test_nova_media_studio.py ai-system/app/test_nova_media_routing.py ai-system/modelscope-media/app.py ai-system/modelscope-studio/app.py ai-system/colab/sham_small/sham_studio_chat.py ai-system/colab/sham_small/sham_media_ready.py
+          python -m py_compile ai-system/app/main.py ai-system/app/council.py ai-system/app/nova_media_studio.py ai-system/app/nova_media_routing.py ai-system/app/test_nova_media_studio.py ai-system/app/test_nova_media_routing.py ai-system/modelscope-media/app.py ai-system/modelscope-studio/app.py ai-system/colab/sham_small/sham_studio_chat.py
 
   build:
     runs-on: ubuntu-latest

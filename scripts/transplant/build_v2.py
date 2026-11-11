@@ -47,6 +47,21 @@ def deployable(out: Path, base_dir: Path) -> Path:
         if src is None:
             raise RuntimeError(f"{name} not found in the base lineage: Sham's media tokenizers must travel with the checkpoint")
         shutil.copy2(src, dst / name)
+    # the motion tokenizer (video codec) travels with the media tokenizers when one can be found (best effort: Sham v2 answers "no video" without it, never a fake clip)
+    motion = next(iter(sorted(base_dir.rglob("motion_tokenizer.pt"))), None)
+    if motion is None:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ai-system" / "colab" / "sham_small"))
+            from sham_inputs import fetch_dataset
+            for ds in ("sham-motion-tokenizer-checkpoint", "sham-video-corpus"):
+                root = fetch_dataset(ds)
+                motion = next(iter(sorted(Path(root).rglob("motion_tokenizer.pt"))), None) if root else None
+                if motion:
+                    break
+        except Exception as exc:        # noqa: BLE001
+            print(f"motion tokenizer not fetched ({type(exc).__name__}); continuing without it")
+    if motion is not None:
+        shutil.copy2(motion, dst / "motion_tokenizer.pt")
     (dst / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
     h = hashlib.sha256()
     with open(dst / "final_merged.pt", "rb") as f:
