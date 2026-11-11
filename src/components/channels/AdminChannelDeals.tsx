@@ -38,7 +38,7 @@ export default function AdminChannelDeals() {
   if (!d) return null;
   const open = d.deals.filter((x) => x.kind !== "ASSET_SALE" && !["RELEASED", "REFUNDED", "CANCELLED"].includes(x.status));
   const pendingBotListings = (d.assetListings || []).filter((x) => x.asset_type === "BOT" && x.status === "PENDING_REVIEW");
-  const assetSales = (d.assetSales || []).filter((x) => !["RELEASED", "REFUNDED", "CANCELLED"].includes(x.status));
+  const assetSales = (d.assetSales || []).filter((x) => !["RELEASED", "REFUNDED"].includes(x.status) && (x.status !== "CANCELLED" || x.payment_late));
   const reviewAssetListing = async (id: string, approve: boolean) => {
     const reference = approve ? window.prompt("مرجع مراجعة BotFather / دليل فحص ملكية البوت (8 أحرف على الأقل):")?.trim() : (window.prompt("سبب رفض العرض (اختياري):") || "");
     if (approve && (!reference || reference.length < 8)) { setMsg("⚠️ أدخل مرجع مراجعة قبل نشر عرض البوت."); return; }
@@ -94,7 +94,7 @@ export default function AdminChannelDeals() {
               <p className="text-sm font-bold">صفقات الملكية المفتوحة</p>
               {assetSales.map((x) => (
                 <div key={x.code} className="rounded-lg border bg-slate-50 p-3 text-sm">
-                  <p className="font-bold">{x.code} · {x.asset_type} · {x.title} · ${Number(x.price).toFixed(2)} · {x.status}</p>
+                  <p className="font-bold">{x.code} · {x.asset_type} · {x.title} · ${Number(x.price).toFixed(2)} · {x.payment_late ? "دفعة وصلت بعد انتهاء الحجز — يلزم الاسترداد" : x.status}</p>
                   <p>البائع: {x.seller_snapshot?.firstName} {x.seller_snapshot?.lastName || ""} · @{x.seller_snapshot?.username} · ID {x.seller_telegram_id}</p>
                   <p dir="ltr" className="text-xs">Phone: {x.seller_snapshot?.phoneNumber}</p>
                   <p>المشتري: {x.buyer_snapshot?.firstName} {x.buyer_snapshot?.lastName || ""} · @{x.buyer_snapshot?.username} · ID {x.buyer_telegram_id}</p>
@@ -107,7 +107,7 @@ export default function AdminChannelDeals() {
                     {x.status === "PENDING_PAYMENT" && <><button onClick={() => act(x.code, "confirm_paid")} className="rounded-full bg-amber-100 px-3 py-1">وصل USDT</button><button onClick={() => act(x.code, "cancel")} className="rounded-full bg-slate-200 px-3 py-1">إلغاء الحجز</button></>}
                     {x.status === "POSTED" && x.asset_type === "BOT" && x.seller_confirmed && x.buyer_confirmed && <button onClick={() => act(x.code, "verify")} className="rounded-full bg-sky-100 px-3 py-1">اعتماد نقل BotFather</button>}
                     {x.status === "VERIFIED" && <button onClick={() => act(x.code, "release")} className="rounded-full bg-emerald-100 px-3 py-1">حوّلت مستحق البائع</button>}
-                    {["PAID", "POSTED"].includes(x.status) && <button onClick={() => act(x.code, "refund")} className="rounded-full bg-red-100 px-3 py-1">أعدت المبلغ</button>}
+                    {(["PAID", "POSTED"].includes(x.status) || x.payment_late) && <button onClick={() => act(x.code, "refund")} className="rounded-full bg-red-100 px-3 py-1">أعدت المبلغ</button>}
                   </div>
                 </div>
               ))}
