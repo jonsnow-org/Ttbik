@@ -430,9 +430,9 @@ export async function adminAssetMarketData() {
   const listings = await prisma.$queryRaw<any[]>`SELECT id, asset_type, identifier, title, asking_price, payout_address, payout_network, status, seller_telegram_id, seller_snapshot, verification_mode, review_reference, created_at
     FROM telegram_asset_listings WHERE status IN ('PENDING_REVIEW','LISTED','RESERVED') ORDER BY created_at DESC LIMIT 100`;
   const sales = await prisma.$queryRaw<any[]>`SELECT s.code, s.status, s.seller_telegram_id, s.buyer_telegram_id, s.seller_snapshot, s.buyer_snapshot, s.seller_confirmed, s.buyer_confirmed,
-      s.transfer_evidence, s.payment_late, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
+      s.transfer_evidence, s.payment_late, s.created_at, s.expires_at, l.asset_type, l.identifier, l.title, l.payout_address, l.payout_network, d.price, d.payout, d.payment_reference, d.settlement_reference
     FROM telegram_asset_sales s JOIN telegram_asset_listings l ON l.id=s.listing_id JOIN channel_deals d ON d.code=s.code
-    WHERE s.status NOT IN ('RELEASED','REFUNDED','CANCELLED') OR s.payment_late = TRUE ORDER BY s.created_at DESC LIMIT 100`;
+    WHERE s.status NOT IN ('RELEASED','REFUNDED') AND (s.status <> 'CANCELLED' OR s.payment_late = TRUE OR s.updated_at > now() - interval '7 days') ORDER BY s.created_at DESC LIMIT 100`;
   return {
     listings: listings.map((x) => ({ ...x, asking_price: Number(x.asking_price) })),
     sales: sales.map((x) => ({ ...x, price: Number(x.price), payout: Number(x.payout) })),
