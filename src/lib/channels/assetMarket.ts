@@ -56,6 +56,14 @@ export async function ensureAssetMarketTables(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS telegram_asset_sales_seller_idx ON telegram_asset_sales (seller_telegram_id, created_at DESC)`,
     ];
     for (const q of ddl) await prisma.$executeRawUnsafe(q);
+    const security = [
+      "ALTER TABLE telegram_asset_identities ENABLE ROW LEVEL SECURITY",
+      "ALTER TABLE telegram_asset_listings ENABLE ROW LEVEL SECURITY",
+      "ALTER TABLE telegram_asset_sales ENABLE ROW LEVEL SECURITY",
+      "REVOKE ALL ON TABLE telegram_asset_identities, telegram_asset_listings, telegram_asset_sales FROM anon, authenticated",
+      "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE telegram_asset_identities, telegram_asset_listings, telegram_asset_sales TO service_role",
+    ];
+    for (const q of security) await prisma.$executeRawUnsafe(q);
   })().catch((e) => { ready = null; throw e; });
   return ready;
 }
@@ -160,10 +168,10 @@ async function verifyChatOwner(type: "CHANNEL" | "GROUP", identifier: string, te
     sawChat = true;
     const expected = type === "CHANNEL" ? chat.type === "channel" : ["group", "supergroup"].includes(String(chat.type));
     if (!expected) continue;
-    const botMember: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: verifier.id });
+    const botMember: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(verifier.id) });
     if (!botMember || !["administrator", "creator"].includes(String(botMember.status))) continue;
     sawAdminBot = true;
-    const owner: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: telegramId });
+    const owner: any = await telegramCall(verifier.token, "getChatMember", { chat_id: chat.id, user_id: Number(telegramId) });
     if (owner?.status === "creator") return { ok: true as const, chatId: String(chat.id), title: String(chat.title || identifier), verifierBot: verifier.username || verifier.source };
   }
   if (!bots.length) return { ok: false as const, error: "لا يوجد بوت تحقق متاح حالياً. تحقق من إعداد بوت المالك وبوت الموقع." };
