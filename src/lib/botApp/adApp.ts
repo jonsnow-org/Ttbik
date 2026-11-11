@@ -462,7 +462,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
     case "ex_asset_buy": {
       if (!rateLimit(`adapp-asset-buy:${tgId}`, 5, 600_000)) return fail("طلبات شراء كثيرة. تمهّل قليلاً.");
       const r = await createAssetSale(String(body?.listingId || ""), tgId);
-      return r.ok ? { ok: true, ...r } : fail(r.error);
+      return r.ok ? { ...r } : fail(r.error);
     }
     case "ex_asset_sale": {
       const code = String(body?.code || "").toUpperCase();
