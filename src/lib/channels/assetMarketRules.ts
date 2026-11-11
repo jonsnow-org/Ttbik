@@ -39,6 +39,13 @@ export function normalizeAssetPhone(input: unknown): string | null {
   return value.startsWith("+") ? value : `+${value}`;
 }
 
+export function normalizeAssetPrice(input: unknown): number | null {
+  const amount = Number(input);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const rounded = Math.round((amount + Number.EPSILON) * 100) / 100;
+  return rounded > 0 ? rounded : null;
+}
+
 export function assetIdentityProblem(input: AssetIdentityInput): string | null {
   if (!/^\d{5,20}$/.test(String(input.id || ""))) return "معرّف تيليجرام الرقمي غير صالح.";
   if (!String(input.firstName || "").trim()) return "اسم الحساب غير مكتمل. حدّث اسمك في تيليجرام ثم أعد المحاولة.";

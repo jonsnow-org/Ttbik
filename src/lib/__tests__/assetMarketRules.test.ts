@@ -1,6 +1,6 @@
 import {
   ASSET_MARKET_COMMISSION_RATE, assetIdentityProblem, assetIdentitySnapshot,
-  makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale,
+  makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, normalizeAssetPrice, splitAssetSale,
 } from "@/lib/channels/assetMarketRules";
 
 describe("Telegram asset market identity rules", () => {
@@ -42,7 +42,13 @@ describe("Telegram asset sale accounting", () => {
     expect(splitAssetSale(100)).toEqual({ price: 100, commission: 0, payout: 100 });
     expect(splitAssetSale(19.99)).toEqual({ price: 19.99, commission: 0, payout: 19.99 });
     expect(ASSET_MARKET_COMMISSION_RATE).toBe(0);
-    expect(ASSET_MARKET_MIN_PRICE).toBe(10);
+    expect(normalizeAssetPrice(0.01)).toBe(0.01);
+    expect(normalizeAssetPrice(0.005)).toBe(0.01);
+    expect(normalizeAssetPrice(19.999)).toBe(20);
+    expect(normalizeAssetPrice(0.001)).toBeNull();
+    expect(normalizeAssetPrice(0)).toBeNull();
+    expect(normalizeAssetPrice(-1)).toBeNull();
+    expect(normalizeAssetPrice(Number.NaN)).toBeNull();
   });
 
   it("creates asset sale reference codes accepted by the payment ledger", () => {

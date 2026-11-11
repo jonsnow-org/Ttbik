@@ -120,7 +120,11 @@ export async function POST(req: NextRequest) {
         : deal.kind === "ASSET_SALE"
           ? `✅ وصل دفع صفقة الأصل ${code} (${sp.total_amount} ⭐). ابدأوا خطوات نقل الملكية من سوق الأصول داخل التطبيق. لن يُصرف المبلغ قبل التحقق من أن حساب المشتري أصبح المالك.`
           : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
-      if (r.ok) await send(update.message.chat.id, msg).catch(() => null);
+      if (r.ok) await send(update.message.chat.id,
+        deal.kind === "ASSET_SALE" && r.assetSaleAccepted === false
+          ? `⚠️ وصل دفع مرتبط بالصفقة ${code}، لكنه لا يطابق شروط الحجز أو حساب المشتري المسجل. لم تُعتمد الصفقة ولم يبدأ التسليم؛ تراجع الإدارة الاسترداد. لا تنقلوا الأصل.`
+          : msg
+      ).catch(() => null);
     }
     return NextResponse.json({ ok: true });
   }

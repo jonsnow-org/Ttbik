@@ -10,7 +10,7 @@ import { findSiteBot } from "@/lib/siteAds";
 import { detectChannelPayoutNetwork } from "@/lib/channels/payoutAddress";
 import {
   assetIdentityProblem, assetIdentitySnapshot,
-  makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
+  makeAssetSaleCode, normalizeAssetIdentifier, normalizeAssetPhone, normalizeAssetPrice, splitAssetSale, type AssetIdentityInput, type AssetIdentitySnapshot, type TelegramAssetType,
 } from "@/lib/channels/assetMarketRules";
 
 let ready: Promise<void> | null = null;
@@ -241,9 +241,8 @@ export async function createAssetListing(input: {
     const seller = await requireVerifiedIdentity(sellerTelegramId);
     const identifier = normalizeAssetIdentifier(input.assetType, input.identifier);
     if (!identifier) return { ok: false as const, error: "معرّف القناة أو المجموعة أو البوت غير صالح." };
-    const priceInput = Number(input.price);
-    const price = Math.round(priceInput * 100) / 100;
-    if (!Number.isFinite(priceInput) || !Number.isFinite(price) || price <= 0) return { ok: false as const, error: "أدخل سعراً موجباً وصالحاً بالدولار." };
+    const price = normalizeAssetPrice(input.price);
+    if (price == null) return { ok: false as const, error: "أدخل سعراً موجباً وصالحاً بالدولار." };
     const payoutNetwork = detectChannelPayoutNetwork(input.payoutAddress);
     if (!payoutNetwork) return { ok: false as const, error: "عنوان استلام المستحقات غير صالح. استخدم عنوان USDT-TRC20 أو TON صحيحاً." };
     const titleInput = String(input.title || "").trim().slice(0, 120);
@@ -390,20 +389,22 @@ export async function confirmAssetReceipt(code: string, buyerTelegramId: string)
   return { ok: true as const, verified: true };
 }
 
-export async function onAssetSalePaid(code: string, payerTelegramId?: string) {
+export async function onAssetSalePaid(code: string, payerTelegramId?: string): Promise<boolean> {
   await ensureAssetMarketTables();
+  const payerId = String(payerTelegramId || "").trim() || null;
   const accepted = await prisma.$executeRaw`UPDATE telegram_asset_sales s
     SET status = 'PAID', updated_at = now()
     WHERE s.code = ${code} AND s.status = 'PENDING_PAYMENT' AND s.expires_at >= now()
+      AND (${payerId}::text IS NULL OR s.buyer_telegram_id = ${payerId}::text)
       AND EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED')`;
   if (accepted === 1) {
     await notifySaleParties(code, `💳 تأكد دفع الصفقة ${code}. يستطيع البائع الآن بدء التسليم. احتفظا بمرجع الصفقة، ولا ترسلا أي رموز دخول أو كلمات مرور.`);
-    return;
+    return true;
   }
   const late = await prisma.$executeRaw`UPDATE telegram_asset_sales s SET status = 'CANCELLED', payment_late = TRUE, updated_at = now()
     WHERE s.code = ${code} AND s.status IN ('PENDING_PAYMENT','CANCELLED')
       AND (s.expires_at < now() OR s.status = 'CANCELLED'
-        OR (${payerTelegramId ?? null}::text IS NOT NULL AND s.buyer_telegram_id <> ${payerTelegramId ?? null}::text)
+        OR (${payerId}::text IS NOT NULL AND s.buyer_telegram_id <> ${payerId}::text)
         OR NOT EXISTS (SELECT 1 FROM telegram_asset_listings l WHERE l.id = s.listing_id AND l.status = 'RESERVED'))`;
   if (late === 1) {
     // Release only this expired reservation. If another buyer already reserved the listing, keep it reserved.
@@ -423,6 +424,7 @@ export async function onAssetSalePaid(code: string, payerTelegramId?: string) {
 سبب المراجعة: الحجز منتهٍ أو الحساب الدافع لا يطابق المشتري المسجل. لا تبدأوا التسليم؛ يجب على الإدارة مراجعة الاسترداد.`);
     await notifySaleParties(code, `⚠️ وصلت دفعة الصفقة ${code} خارج شروط الحجز. لم تُعتمد الصفقة ولم يبدأ التسليم؛ ستراجع الإدارة عملية الاسترداد. لا تنقلوا الأصل بناءً على هذه الدفعة.`);
   }
+  return false;
 }
 
 export async function adminAssetMarketData() {

@@ -259,7 +259,7 @@ export async function payDeal(code: string, method: "stars" | "nowpayments" | "u
 }
 
 /** The single "money arrived" transition (Stars, NOWPayments IPN, or the admin confirming a USDT transfer). Idempotent. */
-export async function markDealPaid(code: string, via: string, amountUsd?: number, paymentReference?: string, payerTelegramId?: string): Promise<{ ok: boolean; first: boolean }> {
+export async function markDealPaid(code: string, via: string, amountUsd?: number, paymentReference?: string, payerTelegramId?: string): Promise<{ ok: boolean; first: boolean; assetSaleAccepted?: boolean }> {
   const d = await dealByCode(code);
   if (!d) return { ok: false, first: false };
   if (amountUsd != null && (!Number.isFinite(amountUsd) || amountUsd + 0.01 < d.price)) return { ok: false, first: false };
@@ -282,9 +282,10 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
     }
   }
   if (n !== 1) return { ok: true, first: false };
+  let assetSaleAccepted: boolean | undefined;
   if (d.kind === "ASSET_SALE") {
     await ensureAssetMarketTables();
-    await onAssetSalePaid(code, payerTelegramId);
+    assetSaleAccepted = await onAssetSalePaid(code, payerTelegramId);
     await siteBotSend(`🛍️ دفع صفقة أصل تيليجرام ${code}\n${d.channel} — ${d.price}$ (مستحق البائع ${d.payout}$، عمولة ${d.commission}$)\nلا تصرف قبل اعتماد نقل الملكية.`);
   } else if (d.kind === "BADGE") {
     await prisma.$executeRaw`UPDATE channel_deals SET status = 'RELEASED', closed_at = now() WHERE code = ${code}`;
@@ -293,7 +294,7 @@ export async function markDealPaid(code: string, via: string, amountUsd?: number
   } else {
     await siteBotSend(`📣 صفقة قناة مدفوعة ${code}\n@${d.channel} — ${d.price}$ (للقناة ${d.payout}$، عمولة ${d.commission}$)\nالمعلن: ${d.advertiser_contact}\nالرابط: ${d.target_url}\nعبر: ${via}\n\nأرسل نص الإعلان لصاحب القناة أو اطلب منه فتح رابط الإدارة.`);
   }
-  return { ok: true, first: true };
+  return { ok: true, first: true, ...(assetSaleAccepted === undefined ? {} : { assetSaleAccepted }) };
 }
 
 export async function dealsForAdvertiser(tgUserId: string): Promise<string[]> {
