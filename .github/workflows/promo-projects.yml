@@ -1,23 +1,30 @@
 name: promo-projects
-# Professional campaign assets for public projects and Telegram bots.
-# Builds live-page screenshots, narrated promo videos, resized cards and platform-ready copy packs.
-# Outputs are review artifacts only; this workflow never publishes to public channels.
+# Weekly publisher for Sham AI, Literium and four public bots.
+# The older Remotion workflow keeps its own promo-ep-N releases and Sunday/Tuesday/Thursday calendar.
+# This workflow uses promo-campaign-* tags, rotates one campaign per week, and publishes via the existing authenticated site endpoint.
 on:
   pull_request:
     paths:
       - "scripts/promo/**"
+      - "scripts/tests/promoCampaign.test.mjs"
       - "promo/projects.json"
+      - "promo/PUBLISH_ON"
       - ".github/workflows/promo-projects.yml"
+      - "src/app/api/cron/promo-publish/route.ts"
   schedule:
-    - cron: "40 3 * * 1"
+    - cron: "40 3 * * 1" # Monday 06:40 Istanbul
   workflow_dispatch:
     inputs:
       only:
-        description: "one campaign id (zenobia, palmyra-launch, sham-ai, literium or a public bot), empty = all"
+        description: "one campaign: sham-ai, literium, media-downloader, jobs-and-store, dating-marriage, confessions; empty = weekly rotation"
         default: ""
-      format:
-        description: "vertical (stories, shorts) or wide"
-        default: "vertical"
+        required: false
+      publish:
+        description: "0 = generate only; 1 = force publish; empty = follow promo/PUBLISH_ON"
+        default: ""
+        required: false
+permissions:
+  contents: write
 concurrency:
   group: promo-projects
   cancel-in-progress: false
@@ -30,22 +37,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: validate campaigns and generator syntax
+      - name: validate campaigns, rotation and publishing guard
         run: |
-          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs
+          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs scripts/promo/rotation.test.mjs scripts/tests/promoCampaign.test.mjs
           node --check scripts/promo/make.mjs
           node --check scripts/promo/cards.mjs
           node --check scripts/promo/copy.mjs
+          node --check scripts/promo/rotation.mjs
+          node --check scripts/promo/publish.mjs
           python -m py_compile scripts/promo/tts.py
   make:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Pick the weekly public campaign
+        id: campaign
+        env:
+          ONLY: ${{ github.event.inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            node scripts/promo/rotation.mjs --only "$ONLY" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/promo/rotation.mjs >> "$GITHUB_OUTPUT"
+          fi
       - name: tools (ffmpeg, Arabic fonts, Chromium)
         run: |
           sudo apt-get update -qq
@@ -55,26 +74,38 @@ jobs:
           pip install -q edge-tts
       - name: prepare the original music bed
         run: (cd promo/remotion && sh scripts/music.sh)
-      - name: make the narrated videos
-        run: node scripts/promo/make.mjs --out promo-out --music promo/remotion/public/music.mp3 --format "${{ github.event.inputs.format || 'vertical' }}" ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
-      - name: make the promo images (square, story, link preview; plus English-only versions for the coins channel)
+      - name: make one narrated campaign video
+        env:
+          CAMPAIGN_ID: ${{ steps.campaign.outputs.id }}
+        run: node scripts/promo/make.mjs --only "$CAMPAIGN_ID" --out promo-out --music promo/remotion/public/music.mp3 --format vertical
+      - name: make campaign images and platform copy
+        env:
+          CAMPAIGN_ID: ${{ steps.campaign.outputs.id }}
         run: |
-          node scripts/promo/cards.mjs --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
-          node scripts/promo/cards.mjs --lang en --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+          node scripts/promo/cards.mjs --only "$CAMPAIGN_ID" --out promo-cards
+          node scripts/promo/copy.mjs --only "$CAMPAIGN_ID" --out promo-copy
       - uses: actions/upload-artifact@v4
         with:
-          name: promo-images
+          name: promo-weekly-${{ steps.campaign.outputs.id }}-images
           path: promo-cards/*.png
           retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
-          name: promo-videos
+          name: promo-weekly-${{ steps.campaign.outputs.id }}-video
           path: promo-out/*.mp4
           retention-days: 30
-      - name: generate platform-ready copy packs
-        run: node scripts/promo/copy.mjs --out promo-copy ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
       - uses: actions/upload-artifact@v4
         with:
-          name: promo-copy
+          name: promo-weekly-${{ steps.campaign.outputs.id }}-copy
           path: promo-copy/*
           retention-days: 30
+      - name: release campaign and publish to Telegram and YouTube
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PUBLISH: ${{ github.event.inputs.publish }}
+          CAMPAIGN_ID: ${{ steps.campaign.outputs.id }}
+          CAMPAIGN_TAG: ${{ steps.campaign.outputs.tag }}
+        run: node scripts/promo/publish.mjs --id "$CAMPAIGN_ID" --tag "$CAMPAIGN_TAG" --out promo-out --cards promo-cards --copy promo-copy
