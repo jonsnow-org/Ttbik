@@ -114,7 +114,9 @@ export async function POST(req: NextRequest) {
       const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160));
       const msg = deal.kind === "BADGE"
         ? `✅ وصل الدفع (${sp.total_amount} ⭐). شارة ☑️ لقناة @${deal.channel} مفعّلة لسنة.`
-        : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
+        : deal.kind === "ASSET_SALE"
+          ? `✅ وصل دفع صفقة الأصل ${code} (${sp.total_amount} ⭐). ابدأوا خطوات نقل الملكية من سوق الأصول داخل التطبيق. لن يُصرف المبلغ قبل التحقق من أن حساب المشتري أصبح المالك.`
+          : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
       if (r.ok) await send(update.message.chat.id, msg).catch(() => null);
     }
     return NextResponse.json({ ok: true });
