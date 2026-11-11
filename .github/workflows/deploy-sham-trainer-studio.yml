@@ -3,10 +3,14 @@ name: Deploy the Sham live-trainer Studio (free ModelScope CPU, GPU if the Studi
 # Owner's order 2026-11-11: run the important training on ModelScope in both domains, automatically, GPU when it exists and CPU when it does not, like on Kaggle.
 # A Studio (private, free hardware) whose app trains Sham with sham_live (the same job as the GitHub / Oracle CPU trainers) and publishes its own lineage sham-crawl-<name>;
 # the merge job discovers it by the sham-crawl-* rule. Studio network (read from its worker status 2026-11-11): kaggle.com, github.com, hf-mirror.com, pypi.org reachable; huggingface.co blocked.
-# Secrets used: MODELSCOPE_TOKEN (cn account), KAGGLE_API_TOKEN (copied into the PRIVATE Studio's own secrets so it can fetch and publish the datasets).
+# Secrets used: MODELSCOPE_TOKEN (cn account) or MODELSCOPE_AI_TOKEN (site=ai), KAGGLE_API_TOKEN (copied into the PRIVATE Studio's own secrets so it can fetch and publish the datasets).
 on:
   workflow_dispatch:
     inputs:
+      site:
+        description: "cn = modelscope.cn (account novaai2026) | ai = modelscope.ai (the owner's international account, secret MODELSCOPE_AI_TOKEN)"
+        required: false
+        default: "cn"
       repo:
         description: "Studio name under novaai2026 (created when missing, private, free hardware only)"
         required: false
@@ -28,8 +32,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  MS: https://www.modelscope.cn
-  OWNER: novaai2026
+  MS: ${{ inputs.site == 'ai' && 'https://www.modelscope.ai' || 'https://www.modelscope.cn' }}
+  MSHOST: ${{ inputs.site == 'ai' && 'www.modelscope.ai' || 'www.modelscope.cn' }}
+  OWNER: ${{ inputs.site == 'ai' && 'Jonjithup' || 'novaai2026' }}
+  SITE: ${{ inputs.site || 'cn' }}
   REPO: ${{ inputs.repo || 'sham-trainer-1' }}
 
 jobs:
@@ -50,7 +56,7 @@ jobs:
 
       - name: Create the Studio when missing (free hardware only)
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           set -uo pipefail
           code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
@@ -72,10 +78,10 @@ jobs:
 
       - name: Stage the trainer app and the sham_small code, push to the Studio
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
-          git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" /tmp/studio 2>&1 | sed "s/${T}/***/g"
+          git clone "https://oauth2:${T}@${MSHOST}/studios/${OWNER}/${REPO}.git" /tmp/studio 2>&1 | sed "s/${T}/***/g"
           cd /tmp/studio
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/app.py" app.py
@@ -92,7 +98,7 @@ jobs:
 
       - name: Set the Studio's secrets
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
           KT: ${{ secrets.KAGGLE_API_TOKEN }}
           NAME: ${{ inputs.name || 'ms1' }}
           HOURS: ${{ inputs.hours || '5' }}
@@ -117,10 +123,10 @@ jobs:
 
       - name: Deploy and wait until the app answers
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           set -uo pipefail
-          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"
+          API="https://studio-$OWNER-$REPO.api-inference.modelscope.net"     # cn only: the international site's app address is read from the Studio's own status instead
           curl -fsS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 600; echo
           for i in $(seq 1 170); do
             sleep 30
@@ -132,6 +138,7 @@ jobs:
                 curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 2500
                 echo "::error::Studio ended in $st"; exit 1;;
             esac
+            if echo "$st" | grep -qi running && [ "$SITE" = "ai" ]; then echo "international Studio is Running"; exit 0; fi
             if echo "$st" | grep -qi running; then
               ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data": []}' "$API/gradio_api/call/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
               [ -n "$ev" ] && { out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev" || true); echo "$out" | head -c 800; echo; echo "$out" | grep -q 'phase' && exit 0; }
