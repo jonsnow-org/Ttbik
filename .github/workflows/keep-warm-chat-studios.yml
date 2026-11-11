@@ -33,7 +33,7 @@ jobs:
           OWNER: novaai2026
         run: |
           echo "::add-mask::$T"
-          for n in epicrealism-image-test nova-media-server lfm25-media-server realistic-vision-v6-test; do
+          for n in epicrealism-image-test nova-media-server lfm25-media-server; do
             state=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$n" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true)
             if [ "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" = "sleeping" ]; then
               code=$(curl -sS --connect-timeout 8 --max-time 30 -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$n/deploy" || echo 000)
