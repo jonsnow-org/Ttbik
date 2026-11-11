@@ -582,7 +582,8 @@ function AssetMarket() {
                 {identityLine("البائع", sale.seller)}
                 {identityLine("المشتري", sale.buyer)}
               </Section>
-              {sale.paymentLate && <Section><Row icon="⚠️" title="وصل الدفع بعد انتهاء الحجز" sub="لم تُعتمد هذه الصفقة ولم يُسمح بنقل الأصل. ستراجع الإدارة الاسترداد؛ لا ترسل للبائع أي مبلغ ولا تنفذ النقل." /></Section>}\n              <Section title="الدفع والتسوية">
+              {sale.paymentLate && <Section><Row icon="⚠️" title="وصل الدفع بعد انتهاء الحجز" sub="لم تُعتمد هذه الصفقة ولم يُسمح بنقل الأصل. ستراجع الإدارة الاسترداد؛ لا ترسل للبائع أي مبلغ ولا تنفذ النقل." /></Section>}
+              <Section title="الدفع والتسوية">
                 <Row icon="🔒" title="لا صرف قبل إثبات نقل الملكية" sub="مرجع الدفع الوارد ومرجع صرف مستحق البائع يسجلان منفصلين." />
                 {sale.paymentReference && <Copyable label="مرجع الدفع" value={sale.paymentReference} />}
                 {sale.settlementReference && <Copyable label="مرجع التسوية" value={sale.settlementReference} />}
