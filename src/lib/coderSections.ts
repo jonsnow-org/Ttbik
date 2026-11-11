@@ -65,6 +65,7 @@ export type ChatState = { groups?: string[]; winStart?: number; mode: Mode; thin
 export type { Db };
 export { coderChatKey };
 
+export const LITE_ARABIC_NOTE = "(أجب بالعربية فقط.)";                    // lite path: an Arabic message gets this note on its own turn (see driveLoop)
 const BUDGET_MS = 30000;                                              // Telegram webhook leg stays short under its 60s route ceiling
 const MEDIA_LEG_MS = 240000;                                            // a media leg needs minutes (one Studio call); it runs in /api/coder/continue (300 s route), never the webhook
 const APP_BUDGET_MS = 240000;                                           // Mini App terminal leg: 4 minutes, with 60s headroom under Vercel 300s
@@ -2556,8 +2557,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const example: CoderMessage[] = prof.klass === "trivial" ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
       // the language rule is explicit: LFM2.5 answered the Arabic «من انت» in English (live 2026-11-04). Two fixed texts (Arabic / other), so the cache still holds.
       const lastUserText = String([...plain].reverse().find((m) => m.role === "user")?.content || "");
-      const langRule = /[\u0600-\u06FF]/.test(lastUserText) ? "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English." : "";
-      messages.splice(0, messages.length, { role: "system", content: withModelIdentity(prof.liteSystem, novaModelOf(st.model)) + langRule }, ...example, ...plain);
+      const arabic = /[\u0600-\u06FF]/.test(lastUserText);
+      const langRule = arabic ? "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English." : "";
+      // the rule in the system text alone was not enough: live LFM2.5 still greeted «مرحبا» in English (2026-11-11). The same short note on the user's own turn
+      // (a copy for this call only; the saved conversation is not changed) is the last thing the model reads.
+      const lastUserIdx = plain.map((m) => m.role).lastIndexOf("user");
+      const turns = arabic && lastUserIdx >= 0 ? plain.map((m, i) => (i === lastUserIdx ? { ...m, content: `${m.content}\n\n${LITE_ARABIC_NOTE}` } : m)) : plain;
+      messages.splice(0, messages.length, { role: "system", content: withModelIdentity(prof.liteSystem, novaModelOf(st.model)) + langRule }, ...example, ...turns);
     }
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
