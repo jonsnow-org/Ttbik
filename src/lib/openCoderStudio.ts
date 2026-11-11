@@ -58,12 +58,12 @@ const LFM_DEFAULT = "https://studio-novaai2026-lfm25-inference-server.api-infere
 export function lfmStudioUrls(): string[] {
   const raw = (process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? (process.env.NODE_ENV === "test" ? "" : LFM_DEFAULT)).trim();
   if (/^(off|none|0)$/i.test(raw)) return [];
-  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
+  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|nova-computer-hub|sham/i.test(x));
 }
 function novaStudioUrls(): string[] {
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
   const lfm = new Set(lfmStudioUrls());
-  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
+  const mine = (x: string) => !/nova-inference-server|nova-computer-hub|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
