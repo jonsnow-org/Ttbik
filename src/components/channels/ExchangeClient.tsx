@@ -29,7 +29,7 @@ export function OrderForm({ listing }: { listing: ListingView }) {
       <textarea required value={adText} onChange={(e) => setAdText(e.target.value)} rows={4} maxLength={1500} placeholder="نص الإعلان كما تريد نشره (20 حرفاً على الأقل)" className="w-full rounded-lg border p-2 text-sm" />
       <input required dir="ltr" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} placeholder="https://…" className="w-full rounded-lg border p-2 text-sm" aria-label="رابط الإعلان" />
       <input required dir="ltr" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@your_username" className="w-full rounded-lg border p-2 text-sm" aria-label="معرّفك على تيليجرام" />
-      <p className="text-xs text-slate-500">تدفع ${listing.price}. يبقى المبلغ لدى المنصة حتى يُنشر إعلانك ونتحقق منه، وإن لم يُنشر يُعاد إليك.</p>
+      <p className="text-xs text-slate-500">تدفع عبر المنصة ويُسجل مرجع العملية. لا يعني الدفع أن الإعلان نُشر؛ تابع إثبات النشر وحالة التسوية من سجل الطلب.</p>
       {msg && <p className="text-sm text-rose-700">{msg}</p>}
       <button disabled={busy} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{busy ? "…" : "متابعة للدفع"}</button>
     </form>
@@ -105,7 +105,7 @@ export function PayButtons({ code, price, done }: { code: string; price: number;
   );
 }
 
-type ManageDeal = { code: string; ad_text: string | null; target_url: string | null; price: number; payout: number; status: string; post_link: string | null };
+type ManageDeal = { code: string; ad_text: string | null; target_url: string | null; price: number; payout: number; status: string; post_link: string | null; payment_reference?: string | null; settlement_reference?: string | null; settled_at?: string | null };
 export function ManagePanel({ token, initial }: { token: string; initial: { listing: { username: string; title: string; status: string; price: number; verifyCode: string | null; verified_until: string | null }; deals: ManageDeal[] } }) {
   const [data, setData] = useState(initial);
   const [msg, setMsg] = useState("");
@@ -137,7 +137,7 @@ export function ManagePanel({ token, initial }: { token: string; initial: { list
     <div className="space-y-5">
       <div className="rounded-2xl border bg-white p-4">
         <p className="font-extrabold">{l.title} <span dir="ltr" className="text-slate-500">@{l.username}</span></p>
-        <p className="mt-1 text-sm">الحالة: {l.status === "LISTED" ? "✅ معروضة" : "بانتظار إثبات الملكية"} · السعر ${l.price}{l.verified_until && new Date(l.verified_until) > new Date() ? " · ☑️ موثّقة" : ""}</p>
+        <p className="mt-1 text-sm">الحالة: {l.status === "LISTED" ? "✅ معروضة" : "بانتظار إثبات الملكية"} · السعر ${l.price}{l.verified_until && new Date(l.verified_until) > new Date() ? " · ☑️ شارة البورصة مفعّلة" : ""}</p>
         {l.verifyCode && (
           <div className="mt-2 text-sm">
             <p>ضع الكود <code dir="ltr" className="rounded bg-slate-100 px-2 font-bold">{l.verifyCode}</code> في وصف القناة أو منشور، ثم:</p>
@@ -146,8 +146,8 @@ export function ManagePanel({ token, initial }: { token: string; initial: { list
         )}
         {l.status === "LISTED" && !(l.verified_until && new Date(l.verified_until) > new Date()) && (
           <div className="mt-3 text-sm">
-            {!badge ? <button onClick={buyBadge} className="rounded-xl border px-3 py-1.5 font-bold">☑️ شارة «قناة موثّقة» لسنة · $10</button> : <><p className="mb-2">ادفع لتفعيل الشارة:</p><PayButtons code={badge} price={10} /></>}
-            <p className="mt-1 text-xs text-slate-500">القنوات الموثّقة تظهر أولاً في البورصة.</p>
+            {!badge ? <button onClick={buyBadge} className="rounded-xl border px-3 py-1.5 font-bold">☑️ شارة إبراز في البورصة لسنة · $10</button> : <><p className="mb-2">ادفع لتفعيل الشارة:</p><PayButtons code={badge} price={10} /></>}
+            <p className="mt-1 text-xs text-slate-500">شارة البورصة تميّز القناة في نتائج البحث؛ إثبات الملكية الأساسي مجاني ولا يتطلب شراءها.</p>
           </div>
         )}
       </div>
@@ -168,6 +168,8 @@ export function ManagePanel({ token, initial }: { token: string; initial: { list
                 </div>
               )}
               {d.post_link && <a className="mt-1 block text-sky-700 underline" dir="ltr" href={d.post_link}>{d.post_link}</a>}
+              {d.payment_reference && <p className="mt-2 break-all rounded-lg bg-sky-50 p-2 text-xs text-sky-800">مرجع الدفع الوارد: <code dir="ltr">{d.payment_reference}</code></p>}
+              {d.settlement_reference && <p className="mt-2 break-all rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">مرجع {d.status === "REFUNDED" ? "الاسترداد" : "تحويل مستحق القناة"}: <code dir="ltr">{d.settlement_reference}</code>{d.settled_at ? ` · ${new Date(d.settled_at).toLocaleString("ar")}` : ""}</p>}
             </div>
           ))}
         </div>

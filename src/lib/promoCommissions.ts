@@ -15,7 +15,7 @@ export type SplitType = (typeof SPLIT_TYPES)[number];
 export type SupervisorRow = { botId: string; ownerId: string; active: boolean; ready: number; pending: number; earned30d: number; tasks30d: number };
 export type CommissionReport = { days: number; totals: Record<SplitType, number>; tasks: number; supervisors: SupervisorRow[]; consistent: boolean };
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
+const r6 = (n: number) => Math.round((n + Number.EPSILON) * 1_000_000) / 1_000_000;
 
 /** Pure: per-type totals and a sanity check (paid out ≤ what advertisers spent; a 1¢ rounding tolerance per 100 tasks). */
 export function summarizeSplits(rows: { type: string; amount: number; botId: string | null }[], bots: { id: string; ownerId: string; isActive: boolean; ownerBalance: number; pendingBalance: number }[], days: number): CommissionReport {
@@ -32,13 +32,13 @@ export function summarizeSplits(rows: { type: string; amount: number; botId: str
       perBot.set(r.botId, b);
     }
   }
-  for (const k of SPLIT_TYPES) totals[k] = r2(totals[k]);
+  for (const k of SPLIT_TYPES) totals[k] = r6(totals[k]);
   const paidOut = totals.TASK_REWARD + totals.CREATOR_EARNING_PENDING + totals.REFERRAL_COMMISSION + totals.REFERRAL_B2B_COMMISSION + totals.PLATFORM_PROFIT;
   const spent = totals.AD_PAYMENT;
   const supervisors = bots
-    .map((b) => ({ botId: b.id, ownerId: b.ownerId, active: b.isActive, ready: r2(b.ownerBalance), pending: r2(b.pendingBalance), earned30d: r2(perBot.get(b.id)?.earned ?? 0), tasks30d: perBot.get(b.id)?.tasks ?? 0 }))
+    .map((b) => ({ botId: b.id, ownerId: b.ownerId, active: b.isActive, ready: r6(b.ownerBalance), pending: r6(b.pendingBalance), earned30d: r6(perBot.get(b.id)?.earned ?? 0), tasks30d: perBot.get(b.id)?.tasks ?? 0 }))
     .sort((a, b) => b.earned30d - a.earned30d || b.ready + b.pending - (a.ready + a.pending));
-  return { days, totals, tasks, supervisors, consistent: spent === 0 ? paidOut === 0 : paidOut <= spent + 0.01 * Math.max(1, tasks / 100) };
+  return { days, totals, tasks, supervisors, consistent: spent === 0 ? paidOut === 0 : paidOut <= spent + 0.00001 * Math.max(1, tasks) };
 }
 
 export async function commissionReport(days = 30): Promise<CommissionReport> {

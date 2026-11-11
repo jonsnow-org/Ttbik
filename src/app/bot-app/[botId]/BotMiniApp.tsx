@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // The ads & earn bot's own Mini App: it works like the bot (watch & earn, create an ad, my ads, wallet, referrals, stats) and adds
 // two sections close to its work: USDT remittances and the channels & groups exchange. Nothing here opens the website.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppFrame, AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, moneyCpc, useApp,
   type Lang, type Screen,
@@ -163,7 +163,7 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
   const { lang, api, open, toast, tg } = useApp();
   const [type, setType] = useState<string>(init.config.types[1]?.type || "TELEGRAM");
   const [cards, setCards] = useState<Card[] | null>(null);
-  const [state, setState] = useState<Record<string, { until?: number; busy?: boolean; done?: number }>>({});
+  const [state, setState] = useState<Record<string, { until?: number; opened?: boolean; busy?: boolean; done?: number }>>({});
   const [need, setNeed] = useState<{ kind: "phone" | "link"; platform?: string } | null>(null);
   const [, tick] = useState(0);
   useEffect(() => { const i = window.setInterval(() => tick((x) => x + 1), 500); return () => window.clearInterval(i); }, []);
@@ -175,13 +175,57 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
   }, [api, toast]);
   useEffect(() => { void load(type); }, [type, load]);
 
+  // Keep the latest state in a ref: the focus listeners must not depend on
+  // state itself, otherwise every countdown update re-registers them and can
+  // repeatedly query the server while the user is merely watching the timer.
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => {
+    let syncing = false;
+    const sync = async () => {
+      if (syncing) return;
+      syncing = true;
+      try {
+        const ids = Object.entries(stateRef.current).filter(([, v]) => v.opened && v.done == null).map(([id]) => id);
+        for (const adId of ids) {
+          const r = await api<{ started: boolean; remainingSeconds: number }>("earn_status", { adId });
+          if (!r.ok) continue;
+          setState((current) => {
+            const old = current[adId];
+            if (!old?.opened || old.done != null) return current;
+            const now = Date.now();
+            const until = r.started ? now + r.remainingSeconds * 1000 : undefined;
+            const localRemaining = old.until == null ? null : Math.max(0, Math.ceil((old.until - now) / 1000));
+            if ((!r.started && old.until == null) || (r.started && localRemaining === r.remainingSeconds)) return current;
+            return { ...current, [adId]: { ...old, until } };
+          });
+        }
+      } finally {
+        syncing = false;
+      }
+    };
+    const onReturn = () => { if (document.visibilityState === "visible") void sync(); };
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => { window.removeEventListener("focus", onReturn); document.removeEventListener("visibilitychange", onReturn); };
+  }, [api]);
+
   const doOpen = async (c: Card) => {
     const r = await api<{ url: string; timer: number }>("earn_open", { adId: c.id });
     if (!r.ok) { toast(r.error || "", "err"); setCards((x) => x?.filter((y) => y.id !== c.id) || x); return; }
-    setState((s) => ({ ...s, [c.id]: { until: Date.now() + (r.timer || 0) * 1000 } }));
+    setState((s) => ({ ...s, [c.id]: { ...s[c.id], opened: true, until: r.timer === 0 ? Date.now() : undefined } }));
     open(r.url);
   };
   const doVerify = async (c: Card) => {
+    if (c.timer > 0) {
+      const status = await api<{ started: boolean; remainingSeconds: number }>("earn_status", { adId: c.id });
+      if (!status.ok) { toast(status.error || "", "err"); return; }
+      if (!status.started || status.remainingSeconds > 0) {
+        setState((s) => ({ ...s, [c.id]: { ...s[c.id], opened: true, until: status.started ? Date.now() + status.remainingSeconds * 1000 : undefined } }));
+        toast(status.started ? `${tr(lang, "wait")} ${status.remainingSeconds}${tr(lang, "sec")}` : tr(lang, "openFirst"), "err");
+        return;
+      }
+    }
     setState((s) => ({ ...s, [c.id]: { ...s[c.id], busy: true } }));
     const r = await api<{ reward: number; balance: number; platform?: string }>("earn_verify", { adId: c.id });
     setState((s) => ({ ...s, [c.id]: { ...s[c.id], busy: false } }));
@@ -193,7 +237,6 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
       return;
     }
     if (r.code === "phone") { setNeed({ kind: "phone" }); return; }
-    if (r.code === "social" || r.code === "youtube") { setNeed({ kind: "link", platform: String((r as any).platform || "") }); return; }
     toast(r.error || "", "err");
     if (["gone", "already_claimed", "own", "flagged"].includes(String(r.code))) setCards((x) => x?.filter((y) => y.id !== c.id) || x);
   };
@@ -201,7 +244,7 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
   const report = async (c: Card) => {
     const r = await api<{ message: string }>("earn_report", { adId: c.id });
     toast(r.ok ? r.message : r.error || "", r.ok ? "ok" : "err");
-    skip(c);
+    if (r.ok) skip(c);
   };
   const sharePhone = async () => {
     // Telegram's own contact request: the bot receives the contact and verifies it exactly as in the chat.
@@ -230,7 +273,7 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
       <div className="space-y-3">
         {cards?.map((c) => {
           const st = state[c.id] || {};
-          const left = st.until ? Math.max(0, Math.ceil((st.until - Date.now()) / 1000)) : null;
+          const left = st.until != null ? Math.max(0, Math.ceil((st.until - Date.now()) / 1000)) : null;
           return (
             <div key={c.id} className="rounded-2xl p-4" style={{ background: "var(--app-card)" }}>
               <div className="flex items-center justify-between gap-2">
@@ -242,10 +285,10 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
                 <div className="mt-3 rounded-xl py-2.5 text-center text-sm font-extrabold" style={{ background: "#dcfce7", color: "#166534" }}>✓ +{moneyCpc(st.done)}</div>
               ) : (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Btn onClick={() => doOpen(c)} kind={st.until ? "soft" : "primary"} className="flex-1">{c.kind === "join" ? `📢 ${tr(lang, "join")}` : `🔗 ${tr(lang, "open")}`}{c.timer ? ` (${c.timer}${tr(lang, "sec")})` : ""}</Btn>
+                  <Btn onClick={() => doOpen(c)} kind={st.opened ? "soft" : "primary"} className="flex-1">{c.kind === "join" ? `📢 ${tr(lang, "join")}` : `🔗 ${tr(lang, "open")}`}{c.timer ? ` (${c.timer}${tr(lang, "sec")})` : ""}</Btn>
                   {!c.forced && (
-                    <Btn onClick={() => doVerify(c)} disabled={st.busy || (left != null && left > 0) || (c.timer > 0 && !st.until)} className="flex-1">
-                      {left != null && left > 0 ? `⏳ ${tr(lang, "wait")} ${left}${tr(lang, "sec")}` : `✅ ${tr(lang, "verify")}`}
+                    <Btn onClick={() => doVerify(c)} disabled={st.busy || (left != null && left > 0) || (c.timer > 0 && (!st.opened || st.until == null))} className="flex-1">
+                      {left != null && left > 0 ? `⏳ ${tr(lang, "wait")} ${left}${tr(lang, "sec")}` : c.timer > 0 && !st.until ? tr(lang, "openFirst") : `✅ ${tr(lang, "verify")}`}
                     </Btn>
                   )}
                   <div className="flex w-full justify-between">
@@ -266,11 +309,12 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
 // ----------------------------------------------------------------------------- ➕ Create an ad
 function CreateAd({ init, onDone }: { init: Init; onDone: () => void }) {
   const { lang, api, toast, setDirty, reset, push } = useApp();
-  const [f, setF] = useState({ type: "TELEGRAM", scope: "TARGETED", subType: "follow", description: "", target: "", budget: "", cpc: "" });
+  const [f, setF] = useState({ type: "TELEGRAM", scope: "TARGETED", description: "", target: "", budget: "", cpc: "" });
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [short, setShort] = useState(false);
+  const [preview, setPreview] = useState(false);
   const t = init.config.types.find((x) => x.type === f.type)!;
   const set = (k: keyof typeof f, v: string) => { setF((s) => ({ ...s, [k]: v })); setDirty(true); setErr(null); };
   const budget = Number(f.budget.replace(",", ".")) || 0;
@@ -299,9 +343,7 @@ function CreateAd({ init, onDone }: { init: Init; onDone: () => void }) {
       <Section title={tr(lang, "scope")} hint={f.scope === "GLOBAL" ? (lang === "en" ? "Shown in every bot on the platform: more reach." : "يظهر في كل بوتات المنصة: وصول أكبر.") : (lang === "en" ? "Shown to this bot's users first." : "يظهر لمستخدمي هذا البوت أولاً.")}>
         <div className="p-3"><Chips items={[{ id: "TARGETED", label: tr(lang, "scopeTargeted") }, { id: "GLOBAL", label: tr(lang, "scopeGlobal") }]} value={f.scope} onChange={(v) => set("scope", v)} /></div>
       </Section>
-      {f.type === "TWITTER" && (
-        <Section title={tr(lang, "subType")}><div className="p-3"><Chips items={[{ id: "follow", label: tr(lang, "follow") }, { id: "retweet", label: tr(lang, "retweet") }]} value={f.subType} onChange={(v) => set("subType", v)} /></div></Section>
-      )}
+      {f.type !== "TELEGRAM" && <p className="mb-3 rounded-xl px-3 py-2 text-xs leading-5" style={{ background: "var(--app-chip)", color: "var(--app-hint)" }}>{tr(lang, "visitOnlyHint")}</p>}
       <Section>
         <Field label={tr(lang, "description")}>
           <textarea rows={3} maxLength={600} className={`${inputCls} resize-none`} style={inputStyle} placeholder={tr(lang, "descriptionPh")} value={f.description} onChange={(e) => set("description", e.target.value)} />
@@ -316,12 +358,24 @@ function CreateAd({ init, onDone }: { init: Init; onDone: () => void }) {
           <input dir="ltr" inputMode="decimal" className={inputCls} style={inputStyle} placeholder={String(t.minCpc)} value={f.cpc} onChange={(e) => set("cpc", e.target.value)} />
         </Field>
       </Section>
-      <Section>
-        <Row icon="🎯" title={`${tr(lang, "estClicks")}: ${est}`} sub={`${money(budget)} ÷ ${moneyCpc(cpc)}`} />
+      <Section title={lang === "en" ? "Campaign estimate" : "ملخص حملتك قبل الإطلاق"}>
+        <Row icon="🎯" title={`${tr(lang, "estClicks")}: ${est}`} sub={lang === "en" ? `Up to ${est} completed tasks, if all the budget is spent.` : `حتى ${est} مهمة مكتملة عند استهلاك الميزانية؛ العدد تقديري وليس مضموناً.`} />
+        <Row icon="🧑‍💻" title={lang === "en" ? `Worker reward per completed task: ${moneyCpc(cpc * 0.5)}` : `مكافأة المستخدم عن كل مهمة مكتملة: ${moneyCpc(cpc * 0.5)}`} sub={lang === "en" ? "50% of the task price goes to the worker." : "يصل 50% من تكلفة المهمة إلى المستخدم الذي يكملها."} />
+        <Row icon="📊" title={lang === "en" ? `Estimated worker pool: ${moneyCpc(est * cpc * 0.5)}` : `إجمالي مكافآت المستخدمين التقديري: ${moneyCpc(est * cpc * 0.5)}`} sub={lang === "en" ? `Estimated unused balance: ${moneyCpc(Math.max(0, budget - est * cpc))}.` : `المتبقي المتوقع من الميزانية بعد توزيع المهام: ${moneyCpc(Math.max(0, budget - est * cpc))}.`} />
         <Row icon="💰" title={`${tr(lang, "balance")}: ${money(init.user.balance)}`} right={budget > init.user.balance ? <Btn small onClick={() => push({ name: "wallet", params: { tab: "deposit" } })}>{tr(lang, "topUp")}</Btn> : null} />
       </Section>
+      <p className="mb-3 px-1 text-[11px] leading-5" style={{ color: "var(--app-hint)" }}>{lang === "en" ? "The 50% worker share is credited only after a task passes server verification. Opening a link alone is not a paid completion." : "تُضاف حصة المستخدم (50%) بعد اجتياز التحقق من المهمة على الخادم. مجرد فتح الرابط لا يُعد إكمالاً مدفوعاً."}</p>
       {err && <p className="mb-2 px-1 text-sm font-bold" style={{ color: "var(--app-danger)" }}>{err}</p>}
       {short && <Btn className="mb-2 w-full" kind="soft" onClick={() => push({ name: "wallet", params: { tab: "deposit" } })}>{tr(lang, "topUp")}</Btn>}
+      <Btn className="mb-2 w-full" kind="soft" disabled={!f.description.trim() || !f.target.trim()} onClick={() => setPreview((v) => !v)}>{preview ? (lang === "en" ? "Hide ad preview" : "إخفاء المعاينة") : (lang === "en" ? "Preview how users will see the ad" : "👁 معاينة بطاقة الإعلان للمستخدمين")}</Btn>
+      {preview && <Section title={lang === "en" ? "User-facing card preview" : "هكذا ستظهر بطاقتك للمستخدم"}>
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--app-sep)", background: "var(--app-card)" }}>
+          <div className="mb-2 flex items-center justify-between gap-2"><strong className="text-sm">{t[lang === "en" ? "en" : "ar"]}</strong><Pill tone="info">{f.scope === "GLOBAL" ? (lang === "en" ? "Global" : "عام") : (lang === "en" ? "Targeted" : "موجّه")}</Pill></div>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6" dir="auto">{f.description}</p>
+          <div className="mt-3 flex items-center justify-between gap-2 text-[11px]" style={{ color: "var(--app-hint)" }}><span dir="ltr" className="min-w-0 break-all">{f.target}</span><span className="shrink-0 font-bold">{moneyCpc(cpc * 0.5)}</span></div>
+          <p className="mt-2 text-[10px]" style={{ color: "var(--app-hint)" }}>{lang === "en" ? "Reward shown is the worker share after successful verification." : "المبلغ الظاهر هو مكافأة المستخدم بعد إتمام المهمة والتحقق منها."}</p>
+        </div>
+      </Section>}
       <MainAction text={`${tr(lang, "confirmAd")} · ${money(budget)}`} onClick={submit} disabled={!ready} busy={busy} />
     </>
   );
@@ -334,7 +388,8 @@ function MyAds({ onChange }: { onChange: () => void }) {
   const [ads, setAds] = useState<MyAd[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [topup, setTopup] = useState("");
-  const load = useCallback(async () => { const r = await api<{ ads: MyAd[] }>("my_ads"); setAds(r.ok ? r.ads : []); }, [api]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const load = useCallback(async () => { const r = await api<{ ads: MyAd[] }>("my_ads"); if (r.ok) { setAds(r.ads); setLoadError(null); } else setLoadError(r.error || "تعذّر تحميل الحملات."); }, [api]);
   useEffect(() => { void load(); }, [load]);
   const op = async (a: MyAd, o: string, amount?: string) => {
     if (o === "cancel" && !(await confirm(lang === "en" ? `Cancel and refund ${money(a.remaining)}?` : `إلغاء الحملة واسترداد ${money(a.remaining)} لرصيدك؟`))) return;
@@ -346,7 +401,8 @@ function MyAds({ onChange }: { onChange: () => void }) {
   return (
     <>
       <ScreenTitle icon="📢" title={tr(lang, "myAds")} sub={tr(lang, "myAdsSub")} />
-      {!ads && <Loading />}
+      {!ads && !loadError && <Loading />}
+      {!ads && loadError && <Section><Empty icon="⚠️" title={lang === "en" ? "Could not load campaigns" : "تعذّر تحميل الحملات"} sub={loadError} action={<Btn onClick={() => void load()}>↻ {lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section>}
       {ads && ads.length === 0 && <Section><Empty icon="📭" title={tr(lang, "emptyAds")} sub={tr(lang, "emptyAdsSub")} action={<Btn onClick={() => push({ name: "create" })}>➕ {tr(lang, "createAd")}</Btn>} /></Section>}
       <div className="space-y-3">
         {ads?.map((a) => {
@@ -367,10 +423,20 @@ function MyAds({ onChange }: { onChange: () => void }) {
                   <div><div className="text-[15px] font-extrabold" style={{ color: "var(--app-text)" }} dir="ltr">{money(a.spent)}</div>{tr(lang, "spent")}</div>
                   <div><div className="text-[15px] font-extrabold" style={{ color: "var(--app-text)" }} dir="ltr">{money(a.remaining)}</div>{tr(lang, "remaining")}</div>
                 </div>
+                <div className="mt-2 flex items-center justify-between text-[10.5px]" style={{ color: "var(--app-hint)" }}>
+                  <span>{lang === "en" ? "Budget used" : "المستهلك من الميزانية"}</span>
+                  <span className="font-bold" dir="ltr">{pct}%</span>
+                </div>
               </button>
               {isOpen && (
                 <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--app-sep)" }}>
                   <div className="text-xs" style={{ color: "var(--app-hint)" }} dir="ltr">{a.content} · {moneyCpc(a.cpc)}</div>
+                  <div className="grid grid-cols-2 gap-2 rounded-xl p-3 text-[11px]" style={{ background: "var(--app-chip)" }}>
+                    <div><div style={{ color: "var(--app-hint)" }}>مكافأة المستخدم/مهمة</div><strong>{moneyCpc(a.cpc * 0.5)}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>مهام متوقعة بالمتبقي</div><strong>{Math.floor(a.remaining / a.cpc)}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>متوسط التكلفة الفعلي</div><strong>{a.clicks > 0 ? moneyCpc(a.spent / a.clicks) : "—"}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>نطاق الحملة</div><strong>{a.scope === "GLOBAL" ? "عام" : "موجّه"}</strong></div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {a.status === "ACTIVE" && <Btn small kind="soft" onClick={() => op(a, "pause")}>⏸ {tr(lang, "pause")}</Btn>}
                     {a.status === "PAUSED" && <Btn small kind="soft" onClick={() => op(a, "resume")}>▶ {tr(lang, "resume")}</Btn>}

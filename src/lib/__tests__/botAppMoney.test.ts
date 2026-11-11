@@ -25,7 +25,7 @@ const client: any = { user: table("user"), ad: table("ad"), transaction: table("
 client.$transaction = async (fn: any) => fn(client);
 jest.mock("@/lib/prisma", () => ({ prisma: client }));
 
-import { AUDIT_THRESHOLD, MIN_WITHDRAWAL, cancelAdCore, launchAdCore, requestUserWithdrawalCore, topupAdCore } from "@/lib/adBotLogic";
+import { AUDIT_THRESHOLD, MIN_WITHDRAWAL, cancelAdCore, launchAdCore, requestUserWithdrawalCore, round6, topupAdCore } from "@/lib/adBotLogic";
 
 beforeEach(() => {
   db.user = [{ id: "u1", botId: "b1", balance: 10 }];
@@ -44,6 +44,15 @@ describe("launchAdCore (➕ ضع إعلانك)", () => {
     expect(db.ad[0].workerCut + db.ad[0].creatorCut + db.ad[0].ownerCut).toBeCloseTo(0.01, 6);
     expect(db.ad[0].workerCut).toBeCloseTo(0.005, 6);
     expect(db.transaction).toEqual([expect.objectContaining({ type: "AD_PAYMENT", amount: 4 })]);
+  });
+  it("uses the bot handling this mini-app session, not a stale global user.botId", async () => {
+    const r = await launchAdCore("u1", "TELEGRAM", base, "bot-2");
+    expect(r).toEqual({ ok: true, budget: 4 });
+    expect(db.ad[0]).toMatchObject({ botId: "bot-2", targetBotId: "bot-2" });
+  });
+  it("retains fractional-cent CPC values", () => {
+    expect(round6(10 - 0.003)).toBe(9.997);
+    expect(round6(9.997 - 0.003)).toBe(9.994);
   });
   it("refuses a budget above the balance without charging or creating anything", async () => {
     const r = await launchAdCore("u1", "TELEGRAM", { ...base, budget: 25 });

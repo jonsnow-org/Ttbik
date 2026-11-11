@@ -5,6 +5,7 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { coinById, createExchange, estimate, exchangeStatus, FINAL, minAmount, PAY_COINS, RECEIVE, STATUS_AR, TRON_ADDRESS, type Coin } from "@/lib/remit/changenow";
+import { isValidTronPayoutAddress } from "@/lib/channels/payoutAddress";
 import { savedRefLinks } from "@/lib/remit/refLinks";
 
 export const OFFICE_BUTTON = "💸 حوالات USDT";
@@ -292,10 +293,12 @@ export type CreatedTransfer = { track: string; coin: Coin; fromAmount: number; t
  */
 export async function createTransferRecord(chatId: string, d: Draft, key: string): Promise<CreatedTransfer | null> {
   const c: Coin | null = coinById(d.coin || "");
-  if (!key || !c || !d.amount || !d.addr || !TRON_ADDRESS.test(d.addr)) return null;
+  if (!key || !c || !d.amount || !d.addr || !isValidTronPayoutAddress(d.addr)) return null;
+  // Prepare durable storage before creating an external exchange; otherwise a DB failure after
+  // ChangeNOW accepts the order could strand the sender without a tracking receipt.
+  await ensure();
   const track = newTrack();
   const ex = await createExchange(key, c, d.amount, d.addr, track);
-  await ensure();
   await prisma.$executeRaw`INSERT INTO remit_transfers (track, chat_id, cn_id, coin, from_amount, to_amount, address, recipient, from_country, to_country, payin, payin_extra) VALUES (${track}, ${chatId}, ${ex.id}, ${c.id}, ${ex.fromAmount}, ${ex.toAmount || d.quote || 0}, ${d.addr}, ${d.name || null}, ${d.from || null}, ${d.to || null}, ${ex.payinAddress}, ${ex.payinExtraId})`;
   await prisma.$executeRaw`INSERT INTO remit_recipients (chat_id, address, name) VALUES (${chatId}, ${d.addr}, ${d.name || null}) ON CONFLICT (chat_id, address) DO UPDATE SET used_at = now(), name = COALESCE(EXCLUDED.name, remit_recipients.name)`;
   return { track, coin: c, fromAmount: ex.fromAmount, toAmount: ex.toAmount || d.quote || 0, payin: ex.payinAddress, payinExtra: ex.payinExtraId };

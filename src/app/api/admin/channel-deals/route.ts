@@ -13,6 +13,6 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const action = String(b.action || "");
   if (!["confirm_paid", "verify", "release", "refund", "cancel"].includes(action)) return NextResponse.json({ ok: false, error: "bad action" }, { status: 400 });
-  const r = await adminDealAction(String(b.code || "").toUpperCase(), action as "confirm_paid");
+  const r = await adminDealAction(String(b.code || "").toUpperCase(), action as "confirm_paid" | "verify" | "release" | "refund" | "cancel", String(b.reference || ""));
   return NextResponse.json(r, { status: r.ok ? 200 : 400 });
 }
