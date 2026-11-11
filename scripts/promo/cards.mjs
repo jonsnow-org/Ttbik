@@ -11,7 +11,7 @@ const SIZES = { square: [1080, 1080], story: [1080, 1920], link: [1200, 630] };
 
 const card = (p, [W, H], kind) => {
   const tall = kind === "story", wide = kind === "link";
-  const onlyEnglish = EN || projectLanguage(p) === "en";
+  const onlyEnglish = EN || projectLanguage(p) === "en";\n  const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
   const u = tall ? 1.15 : wide ? 0.72 : 0.8; // type scale
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box;margin:0}
@@ -35,7 +35,7 @@ body{width:${W}px;height:${H}px;position:relative;overflow:hidden;color:#fff;fon
 <div class="box">${logoMarkup(p)}<div class="txt">
 <div class="name">${esc(onlyEnglish ? projectName(p, "en") : p.name)}</div>
 <div class="en">${esc(p.tagline[0])}</div>${onlyEnglish ? "" : `<div class="ar">${esc(p.tagline[1])}</div>`}
-${wide ? "" : `<div class="pills">${p.points.map((pt) => `<span class="pill">${esc(onlyEnglish ? pt[0] : pt[1])}</span>`).join("")}</div>`}
+${wide ? "" : `<div class="pills">${p.points.map((pt) => `<span class="pill">${esc(pt[pointIndex])}</span>`).join("")}</div>`}
 <div class="handle">${esc(p.handle)}</div></div></div><div class="fine">${esc(fineLine(p, onlyEnglish ? "en" : "both"))}</div></body>`;
 };
 
