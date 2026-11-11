@@ -1,0 +1,30 @@
+name: Prune stale studio_code files in the Sham model repos
+
+# Deletes, from the ModelScope model repos of Sham v1 and v2, the studio_code/ files that the signed local code no longer has (an extra file makes every Studio refuse the signed code).
+# Writes only deletions inside studio_code/ of those two model repos; no weights, no datasets.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sham-v2-signed-runtime-code
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip modelscope
+      - name: Prune
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: python scripts/ops/prune_model_code.py
