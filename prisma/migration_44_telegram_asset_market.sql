@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS telegram_asset_sales (
   seller_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   buyer_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   transfer_evidence TEXT,
+  payment_late BOOLEAN NOT NULL DEFAULT FALSE,
   verification_bot TEXT,
   verification_reference TEXT,
   expires_at TIMESTAMPTZ NOT NULL,
