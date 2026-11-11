@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
       ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
-      if (ok && deal.kind === "ASSET_SALE") ok = await assetSalePaymentIsAvailable(deal.code);
+      if (deal && ok && deal.kind === "ASSET_SALE") ok = await assetSalePaymentIsAvailable(deal.code);
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
