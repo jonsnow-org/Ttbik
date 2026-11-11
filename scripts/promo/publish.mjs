@@ -16,7 +16,7 @@ const format = arg("format", "vertical");
 const project = loadProjects().find((item) => item.id === id);
 const fail = (message) => { throw new Error(message); };
 if (!project) fail(`unknown campaign id: ${id}`);
-if (!/^promo-campaign-[a-z0-9-]+-\\d{8}$/.test(tag)) fail("invalid campaign release tag");
+if (!/^promo-campaign-[a-z0-9-]+-\d{8}$/.test(tag)) fail("invalid campaign release tag");
 if (format !== "vertical") fail("automatic social publishing requires a vertical video");
 const asset = `${id}-${format}.mp4`;
 const video = path.join(output, asset);
@@ -39,7 +39,7 @@ if (!release) {
     "Telegram and YouTube delivery status is recorded as release assets.",
     "",
     buildCampaign(project).telegram,
-  ].join("\\n");
+  ].join("\n");
   gh(["release", "create", tag, "-R", repo, "--target", process.env.GITHUB_SHA || "HEAD", "--prerelease", "--title", `Promo campaign: ${project.name}`, "--notes", notes]);
   release = viewRelease();
   if (!release) fail("release was not visible after creation");
@@ -59,12 +59,12 @@ const campaignCopy = buildCampaign(project);
 const channel = project.channel === "coins" ? "coins" : "general";
 const marker = async (name, payload) => {
   const file = path.join(output, name);
-  fs.writeFileSync(file, JSON.stringify({ ...payload, publishedAt: new Date().toISOString(), tag }, null, 2) + "\\n");
+  fs.writeFileSync(file, JSON.stringify({ ...payload, publishedAt: new Date().toISOString(), tag }, null, 2) + "\n");
   gh(["release", "upload", tag, "-R", repo, file, "--clobber"]);
 };
 const send = async (to, fields) => {
   const params = new URLSearchParams({ tag, asset, to, ...fields });
-  const response = await fetch(`${site().replace(/\\/$/, "")}/api/cron/promo-publish?${params}`, {
+  const response = await fetch(`${site().replace(/\/$/, "")}/api/cron/promo-publish?${params}`, {
     method: "GET",
     headers: { authorization: `Bearer ${cronSecret}` },
     signal: AbortSignal.timeout(55_000),
