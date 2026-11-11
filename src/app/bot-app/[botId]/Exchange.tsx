@@ -383,7 +383,7 @@ function Manage({ token, rules, onBadge }: { token: string; rules: Rules; onBadg
 
 
 type AssetType = "CHANNEL" | "GROUP" | "BOT";
-type AssetListingView = { id: string; assetType: AssetType; identifier: string; title: string; description: string; price: number; seller: { telegramId: string; firstName: string; lastName: string | null; username: string }; verificationMode: string; createdAt: string };
+type AssetListingView = { id: string; assetType: AssetType; identifier: string; title: string; description: string; price: number; seller: { firstName: string; lastName: string | null; username: string }; verificationMode: string; createdAt: string };
 type AssetSaleView = {
   code: string; status: string; sellerTelegramId: string; buyerTelegramId: string;
   seller: any; buyer: any; sellerConfirmed: boolean; buyerConfirmed: boolean; paymentLate?: boolean; transferEvidence: string | null;
@@ -393,7 +393,7 @@ type AssetSaleView = {
 const ASSET_STATUS: Record<string, string> = {
   PENDING_PAYMENT: "بانتظار الدفع", PAID: "مدفوع · بانتظار التسليم", POSTED: "التسليم قيد التحقق",
   VERIFIED: "تم إثبات نقل الملكية · بانتظار التسوية", RELEASED: "اكتملت الصفقة",
-  REFUNDED: "تم الاسترداد", CANCELLED: "أُلغي الحجز قبل وصول الدفعة",
+  REFUNDED: "تم الاسترداد", CANCELLED: "أُلغي الحجز",
 };
 const ASSET_TYPE_LABEL: Record<AssetType, string> = { CHANNEL: "قناة", GROUP: "مجموعة", BOT: "بوت" };
 
