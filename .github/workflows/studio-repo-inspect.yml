@@ -8,14 +8,19 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        studio: [nova-inference-server, sham-v2-server]
     steps:
-      - uses: actions/checkout@v4
       - env:
-          KAGGLE_USERNAME: jonsnowjonsnow
-          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ matrix.studio }}
         run: |
-          pip install -q kaggle==2.2.5
-          kaggle datasets list -m -s sham-crawl- --csv -p 1 | head -5; echo ---
-          kaggle datasets list -m --csv -p 1 | head -5; echo ---
-          kaggle datasets list --user jonsnowjonsnow -s sham-crawl --csv | head -5; echo ---
-          cd ai-system/colab/sham_small && python3 -c "import sham_inputs; print(sham_inputs.crawl_dataset_names())"
+          echo "::add-mask::$T"
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d;print('status',d.get('status'),'runtime',d.get('runtime'),'modified',d.get('last_modified'))"
+          echo "== build log"
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/build" | sed 's/\\n/\n/g; s/","/\n/g' | grep -E "currentBranch|commitId###|not fetched|executionStep begins|ERROR|error|Successfully|push" | grep -v "Layer already" | head -30 | cut -c1-260
+          echo "== run log tail"
+          curl -sS -H "Authorization: Bearer $T" "https://www.modelscope.cn/openapi/v1/studios/novaai2026/$STUDIO/logs/run" | sed 's/\\n/\n/g; s/","/\n/g' | tail -25 | cut -c1-260
+          GIT_LFS_SKIP_SMUDGE=1 git clone -q "https://oauth2:${T}@www.modelscope.cn/studios/novaai2026/${STUDIO}.git" s 2>&1 | sed "s/${T}/***/g" || true
+          cd s && git log --format='%h %ad %s' --date=iso -3 && git branch -r | tail -3
