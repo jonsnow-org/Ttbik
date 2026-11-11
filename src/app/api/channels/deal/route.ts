@@ -6,7 +6,7 @@ import { isRateLimited, requestIp } from "@/lib/rateLimit";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const d = await dealByCode(String(req.nextUrl.searchParams.get("code") || "").toUpperCase()).catch(() => null);
-  if (!d) return NextResponse.json({ ok: false, error: "غير موجود" }, { status: 404 });
+  if (!d || d.kind === "ASSET_SALE") return NextResponse.json({ ok: false, error: "غير موجود" }, { status: 404 });
   return NextResponse.json({ ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link, paymentReference: d.payment_reference || null, settlementReference: d.settlement_reference || null } });
 }
 export async function POST(req: NextRequest) {
