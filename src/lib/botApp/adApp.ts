@@ -432,7 +432,8 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
         await bot.api.sendMessage(Number(tgId), "لإكمال هوية البائع والمشتري، شارك رقم هاتفك عبر زر تيليجرام الرسمي أدناه. لا ترسل الرقم كتابةً أو في رسالة عادية.", {
           reply_markup: new Keyboard().requestContact("📱 مشاركة رقم هاتفي").resized(),
         });
-        return { ok: true, sent: true };
+        const me = await bot.api.getMe().catch(() => null);
+        return { ok: true, sent: true, link: me?.username ? `https://t.me/${me.username}` : null };
       } catch {
         return fail("افتح محادثة هذا البوت واضغط Start أولاً، ثم أعد طلب مشاركة رقم الهاتف.");
       }
