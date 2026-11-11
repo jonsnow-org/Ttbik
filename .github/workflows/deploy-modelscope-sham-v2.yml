@@ -222,6 +222,16 @@ jobs:
 
             case "$status" in
               *ail*|*rror*|*topped*)
+                # live 2026-11-11 (run 42952822641): the redeploy that replaces a STALE build ended "BuildFailed" — try again (same 3-redeploy budget)
+                if [ "$redeploys" -gt 0 ] && [ "$redeploys" -lt 3 ]; then
+                  redeploys=$((redeploys + 1))
+                  echo "::warning::$status after a stale-build redeploy; redeploying again (attempt $redeploys)"
+                  show_logs
+                  curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                  DEPLOY_EPOCH=$(date +%s); build_checked=0
+                  sleep 30
+                  continue
+                fi
                 echo "::error::ModelScope Studio reported terminal state: $status"
                 show_logs
                 exit 1
