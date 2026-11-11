@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -15,6 +16,24 @@ import urllib.request
 BASE = "https://www.modelscope.ai"
 WHO_PATHS = ("/api/v1/users/info", "/api/v1/user", "/openapi/v1/users/me", "/api/v1/users/me")
 NAME_KEYS = ("Name", "name", "Username", "username", "UserName", "user_name", "nick_name", "NickName", "display_name")
+
+
+_SECRET = re.compile(r"(?i)(gh[pousr]_[A-Za-z0-9]{20,}|[A-Za-z0-9_\-]{32,}|(?:token|key|secret|password)\s*[=:]\s*\S+)")
+
+
+def mask(text: str) -> str:
+    return _SECRET.sub("[masked]", text)
+
+
+def call_text(path: str, token: str, timeout: int = 40) -> tuple[int, str]:
+    req = urllib.request.Request(BASE + path, headers={"Authorization": "Bearer " + token})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+    except Exception as e:
+        return 0, type(e).__name__
 
 
 def call(path: str, token: str, timeout: int = 25):
@@ -64,6 +83,12 @@ def main() -> int:
         code, data = call(f"/openapi/v1/studios?owner={owner}&status=all", token)
         studios = [s.get("id") for s in (((data or {}).get("data") or {}).get("studios") or [])] if isinstance(data, dict) else []
         print(f"studios of {owner} (HTTP {code}): {studios[:20]}")
+        for sid in studios[:5]:                       # state and the end of the run log of each owned Studio (masked)
+            c, d = call(f"/openapi/v1/studios/{sid}", token)
+            rt = (((d or {}).get("data") or {}).get("runtime") or {}) if isinstance(d, dict) else {}
+            print(f"- {sid}: HTTP {c}, status={rt.get('status')}, hardware={(((d or {}).get('data') or {}).get('hardware') if isinstance(d, dict) else None)}")
+            c2, t2 = call_text(f"/openapi/v1/studios/{sid}/logs/run", token)
+            print(f"  run log (HTTP {c2}), last 1800 chars:\n" + mask(t2[-1800:]))
     return 0
 
 
@@ -72,6 +97,7 @@ if __name__ == "__main__":
         assert find_names({"Data": {"Name": "abc", "Email": "x@y"}}) == ["Name=abc"]
         assert find_names({"data": [{"username": "u1"}]}) == ["username=u1"]
         assert find_names({"a": {"b": {"c": {"d": {"e": {"name": "deep"}}}}}}) == []
+        assert "ghp_" not in mask("x ghp_" + "a" * 30) and mask("ok") == "ok"
         print("modelscope_ai_probe self-test OK")
         sys.exit(0)
     sys.exit(main())

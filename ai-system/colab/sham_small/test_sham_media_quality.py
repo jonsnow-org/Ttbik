@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import media_fixtures as fx
 import media_quality as mq
-import sham_media_ready
 
 
 def _block(path: Path) -> str:
@@ -139,43 +138,6 @@ class GateReply(unittest.TestCase):
         self.assertEqual(mq.classify_exception(RuntimeError("native-video-unavailable: 3.2 GiB free disk")), "disk")
         self.assertEqual(mq.classify_exception(TimeoutError("x")), "timeout")
         self.assertEqual(mq.classify_exception(ValueError("boom")), "failed")
-
-
-class MakeUsesTheGate(unittest.TestCase):
-    """sham_media_ready.make(): a black picture from the image model is an error reply, not a PNG."""
-    def setUp(self):             # CPU CI has no torch: the pipeline is patched anyway, only the seed generator needs a stand-in
-        import importlib.util, sys, types
-        self._fake = importlib.util.find_spec("torch") is None
-        if self._fake:
-            torch = types.ModuleType("torch")
-            torch.Generator = lambda: types.SimpleNamespace(manual_seed=lambda s: s)
-            sys.modules["torch"] = torch
-    def tearDown(self):
-        if self._fake:
-            import sys
-            sys.modules.pop("torch", None)
-
-    def test_black_image_from_pipeline_is_an_error(self):
-        from PIL import Image
-        with patch.object(sham_media_ready, "_pipe") as pipe:
-            pipe.return_value.return_value.images = [Image.new("RGB", (512, 512))]
-            out = sham_media_ready.make(Path("."), "image", "a red apple")
-        self.assertEqual((out["type"], out["reason"]), ("error", "blank_image"))
-        self.assertNotIn("b64", out)
-
-    def test_real_picture_passes(self):
-        from PIL import Image
-        good = Image.open(__import__("io").BytesIO(fx.png()))
-        with patch.object(sham_media_ready, "_pipe") as pipe:
-            pipe.return_value.return_value.images = [good]
-            out = sham_media_ready.make(Path("."), "image", "a red apple")
-        self.assertEqual(out["type"], "image")
-
-    def test_silent_speech_is_an_error(self):
-        with patch.object(sham_media_ready, "_voice") as voice:
-            voice.return_value.synthesize_wav.side_effect = lambda text, w: (w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000), w.writeframes(b"\0\0" * 16000))
-            out = sham_media_ready.make(Path("."), "audio", "مرحبا")
-        self.assertEqual((out["type"], out["reason"]), ("error", "silent_audio"))
 
 
 class CopiesStayInSync(unittest.TestCase):

@@ -1080,73 +1080,16 @@ async function shamMediaJobStep(bot: TelegramBot, chatId: number, botId: string,
       const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
       // one Studio call (image / v1 media) is bounded by the leg so it is never killed mid-flight; too little time left -> the next leg runs it
       const single = { timeoutMs: Math.max(30000, left() - 5000), bypassContentHeuristics: job.rawTest, aspect: job.aspect, seconds: job.seconds };
-      if (job.kind === "video" && job.model === "v2") {
-        const { shamVideoStart, shamStudioEnabled, DEFAULT_V2_VIDEO_URL } = await import("@/lib/shamStudio");
-        const { targetOf, shamEngine } = await import("@/lib/shamMediaEngine");
-        const { pressureMedia } = await import("@/lib/pressureMode");
-        const route = targetOf("sham_v2", await shamEngine("sham_v2")).route;
-        if (route === "sham_v2_ready" && shamStudioEnabled()) {
-          const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
-          const seconds = job.seconds ?? pressureMedia().videoSeconds;
-          if (!new Set<number>([6, 10, 15, 30, 60, 120]).has(seconds)) { await fail("اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية."); return; }
-          const body = JSON.stringify({ prompt: (job.prompt || "").slice(0, 300), seconds, seed: Math.floor(Math.random() * 2 ** 31) });
-          const started = await shamVideoStart(base, body, 30000);
-          if (started && "job" in started) {
-            job.job = started.job; job.started = Date.now(); job.phase = "poll"; await save();
-            if (left() < 9000) { await save(); await handoff(); return; }
-          } else if (started && "reply" in started) {
-            const { vetShamReply, parseShamReply } = await import("@/lib/shamStudio");
-            const reply = await vetShamReply(parseShamReply(started.reply), { bypassContentHeuristics: job.rawTest });
-            if (reply?.type === "video" && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); return; }
-            await fail(shamMediaErrorText(job.kind, reply));
-            return;
-          } else {
-            // no job API on this Studio (an older app) or an unreadable answer: the single call still makes the clip
-            if (left() < 45000) { await save(); await handoff(); return; }
-            const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-            if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-            else await fail(shamMediaErrorText(job.kind, reply));
-            return;
-          }
-        } else {
-          // not the ready route (internal training route, or the Studio is off): the single-call path below handles it
-          if (left() < 45000) { await save(); await handoff(); return; }
-          const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-          if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-          else await fail(shamMediaErrorText(job.kind, reply));
-          return;
-        }
-      } else {
-        if (left() < 45000) { await save(); await handoff(); return; }
-        const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-        await cardStepDone(bot, chatId, card, Boolean(reply.type === job.kind && reply.b64));
-        if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-        else await fail(shamMediaErrorText(job.kind, reply));
-        return;
-      }
+      if (left() < 45000) { await save(); await handoff(); return; }
+      const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
+      await cardStepDone(bot, chatId, card, Boolean(reply.type === job.kind && reply.b64));
+      if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
+      else await fail(shamMediaErrorText(job.kind, reply));
+      return;
     }
 
-    // 3) poll the clip job until it is done, asking again after a cut (the clip keeps running on the Studio). Out of leg time -> hand off.
-    if (job.phase === "poll") {
-      const { shamVideoJob, vetShamReply, parseShamReply, DEFAULT_V2_VIDEO_URL } = await import("@/lib/shamStudio");
-      const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
-      job.started ||= Date.now();
-      for (;;) {
-        if (left() < 9000) { await save(); await handoff(); return; }
-        if (Date.now() - job.started > 2 * 3600_000) { await fail("تجاوز إنشاء المقطع الحد الأقصى للمدة (ساعتان). لم يُرسل شيء."); return; }
-        const r = await shamVideoJob(base, job.job!, 5, 30000);
-        if (r && "reply" in r) {
-          const reply = await vetShamReply(parseShamReply(r.reply), { bypassContentHeuristics: job.rawTest });
-          if (reply?.type === "video" && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); return; }
-          if (reply?.type === "error" && (reply.reason === "job_lost" || reply.reason === "studio_unreadable") && !job.retried) { job.retried = true; job.phase = "generate"; job.job = undefined; await save(); return; }
-          await fail(shamMediaErrorText(job.kind, reply));
-          return;
-        }
-        await taskTouch(runId).catch(() => null);
-        await save();                                     // keep the job id durable: a leg that dies must not lose the clip
-        await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000));
-      }
-    }
+    // a clip job started by the retired external video Studio (phase "poll") can no longer be followed: say so plainly
+    if (job.phase === "poll") { await fail("انتهى مسار الفيديو القديم. أعد طلب الفيديو."); return; }
   } catch (e) {
     await fail("تعذّر إنشاء الوسائط هذه المرة. أعد المحاولة بعد قليل.", String((e as Error)?.message || e).slice(0, 200));
   }

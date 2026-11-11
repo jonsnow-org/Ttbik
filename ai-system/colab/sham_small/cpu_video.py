@@ -1,6 +1,6 @@
 """Sham v2 real text-to-video on CPU (its own copy: Nova has its own in modelscope-media/app.py; neither imports the other).
 
-AnimateDiff-Lightning + an SD-1.5 realistic base, open weights, ~3 GB. Used by sham_media_ready.py.
+AnimateDiff-Lightning + an SD-1.5 realistic base, open weights, ~3 GB. Used by Nova's and LFM's media Studios (NOT by Sham: Sham and Sham v2 make every medium with their own token generators).
 """
 from __future__ import annotations
 
