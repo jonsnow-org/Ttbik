@@ -125,7 +125,7 @@ async function build(browser, p) {
   if (voiceFile && music && fs.existsSync(music)) {
     encode.push("-i", voiceFile, "-stream_loop", "-1", "-i", path.resolve(music), "-filter_complex", "[1:a]volume=1.0[voice];[2:a]volume=0.12[music];[voice][music]amix=inputs=2:duration=longest:dropout_transition=2,alimiter=limit=0.95[a]", "-map", "0:v", "-map", "[a]");
   } else if (voiceFile) {
-    encode.push("-i", voiceFile, "-map", "0:v", "-map", "1:a");
+    encode.push("-i", voiceFile, "-filter_complex", "[1:a]apad[a]", "-map", "0:v", "-map", "[a]");
   } else {
     encode.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-map", "0:v", "-map", "1:a");
   }
