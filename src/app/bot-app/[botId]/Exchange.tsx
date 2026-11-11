@@ -416,7 +416,7 @@ function AssetIdentityCard({ identity, onRequest }: { identity: any; onRequest: 
 }
 
 function AssetMarket() {
-  const { api, toast, open, copy } = useApp();
+  const { api, toast, open } = useApp();
   const [tab, setTab] = useState<"browse" | "sell" | "deals">("browse");
   const [data, setData] = useState<{ listings: AssetListingView[]; myListings: any[]; mySales: string[]; identity: any; verifierBots: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -472,7 +472,7 @@ function AssetMarket() {
     toast(r.status === "LISTED" ? "تم إثبات ملكيتك وإتاحة العرض في السوق." : "أرسل العرض إلى مراجعة المالك؛ لن يظهر للمشترين قبل اعتماده.", "ok");
     setForm({ assetType: "CHANNEL", identifier: "", title: "", description: "", price: "", payoutAddress: "" });
     await load();
-    setTab("deals");
+    setTab("sell");
   };
   const pay = async (method: "stars" | "nowpayments" | "usdt") => {
     if (!sale) return;
