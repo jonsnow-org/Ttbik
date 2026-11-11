@@ -1,6 +1,6 @@
 // The free headless browser and all computer tools run only on the reserved private 16 GB computer Studio.
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
-export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-computer-hub.api-inference.modelscope.net";
+export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);

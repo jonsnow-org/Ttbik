@@ -21,7 +21,7 @@ export function ownMediaBase(model: string | undefined): string {
   const id = model || "coder";
   const base = id === "coder" ? novaMediaUrl() : id === "lfm25" ? lfmMediaUrl() : "";
   // nova-inference-server is the 16 GB computer-only hub: no model's media (or inference) may ever run on it, even if an env var points there
-  return /nova-(?:inference-server|computer-hub)/i.test(base) ? "" : base;
+  return /nova-inference-server/i.test(base) ? "" : base;
 }
 
 const MODEL_NAMES: Record<string, string> = { coder: "Nova", lfm25: "LFM2.5", sham_v2: "Sham v2" };

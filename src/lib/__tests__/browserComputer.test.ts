@@ -56,7 +56,7 @@ describe("the model's own browser", () => {
     }) as any;
     const out = await browserDo("lfm25", "42:lfm25", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
-    expect(calls[0].url).toContain("nova-computer-hub");
+    expect(calls[0].url).toContain("nova-inference-server");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
     expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:lfm25" });
     // Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (owner 2026-11-08), so nothing is sent

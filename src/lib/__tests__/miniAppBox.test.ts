@@ -26,7 +26,7 @@ it("Sham v2 uses the isolated computer hub session; the desktop (browser) op is 
   const computerStudio = process.env.COMPUTER_STUDIO_URL;
   delete process.env.COMPUTER_STUDIO_URL;
   try {
-    expect(browserStudioFor("sham_v2")).toContain("nova-computer-hub");
+    expect(browserStudioFor("sham_v2")).toContain("nova-inference-server");
     expect(browserStudioFor("sham_v2")).toBe(browserStudioFor("coder"));
   } finally {
     if (computerStudio !== undefined) process.env.COMPUTER_STUDIO_URL = computerStudio;

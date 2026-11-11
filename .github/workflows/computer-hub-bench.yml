@@ -36,4 +36,4 @@ jobs:
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
-          python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-novaai2026-nova-computer-hub.api-inference.modelscope.net --model-id computer_hub --no-gui --bench
+          python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net --model-id computer_hub --no-gui --bench
