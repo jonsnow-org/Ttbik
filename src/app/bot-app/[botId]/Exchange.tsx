@@ -545,7 +545,7 @@ function AssetMarket() {
 
       {tab === "sell" && (
         <>
-          <Section title="➕ اعرض قناة أو مجموعة أو بوت" hint="القنوات والمجموعات: أضف أحد هذه الحسابات كمشرف ثم سنفحص صفة المالك: ${(data.verifierBots || []).join(" أو ") || "لا يوجد بوت تحقق متاح حالياً"}. البوتات: مراجعة BotFather يدوية قبل إتاحتها.">
+          <Section title="➕ اعرض قناة أو مجموعة أو بوت" hint={`القنوات والمجموعات: أضف أحد هذه الحسابات كمشرف ثم سنفحص صفة المالك: ${(data.verifierBots || []).join(" أو ") || "لا يوجد بوت تحقق متاح حالياً"}. البوتات: مراجعة BotFather يدوية قبل إتاحتها.`}>
             <Field label="نوع الأصل">
               <select className={inputCls} style={inputStyle} value={form.assetType} onChange={(e) => setForm({ ...form, assetType: e.target.value as AssetType })}>
                 <option value="CHANNEL">قناة تيليجرام</option><option value="GROUP">مجموعة تيليجرام</option><option value="BOT">بوت تيليجرام</option>
