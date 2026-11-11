@@ -723,6 +723,14 @@
       "reads": [],
       "writes": []
     },
+    "prune_model_code": {
+      "file": ".github/workflows/prune-model-code.yml",
+      "title": "حذف ملفات studio_code الزائدة من مستودعي نموذج شام",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "kernel_log": {
       "file": ".github/workflows/sham-kernel-log.yml",
       "title": "نهاية سجل دفتر كاكل واحد وحالته (قراءة فقط)",
