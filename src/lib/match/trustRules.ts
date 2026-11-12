@@ -11,6 +11,11 @@ export const CARD_INLINE_QUERY = "بطاقتي";
 export const CARD_START_PREFIX = "c_";
 
 export const PRICE_MATCHMAKER = 5; // USD from the bot balance (= 500 ⭐ at 100 ⭐/$)
+
+/** A paid matchmaker request needs at least one eligible approved profile to suggest. */
+export function hasMatchmakerInventory(gender: string, candidateCount: number): boolean {
+  return (gender === "MALE" || gender === "FEMALE") && Number.isSafeInteger(candidateCount) && candidateCount > 0;
+}
 export const MATCHMAKER_BUTTON = `💍 خاطبة شخصية ($${PRICE_MATCHMAKER})`;
 export const MATCHMAKER_NOTE_MAX = 500;
 export const MATCHMAKER_SLA_HOURS = 72;

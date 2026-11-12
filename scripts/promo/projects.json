@@ -401,6 +401,181 @@
         "أنشئ صندوقك"
       ],
       "handle": "@ie3terafatbot"
+    },
+    {
+      "id": "marriage-trust",
+      "brandMark": "WT",
+      "accent": "#d78cb5",
+      "bg": [
+        "#1b1020",
+        "#4c2448"
+      ],
+      "name": "Anonymous Matching Card · بطاقة التعارف المجهولة",
+      "tagline": [
+        "A private, anonymous profile card for Telegram matchmaking",
+        "بطاقة ملف شخصية مجهولة وخاصة للتعارف عبر تيليجرام"
+      ],
+      "points": [
+        [
+          "Create an approved profile and set your preferences",
+          "أنشئ ملفاً معتمداً وحدد مواصفات الشريك"
+        ],
+        [
+          "Share an anonymous profile card with people you trust",
+          "شارك بطاقة مجهولة مع من تثق بهم"
+        ],
+        [
+          "Photos are shared only with the owner's permission",
+          "لا تُعرض الصور إلا بإذن صاحبها"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/dating-marriage",
+          "caption": [
+            "The matching bot",
+            "بوت التعارف والزواج"
+          ]
+        }
+      ],
+      "cta": [
+        "Create your private profile",
+        "أنشئ ملفك الخاص"
+      ],
+      "handle": "@Saragptbot"
+    },
+    {
+      "id": "channel-exchange",
+      "brandMark": "CX",
+      "accent": "#54a7dc",
+      "bg": [
+        "#071a2b",
+        "#123e5c"
+      ],
+      "name": "Channel Exchange · بورصة القنوات",
+      "tagline": [
+        "Advertise with channel reach estimates and post verification",
+        "أعلن في قنوات بأرقام وصول تقديرية وتحقق من النشر"
+      ],
+      "points": [
+        [
+          "Audit public channels for free before choosing",
+          "افحص القنوات العامة مجاناً قبل الاختيار"
+        ],
+        [
+          "Channel owners verify control before listing",
+          "يثبت صاحب القناة ملكيته قبل عرضها"
+        ],
+        [
+          "Track payment and the ad post in one deal",
+          "تابع الدفع وإثبات الإعلان في طلب واحد"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/channel-audit",
+          "caption": [
+            "Free channel audit",
+            "فحص القنوات مجاناً"
+          ]
+        },
+        {
+          "path": "/channels",
+          "caption": [
+            "Browse the exchange",
+            "تصفّح البورصة"
+          ]
+        }
+      ],
+      "cta": [
+        "Explore the exchange",
+        "استكشف البورصة"
+      ],
+      "handle": "@ttbik5"
+    },
+    {
+      "id": "group-khatma",
+      "brandMark": "KH",
+      "accent": "#28a58c",
+      "bg": [
+        "#062b2b",
+        "#0c5a50"
+      ],
+      "name": "Group Khatma · الختمة الجماعية",
+      "tagline": [
+        "Complete the Qur'an together in your Telegram group",
+        "اختموا القرآن معاً داخل مجموعة تيليجرام"
+      ],
+      "points": [
+        [
+          "Share the thirty parts among group members",
+          "وزّعوا الأجزاء الثلاثين على أفراد المجموعة"
+        ],
+        [
+          "Each reader claims a part and marks it complete",
+          "يأخذ كل قارئ جزءاً ويسجله عند الانتهاء"
+        ],
+        [
+          "The group receives a completion message and dua",
+          "تصلكم رسالة الختم والدعاء عند الاكتمال"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/khatma",
+          "caption": [
+            "Start a group khatma",
+            "ابدأ ختمة لمجموعتك"
+          ]
+        }
+      ],
+      "cta": [
+        "Add the bot to your group",
+        "أضف البوت إلى مجموعتك"
+      ],
+      "handle": "@Slaselbot"
+    },
+    {
+      "id": "group-contests",
+      "brandMark": "QC",
+      "accent": "#ca8a04",
+      "bg": [
+        "#271804",
+        "#65430d"
+      ],
+      "name": "Group Contests · مسابقات الجروبات",
+      "tagline": [
+        "Free quiz rounds that bring Telegram groups together",
+        "جولات أسئلة مجانية تجمع جروبات تيليجرام"
+      ],
+      "points": [
+        [
+          "Play short rounds with friends in your group",
+          "العبوا جولات قصيرة مع أصدقائكم في الجروب"
+        ],
+        [
+          "Score points on the weekly group leaderboard",
+          "اجمعوا النقاط في لوحة الصدارة الأسبوعية"
+        ],
+        [
+          "Prizes are funded by sponsors, with no entry fee",
+          "الجوائز من الرعاة فقط، بلا رسوم دخول"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/contests",
+          "caption": [
+            "Launch a group quiz",
+            "ابدأ مسابقة لجروبك"
+          ]
+        }
+      ],
+      "cta": [
+        "Add the bot and play",
+        "أضف البوت وابدأ اللعب"
+      ],
+      "handle": "@Slaselbot"
     }
   ]
 }

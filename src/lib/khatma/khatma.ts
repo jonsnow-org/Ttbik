@@ -37,6 +37,15 @@ export function ensureKhatmaTables(): Promise<void> {
         `ALTER TABLE khatma_sponsors ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ`,
       ];
       for (const q of ddl) await prisma.$executeRawUnsafe(q);
+      // Private participant, dedication and payment data stays server-side only.
+      const security = [
+        `ALTER TABLE khatma ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE khatma_juz ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE khatma_orders ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE khatma_sponsors ENABLE ROW LEVEL SECURITY`,
+        `REVOKE ALL ON TABLE khatma, khatma_juz, khatma_orders, khatma_sponsors FROM anon, authenticated`,
+      ];
+      for (const q of security) await prisma.$executeRawUnsafe(q);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;

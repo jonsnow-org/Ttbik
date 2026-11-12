@@ -63,7 +63,7 @@ export default async function ChannelAuditReport({ params }: P) {
       <p className="mt-3 text-xs leading-6 text-slate-500">السعر العادل محسوب على 15–25 دولاراً لكل ألف مشاهدة لمنشور مباشر في قناة عربية. الأرقام تقديرية من المعاينة العامة لتيليجرام، وتُحدَّث كل 6 ساعات.</p>
       <div className="mt-5 flex flex-wrap gap-2">
         <a className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white" href={`https://t.me/share/url?url=${encodeURIComponent(share)}&text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer">شارك التقرير على تيليجرام</a>
-        <a className="rounded-xl border px-4 py-2 text-sm font-bold" href={`/channels#join`}>هذه قناتك؟ اعرضها واستلم إعلانات</a>
+        <a className="rounded-xl border px-4 py-2 text-sm font-bold" href={`/channels?channel=${encodeURIComponent(a.username)}#join`}>هذه قناتك؟ ابدأ تسجيلها في البورصة</a>
         <a className="rounded-xl border px-4 py-2 text-sm font-bold" href="/channels">أعلن في قنوات موثّقة</a>
       </div>
       <div className="mt-8"><p className="mb-2 text-sm font-bold">افحص قناة أخرى</p><AuditForm /></div>

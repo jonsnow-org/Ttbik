@@ -46,6 +46,15 @@ export function ensureChannelTables(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS channel_deals_status_idx ON channel_deals (status, created_at DESC)`,
       ];
       for (const q of ddl) await prisma.$executeRawUnsafe(q);
+      // These tables are accessed only by the server-side Prisma owner connection.
+      // Keep the PostgREST roles explicitly denied even if default grants change later.
+      const security = [
+        `ALTER TABLE channel_audits ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE channel_listings ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE channel_deals ENABLE ROW LEVEL SECURITY`,
+        `REVOKE ALL ON TABLE channel_audits, channel_listings, channel_deals FROM anon, authenticated`,
+      ];
+      for (const q of security) await prisma.$executeRawUnsafe(q);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;

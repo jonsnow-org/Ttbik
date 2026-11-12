@@ -30,6 +30,11 @@ test("no promise of profit or return in any promo text", () => {
   }
 });
 
+test("the selected report products are included in the campaign rotation", () => {
+  const ids = new Set(projects.map((p) => p.id));
+  for (const id of ["marriage-trust", "channel-exchange", "group-khatma", "group-contests"]) assert.ok(ids.has(id), `missing campaign: ${id}`);
+});
+
 test("project ids are unique", () => {
   assert.equal(new Set(projects.map((p) => p.id)).size, projects.length);
 });

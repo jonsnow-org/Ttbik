@@ -13,7 +13,7 @@ import {
 } from "@/lib/match/entitlements";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import { nextProfileStatus } from "@/lib/match/guardRules";
-import { buyMatchmakerCore, markNotSuitable, matchmakerProgress, matchmakerStatus, submitMatchmakerNote } from "@/lib/match/trust";
+import { buyMatchmakerCore, hasEligibleMatchmakerCandidates, markNotSuitable, matchmakerProgress, matchmakerStatus, submitMatchmakerNote } from "@/lib/match/trust";
 import { completenessOf, digestOn, setDigest } from "@/lib/match/engage";
 import { NOT_SUITABLE_REASONS, isNotSuitableReason, twoWayFit } from "@/lib/match/trustRules";
 import { CARD_INLINE_QUERY, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER, cardLink, cardShareText } from "@/lib/match/trustRules";
@@ -511,7 +511,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         ...r,
         suggestions: r.suggestions.flatMap((x) => { const card = cardOf.get(x.profileId); return card ? [{ ...x, card }] : []; }),
       }));
-      return NextResponse.json({ ok: true, price: PRICE_MATCHMAKER, slaHours: MATCHMAKER_SLA_HOURS, noteMax: MATCHMAKER_NOTE_MAX, open, canBuy: user.profile?.status === "APPROVED", requests, reasons: NOT_SUITABLE_REASONS });
+      const profileApproved = user.profile?.status === "APPROVED";
+      const inventoryAvailable = profileApproved && !open
+        ? await hasEligibleMatchmakerCandidates(tg.id, botId).catch(() => false)
+        : false;
+      return NextResponse.json({ ok: true, price: PRICE_MATCHMAKER, slaHours: MATCHMAKER_SLA_HOURS, noteMax: MATCHMAKER_NOTE_MAX, open, profileApproved, inventoryAvailable, canBuy: profileApproved && inventoryAvailable, requests, reasons: NOT_SUITABLE_REASONS });
     }
     if (action === "mm_verdict") {
       if (!(await pgRateLimit(`mmv:${tg.id}`, 20, 60))) return err("تمهّل قليلاً");
@@ -526,6 +530,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const r = await buyMatchmakerCore(tg.id, botId);
       if (r.status === "busy") return err(PURCHASE_BUSY_TEXT);
       if (r.status === "no_profile") return err("⚠️ الخاطبة تحتاج ملفاً معتمداً حتى تعرف من تقترح له. أنشئ ملفك أولاً.");
+      if (r.status === "no_candidates") return err("🌿 لا توجد حالياً ملفات معتمدة ومتاحة من الجنس الذي تبحث عنه. لم نخصم أي مبلغ. جرّب لاحقاً عندما تنضم ملفات جديدة.");
       if (r.status === "open") return NextResponse.json({ ok: true, open: { reqId: r.reqId, status: r.awaitingNote ? "AWAITING_NOTE" : "OPEN" } });
       if (r.status === "created") { void trackFunnel(tg.id, "purchase_success", "matchmaker"); return NextResponse.json({ ok: true, open: { reqId: r.reqId, status: "AWAITING_NOTE" }, message: `✅ تم الدفع (-$${PRICE_MATCHMAKER}). اكتب الآن ما تبحث عنه.` }); }
       // Shortfall: the bot's own MATCH_MM Stars invoice; the bot's successful_payment handler opens the request.
