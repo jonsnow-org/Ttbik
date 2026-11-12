@@ -96,7 +96,27 @@ function apiName(api: string): string {
 
 /** A model sometimes writes its tool call as DeepSeek-style markup (<｜DSML｜function_calls><｜DSML｜invoke name="web_search"><｜DSML｜parameter name="query">…) that the Studio's parser does not
  *  turn into tool_calls (live 2026-11-11, LFM2.5 task: the markup was shown as the answer and the task ended with no answer). Turn it into real tool calls and strip it from the text. */
+/** A small model sometimes answers with a whole JSON message object instead of prose (live 2026-11-12, LFM2.5: {"role":"system","content":"..."}). When the entire
+ *  answer is such an object (only message / answer keys, one string body), show the body. Anything else is left untouched. */
+export function unwrapJsonAnswer(text: string): string {
+  const t = text.trim();
+  if (t.length < 2 || t[0] !== "{" || t[t.length - 1] !== "}") return text;
+  let obj: unknown;
+  try { obj = JSON.parse(t); } catch { return text; }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return text;
+  const o = obj as Record<string, unknown>;
+  const keys = Object.keys(o);
+  const allowed = new Set(["role", "content", "reflection", "answer", "response", "text", "message"]);
+  if (!keys.length || keys.some((k) => !allowed.has(k))) return text;
+  const body = ["content", "answer", "response", "text", "message", "reflection"].map((k) => o[k]).find((v) => typeof v === "string" && v.trim());
+  return typeof body === "string" ? body.trim() : text;
+}
+
 export function recoverTextToolCalls(reply: CoderReply): CoderReply {
+  if (reply.type === "done" && !(reply.tool_calls && reply.tool_calls.length) && typeof reply.text === "string") {
+    const unwrapped = unwrapJsonAnswer(reply.text);
+    if (unwrapped !== reply.text) reply = { ...reply, text: unwrapped };
+  }
   const text = typeof reply.text === "string" ? reply.text : "";
   if (reply.type !== "done" || (reply.tool_calls && reply.tool_calls.length) || !/function_calls>/.test(text) || !/invoke\s+name=/.test(text)) return reply;
   const calls: CoderToolCall[] = [];
