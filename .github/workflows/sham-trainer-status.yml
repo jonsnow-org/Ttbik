@@ -1,0 +1,30 @@
+name: Sham trainer Studios status (read-only, cn)
+
+# Asks each cn trainer Studio for its own status (phase, last cycle, error). Read-only; the token is never printed.
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "comma list of Studio repos (empty = the three cn trainers)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Status
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_TRAINER_REPOS: ${{ inputs.repos }}
+        run: python3 scripts/ops/sham_trainer_status.py
