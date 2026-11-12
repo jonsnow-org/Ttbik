@@ -1,6 +1,7 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
+import { enforceRequiredChannel, normalizeRequiredChannel } from "@/lib/telegramChannel";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
@@ -255,13 +256,17 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
     return true;
   }
   if (pending?.mode === "admin_channel" && text) {
-    await setPending(tgUserId, null);
     const skip = text === "⏭ تخطّي";
-    await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: skip ? null : text.replace(/^@/, "") } });
-    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: @${text.replace(/^@/, "")}`);
+    const channel = skip ? null : normalizeRequiredChannel(text);
+    if (!skip && !channel) {
+      await bot.api.sendMessage(chatId, "⚠️ لم أتعرف على القناة. أرسل @channel أو https://t.me/channel أو معرّفاً يبدأ بـ -100، أو اضغط تخطّي.");
+      return true;
+    }
+    await setPending(tgUserId, null);
+    await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
+    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel.startsWith("-100") ? channel : `@${channel}`}`);
     return true;
-  }
-  if (text === "📊 الإحصائيات") {
+  }  if (text === "📊 الإحصائيات") {
     await sendAdminStats(bot, botRow, chatId);
     return true;
   }
@@ -346,17 +351,8 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
   // successful_payment is handled first thing in the dispatcher (handleConfessionStarsPayment).
 
   // Mandatory subscription channel gate (same pattern as AD_BOT/JOBS_BOT).
-  if (botRow.requiredChannel) {
-    try {
-      const member = await bot.api.getChatMember(`@${botRow.requiredChannel}`, Number(tgUserId));
-      if (!["creator", "administrator", "member"].includes(member.status)) {
-        await bot.api.sendMessage(chatId, `📡 يجب الاشتراك في القناة أولاً: @${botRow.requiredChannel}`);
-        return;
-      }
-    } catch {
-      // channel/bot admin misconfigured — fail open rather than lock everyone out
-    }
-  }
+  if (!(await enforceRequiredChannel(bot, botRow, chatId, tgUserId))) return;
+
 
   const text = String(msg.text || "").trim();
   if (!text) return;
