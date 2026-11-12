@@ -1,5 +1,6 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
+import { botCallbackRestriction } from "@/lib/botCallbackRestriction";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
@@ -637,20 +638,6 @@ async function handleConfessionCallback(bot: TelegramBot, botRow: BotRow, cq: an
   const data = String(cq.data || "");
   if (!chatId) return;
 
-  if (data.startsWith("cstars|")) {
-    const stars = Number(data.split("|")[1] || 0);
-    if (stars > 0) {
-      await sendStarsInvoice(bot, chatId, {
-        title: "شحن رصيد بوت الاعترافات",
-        description: `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`,
-        payload: starsPayload("CONFESSION_DEPOSIT", tgUserId),
-        stars,
-      });
-    }
-    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-    return;
-  }
-
   if (data.startsWith("cadmin_")) {
     if (!SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {
       await bot.api.answerCallbackQuery(cq.id).catch(() => null);
@@ -699,8 +686,26 @@ async function handleConfessionCallback(bot: TelegramBot, botRow: BotRow, cq: an
   }
 
   const actor = await ensureConfessionUser(botRow.id, tgUserId);
-  if (actor.isBanned || (actor.mutedUntil && actor.mutedUntil > new Date())) {
-    await bot.api.answerCallbackQuery(cq.id, { text: "🚫 غير متاح" }).catch(() => null);
+  const restriction = botCallbackRestriction(actor.isBanned, actor.mutedUntil);
+  if (restriction) {
+    await bot.api.answerCallbackQuery(cq.id, {
+      text: restriction === "banned" ? "🚫 تم حظرك من استخدام هذا البوت." : "🔇 أنت مكتوم مؤقتاً. حاول لاحقاً.",
+      show_alert: true,
+    }).catch(() => null);
+    return;
+  }
+
+  if (data.startsWith("cstars|")) {
+    const stars = Number(data.split("|")[1] || 0);
+    if (stars > 0) {
+      await sendStarsInvoice(bot, chatId, {
+        title: "شحن رصيد بوت الاعترافات",
+        description: `شحن ${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`,
+        payload: starsPayload("CONFESSION_DEPOSIT", tgUserId),
+        stars,
+      });
+    }
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
 
