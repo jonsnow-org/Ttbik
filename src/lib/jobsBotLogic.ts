@@ -1365,11 +1365,11 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       const channel = skip ? null : normalizeRequiredChannel(text);
       if (!skip && !channel) {
         await bot.api.sendMessage(chatId, "⚠️ لم أتعرف على القناة. أرسل @channel أو https://t.me/channel أو معرّفاً يبدأ بـ -100، أو اضغط تخطّي.");
-        return 
+        return;
       }
       await setPending(tgUserId, null);
       await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
-      await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel.startsWith("-100") ? channel : `@${channel}`}`);
+      await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel ? (channel.startsWith("-100") ? channel : `@${channel}`) : ""}`);
       return;
     }
   const user = await ensureJobsUser(botRow.id, tgUserId);
