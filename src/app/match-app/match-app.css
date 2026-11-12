@@ -1,5 +1,11 @@
 /* Match Mini App: route-scoped viewport and safe-area behavior.
    Preserve its navy / pink / copper visual identity. */
+
+.match-app-root {
+  --match-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-viewport-safe-area-inset-top, 0px), var(--tg-viewport-content-safe-area-inset-top, 0px));
+  --match-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px));
+}
+
 .match-app-sheet-85,
 .match-app-sheet-75,
 .match-app-sheet-88 {
