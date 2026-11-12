@@ -1,0 +1,44 @@
+name: Sham Arabic Books Ingest (CPU)
+
+# يستورد كتباً عربية نظيفة من مجموعة Bayanat-Labs/open-arabic-books (كتب مؤسسة هنداوي، CC BY 4.0، فصحى محرَّرة بشرياً) ويقسّمها وثائق تدريب على حدود الفقرات،
+# ويرفض ما لا يقبله sham_curate كنثر عربي، ثم ينشر النتيجة مجموعة Kaggle منفصلة sham-curated-ar-books (مع ATTRIBUTION.json للإسناد المطلوب بالترخيص).
+# يدوي. لا يغيّر أي دفتر تدريب؛ ربط المجموعة بخط النص قرار لاحق بوزن خاص.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "أقصى عدد كتب (0 = كل الكتب)"
+        required: false
+        default: "0"
+      publish:
+        description: "انشر المجموعة على Kaggle (true/false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle six pyarrow huggingface_hub
+      - name: Build the Arabic books corpus
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        working-directory: ai-system/colab/sham_small
+        run: |
+          mkdir -p /tmp/books
+          if [ "${{ inputs.publish || 'true' }}" = "true" ]; then FLAG="--publish"; else FLAG=""; fi
+          python sham_ar_books.py --out /tmp/books --limit "${{ inputs.limit || '0' }}" $FLAG
+          du -sh /tmp/books

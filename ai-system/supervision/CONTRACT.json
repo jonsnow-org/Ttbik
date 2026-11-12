@@ -82,6 +82,10 @@
       "role": "الزاحف العام على GitHub (نصوص فقط)",
       "writer": "gh_collector"
     },
+    "sham-curated-ar-books": {
+      "role": "كتب عربية نظيفة (هنداوي، CC BY 4.0) مقسّمة وثائق للتدريب",
+      "writer": "ar_books_ingest"
+    },
     "sham-merged-checkpoint": {
       "role": "ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر)",
       "writer": "gh_merge_eval"
@@ -738,6 +742,16 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "ar_books_ingest": {
+      "file": ".github/workflows/sham-ar-books.yml",
+      "title": "استيراد كتب عربية نظيفة (هنداوي CC BY 4.0) إلى مجموعة تدريب منفصلة",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-curated-ar-books"
+      ]
     },
     "task_suite_live": {
       "file": ".github/workflows/task-suite-live.yml",
