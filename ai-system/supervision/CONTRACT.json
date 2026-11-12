@@ -734,6 +734,11 @@
     "nova_decode_bench": {
       "file": ".github/workflows/nova-decode-bench.yml",
       "title": "قياس سرعة توليد نوفا (ngram وdraft وflash وKV) على نواتين، قراءة فقط",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_curate_report": {
       "file": ".github/workflows/sham-curate-report.yml",
       "title": "قياس وتصنيف مجموعة الزواحف إلى دلاء نظيفة (قياس فقط، لا نشر)",
