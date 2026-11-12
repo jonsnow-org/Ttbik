@@ -198,8 +198,15 @@ def stream_mix(output_dir: str, max_documents: int = 50_000, documents_per_file:
     threads = [threading.Thread(target=run, args=(s,), daemon=True) for s in chosen]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    # A deadline for the whole collection: hf-mirror answers 429 and huggingface_hub then waits ~200 s x 5 retries for EACH source, and every source was joined with no limit,
+    # so the cn trainers sat in "training" with no output for hours (2026-11-12). Whatever was read by the deadline is used; slow sources report a timeout and are left behind.
+    deadline = time.time() + float(os.environ.get("SHAM_MIX_DEADLINE") or 420)
+    for t, s_ in zip(threads, chosen):
+        t.join(max(0.0, deadline - time.time()))
+        if t.is_alive():
+            report.setdefault(s_[0], "0 (توقف: Timeout)")
+    with lock:
+        docs = list(docs)
     random.Random(seed).shuffle(docs)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
