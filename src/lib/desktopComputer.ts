@@ -11,6 +11,7 @@ export type DesktopArgs = {
   x?: number;
   y?: number;
   x2?: number;
+  nopic?: boolean;
   y2?: number;
   button?: "left" | "middle" | "right";
   text?: string;
@@ -74,6 +75,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     if (input.text === undefined) return null;
     out.text = String(input.text).slice(0, action === "type" ? 1200 : 20000);
   }
+  if (["type", "key", "scroll"].includes(action) && input.nopic === true) out.nopic = true;   // the live stream shows the result: no picture is waited for
   if (action === "key") {
     const key = String(input.key || "");
     if (!/^[A-Za-z0-9_+-]{1,40}$/.test(key)) return null;

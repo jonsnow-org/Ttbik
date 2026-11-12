@@ -219,7 +219,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     try {
       while (queue.current.length) {
         const next = queue.current.shift()!;
-        await call(next.act ? next.act : next.key ? { action: "key", key: next.key } : { action: "type", text: next.type });
+        await call(next.act ? next.act : next.key ? { action: "key", key: next.key, nopic: true } : { action: "type", text: next.type, nopic: true });
       }
     } catch (e: any) { setError(String(e?.message || e)); queue.current = []; }
     finally { draining.current = false; }
