@@ -30,6 +30,13 @@ function ownerMenu(botId: string): InlineKeyboard {
     .text("ℹ️ دليل المالك", "fadaa_owner_help");
 }
 
+async function ensureFadaaAppMenu(bot: TelegramBot, botId: string, chatId: number): Promise<void> {
+  await bot.api.setChatMenuButton({
+    chat_id: chatId,
+    menu_button: { type: "web_app", text: "🌌 فضاء", web_app: { url: miniAppUrl(botId) } },
+  }).catch(() => null);
+}
+
 export async function handleFadaaBotUpdate(
   bot: TelegramBot,
   botRow: BotRow,
@@ -98,6 +105,7 @@ export async function handleFadaaBotUpdate(
   }
 
   if (text.startsWith("/start") || text === "🌌 فضاء" || text === "فتح فضاء") {
+    await ensureFadaaAppMenu(bot, botRow.id, chatId);
     const greet = (isOwner ? "👑 مالك البوت\n\n" : "") + startGuide("FADAA");
     await bot.api.sendMessage(chatId, greet, {
       reply_markup: isOwner ? ownerMenu(botRow.id) : userMenu(botRow.id),
