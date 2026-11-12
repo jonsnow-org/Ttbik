@@ -1176,21 +1176,21 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] pb-24 text-slate-800 selection:bg-violet-200">
+    <div className="media-mini-app-shell bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200">
       
       {showTopBtn && (
         <button
           type="button"
           aria-label="العودة للأعلى"
           onClick={() => { haptic(); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-          className="fixed bottom-20 left-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/40 text-lg text-white shadow-md backdrop-blur-md ring-1 ring-white/50 transition active:scale-95"
+          className="media-mini-app-scroll-top fixed left-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/40 text-lg text-white shadow-md backdrop-blur-md ring-1 ring-white/50 transition active:scale-95"
         >
           ↑
         </button>
       )}
 
       <MonetagSdkLoader />
-      <nav aria-label="التنقل" className="fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pb-[max(env(safe-area-inset-bottom),6px)] pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl">
+      <nav aria-label="التنقل" className="media-mini-app-nav fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-xl items-stretch justify-around">
           {tabs.map((t) => { const active = !viewUserId && tab === t.id; return (
             <button key={t.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); window.scrollTo({ top: 0 }); }} className="relative flex flex-1 flex-col items-center gap-0.5 py-1 transition active:scale-90">
@@ -1617,7 +1617,7 @@ export default function MiniAppPage() {
       {/* ⋮ menu — bottom sheet */}
       {menuItem && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setMenuItem(null)}>
-          <div className="sheet-up w-full rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up media-mini-app-sheet w-full rounded-t-3xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="mb-3 line-clamp-1 text-center text-xs font-bold text-slate-500">{displayTitle(menuItem)}</p>
             <div className="space-y-1.5">
@@ -1646,7 +1646,7 @@ export default function MiniAppPage() {
       {/* Report sheet */}
       {reportItem && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setReportItem(null)}>
-          <div className="sheet-up max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up media-mini-app-sheet w-full rounded-t-3xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="text-center text-base font-black text-rose-700">🚩 إبلاغ عن منشور</p>
             <p className="mb-3 mt-1 line-clamp-1 text-center text-xs text-slate-500">{displayTitle(reportItem)}</p>
@@ -1663,7 +1663,7 @@ export default function MiniAppPage() {
 
       {peopleSheet && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setPeopleSheet(null)}>
-          <div className="sheet-up max-h-[75vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up media-mini-app-sheet-compact w-full rounded-t-3xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="mb-3 text-center text-base font-black text-violet-700">{peopleSheet.kind === "followers" ? "💜 المتابِعون" : "👥 يتابع"}</p>
             {peopleSheet.people === null ? <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="sk h-12 rounded-2xl bg-violet-50" />)}</div>
@@ -1682,7 +1682,7 @@ export default function MiniAppPage() {
         </div>
       )}
 
-      {toast && <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-slate-900/90 px-4 py-2.5 text-center text-xs font-bold text-white shadow-xl">{toast}</div>}
+      {toast && <div role="status" aria-live="polite" className="media-mini-app-toast fixed left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-slate-900/90 px-4 py-2.5 text-center text-xs font-bold text-white shadow-xl">{toast}</div>}
     </div>
   );
 }

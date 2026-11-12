@@ -1,0 +1,44 @@
+/* Media Telegram Mini App only.
+   Keep its existing sky-blue visual identity; centralise viewport and safe-area geometry here. */
+.media-mini-app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+}
+
+.media-mini-app-nav {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
+}
+
+.media-mini-app-scroll-top {
+  bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+
+.media-mini-app-toast {
+  bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  width: max-content;
+  max-width: min(90vw, 32rem);
+}
+
+.media-mini-app-sheet,
+.media-mini-app-sheet-compact {
+  max-height: 85vh;
+  max-height: 85dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.media-mini-app-sheet-compact {
+  max-height: 75vh;
+  max-height: 75dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-mini-app-sheet {
+    scroll-behavior: auto;
+  }
+}
