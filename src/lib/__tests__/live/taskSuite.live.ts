@@ -102,7 +102,7 @@ test("task suite: every model separately", async () => {
     const db: any = pgDb();
     for (const task of tasks) {
       const r = await runTask(model, task, db);
-      const v = judge(task, model, r.reply, r.finished);
+      const v = judge(task, model, r.reply, r.finished, r.tools);
       const row = { model, task: task.id, pass: v.pass, first_s: r.first, total_s: r.total, why: v.why, tools: r.tools.length, reply: r.reply.replace(/\s+/g, " ").slice(0, 220) };
       rows.push(row);
       process.stderr.write(`SUITE | ${model} | ${task.id} | ${v.pass ? "PASS" : "FAIL"} | first ${r.first}s | total ${r.total}s | ${v.why || "ok"} | tools ${r.tools.length} | ${row.reply}\n`);

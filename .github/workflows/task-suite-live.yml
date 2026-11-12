@@ -10,7 +10,7 @@ on:
         required: false
         default: "coder,lfm25,sham,sham_v2"
       tasks:
-        description: "comma list of task ids (empty = all): greeting,identity,fact-egypt,fact-syria,math,memory-save,memory-recall,web-search,file-read,repo-read"
+        description: "comma list of task ids (empty = all): greeting,identity,fact-egypt,fact-syria,math,memory-save,memory-recall,web-search,file-read,computer-run,computer-file,code-run,browser,desktop,github-list,repo-read"
         required: false
         default: ""
 
