@@ -264,7 +264,7 @@ function BottomNav({ tab, setTab, admin, unread = 0, chatsUnread = 0 }: { tab: T
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
   if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
-    <nav aria-label="التنقل الرئيسي" className={`fixed inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))", paddingBottom: "max(6px, env(safe-area-inset-bottom, 0px))" }}>
+    <nav aria-label="التنقل الرئيسي" className={`fixed inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))", paddingBottom: "6px" }}>
       <ul className={`grid gap-1 ${admin !== null ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map(([t, icon, label]) => (
           <li key={t}>
