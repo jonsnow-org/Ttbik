@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><script src="/zenobia/znbt/lang.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><script src="/zenobia/znbt/lang.js"></script>
 <title>Zenobia · Caravan Hall</title>
 <meta name="description" content="The Caravan Board of ZNB holders and your Silk Road Passports. Rankings and titles only; no reward, no promise.">
 <style>
   :root { --bg:#fffaf0; --fg:#2a1b0b; --card:#ffffff; --gold:#b8862b; --line:#ead9b4; --ok:#1a7f37; --err:#b42318; }
   :root[data-theme="dark"] { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; padding:16px; box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; min-height:100vh; min-height:100dvh; padding:max(16px, env(safe-area-inset-top, 0px), var(--tg-viewport-safe-area-inset-top, 0px), var(--tg-viewport-content-safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px)); box-sizing:border-box; }
   main { max-width:560px; margin:0 auto; }
   section { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:16px; }
   h1 { font-size:21px; margin:0 0 4px; color:var(--gold); } h2 { font-size:16px; margin:0 0 10px; color:var(--gold); }
@@ -22,6 +22,8 @@
   .pp .t { flex:1; display:flex; flex-direction:column; gap:2px; }
   small { opacity:.75; display:block; margin-top:10px; } .err { color:var(--err); }
   a { color:var(--gold); }
+
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 </style>
 </head>
 <body>
