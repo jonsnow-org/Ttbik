@@ -63,7 +63,7 @@ def classify(doc: str) -> dict:
     lines = [x.strip() for x in text.split("\n") if x.strip()]
     if len(lines) >= 5 and len(set(lines)) < len(lines) * 0.5:
         return {"bucket": "", "lang": lang, "kind": kind, "reject": "repeated_lines"}
-    if re.search(r"(.)\1{19,}", text):
+    if re.search(r"([A-Za-z0-9\u0600-\u06FF])\1{19,}", text):
         return {"bucket": "", "lang": lang, "kind": kind, "reject": "char_run"}
     if lang == "other":
         return {"bucket": "", "lang": lang, "kind": kind, "reject": "other_language"}
