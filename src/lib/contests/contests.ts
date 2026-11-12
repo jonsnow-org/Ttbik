@@ -23,6 +23,13 @@ export function ensureContestTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS contest_answers (round_id BIGINT NOT NULL, step INT NOT NULL, user_id TEXT NOT NULL, user_name TEXT, choice INT NOT NULL, correct BOOLEAN NOT NULL, points INT NOT NULL DEFAULT 0, at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (round_id, step, user_id))`,
       ];
       for (const q of ddl) await prisma.$executeRawUnsafe(q);
+      // Group round/answer rows are read and written by the existing server-side bot only.
+      const security = [
+        `ALTER TABLE contest_rounds ENABLE ROW LEVEL SECURITY`,
+        `ALTER TABLE contest_answers ENABLE ROW LEVEL SECURITY`,
+        `REVOKE ALL ON TABLE contest_rounds, contest_answers FROM anon, authenticated`,
+      ];
+      for (const q of security) await prisma.$executeRawUnsafe(q);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;

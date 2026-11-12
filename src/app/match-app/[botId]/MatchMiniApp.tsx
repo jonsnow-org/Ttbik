@@ -1482,7 +1482,7 @@ function MatchmakerCard({ api, say, reload, onInfo }: { api: any; say: any; relo
       <p className="mt-1 text-[11px] leading-5 text-white/50">إنسان من فريق البوت يقرأ ما تبحث عنه ويرسل لك حتى 3 ملفات مناسبة خلال {st.slaHours} ساعة. لا يُكشف شيء عنك، ويُعاد المبلغ لرصيدك إن لم نجد ملفاً مناسباً.</p>
       {!open && (st.canBuy
         ? <button disabled={busy} onClick={buy} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold disabled:opacity-50 ${GRAD}`}>{busy ? "…" : `✅ اطلب الخاطبة ($${st.price})`}</button>
-        : <p className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/50">تحتاج الخاطبة ملفاً معتمداً حتى تعرف من تقترح له — أكمل «👤 ملفي» أولاً.</p>)}
+        : <p className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/50">{st.profileApproved ? "لا تتوفر حالياً ملفات معتمدة ومتاحة من الجنس الذي تبحث عنه. لا نخصم أي مبلغ في هذه الحالة؛ عُد لاحقاً عند انضمام ملفات جديدة." : "تحتاج الخاطبة ملفاً معتمداً حتى تعرف من تقترح له — أكمل «👤 ملفي» أولاً."}</p>)}
       {open?.status === "AWAITING_NOTE" && (
         <div className="mt-3">
           <Field label={`✍️ ما تبحث عنه (العمر، الدولة، المدينة، الالتزام…) — حتى ${st.noteMax} حرف، بلا أرقام أو حسابات`} area value={note} onChange={setNote} />

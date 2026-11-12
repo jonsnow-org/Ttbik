@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { publicListings } from "@/lib/channels/exchange";
-import { GRADE_LABEL, type Grade } from "@/lib/channels/auditRules";
+import { GRADE_LABEL, normalizeChannel, type Grade } from "@/lib/channels/auditRules";
 import { JoinForm, OrderForm } from "@/components/channels/ExchangeClient";
 import AuditForm from "@/components/channels/AuditForm";
 import { SITE_URL } from "@/lib/siteUrl";
@@ -14,8 +14,10 @@ export const dynamic = "force-dynamic";
 
 const fmt = (n: number | null) => (n == null ? "—" : n.toLocaleString("ar-EG"));
 
-export default async function ChannelsExchange() {
-  const listings = await publicListings().catch(() => []);
+export default async function ChannelsExchange({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [listings, params] = await Promise.all([publicListings().catch(() => []), searchParams]);
+  const rawChannel = typeof params.channel === "string" ? params.channel : "";
+  const initialChannel = normalizeChannel(rawChannel) || "";
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-2xl font-extrabold">📣 بورصة القنوات</h1>
@@ -44,7 +46,7 @@ export default async function ChannelsExchange() {
       <section id="join" className="mt-8 rounded-2xl border bg-white p-4">
         <h2 className="text-lg font-extrabold">صاحب قناة؟ اعرضها مجاناً</h2>
         <p className="mb-3 mt-1 text-sm text-slate-600">حدد سعر منشورك، أثبت ملكيتك بكود صغير في الوصف، واستلم طلبات مدفوعة مسبقاً. تستلم 85% بعد التحقق من النشر.</p>
-        <JoinForm />
+        <JoinForm initialChannel={initialChannel} />
       </section>
     </main>
   );

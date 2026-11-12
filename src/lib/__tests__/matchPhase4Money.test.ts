@@ -231,18 +231,28 @@ describe("🔓 DM unlock", () => {
 describe("💍 matchmaker purchase and note", () => {
   it("two parallel «✅ اطلب الخاطبة» charge $5 once and open one request", async () => {
     user("u1", { balance: 20 }); profile("u1", { gender: "MALE" });
+    user("candidate"); profile("candidate");
     await Promise.all([trust.buyMatchmakerCore("u1", "b1"), trust.buyMatchmakerCore("u1", "b1")]);
     expect(charges("MATCHMAKER")).toHaveLength(1);
     expect(S.mm).toHaveLength(1);
     expect(S.users.get("u1").balance).toBe(20 - PRICE_MATCHMAKER);
   });
+  it("no eligible profiles: nothing is charged and no request is opened", async () => {
+    user("u1", { balance: 20 }); profile("u1", { gender: "MALE" });
+    expect(await trust.buyMatchmakerCore("u1", "b1")).toEqual({ status: "no_candidates" });
+    expect(charges("MATCHMAKER")).toHaveLength(0);
+    expect(S.mm).toHaveLength(0);
+    expect(S.users.get("u1").balance).toBe(20);
+  });
   it("no balance: nothing charged, the exact shortfall in Stars is returned", async () => {
     user("u1", { balance: 2 }); profile("u1", { gender: "MALE" });
+    user("candidate"); profile("candidate");
     expect(await trust.buyMatchmakerCore("u1", "b1")).toEqual({ status: "insufficient", balance: 2, stars: 300 });
     expect(S.mm).toHaveLength(0);
   });
   it("a note sent twice reaches the admin once", async () => {
     user("u1", { balance: 20 }); profile("u1", { gender: "MALE" });
+    user("candidate"); profile("candidate");
     const r: any = await trust.buyMatchmakerCore("u1", "b1");
     const bot = mkBot();
     const note = "أبحث عن شريكة من الأردن بين 24 و30";
