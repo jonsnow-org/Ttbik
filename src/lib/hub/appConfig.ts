@@ -27,9 +27,59 @@ export const MAX_ITEMS = 30;
 export const MAX_APPS_PER_USER = 3;
 const COLORS: Record<string, string> = {
   احمر: "#dc2626", أحمر: "#dc2626", ازرق: "#2563eb", أزرق: "#2563eb", اخضر: "#16a34a", أخضر: "#16a34a", اسود: "#111827", أسود: "#111827",
-  بنفسجي: "#7c3aed", برتقالي: "#ea580c", وردي: "#db2777", ذهبي: "#b8860b", بني: "#7c4a1e", رمادي: "#4b5563", سماوي: "#0891b2",
+  بنفسجي: "#7c3aed", موف: "#7c3aed", برتقالي: "#ea580c", وردي: "#db2777", ذهبي: "#b8860b", بني: "#7c4a1e", رمادي: "#4b5563", سماوي: "#0891b2",
+  كحلي: "#1e3a8a", تركواز: "#0f766e", فيروزي: "#0f766e", بترولي: "#0f766e", زيتي: "#3f6212", مرجاني: "#be123c",
   red: "#dc2626", blue: "#2563eb", green: "#16a34a", black: "#111827", purple: "#7c3aed", orange: "#ea580c", pink: "#db2777", gold: "#b8860b",
+  navy: "#1e3a8a", teal: "#0f766e", turquoise: "#0f766e", olive: "#3f6212", coral: "#be123c",
 };
+
+type RGB = [number, number, number];
+export type AppPalette = { brand: string; onBrand: string; text: string; soft: string };
+const hexRgb = (hex: string): RGB => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB;
+const rgbHex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+const linear = (v: number) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+const luminance = (hex: string) => { const [r, g, b] = hexRgb(hex); return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b); };
+export const contrastRatio = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const adjustForContrast = (hex: string, target: string, direction: "dark" | "light"): string => {
+  let rgb = hexRgb(hex);
+  for (let i = 0; i < 64; i++) {
+    const candidate = rgbHex(rgb);
+    if (contrastRatio(candidate, target) >= 4.5) return candidate;
+    rgb = rgb.map((v) => direction === "dark" ? Math.round(v * 0.9) : Math.round(v + (255 - v) * 0.1)) as RGB;
+  }
+  return direction === "dark" ? "#111827" : "#ffffff";
+};
+const colorDistance = (a: string, b: string) => Math.sqrt(hexRgb(a).reduce((s, v, i) => s + (v - hexRgb(b)[i]) ** 2, 0));
+/** Derive accessible foreground and text colors from a creator-selected brand color. */
+export function appPalette(input: string): AppPalette {
+  const base = /^#[0-9a-fA-F]{6}$/.test(String(input || "")) ? input.toLowerCase() : "#4f46e5";
+  const white = "#ffffff";
+  const ink = "#0f172a";
+  let brand = base;
+  let whiteRatio = contrastRatio(brand, white);
+  let inkRatio = contrastRatio(brand, ink);
+  let onBrand = whiteRatio >= inkRatio ? white : ink;
+  if (Math.max(whiteRatio, inkRatio) < 4.5) {
+    const darker = adjustForContrast(base, white, "dark");
+    const lighter = adjustForContrast(base, ink, "light");
+    if (colorDistance(base, darker) <= colorDistance(base, lighter)) {
+      brand = darker;
+      onBrand = white;
+    } else {
+      brand = lighter;
+      onBrand = ink;
+    }
+    whiteRatio = contrastRatio(brand, white);
+    inkRatio = contrastRatio(brand, ink);
+    onBrand = whiteRatio >= inkRatio ? white : ink;
+  }
+  const text = contrastRatio(base, white) >= 4.5 ? base : adjustForContrast(base, white, "dark");
+  const [r, g, b] = hexRgb(base);
+  return { brand, onBrand, text, soft: `rgba(${r}, ${g}, ${b}, 0.09)` };
+}
 
 const clip = (s: unknown, n: number) => String(s ?? "").replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const safeUrl = (u: unknown): string | undefined => {
@@ -91,7 +141,11 @@ export function detectTemplate(text: string): AppTemplate | null {
 }
 
 export function detectColor(text: string): string | null {
-  for (const [w, hex] of Object.entries(COLORS)) if ((text || "").toLowerCase().includes(w)) return hex;
+  const t = (text || "").toLowerCase();
+  for (const [w, hex] of Object.entries(COLORS).sort((a, b) => b[0].length - a[0].length)) {
+    const latin = /^[a-z]+$/i.test(w);
+    if (latin ? new RegExp(`(^|[^a-z])${w}($|[^a-z])`, "i").test(t) : t.includes(w)) return hex;
+  }
   return null;
 }
 
