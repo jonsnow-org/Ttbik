@@ -105,6 +105,11 @@ jest.mock("grammy", () => {
 });
 jest.mock("@/lib/botApp/adApp", () => ({ handleAdAppAction: jest.fn(async () => ({ ok: true, app: "ad" })) }));
 jest.mock("@/lib/botApp/streakApp", () => ({ handleStreakAppAction: jest.fn(async () => ({ ok: true, app: "streak" })) }));
+const mockSetBotAppMenu = jest.fn(async () => true);
+jest.mock("@/lib/builderOwnerBot", () => ({
+  setBotAppMenu: (...args: any[]) => mockSetBotAppMenu(...args),
+}));
+jest.mock("@/lib/hostingOps", () => ({ gateUrl: () => "https://mini-app.test" }));
 
 import { POST } from "@/app/api/bot-app/[botId]/route";
 import { POST as UPLOAD } from "@/app/api/bot-app/[botId]/upload/route";
@@ -289,5 +294,39 @@ describe("chat callbacks", () => {
     expect(api.answerCallbackQuery).toHaveBeenCalledWith("cq", expect.objectContaining({ show_alert: true }));
     expect(db.storeOffer.updateMany).not.toHaveBeenCalled();
     expect(orders()).toHaveLength(0);
+  });
+});
+
+describe("phone verification contact webhook", () => {
+  it("persists the sender's own contact and the Mini App init immediately sees the verified flag", async () => {
+    user("4242", 0, { phoneVerified: false });
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
+      message: {
+        message_id: 901,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam", username: "sam" },
+        contact: { phone_number: "+963900000000", user_id: 4242, first_name: "Sam" },
+      },
+    });
+
+    expect(T("jobsUser").get("4242")).toMatchObject({ phoneNumber: "+963900000000", phoneVerified: true });
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("تم التحقق"), expect.any(Object));
+    const refreshed = await handleJobsAppAction(bots["bot-j"], tgUser("4242"), "init", {});
+    expect(refreshed).toMatchObject({ ok: true, phoneVerified: true });
+  });
+
+  it("does not verify a different person's contact", async () => {
+    user("4242", 0, { phoneVerified: false });
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
+      message: {
+        message_id: 902,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam" },
+        contact: { phone_number: "+963911111111", user_id: 77, first_name: "Someone else" },
+      },
+    });
+
+    expect(T("jobsUser").get("4242")?.phoneVerified).toBe(false);
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("يجب مشاركة رقم هاتفك أنت."));
   });
 });
