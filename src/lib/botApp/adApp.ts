@@ -191,9 +191,16 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       return r === "already" ? fail(t(lang, "reportAlready"), "already") : { ok: true, message: t(lang, "reportReceived") };
     }
     case "phone_prompt": {
-      // The chat's own «share phone» keyboard: the contact it sends is verified by the bot exactly as before.
-      await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) }).catch(() => null);
-      return { ok: true };
+      // The chat's own «share phone» keyboard: verification is complete only after
+      // the incoming contact message is written to User.phoneVerified.
+      try {
+        await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) });
+        return { ok: true };
+      } catch {
+        return fail(lang === "en"
+          ? "Could not send the phone-sharing button. Open the bot chat and send /start."
+          : "تعذّر إرسال زر مشاركة الرقم. افتح محادثة البوت وأرسل /start.", "phone_prompt_failed");
+      }
     }
     case "accounts": {
       const plats: SocialPlatform[] = ["twitter", "tiktok", "facebook", "instagram", "link"];
