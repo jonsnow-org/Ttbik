@@ -1,4 +1,4 @@
-/* Palmyra Launch v3: one dark app theme for every platform page. Phone first, glass surfaces, gold brand, green/red for trading. */
+/* Palmyra Launch v3: unified phone-first dark theme, electric-blue brand, green/red trading states. */
 :root{--bg:#06060b;--s1:#101018;--s2:#171723;--s3:#1f1f2e;--line:#ffffff14;--line2:#ffffff24;--tx:#f4f1ea;--mut:#8b8aa0;--gold:#4da3ff;--gold2:#2f6df0;--green:#2ee59d;--red:#ff4d6a;--blue:#4da3ff;--r:18px;--znbt-safe-top:max(env(safe-area-inset-top,0px),var(--tg-viewport-safe-area-inset-top,0px),var(--tg-viewport-content-safe-area-inset-top,0px));--znbt-safe-bottom:max(env(safe-area-inset-bottom,0px),var(--tg-viewport-safe-area-inset-bottom,0px),var(--tg-viewport-content-safe-area-inset-bottom,0px));color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{background:var(--bg);scroll-behavior:smooth}
