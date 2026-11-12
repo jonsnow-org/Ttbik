@@ -57,8 +57,9 @@ async function runTask(model: string, task: SuiteTask, db: any): Promise<{ first
   const t0 = Date.now();
   const update = { update_id: Date.now(), message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text: task.text } };
   try {
-    if (sham) await shamVariant.run(model === "sham" ? "v1" : "v2", () => handleNovaBotUpdate(bot, botRow, update));
-    else await handleCoderSections(bot, botRow, update, db);
+    // the handler may run the whole task in this process (it did for 3+ hours on a repository-reading task, 2026-11-12): the suite's own limit must apply to it too
+    const work = sham ? shamVariant.run(model === "sham" ? "v1" : "v2", () => handleNovaBotUpdate(bot, botRow, update)) : handleCoderSections(bot, botRow, update, db);
+    await Promise.race([Promise.resolve(work), new Promise((res) => setTimeout(res, task.limitS * 1000))]);
   } catch (e) {
     global.fetch = realFetch;
     return { first: -1, total: Math.round((Date.now() - t0) / 1000), reply: "", finished: true, tools: ["EXCEPTION " + String((e as Error)?.message || e).slice(0, 160)] };
