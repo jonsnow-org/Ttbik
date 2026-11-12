@@ -177,6 +177,13 @@ def _generate_steps(
                     keep[:, idx] = 0.0
                     last_logits = last_logits + keep
                     allowed_range = None
+            if allowed_range is not None and eos_id is not None and not (allowed_range[0] <= eos_id < allowed_range[1]):
+                # Restricting sampling to a modality range (the text range) must not mask <EOS> out: <EOS> sits above the text ids, so a reply could never end and
+                # ran to max_new_tokens (the same fix sham_decoding.guarded_generate_tokens already had; review 2026-11-12: serve.py and the Studio fallback used this path).
+                mask = torch.full_like(last_logits, float("-inf"))
+                mask[:, allowed_range[0]:allowed_range[1]] = 0.0
+                mask[:, eos_id] = 0.0
+                last_logits, allowed_range = last_logits + mask, None
             next_token = _sample_from_logits(
                 last_logits, temperature=temperature, top_k=top_k, top_p=top_p, allowed_range=allowed_range
             )
