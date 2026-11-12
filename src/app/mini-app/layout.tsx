@@ -1,4 +1,5 @@
 import Script from "next/script";
+import "./mini-app.css";
 
 export default function MiniAppLayout({ children }: { children: React.ReactNode }) {
   return (
