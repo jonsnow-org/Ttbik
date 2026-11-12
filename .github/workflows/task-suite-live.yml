@@ -1,0 +1,68 @@
+name: "Task suite: every model separately, everyday tasks with pass/fail and seconds (real Studios, nothing sent to Telegram)"
+
+# Measures each model on its OWN Studios through the bot's production entry points: greeting, identity, facts, arithmetic, memory, web search, reading a file and a repository on GitHub.
+# One table row per task: pass/fail, seconds to the first visible message, total seconds, the reason. It only measures (no training data is produced, nothing is written anywhere).
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "comma list: coder (Nova), lfm25 (LFM2.5), sham (Sham v1), sham_v2 (Sham v2); each runs as its own job"
+        required: false
+        default: "coder,lfm25,sham,sham_v2"
+      tasks:
+        description: "comma list of task ids (empty = all): greeting,identity,fact-egypt,fact-syria,math,memory-save,memory-recall,web-search,file-read,repo-read"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      models: ${{ steps.m.outputs.models }}
+    steps:
+      - id: m
+        env:
+          MODELS: ${{ inputs.models }}
+        run: python3 -c "import json,os,re; ms=[m for m in re.split(r'[,\s]+', os.environ['MODELS']) if m in ('coder','lfm25','sham','sham_v2')]; print('models='+json.dumps(ms or ['coder']))" >> "$GITHUB_OUTPUT"
+  suite:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJson(needs.plan.outputs.models) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts && (cd athar && npm ci --no-audit --no-fund)
+      - name: Generate the Prisma client (types only, no database)
+        run: npx prisma generate
+      - name: Run the suite for this model
+        env:
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SUITE_MODELS: ${{ matrix.model }}
+          SUITE_TASKS: ${{ inputs.tasks }}
+          OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
+          PROBE_OUT: ${{ runner.temp }}
+        run: |
+          cd athar
+          set -o pipefail
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/taskSuite.live.ts' 2>&1 | grep -E "^SUITE|SUITE_TABLE|^\| |PASS|FAIL|Tests:|●|error:" | cut -c1-600
+      - name: Table
+        if: always()
+        run: cat "$RUNNER_TEMP/task-suite.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no table was written"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: task-suite-${{ matrix.model }}
+          path: |
+            ${{ runner.temp }}/task-suite.json
+            ${{ runner.temp }}/task-suite.md
+          if-no-files-found: ignore
