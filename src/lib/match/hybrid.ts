@@ -10,6 +10,7 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
 import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
+import { botCallbackRestriction } from "@/lib/botCallbackRestriction";
 import type { Bot as BotRow, MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { deliverToUser } from "@/lib/match/surface";
@@ -136,7 +137,7 @@ export async function sendChatRequest(bot: TelegramBot, botRow: BotRow, fromId: 
   ]);
   if (!from?.profile || from.profile.status !== "APPROVED" || !from.phoneVerified) return { ok: false, message: "أكمل ملفك الشخصي أولاً ليتمكن الطرف الآخر من رؤية ملخصك." };
   if (from.isBanned || (from.mutedUntil && from.mutedUntil > new Date())) return { ok: false, message: "حسابك مقيّد حالياً." };
-  if (!to?.profile || to.profile.status !== "APPROVED" || to.isBanned || to.botId !== botRow.id) return { ok: false, message: "هذا الملف غير متاح." };
+  if (!to?.profile || to.profile.status !== "APPROVED" || botCallbackRestriction(to.isBanned, to.mutedUntil) || to.botId !== botRow.id) return { ok: false, message: "هذا الملف غير متاح." };
   const blocked = await prisma.matchBlock.findFirst({ where: { OR: [{ blockerId: fromId, blockedId: toId }, { blockerId: toId, blockedId: fromId }] } });
   if (blocked) return { ok: false, message: "هذا الملف غير متاح." };
   const ts = Math.floor(Date.now() / 1000);
@@ -161,7 +162,9 @@ async function acceptChatRequest(bot: TelegramBot, botRow: BotRow, accepterId: s
     prisma.matchUser.findUnique({ where: { id: accepterId } }),
     prisma.matchUser.findUnique({ where: { id: requesterId } }),
   ]);
-  if (!a || !b || b.isBanned) return "هذا الطلب لم يعد متاحاً.";
+  const aRestriction = a ? botCallbackRestriction(a.isBanned, a.mutedUntil) : "banned";
+  const bRestriction = b ? botCallbackRestriction(b.isBanned, b.mutedUntil) : "banned";
+  if (aRestriction || bRestriction) return "هذا الطلب لم يعد متاحاً.";
   const busy = (u: typeof a) => ["random_chatting", "fake_chatting", "random_waiting"].includes((u?.pendingAction as any)?.mode);
   if (busy(a)) return "أنهِ محادثتك الحالية أولاً ثم اقبل الطلب.";
   if (busy(b)) return "الطرف الآخر في محادثة الآن. حاول لاحقاً.";
