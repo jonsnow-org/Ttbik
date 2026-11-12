@@ -12,6 +12,7 @@ jest.mock("grammy", () => {
   return { Bot, Keyboard, InlineKeyboard };
 });
 jest.mock("@/lib/prisma", () => ({ prisma: { user: { update: jest.fn(), findUnique: jest.fn(async () => ({ balance: 3 })) } } }));
+jest.mock("@/lib/channels/assetMarket", () => ({ recordAssetPhoneContact: jest.fn(async () => ({ ok: true })) }));
 jest.mock("@/lib/adBotLogic", () => ({
   ...jest.requireActual("@/lib/adBotLogic"),
   ensureUser: jest.fn(async () => ({ id: "4242", balance: 3, language: "ar", phoneVerified: true })),
@@ -30,6 +31,8 @@ jest.mock("@/lib/remit/office", () => ({
 }));
 
 import { handleAdAppAction } from "@/lib/botApp/adApp";
+import { handleAdBotUpdate } from "@/lib/adBotLogic";
+import { prisma } from "@/lib/prisma";
 
 const botRow: any = { id: "af65", token: "111:test", ownerId: "900", requiredChannel: null, template: "AD_BOT", isActive: true };
 const tg: any = { id: "4242", firstName: "Sam", username: "sam" };
@@ -77,6 +80,34 @@ describe("bot-app actions", () => {
     api.sendMessage.mockRejectedValueOnce(new Error("blocked"));
     const r: any = await handleAdAppAction(botRow, tg, "phone_prompt", {});
     expect(r).toMatchObject({ ok: false, code: "phone_prompt_failed" });
+  });
+  it("the AD_BOT contact webhook stores only the sender's own phone as verified", async () => {
+    await handleAdBotUpdate({ api } as any, botRow, {
+      message: {
+        message_id: 411,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam", username: "sam" },
+        contact: { phone_number: "+905551112233", user_id: 4242, first_name: "Sam" },
+      },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "4242" },
+      data: { phoneNumber: "+905551112233", phoneVerified: true },
+    });
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("تم تأكيد رقم هاتفك"), expect.any(Object));
+  });
+  it("the AD_BOT does not verify a contact that belongs to someone else", async () => {
+    (prisma.user.update as jest.Mock).mockClear();
+    await handleAdBotUpdate({ api } as any, botRow, {
+      message: {
+        message_id: 412,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam" },
+        contact: { phone_number: "+905559999999", user_id: 77, first_name: "Other" },
+      },
+    });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("يجب مشاركة رقم هاتفك الخاص فقط."));
   });
   it("unknown action is refused", async () => {
     expect(((await handleAdAppAction(botRow, tg, "drop_tables", {})) as any).ok).toBe(false);
