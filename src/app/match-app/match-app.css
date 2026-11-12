@@ -1,0 +1,25 @@
+/* Match Mini App: route-scoped viewport and safe-area behavior.
+   Preserve its navy / pink / copper visual identity. */
+.match-app-sheet-85,
+.match-app-sheet-75,
+.match-app-sheet-88 {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.match-app-sheet-85 {
+  max-height: 85vh;
+  max-height: 85dvh;
+}
+
+.match-app-sheet-75 {
+  max-height: 75vh;
+  max-height: 75dvh;
+}
+
+.match-app-sheet-88 {
+  max-height: 88vh;
+  max-height: 88dvh;
+}
