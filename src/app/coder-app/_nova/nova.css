@@ -16,6 +16,35 @@
   transition: background-color .2s ease, color .2s ease;
 }
 .nova, .nova .tgui-root, .nova input, .nova textarea, .nova select, .nova button { font-family: var(--n-font); }
+
+.nova-loading {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  background: var(--tg-theme-secondary-bg-color, #f3f5f9);
+}
+
+.nova-loading::after {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(13, 148, 136, .2);
+  border-top-color: #0d9488;
+  border-radius: 50%;
+  animation: nova-loading-spin .8s linear infinite;
+  content: "";
+}
+
+@keyframes nova-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nova-loading::after {
+    animation: none;
+    border-color: #0d9488;
+  }
+}
 /* button reset per class (a ".nova button" reset would out-rank the classes below) */
 .n-row, .n-opt, .n-link, .n-pill-model, .n-pill-pro, .n-btn, .n-plus, .n-fab, .n-nav button { font: inherit; border: 0; cursor: pointer; margin: 0; }
 .n-row, .n-opt, .n-link, .n-nav button { background: transparent; }
