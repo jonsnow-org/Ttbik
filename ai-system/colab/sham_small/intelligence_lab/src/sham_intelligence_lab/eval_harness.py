@@ -24,7 +24,8 @@ def score_predictions(dataset_jsonl: str, predictions_jsonl: str) -> dict:
             predictions[sid]=row
     unknown=set(predictions)-set(dataset)
     if unknown: raise ValueError(f"predictions contain unknown sample IDs: {len(unknown)}")
-    metrics=defaultdict(lambda:{"n":0,"correct":0,"answered":0,"abstained":0,"loss_sum":0.0,"loss_n":0})
+    metrics=defaultdict(lambda:{"n":0,"correct":0,"answered":0,"abstained":0,"loss_sum":0.0,"loss_n":0,
+                                "confidences":[],"confidence_correct":[]})
     conf=[]; corrects=[]
     for sid,ex in dataset.items():
         row=predictions.get(sid)
@@ -59,12 +60,17 @@ def score_predictions(dataset_jsonl: str, predictions_jsonl: str) -> dict:
         if row.get("loss") is not None:
             m["loss_sum"]+=float(row["loss"]); m["loss_n"]+=1
         if row.get("confidence") is not None:
-            conf.append(float(row["confidence"])); corrects.append(bool(passed))
+            confidence=float(row["confidence"])
+            conf.append(confidence); corrects.append(bool(passed))
+            m["confidences"].append(confidence); m["confidence_correct"].append(bool(passed))
     out={}
     for task,m in metrics.items():
+        task_calibration=calibration_report(m["confidences"],m["confidence_correct"]) if m["confidences"] else None
         out[task]={"n":m["n"],"accuracy":m["correct"]/max(m["n"],1),
                    "coverage":m["answered"]/max(m["n"],1),"abstention_rate":m["abstained"]/max(m["n"],1),
-                   "loss":m["loss_sum"]/m["loss_n"] if m["loss_n"] else None}
+                   "loss":m["loss_sum"]/m["loss_n"] if m["loss_n"] else None,
+                   "ece":task_calibration.ece if task_calibration else None,
+                   "brier":task_calibration.brier if task_calibration else None}
     calibration=asdict(calibration_report(conf,corrects)) if conf else None
     return {"tasks":out,"calibration":calibration,"scored_predictions":sum(x["n"] for x in metrics.values()),
             "unmatched_dataset_examples":len(set(dataset)-set(predictions)),

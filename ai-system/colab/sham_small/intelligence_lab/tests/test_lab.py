@@ -56,6 +56,14 @@ class LabTests(unittest.TestCase):
         result=evaluate_gate(base,cand,{t:150 for t in base},policy=GatePolicy(min_macro_improvement=.005,max_ece=.12))
         self.assertFalse(result["accepted"])
 
+    def test_gate_accepts_prediction_evaluator_shape(self):
+        tasks=("reasoning","evidence","uncertainty","natural_sft")
+        baseline={"tasks":{t:{"loss":1.0,"accuracy":.70,"n":150} for t in tasks}}
+        candidate={"tasks":{t:{"loss":.90,"accuracy":.72,"n":150} for t in tasks}}
+        candidate["tasks"]["uncertainty"]["ece"]=.05
+        result=evaluate_gate(baseline,candidate,policy=GatePolicy(min_examples_per_task=100))
+        self.assertTrue(result["accepted"],result["failures"])
+
     def test_build_pipeline(self):
         with tempfile.TemporaryDirectory() as td:
             r=build_dataset(td,seed=5,count_per_task=2)
@@ -107,6 +115,9 @@ class LabTests(unittest.TestCase):
             result=score_predictions(str(out/"test.jsonl"),str(pred))
             self.assertGreater(result["scored_predictions"],0)
             self.assertIsNotNone(result["calibration"])
+            for task_metrics in result["tasks"].values():
+                if task_metrics["n"]:
+                    self.assertIsNotNone(task_metrics["ece"])
 
     def test_teacher_verifier_rejects_bad_answer(self):
         from sham_intelligence_lab.schema import example_from_teacher
