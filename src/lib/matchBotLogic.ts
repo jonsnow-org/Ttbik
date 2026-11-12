@@ -32,6 +32,7 @@ import {
   purchaseByKey, purchaseRewind, recordPass, submitVerificationPhoto, isBuyNowKey, grantReferralVip, purchaseVipTrial, vipTrialAvailable, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
+import { botCallbackRestriction } from "@/lib/botCallbackRestriction";
 import { sendOwnCard, ownCardInlineResults, cardReferrer, parseCardStart, showMatchmaker, buyMatchmaker, consumeMatchmakerNote, sendMatchmakerReply, listMatchmakerRequests, handleTrustCallback } from "@/lib/match/trust";
 import { completenessOf, digestOn, digestPromptText, digestToggleKeyboard, handleDigestCallback } from "@/lib/match/engage";
 import { DIGEST_BUTTON_ON, completenessLine } from "@/lib/match/engageRules";
@@ -2732,6 +2733,20 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     }
     await handleMatchInlineQuery(bot, botRow, update.inline_query);
     return;
+  }
+  if (update.callback_query) {
+    const actorId = String(update.callback_query.from?.id || "");
+    if (actorId && (!SUPER_ADMIN_ID || actorId !== SUPER_ADMIN_ID)) {
+      const actor = await ensureMatchUser(botRow.id, actorId);
+      const restriction = botCallbackRestriction(actor.isBanned, actor.mutedUntil);
+      if (restriction) {
+        await bot.api.answerCallbackQuery(update.callback_query.id, {
+          text: restriction === "banned" ? "🚫 تم حظرك من استخدام هذا البوت." : "🔇 أنت مكتوم مؤقتاً. حاول لاحقاً.",
+          show_alert: true,
+        }).catch(() => null);
+        return;
+      }
+    }
   }
   if (update.callback_query && (await handleDigestCallback(bot, botRow.id, update.callback_query))) return;
   if (update.callback_query && (await handleTrustCallback(bot, botRow, update.callback_query))) return;
