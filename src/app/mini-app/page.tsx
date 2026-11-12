@@ -2,6 +2,7 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
 import { SERVICE_LINKS, chainsBotLink } from "@/config/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
 import { migrateLegacyFollowIds } from "@/lib/mediaFollowMigration";
@@ -18,6 +19,7 @@ type Notif = { id: string; type: "follow" | "like" | "comment" | "reply" | "post
 type CommentRow = { id: string; post_id: string; parent_id: string | null; from_id: string; from_name: string; body: string; created_at: number };
 type Relations = { following: string[]; mutes: string[]; blocks: string[]; blockedBy: string[] };
 type Report = { id: string; post_id: string; post_title: string; post_owner_id: string; reporter_id: string; reporter_name: string; reason: string; reason_label: string; details: string; status: string; created_at: number };
+type MiniPlayerFrame = { mode: "anchor"; top: number; left: number; width: number; height: number } | { mode: "dock" };
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
@@ -195,6 +197,9 @@ export default function MiniAppPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [adNonce, setAdNonce] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playerFrame, setPlayerFrame] = useState<MiniPlayerFrame | null>(null);
+  const autoplayVideoRef = useRef<HTMLVideoElement | null>(null);
+  const autoPreviewAttempts = useRef<Record<string, number>>({});
   const [playError, setPlayError] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [inboxThreads, setInboxThreads] = useState<{ peer_id: string; peer_name: string; last_body: string; last_at: number; unread: number }[]>([]);
@@ -230,6 +235,8 @@ export default function MiniAppPage() {
   const seenRef = useRef<Set<string>>(new Set());
   const itemsRef = useRef<FeedItem[]>([]);
   itemsRef.current = items;
+  const activePlayerItem = playingId ? items.find((item) => item.id === playingId) || null : null;
+  const activePlayerIsVideo = !!activePlayerItem && activePlayerItem.media_type !== "audio" && activePlayerItem.media_type !== "voice";
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
@@ -247,6 +254,14 @@ export default function MiniAppPage() {
     setPlayingId(null);
     setPlayError(id);
     showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
+  };
+  const onAutoPreviewError = (id: string) => {
+    if (!viaVercel[id] && autoPreviewAttempts.current[id] !== 1) {
+      autoPreviewAttempts.current[id] = 1;
+      setViaVercel((v) => ({ ...v, [id]: true }));
+      return;
+    }
+    setAutoFailed((failed) => ({ ...failed, [id]: true }));
   };
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -845,12 +860,14 @@ export default function MiniAppPage() {
           saveTimer = setTimeout(() => saveJSON(LS.seen, Array.from(seenRef.current).slice(-600)), 1500);
         }
       }
-      // Full player with sound: stop when less than ~35% visible
+      // Audio stops when scrolled away; video remains alive in its floating player.
       setPlayingId((cur) => {
         if (!cur) return cur;
         const r = ratios.get(cur);
-        if (r === undefined) return cur;
-        return r < 0.35 ? null : cur;
+        if (r === undefined || r >= 0.35) return cur;
+        const current = itemsRef.current.find((item) => item.id === cur);
+        const isAudio = current?.media_type === "audio" || current?.media_type === "voice";
+        return isAudio ? null : cur;
       });
       if (!autoplay) {
         setAutoId(null);
@@ -876,6 +893,73 @@ export default function MiniAppPage() {
     if (playingId) setAutoId(null);
   }, [playingId]);
 
+  // Explicitly start the one muted preview; muted inline playback is supported by Telegram WebView.
+  useEffect(() => {
+    const video = autoplayVideoRef.current;
+    if (!video || !autoplay || !autoId || playingId) return;
+    video.muted = true;
+    video.playsInline = true;
+    const started = video.play();
+    if (started && typeof started.catch === "function") {
+      started.catch((error: unknown) => {
+        if ((error as { name?: string })?.name !== "NotAllowedError") onAutoPreviewError(autoId);
+        else setAutoFailed((failed) => ({ ...failed, [autoId]: true }));
+      });
+    }
+    return () => { video.pause(); };
+  }, [autoId, autoplay, playingId, viaVercel]);
+
+  // Keep a single real video element in a portal. It overlays the card while visible and
+  // docks above the navigation bar when scrolled away, without losing playback position.
+  useEffect(() => {
+    if (!playingId || !activePlayerIsVideo) {
+      setPlayerFrame(null);
+      return;
+    }
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const article = Array.from(document.querySelectorAll<HTMLElement>("article[data-feed-id]"))
+          .find((node) => node.dataset.feedId === playingId);
+        const anchor = article?.querySelector<HTMLElement>("[data-player-anchor]");
+        const rect = anchor?.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          setPlayerFrame({ mode: "dock" });
+          return;
+        }
+        const nav = document.querySelector<HTMLElement>(".media-mini-app-nav");
+        const navHeight = nav?.getBoundingClientRect().height || 68;
+        const usableBottom = window.innerHeight - navHeight - 8;
+        const visibleHeight = Math.max(0, Math.min(rect.bottom, usableBottom) - Math.max(rect.top, 4));
+        const visibleRatio = visibleHeight / rect.height;
+        const fits = visibleRatio >= 0.62 && rect.top >= 4 && rect.bottom <= usableBottom && rect.height <= window.innerHeight * 0.82;
+        if (fits) {
+          const next: MiniPlayerFrame = { mode: "anchor", top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+          setPlayerFrame((previous) => previous?.mode === "anchor"
+            && Math.abs(previous.top - next.top) < 1 && Math.abs(previous.left - next.left) < 1
+            && Math.abs(previous.width - next.width) < 1 && Math.abs(previous.height - next.height) < 1
+            ? previous : next);
+        } else {
+          setPlayerFrame((previous) => previous?.mode === "dock" ? previous : { mode: "dock" });
+        }
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true, capture: true });
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [playingId, activePlayerIsVideo]);
+
   // Hard-stop every media element that is not the active full player or the
   // single muted autoplay card — prevents stacked audio after React unmount lag.
   useEffect(() => {
@@ -884,6 +968,7 @@ export default function MiniAppPage() {
         const card = media.closest("article[data-feed-id]") as HTMLElement | null;
         const id = card?.dataset.feedId;
         if (!id) {
+          if (media.dataset.miniPlayer === "true" && media.dataset.playerId === playingId) return;
           try {
             media.pause();
           } catch {
@@ -1557,15 +1642,15 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200">
-                <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
+                <div data-player-anchor={playingId === item.id && !isAudio ? item.id : undefined} onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
-                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />)
+                    : (<div className="media-mini-app-player-placeholder flex h-full w-full items-center justify-center bg-black text-white/80"><span className="rounded-full bg-black/60 px-3 py-2 text-xs font-bold">▶ يعمل في المشغّل المثبّت</span></div>)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={mediaStreamUrl(item.id, false, item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
+                      <video ref={autoplayVideoRef} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onAutoPreviewError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (
@@ -1682,6 +1767,34 @@ export default function MiniAppPage() {
         </div>
       )}
 
+      {activePlayerItem && activePlayerIsVideo && playerFrame && typeof document !== "undefined" && createPortal(
+        <div
+          className={"media-mini-app-player-float " + (playerFrame.mode === "dock" ? "media-mini-app-player-float--dock" : "media-mini-app-player-float--anchor")}
+          style={playerFrame.mode === "anchor" ? { top: playerFrame.top, left: playerFrame.left, width: playerFrame.width, height: playerFrame.height } : undefined}
+          aria-label={"مشغّل الفيديو: " + displayTitle(activePlayerItem)}
+        >
+          <video
+            key={activePlayerItem.id + "-" + (viaVercel[activePlayerItem.id] ? "vercel" : "worker")}
+            data-mini-player="true"
+            data-player-id={activePlayerItem.id}
+            src={mediaStreamUrl(activePlayerItem.id, !!viaVercel[activePlayerItem.id], activePlayerItem.squad_code)}
+            poster={activePlayerItem.thumbnail || undefined}
+            controls
+            autoPlay
+            playsInline
+            preload="auto"
+            onLoadedMetadata={(e) => setRatio(activePlayerItem.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
+            onError={() => onPlayError(activePlayerItem.id)}
+            onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(activePlayerItem, t); }}
+            onEnded={() => markViewed(activePlayerItem, 99, true)}
+          />
+          <div className="media-mini-app-player-float-tools">
+            <span title={displayTitle(activePlayerItem)}>▶ {displayTitle(activePlayerItem)}</span>
+            <button type="button" aria-label="إغلاق مشغّل الفيديو" onClick={() => { setPlayingId(null); setPlayerFrame(null); }}>×</button>
+          </div>
+        </div>,
+        document.body
+      )}
       {toast && <div role="status" aria-live="polite" className="media-mini-app-toast fixed left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-slate-900/90 px-4 py-2.5 text-center text-xs font-bold text-white shadow-xl">{toast}</div>}
     </div>
   );
