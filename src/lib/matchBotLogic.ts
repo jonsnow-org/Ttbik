@@ -168,12 +168,14 @@ const SKIP_LABEL = "⏭ غير محدد / لا يهم";
 function backLabel() {
   return "🔙 القائمة الرئيسية";
 }
+export const MATCH_APP_BUTTON = "📱 التطبيق";
 const MAIN_MENU_ROWS = [
   ["👤 ملفي الشخصي", "💍 مواصفات الشريك"],
   ["🔍 البحث عن شريك", "🔀 مراسلة عشوائية"],
   ["💌 من أعجب بي", "ℹ️ معلومات"],
   ["⭐ الترقيات والمزايا", CARD_BUTTON],
   [MATCHMAKER_BUTTON],
+  [MATCH_APP_BUTTON],
 ];
 /** Every main-menu label: a tap on one is navigation, never free text (e.g. the matchmaker note). */
 export const MAIN_MENU_LABELS: ReadonlySet<string> = new Set(MAIN_MENU_ROWS.flat());
@@ -2985,6 +2987,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await showMatchmaker(bot, chatId);
     return;
   }
+  if (text === MATCH_APP_BUTTON) {
+    await bot.api.sendMessage(chatId, "💍 افتح التطبيق لإدارة ملفك وتصفّح المطابقات:", {
+      reply_markup: new InlineKeyboard().webApp("📱 فتح التطبيق", miniAppUrl(botRow.id)),
+    }).catch(() => null);
+    return;
+  }
 
   // Active fake bot chat: handle control buttons and relay to script.
   if (pending?.mode === "fake_chatting") {
@@ -3511,16 +3519,21 @@ const setupDone = new Set<string>();
 export const MATCH_BOT_COMMANDS = [{ command: "start", description: "القائمة الرئيسية" }];
 export async function ensureMatchBotSetup(bot: TelegramBot, botId: string) {
   if (setupDone.has(botId)) return;
-  setupDone.add(botId);
   const scopes: any[] = [{ type: "all_private_chats" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }];
   for (const scope of scopes) await bot.api.deleteMyCommands({ scope }).catch(() => null);
   for (const language_code of ["ar", "en", "ru", "tr", "fa"] as const) {
     await bot.api.deleteMyCommands({ language_code: language_code as any }).catch(() => null);
     await bot.api.deleteMyCommands({ scope: { type: "all_private_chats" }, language_code: language_code as any }).catch(() => null);
   }
-  await bot.api.setMyCommands(MATCH_BOT_COMMANDS).catch(() => null);
-  await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: miniAppUrl(botId) } } }).catch(() => null);
+  let commandsReady = false;
+  let menuReady = false;
+  try { await bot.api.setMyCommands(MATCH_BOT_COMMANDS); commandsReady = true; } catch { /* retry on next /start */ }
+  try {
+    await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: miniAppUrl(botId) } } });
+    menuReady = true;
+  } catch { /* retry on next /start */ }
+  if (commandsReady && menuReady) setupDone.add(botId);
 }
 async function setAdminMenuButton(bot: TelegramBot, botId: string, chatId: number) {
-  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
+  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "🛡 لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
 }

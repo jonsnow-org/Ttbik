@@ -72,6 +72,12 @@ export async function handleFadaaBotUpdate(
   const fromId = String(msg.from?.id || "");
   const isOwner = fromId && fromId === ownerId;
 
+  if (text.startsWith("/start")) {
+    await bot.api.setChatMenuButton({
+      menu_button: { type: "web_app", text: "🌌 فضاء", web_app: { url: miniAppUrl(botRow.id) } },
+    }).catch(() => null);
+  }
+
   const invite = text.match(/^\/start(?:@\w+)?\s+join_([0-9a-f-]{36})$/i);
   if (invite) {
     const sessionId = invite[1];
