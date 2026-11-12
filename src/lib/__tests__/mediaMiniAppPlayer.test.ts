@@ -15,6 +15,8 @@ describe("media mini-app persistent video player", () => {
     expect(src).toContain("document.body");
     expect(src).toContain('setPlayerFrame({ mode: "dock" })');
     expect(src).toContain("return isAudio ? null : cur");
+    expect(src).toContain('setPlayerFrame(item.media_type === "audio" || item.media_type === "voice" ? null : { mode: "dock" })');
+    expect(src).toContain("if (playingId || !autoplay)");
   });
 
   it("shows a fixed safe-area-aware dock above the Telegram navigation bar", () => {

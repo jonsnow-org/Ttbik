@@ -255,14 +255,14 @@ export default function MiniAppPage() {
     setPlayError(id);
     showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
   };
-  const onAutoPreviewError = (id: string) => {
+  const onAutoPreviewError = useCallback((id: string) => {
     if (!viaVercel[id] && autoPreviewAttempts.current[id] !== 1) {
       autoPreviewAttempts.current[id] = 1;
       setViaVercel((v) => ({ ...v, [id]: true }));
       return;
     }
     setAutoFailed((failed) => ({ ...failed, [id]: true }));
-  };
+  }, [viaVercel]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(text: string) {
@@ -869,7 +869,7 @@ export default function MiniAppPage() {
         const isAudio = current?.media_type === "audio" || current?.media_type === "voice";
         return isAudio ? null : cur;
       });
-      if (!autoplay) {
+      if (playingId || !autoplay) {
         setAutoId(null);
         return;
       }
@@ -888,7 +888,7 @@ export default function MiniAppPage() {
       obs.disconnect();
       if (saveTimer) clearTimeout(saveTimer);
     };
-  }, [autoplay, visible, tab]);
+  }, [autoplay, visible, tab, playingId]);
   useEffect(() => {
     if (playingId) setAutoId(null);
   }, [playingId]);
@@ -907,7 +907,7 @@ export default function MiniAppPage() {
       });
     }
     return () => { video.pause(); };
-  }, [autoId, autoplay, playingId, viaVercel]);
+  }, [autoId, autoplay, playingId, onAutoPreviewError]);
 
   // Keep a single real video element in a portal. It overlays the card while visible and
   // docks above the navigation bar when scrolled away, without losing playback position.
@@ -1134,6 +1134,7 @@ export default function MiniAppPage() {
   };
   const playItem = (item: FeedItem) => {
     setPlayError(null);
+    setPlayerFrame(item.media_type === "audio" || item.media_type === "voice" ? null : { mode: "dock" });
     setPlayingId(item.id);
     track("play", { post_id: item.id, type: item.media_type });
   };
