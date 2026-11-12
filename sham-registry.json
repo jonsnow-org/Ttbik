@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12 11:32 UTC",
+  "generated_at": "2026-11-12 20:07 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -66,9 +66,9 @@
       "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service.\nقبل الفشل: 0.00s - to python to disable frozen modules. | 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this"
     },
     {
-      "alias": "المرحلة الأولى 5",
+      "alias": "المرحلة الأولى 4",
       "track": "text_stage1",
-      "status": "running",
+      "status": "cancelAcknowledged",
       "role": "duplicate",
       "last_run": "2026-11-12",
       "gpu": false,
@@ -84,19 +84,19 @@
       "failure": ""
     },
     {
-      "alias": "المرحلة الأولى 4",
-      "track": "text_stage1",
-      "status": "error",
-      "role": "duplicate",
-      "last_run": "2026-11-11",
-      "gpu": false,
-      "failure": ""
-    },
-    {
       "alias": "المرحلة الأولى 6",
       "track": "text_stage1",
       "status": "running",
       "role": "primary",
+      "last_run": "2026-11-12",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المرحلة الأولى 5",
+      "track": "text_stage1",
+      "status": "running",
+      "role": "duplicate",
       "last_run": "2026-11-12",
       "gpu": false,
       "failure": ""
@@ -252,7 +252,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 794.9,
+      "size_mb": 0.0,
       "last_updated": "2026-11-12",
       "progress": {},
       "has_key_files": true
@@ -260,7 +260,7 @@
     {
       "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
-      "size_mb": 792.0,
+      "size_mb": 0.0,
       "last_updated": "2026-11-12",
       "progress": {},
       "has_key_files": true
@@ -284,7 +284,7 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4240.7,
+      "size_mb": 4239.0,
       "last_updated": "2026-11-12",
       "progress": {},
       "has_key_files": true
