@@ -883,7 +883,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, EXCHANGE_INTRO, { reply_markup: new InlineKeyboard().webApp(EXCHANGE_BUTTON, botAppUrl(gateUrl(), botRow.id, "exchange")) }).catch(() => null);
     return;
   }
-  if (isServicesRequest(text)) {
+  if (text === APP_BUTTON || isServicesRequest(text)) {
     if (pending) await setPending(user.id, null);
     await bot.api.sendMessage(chatId, APP_INTRO, { reply_markup: new InlineKeyboard().webApp(APP_BUTTON, botAppUrl(gateUrl(), botRow.id)) }).catch(() => null);
     return;
