@@ -311,8 +311,10 @@ describe("phone verification contact webhook", () => {
 
     expect(T("jobsUser").get("4242")).toMatchObject({ phoneNumber: "+963900000000", phoneVerified: true });
     expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("تم التحقق"), expect.any(Object));
-    const refreshed = await handleJobsAppAction(bots["bot-j"], tgUser("4242"), "init", {});
-    expect(refreshed).toMatchObject({ ok: true, phoneVerified: true });
+    const refreshedResponse = await call("bot-j", { initData: initFor(TOKEN_J, 4242), action: "init" });
+    expect(refreshedResponse.status).toBe(200);
+    const refreshed = await refreshedResponse.json();
+    expect(refreshed).toMatchObject({ ok: true, phoneVerified: true, user: { id: "4242" } });
   });
 
   it("does not verify a different person's contact", async () => {
