@@ -1080,7 +1080,7 @@ export default function NovaApp() {
       } catch { /* the next poll tries again */ }
     };
     void poll();
-    const id = setInterval(poll, 4000);
+    const id = setInterval(poll, 12000);
     return () => clearInterval(id);
   }, [computerOn]);
   const closePage = useCallback(() => setPage(null), []);

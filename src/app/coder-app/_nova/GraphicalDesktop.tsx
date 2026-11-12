@@ -182,7 +182,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             setStreaming(false);
             const message = String(e?.message || e);
             setError(message);
-            const transient = /\b(?:408|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
+            const transient = /\b(?:402|408|409|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
             if (!transient) break;
             const delay = Math.min(8000, 1000 * (2 ** Math.min(retryAttempt, 3)));
             retryAttempt = Math.min(retryAttempt + 1, 4);
@@ -209,10 +209,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     finally { setBusy(false); }
   };
 
-  // Typing straight into the screen: the keyboard button focuses a hidden field (so the phone's keyboard opens), and what is typed there goes to the
-  // desktop window under the pointer, in order. This is how a login form on a page the model opened can be filled in by hand.
-  const kbRef = useRef<HTMLInputElement>(null);
-  const composing = useRef(false);
+  // Typing into the screen: a VISIBLE bar under the screen (opened by the keyboard button, never by a tap on the screen), so the phone's keyboard cannot pop up by itself and the
+  // layout can follow the keyboard. What is typed there goes to the desktop window in order; the bar sends only the change (letters added, Backspace) as you type.
   const queue = useRef<Array<{ type?: string; key?: string; act?: Record<string, unknown> }>>([]);
   const draining = useRef(false);
   const drain = async () => {
@@ -226,11 +224,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     } catch (e: any) { setError(String(e?.message || e)); queue.current = []; }
     finally { draining.current = false; }
   };
+  const drainTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enqueue = (item: { type?: string; key?: string; act?: Record<string, unknown> }) => {
     const last = queue.current[queue.current.length - 1];
     if (item.type && last?.type !== undefined && (last.type + item.type).length <= 400) last.type += item.type;
     else queue.current.push(item);
-    void drain();
+    // typed text waits a moment (fast typing becomes ONE call instead of one call per letter: each call is a network round trip); every other input goes at once
+    if (item.type !== undefined) {
+      if (!drainTimer.current) drainTimer.current = setTimeout(() => { drainTimer.current = null; void drain(); }, 140);
+    } else { if (drainTimer.current) { clearTimeout(drainTimer.current); drainTimer.current = null; } void drain(); }
   };
   const keyName = (event: React.KeyboardEvent): string | null => {
     const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
@@ -239,27 +241,24 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     const mapped = [...modifiers, key].join("+");
     return /^[A-Za-z0-9_+ -]{1,40}$/.test(mapped) ? mapped.replace(/ /g, "") : null;
   };
-  const screenKey = (event: React.KeyboardEvent) => {
-    const mapped = keyName(event);
-    if (mapped) { event.preventDefault(); enqueue({ key: mapped }); }
-  };
   const [kbOn, setKbOn] = useState(false);
-  const toggleKeyboard = () => setKbOn((on) => !on);
-  // The phone keyboard appears ONLY when this button turns the hidden field on (it is read-only with no input method otherwise),
-  // never from a tap on the screen. Turning it on focuses the field in the same moment of user activation.
-  useEffect(() => {
-    const el = kbRef.current;
-    if (!el) return;
-    if (kbOn) { try { el.focus({ preventScroll: true }); } catch { /* no field yet */ } }
-    else { try { el.blur(); } catch { /* no field yet */ } }
-  }, [kbOn]);
-  const takeTyped = () => {
-    const el = kbRef.current;
-    if (!el || !el.value) return;
-    const text = el.value;
-    el.value = "";
-    enqueue({ type: text });
+  const typeRef = useRef<HTMLInputElement>(null);
+  const typed = useRef("");
+  const onTypeInput = (value: string) => {
+    const prev = typed.current;
+    if (value.startsWith(prev)) { const add = value.slice(prev.length); if (add) enqueue({ type: add }); }
+    else if (prev.startsWith(value)) { for (let n = prev.length - value.length; n > 0; n--) enqueue({ key: "BackSpace" }); }
+    else { for (let n = prev.length; n > 0; n--) enqueue({ key: "BackSpace" }); if (value) enqueue({ type: value }); }
+    typed.current = value;
+    if (value.length > 160 && typeRef.current) { typeRef.current.value = ""; typed.current = ""; }      // a long line is already sent: start the buffer again
   };
+  const typeKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") { event.preventDefault(); enqueue({ key: "Return" }); if (typeRef.current) typeRef.current.value = ""; typed.current = ""; }
+    else if (event.key === "Backspace" && !event.currentTarget.value) { event.preventDefault(); enqueue({ key: "BackSpace" }); }
+    else if (event.key === "Tab") { event.preventDefault(); enqueue({ key: "Tab" }); }
+    else if (event.key === "Escape") { event.preventDefault(); enqueue({ key: "Escape" }); }
+  };
+  useEffect(() => { if (kbOn) { typed.current = ""; try { typeRef.current?.focus({ preventScroll: true }); } catch { /* ignore */ } } }, [kbOn]);
 
   // A tap (touch) or a click (mouse) on the picture is a real click on the desktop at the mapped point. Input is queued in order, never dropped.
   const pointAt = (clientX: number, clientY: number) => {
@@ -299,6 +298,19 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const toolRef = useRef<Tool>("tap");
   toolRef.current = tool;
   const [fullscreen, setFullscreen] = useState(false);
+  // The screen is always shown at its own aspect ratio, as large as the room allows. The room is measured (not guessed from CSS): the visible height follows the phone's keyboard
+  // (visualViewport), so the screen no longer shrinks to a stamp when the keyboard opens, and full screen uses every pixel left.
+  const fitRef = useRef<HTMLDivElement>(null);
+  const [vvh, setVvh] = useState(0);
+  const [fit, setFit] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const read = () => setVvh(Math.round(vv?.height || window.innerHeight));
+    read();
+    vv?.addEventListener("resize", read);
+    window.addEventListener("resize", read);
+    return () => { vv?.removeEventListener("resize", read); window.removeEventListener("resize", read); };
+  }, []);
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
   const viewRef = useRef(view);
   useEffect(() => {
@@ -317,7 +329,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       viewRef.current = { s, x, y };
       setView({ s, x, y });
     };
-    const onButton = (e: TouchEvent) => Boolean((e.target as HTMLElement)?.closest?.("[data-kb]"));
+    const onButton = (_e: TouchEvent) => false;
     const onStart = (e: TouchEvent) => {
       if (onButton(e)) return;
       if (e.touches.length === 2) {
@@ -387,6 +399,22 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   // The model's own activity, BELOW the screen (owner's order: nothing is drawn over the screen): one readable line per
   // event, newest last, with the redundant raw fields the activity feed carries dropped.
 
+  const screenSz = screenSizeOf(status);
+  const sw = screenSz?.w || 0, sh = screenSz?.h || 0;
+  useEffect(() => {
+    const el = fitRef.current;
+    if (!el || !running || !sw || !sh) { setFit(null); return; }
+    const measure = () => {
+      const availW = el.clientWidth || 320;
+      const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 230 : 320));
+      const w = Math.floor(Math.min(availW, availH * (sw / sh)));
+      setFit({ w, h: Math.floor(w * (sh / sw)) });
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [running, sw, sh, fullscreen, vvh, kbOn]);
   const live = mode === "live" || mode === "reconnecting";
   const key = (name: string) => enqueue({ key: name });
   const pasteFromPhone = async () => {
@@ -403,7 +431,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const bar: React.CSSProperties = { display: "flex", gap: 6, overflowX: "auto", paddingBlock: 6, WebkitOverflowScrolling: "touch" };
   const btn = (on = false): React.CSSProperties => ({ flex: "0 0 auto", minWidth: 44, height: 40, padding: "0 10px", borderRadius: 10, border: "1px solid " + (on ? "#5eead4" : "#8885"), background: on ? "#0d9488" : "transparent", color: on ? "#fff" : "inherit", font: "600 13px system-ui", cursor: "pointer" });
   return (
-    <div className="n-card" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 50, padding: 8, borderRadius: 0, display: "flex", flexDirection: "column", background: "var(--n-bg, #0b1220)", overflow: "auto" } : { padding: 10 }}>
+    <div className="n-card" style={fullscreen ? { position: "fixed", top: 0, left: 0, right: 0, height: vvh ? vvh + "px" : "100dvh", zIndex: 50, padding: 8, borderRadius: 0, display: "flex", flexDirection: "column", background: "var(--n-bg, #0b1220)", overflow: "hidden" } : { padding: 10 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
         <span aria-hidden style={{ width: 10, height: 10, borderRadius: 5, background: running ? (live ? "#22c55e" : "#f59e0b") : preparing ? "#f59e0b" : "#8888" }} />
         <span className="n-meta" style={{ flex: 1 }}>
@@ -427,7 +455,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
         </div>
       ) : null}
       {error ? <div className="n-note" role="alert" style={{ marginBottom: 8 }}>{error}</div> : null}
-      <div ref={frameBox} style={{ position: "relative", width: "100%", ...(frame && running && screenSizeOf(status) ? { aspectRatio: `${screenSizeOf(status)!.w} / ${screenSizeOf(status)!.h}`, ...(fullscreen ? { maxHeight: "calc(100dvh - 130px)", marginInline: "auto" } : {}) } : { minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden", touchAction: "none" }} onMouseDown={(e) => e.preventDefault()}>
+      <div ref={fitRef} style={{ ...(fullscreen ? { flex: 1, minHeight: 0 } : {}), display: "flex", justifyContent: "center", alignItems: fullscreen ? "center" : "flex-start", width: "100%" }}>
+      <div ref={frameBox} style={{ position: "relative", ...(fit && frame && running ? { width: fit.w, height: fit.h } : { width: "100%", minHeight: 320 }), background: "#0b1220", border: "1px solid #8885", borderRadius: 10, overflow: "hidden", touchAction: "none" }} onMouseDown={(e) => e.preventDefault()}>
       {frame && running ? (
         <div style={{ position: "absolute", inset: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
         <img
@@ -449,35 +478,22 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           </div>
         </div>
       )}
-        {running ? (
-          <button
-            type="button"
-            data-kb="1"
-            aria-label={ar ? "لوحة المفاتيح" : "Keyboard"}
-            onClick={toggleKeyboard}
-            style={{ position: "absolute", right: 10, bottom: "6%", width: 44, height: 44, borderRadius: 22, border: "1px solid #5eead4", background: kbOn ? "#0d9488" : "#111827cc", color: "#fff", fontSize: 20, lineHeight: "40px", zIndex: 3 }}
-          >⌨</button>
-        ) : null}
-        {running ? (
-          <input
-            ref={kbRef}
-            aria-label={ar ? "لوحة المفاتيح للشاشة" : "Screen keyboard"}
-            readOnly={!kbOn}
-            inputMode={kbOn ? "text" : "none"}
-            tabIndex={-1}
-            autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false}
-            onInput={() => { if (!composing.current) takeTyped(); }}
-            onCompositionStart={() => { composing.current = true; }}
-            onCompositionEnd={() => { composing.current = false; takeTyped(); }}
-            onBlur={() => setKbOn(false)}
-            onKeyDown={(event) => { if (event.key.length > 1 || event.ctrlKey || event.altKey) screenKey(event); }}
-            style={{ position: "absolute", left: 0, bottom: 0, width: 1, height: 1, opacity: 0, border: 0, padding: 0, pointerEvents: "none" }}
-          />
-        ) : null}
       </div>
+      </div>
+      {running && kbOn ? (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", paddingBlock: 6 }}>
+          <input ref={typeRef} aria-label={ar ? "اكتب هنا ليصل النص إلى الشاشة" : "Type here to send text to the screen"} placeholder={ar ? "اكتب هنا — يصل إلى الشاشة فورًا" : "Type here — goes to the screen at once"}
+            dir="auto" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="send"
+            onChange={(e) => onTypeInput(e.currentTarget.value)} onKeyDown={typeKey}
+            style={{ flex: 1, minWidth: 0, height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid #5eead4", background: "#0b1220", color: "#fff", font: "15px system-ui" }} />
+          <button type="button" style={btn()} onClick={() => { enqueue({ key: "Return" }); if (typeRef.current) typeRef.current.value = ""; typed.current = ""; }}>↵</button>
+          <button type="button" style={btn()} onClick={() => setKbOn(false)} aria-label={ar ? "إغلاق" : "Close"}>✕</button>
+        </div>
+      ) : null}
       {running ? (
         <>
           <div style={bar} role="toolbar" aria-label={ar ? "أدوات التحكم بالشاشة" : "Screen controls"}>
+            <button type="button" style={btn(kbOn)} aria-label={ar ? "لوحة المفاتيح" : "Keyboard"} onClick={() => setKbOn((v) => !v)}>⌨ {ar ? "كتابة" : "Type"}</button>
             <button type="button" style={btn()} aria-label={ar ? "رجوع" : "Back"} onClick={() => key("alt+Left")}>{ar ? "↩ رجوع" : "↩ Back"}</button>
             <button type="button" style={btn()} aria-label={ar ? "تقدّم" : "Forward"} onClick={() => key("alt+Right")}>↪</button>
             <button type="button" style={btn()} aria-label={ar ? "تحديث" : "Reload"} onClick={() => key("F5")}>🔄</button>
