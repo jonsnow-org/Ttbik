@@ -134,3 +134,4 @@ describe("the shared hub's desktop is Nova's only", () => {
     }
   });
 });
+

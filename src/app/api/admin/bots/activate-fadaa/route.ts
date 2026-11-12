@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     await temp.api.setChatMenuButton({
       menu_button: {
         type: "web_app",
-        text: "فضاء",
+        text: "🌌 فضاء",
         web_app: { url: `${SITE}/fadaa?bot=${botId}` },
       },
     });

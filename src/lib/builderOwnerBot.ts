@@ -127,7 +127,7 @@ export function botAppUrl(gateBase: string, botId: string, section?: string, par
 /** Sets the bot's menu button to its own Mini App (every feature, for every user). Done for the owner bot and for supervisor bots;
  *  bots owned by the owner that are not the owner bot (e.g. the platform's supervisory bot) are never touched. */
 export async function setBotAppMenu(token: string, gateBase: string, botId: string): Promise<boolean> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: botAppUrl(gateBase, botId) } } }), signal: AbortSignal.timeout(8000) }).catch(() => null);
+  const res = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: botAppUrl(gateBase, botId) } } }), signal: AbortSignal.timeout(8000) }).catch(() => null);
   const data = await res?.json().catch(() => null);
   return !!data?.ok;
 }
