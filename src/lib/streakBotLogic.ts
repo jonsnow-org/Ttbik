@@ -9,6 +9,7 @@ import { MEMORIAL_BUTTON, MENU_BUTTON } from "@/lib/khatma/rules";
 import { isServicesRequest } from "@/lib/servicesInTelegram";
 import { APP_BUTTON } from "@/lib/botApp/buttons";
 import { botAppUrl, setBotAppMenu } from "@/lib/builderOwnerBot";
+import { botCallbackRestriction } from "@/lib/botCallbackRestriction";
 import { gateUrl } from "@/lib/hostingOps";
 import { InlineKeyboard } from "grammy";
 
@@ -300,7 +301,15 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   if (update.callback_query) {
     const cq = update.callback_query;
     const uid = String(cq.from?.id || "");
-    if (uid) await ensureStreakUser(botRow.id, uid);
+    const user = uid ? await ensureStreakUser(botRow.id, uid) : null;
+    const restriction = user ? botCallbackRestriction(user.isBanned, user.mutedUntil) : "banned";
+    if (restriction) {
+      await bot.api.answerCallbackQuery(cq.id, {
+        text: restriction === "banned" ? "🚫 تم حظرك من استخدام هذا البوت." : "🔇 أنت مكتوم مؤقتاً. حاول لاحقاً.",
+        show_alert: true,
+      }).catch(() => null);
+      return;
+    }
     const handled = await handleKhatmaPrivateCallback(bot, botRow, cq, (p) => setPending(uid, p));
     if (!handled) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
