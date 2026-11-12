@@ -279,7 +279,7 @@ describe("Sham's own agent loop", () => {
   it("make_media is refused when the user did not ask for a picture (the model must answer in words)", async () => {
     const tools = shamToolDefs(false);
     let made = 0;
-    const r = await runV1({ text: "ما هي عاصمة مصر؟", ctx, tools, budgetMs: 60000, media: async () => { made++; return { type: "image", b64: "AAAA" } as any; },
+    const r = await runV1({ text: "ما هي عاصمة مصر؟", ctx, tools, budgetMs: 60000, mediaAsked: () => false, media: async () => { made++; return { type: "image", b64: "AAAA" } as any; },
       ask: script([say('<tool_call>{"name":"make_media","arguments":{"kind":"image","prompt":"مصر"}}</tool_call>'), say("عاصمة مصر هي القاهرة.")]) });
     expect(made).toBe(0);
     expect(r).toMatchObject({ kind: "text" });
