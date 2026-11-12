@@ -69,6 +69,10 @@ _SAMPLE_RATE = 16000
 
 app = FastAPI(title="Sham — serving backend")
 
+# The model's own graphical desktop (sham_desktop.py): shown and touched through the model's own server, by any client that holds the desktop token.
+from sham_desktop_api import router as _desktop_router
+app.include_router(_desktop_router)
+
 # Filled by load_model(): the trained model, its tokenizers, and a short
 # description of which checkpoint is being served (shown by /health).
 _state: dict = {}

@@ -200,6 +200,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
     }
+    case "screen_offer": {
+      if (user.tier !== "owner") return { offer: null };
+      return { offer: await (await import("@/lib/coderTasks")).latestScreenOffer(chatId, db) };
+    }
     case "task_delete": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
       const { archiveTask } = await import("@/lib/coderTasks");

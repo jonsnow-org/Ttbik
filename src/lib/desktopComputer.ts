@@ -2,6 +2,7 @@
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
+import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 export type DesktopArgs = {
   action?: string;
@@ -20,12 +21,15 @@ export type DesktopArgs = {
   height?: number;
 };
 
-/** The graphical desktop still lives on the shared computer hub, which is Nova's only (owner's order 2026-11-08): Sham and Sham v2 have their terminal and browser embedded
- *  in their own Studios, and until a desktop is embedded there too they get no desktop rather than a silent borrow of Nova's hub. */
-export const HUB_DESKTOP_REFUSED = "error: this model's graphical desktop is not embedded in its own Studio yet; the shared computer hub is Nova's only. Use the terminal and the browser, which run inside the model.";
-export function hubDesktopFor(modelId: string | undefined): string | null {
-  if (modelId === "sham" || modelId === "sham_v2") return null;
-  return browserStudioFor(modelId);
+/** Where a model's graphical desktop runs. Nova and LFM: the shared computer hub. Sham and Sham v2: THEIR OWN Studio, where the desktop is part of the model's code (sham_desktop.py;
+ *  owner's order 2026-11-12) - never Nova's hub, which is Nova's only. The app is only a viewer there. */
+export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
+  if (modelId === "sham" || modelId === "sham_v2") {
+    const url = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
+    return url ? { base: url, own: true } : null;
+  }
+  const hub = browserStudioFor(modelId);
+  return hub ? { base: hub, own: false } : null;
 }
 
 const ACTIONS = new Set([
@@ -95,10 +99,12 @@ export async function desktopLive(
   seconds = 20,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
-  const base = hubDesktopFor(modelId);
-  if (!base) throw new Error(HUB_DESKTOP_REFUSED.replace(/^error: /, ""));
+  const target = desktopTargetFor(modelId);
+  if (!target) throw new Error("the graphical desktop is unavailable for this model");
+  const base = target.base;
   if (!session || session.length > 240) throw new Error("invalid desktop session");
   const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
+  if (target.own) return studioStream(base, "desktop_live", { session, seconds: duration }, fetchImpl, (duration + 15) * 1000);
   return studioStream(base, "live", {
     session,
     seconds: duration,
@@ -114,8 +120,9 @@ export async function desktopDo(
   args: DesktopArgs,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Record<string, any>> {
-  const base = hubDesktopFor(modelId);
-  if (!base) return { ok: false, error: HUB_DESKTOP_REFUSED.replace(/^error: /, "") };
+  const target = desktopTargetFor(modelId);
+  if (!target) return { ok: false, error: "the graphical desktop is unavailable for this model" };
+  const base = target.base;
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
   try {

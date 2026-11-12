@@ -63,7 +63,7 @@ export async function shamAgentRun(opts: {
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
-  onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
+  onEvent?: (kind: "tool" | "info" | "text" | "screen", text: string) => void;   // what the terminal shows of this run (the shared task log)
   onDelta?: (text: string) => void;         // each streamed piece of the direct-chat answer as the model writes it (live view)
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
@@ -276,6 +276,10 @@ export async function shamAgentRun(opts: {
       const result = String(reply.result || "");
       opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(result) });
       opts.onEvent?.("info", clip(result, 300));
+      if (reply.desktop) {
+        opts.onEvent?.("info", "🖥 شام يعرض لك شاشته الآن.");
+        opts.onEvent?.("screen", JSON.stringify({ model: opts.ctx.modelId }));      // the Mini App opens the screen by itself when it sees this
+      }
       messages.push({ role: "assistant", content: String(reply.text || ""), tool_calls: [c] } as CoderMessage);
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(result, toolClip) } as CoderMessage);
       continue;

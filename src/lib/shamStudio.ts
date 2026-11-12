@@ -142,6 +142,8 @@ export type ShamReply = {
   /** An embedded-tool step (the computer or browser of the model itself): the model wrote the call, ran it INSIDE its own loop and returns call + result for the app's loop to record. */
   tool_call?: { id?: string; type?: "function"; function: { name: string; arguments: string } };
   result?: string;
+  /** The model chose to show its screen (desktop action=show): the offer rides in its own reply (a picture, its size, the session) for ANY client to display. */
+  desktop?: { session?: string; width?: number; height?: number; screenshot_b64?: string };
   raw?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];

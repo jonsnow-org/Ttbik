@@ -19,7 +19,7 @@ function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column =
   else if (model === "sham") where.push(`${column} IN ('sham_v1', 'sham')`);
   else where.push(`${column} = 'model:${model}'`);
 }
-export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
+export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info" | "screen";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
   steps: number; started_at: string; updated_at: string; finished_at: string | null; thread_id?: string | null;
@@ -284,4 +284,21 @@ export async function stopTaskRow(chatId: number | string, runId: string, db: Db
     );
     return r.length > 0;
   } catch { return false; }
+}
+
+/** The newest "the model shows you its screen" offer of this chat in the last few minutes ({id, model}); the Mini App opens the screen by itself when a new one appears. */
+export async function latestScreenOffer(chatId: number | string, db: Db = prismaDb): Promise<{ id: number; model: string } | null> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ id: number; text: string }>(
+      `SELECT e.id::int AS id, e.text FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.kind = 'screen' AND e.text LIKE '%"model":"sham%' AND t.chat_key = $1 AND e.created_at > now() - interval '5 minutes' ORDER BY e.id DESC LIMIT 1`,
+      coderChatKey(chatId),
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const model = String((JSON.parse(row.text) as { model?: string }).model || "");
+    return /^(sham|sham_v2)$/.test(model) ? { id: row.id, model } : null;
+  } catch {
+    return null;
+  }
 }
