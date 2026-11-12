@@ -20,7 +20,7 @@ describe("media mini-app persistent video player", () => {
   it("shows a fixed safe-area-aware dock above the Telegram navigation bar", () => {
     const styles = css();
     expect(styles).toContain(".media-mini-app-player-float--dock");
-    expect(styles).toContain("bottom: calc(6.35rem + var(--media-safe-bottom))");
+    expect(styles).toContain("bottom: calc(6.35rem + max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px)))");
     expect(styles).toContain("aspect-ratio: 9 / 16");
     expect(styles).toContain("prefers-reduced-motion: reduce");
   });
