@@ -219,7 +219,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
       <AnimatePresence>
         {toast && (
           <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} role="status" aria-live="polite" aria-atomic="true"
-            className={`fixed inset-x-4 z-50 rounded-2xl px-4 py-3 text-center text-sm ${GLASS}`} style={{ bottom: "calc(7rem + env(safe-area-inset-bottom, 0px))" }}>{toast}</motion.div>
+            className={`fixed inset-x-4 z-50 rounded-2xl px-4 py-3 text-center text-sm ${GLASS}`} style={{ bottom: "calc(7rem + var(--match-safe-bottom))" }}>{toast}</motion.div>
         )}
       </AnimatePresence>
     </Shell>
@@ -229,13 +229,13 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
 // ---------------------------------------------------------------------------------------------
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main dir="rtl" className="relative min-h-[100dvh] overflow-x-hidden bg-[#0b1020] text-white font-sans selection:bg-pink-500/40">
+    <main dir="rtl" className="match-app-root relative min-h-[100dvh] overflow-x-hidden bg-[#0b1020] text-white font-sans selection:bg-pink-500/40">
       <div aria-hidden className="pointer-events-none fixed inset-0">
         <div className="absolute -top-32 -right-24 h-80 w-80 rounded-full bg-[#ff2e93]/25 blur-[100px]" />
         <div className="absolute top-1/3 -left-24 h-72 w-72 rounded-full bg-[#e8b4a0]/15 blur-[100px]" />
         <div className="absolute bottom-0 right-1/4 h-64 w-64 rounded-full bg-indigo-600/20 blur-[100px]" />
       </div>
-      <div className="relative mx-auto max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))]">{children}</div>
+      <div className="relative mx-auto max-w-md px-4 pt-[max(1rem,var(--match-safe-top))]">{children}</div>
     </main>
   );
 }
@@ -264,7 +264,7 @@ function BottomNav({ tab, setTab, admin, unread = 0, chatsUnread = 0 }: { tab: T
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
   if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
-    <nav aria-label="التنقل الرئيسي" className={`fixed inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))", paddingBottom: "6px" }}>
+    <nav aria-label="التنقل الرئيسي" className={`fixed inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ bottom: "calc(1rem + var(--match-safe-bottom))", paddingBottom: "6px" }}>
       <ul className={`grid gap-1 ${admin !== null ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map(([t, icon, label]) => (
           <li key={t}>
@@ -559,7 +559,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
       )}
       {filterOpen && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setFilterOpen(false)}>
-          <div onClick={(e) => e.stopPropagation()} data-testid="anon-filter-sheet" className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+          <div onClick={(e) => e.stopPropagation()} data-testid="anon-filter-sheet" className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
             <p className="mb-3 text-base font-bold">🎛 فلتر الدردشة العشوائية</p>
             <div className="space-y-2">
@@ -1614,7 +1614,7 @@ function SuperLikeSheet({ balance, onSend, onClose }: { balance: number; onSend:
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }}
-        className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+        className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
         <h3 className="font-bold">⭐ إعجاب مميز — $1</h3>
         <p className="mb-3 text-xs text-white/50">اكتب رسالة قصيرة ترافق إعجابك (تظهر في «💌 من أعجب بي»). رصيدك: ${balance.toFixed(2)}</p>
@@ -1631,7 +1631,7 @@ function ComplimentSheet({ list, left, onPick, onClose }: { list: string[]; left
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }}
-        className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+        className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
         <h3 className="font-bold">💌 مجاملة من معجب سرّي</h3>
         <p className="mb-3 text-xs text-white/50">تصل بلا اسمك. عبارات جاهزة فقط · متبقٍ اليوم: {left ?? 0}</p>
@@ -1835,7 +1835,7 @@ function Bell({ api }: { api: any }) {
       <AnimatePresence>
         {open && (
           <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpen(false)}>
-            <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`match-app-sheet-75 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+            <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`match-app-sheet-75 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
               <h3 className="mb-3 font-bold">🔔 الإشعارات</h3>
               {items.length === 0 && <p className="text-sm text-white/45">لا إشعارات بعد.</p>}
@@ -1866,7 +1866,7 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 26 }} data-testid="info-sheet"
-        className={`match-app-sheet-88 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+        className={`match-app-sheet-88 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
         <div className="flex items-center gap-4">
           <button onClick={() => photo && setFull(true)} aria-label="عرض الصورة" className={`relative grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-3xl text-5xl ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>
@@ -1948,7 +1948,7 @@ function ChatSheet({ card, api, say, onClose, onUpgrade }: { card: Card; api: an
   const locked = state && !state.allowed;
   return (
     <motion.div className="fixed inset-0 z-[55] flex flex-col bg-[#0b1020]" initial={{ y: 30 }} animate={{ y: 0 }} exit={{ y: 30 }} transition={{ duration: 0.15 }} data-testid="chat-sheet" dir="rtl">
-      <div className={`flex items-center gap-3 p-4 ${GLASS}`} style={{ paddingTop: "max(1rem, env(safe-area-inset-top, 0px))" }}>
+      <div className={`flex items-center gap-3 p-4 ${GLASS}`} style={{ paddingTop: "max(1rem, var(--match-safe-top))" }}>
         <button onClick={onClose} aria-label="رجوع" className="text-xl">→</button>
         <div className={`grid h-10 w-10 place-items-center rounded-full ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>{card.gender === "FEMALE" ? "👩" : "👨"}</div>
         <div className="flex-1">
@@ -1977,7 +1977,7 @@ function ChatSheet({ card, api, say, onClose, onUpgrade }: { card: Card; api: an
           </div>
         </div>
       ) : (
-        <div className="flex gap-2 p-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))" }}>
+        <div className="flex gap-2 p-3" style={{ paddingBottom: "max(12px, var(--match-safe-bottom))" }}>
           <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} maxLength={1000} placeholder="اكتب رسالة…" aria-label="رسالة"
             className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-pink-400/60" />
           <button onClick={send} disabled={busy || !text.trim()} className={`rounded-2xl px-4 font-bold disabled:opacity-40 ${GRAD}`}>إرسال</button>
@@ -2157,7 +2157,7 @@ function GiftSheet({ api, say, card, onClose }: { api: any; say: any; card: Card
   };
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
-      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom, 0px))" }}>
+      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`match-app-sheet-85 w-full rounded-t-[32px] p-5 ${GLASS} bg-[#0f1530]/95`} style={{ paddingBottom: "calc(2rem + var(--match-safe-bottom))" }}>
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
         <p className="font-bold">🎁 أرسل هدية إلى {card.name || `#${card.shortId}`}</p>
         <p className="text-[11px] text-white/50">تُخصم من رصيدك، وتصل للطرف الآخر في التطبيق والبوت. بين المتطابقين فقط.</p>
