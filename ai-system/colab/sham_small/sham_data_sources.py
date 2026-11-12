@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -249,6 +250,29 @@ def _stream_kinetics(split: str, start: int) -> Iterator[dict]:
             yield {"video": tf.extractfile(member).read(), "label": a["label"] if a else ""}
 
 
+def _bounded(fn, seconds: float):
+    """Run fn() but give up after `seconds`: hf-mirror answers 429 to the README check and huggingface_hub then waits 200 s x 5 retries PER dataset, so one throttled
+    source froze a whole trainer cycle for hours (cn Studios, 2026-11-12). A source that cannot be opened in time is skipped (collect() moves on to the next one)."""
+    import threading
+
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001
+            box["error"] = exc
+
+    t = threading.Thread(target=run, daemon=True, name="source-open")
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise TimeoutError(f"not opened within {int(seconds)} s (rate limited?)")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 def _stream(src: dict, split: str, start: int) -> Iterator[dict]:
     if src.get("kind") == "kinetics_tar":
         return _stream_kinetics(split, start)
@@ -256,7 +280,8 @@ def _stream(src: dict, split: str, start: int) -> Iterator[dict]:
 
     kwargs = {"split": split, "streaming": True}
     try:
-        ds = load_dataset(src["dataset"], src["config"], **kwargs) if src.get("config") else load_dataset(src["dataset"], **kwargs)
+        ds = _bounded(lambda: load_dataset(src["dataset"], src["config"], **kwargs) if src.get("config") else load_dataset(src["dataset"], **kwargs),
+                      float(os.environ.get("SHAM_SOURCE_OPEN_TIMEOUT") or 150))
     except RuntimeError as exc:
         if "scripts are no longer supported" not in str(exc):
             raise
