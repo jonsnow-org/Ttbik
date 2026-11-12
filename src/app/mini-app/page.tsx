@@ -1176,7 +1176,7 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="media-mini-app-shell min-h-screen bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200">
+    <div className="media-mini-app-shell bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200">
       
       {showTopBtn && (
         <button
