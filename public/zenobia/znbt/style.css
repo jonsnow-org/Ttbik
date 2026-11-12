@@ -99,7 +99,7 @@ img.coin{border:4px solid var(--bg);width:150px;height:150px;display:block;margi
 .tbar{position:fixed;left:0;right:0;bottom:calc(66px + var(--znbt-safe-bottom));z-index:35;display:flex;gap:10px;padding:10px 16px;max-width:560px;margin:0 auto;background:linear-gradient(transparent,var(--bg) 40%)}
 .tbar button{margin:0;padding:14px}
 .scrim{position:fixed;inset:0;background:#000a;z-index:70;animation:up .15s ease both}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;max-width:560px;margin:0 auto;background:linear-gradient(180deg,var(--s3),var(--s1));border:1px solid var(--line2);border-bottom:0;border-radius:24px 24px 0 0;padding:14px 16px calc(18px + var(--znbt-safe-bottom));animation:sheet .22s ease both;max-height:88vh;max-height:88dvh;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;max-width:560px;margin:0 auto;background:linear-gradient(180deg,var(--s3),var(--s1));border:1px solid var(--line2);border-bottom:0;border-radius:24px 24px 0 0;padding:14px 16px calc(18px + var(--znbt-safe-bottom));animation:sheet .22s ease both;max-height:88vh;max-height:88dvh;max-height:min(88vh,calc(100vh - var(--znbt-safe-top) - 12px));max-height:min(88dvh,calc(100dvh - var(--znbt-safe-top) - 12px));overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .sheet .grab{width:42px;height:4px;border-radius:4px;background:var(--line2);margin:0 auto 12px}
 .sheet h2{font-size:18px}
 
