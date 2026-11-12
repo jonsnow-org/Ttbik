@@ -61,6 +61,39 @@ describe("Mini App entry points are visible and actionable in their owning bots"
   });
 });
 
+describe("Mini App verification controls report backend state", () => {
+  it("jobs/store phone gate only unlocks after the webhook-backed init confirms the phone", () => {
+    const src = appFile("bot-app/[botId]/JobsMiniApp.tsx");
+    expect(src).toContain('import { waitForPhoneVerification } from "@/lib/botApp/phoneVerification"');
+    expect(src).toMatch(/requestContact[\s\S]*?void checkPhone\(true\)/);
+    expect(src).toContain('onClick={() => void checkPhone()}');
+    expect(src).toContain('attempts: 25, intervalMs: 1_000');
+    expect(src).toContain('document.addEventListener("visibilitychange", onReturn)');
+    expect(src).not.toMatch(/requestContact && tg\.isVersionAtLeast/);
+  });
+
+  it("ads/earn phone gate stays visible until init returns phoneVerified=true", () => {
+    const src = appFile("bot-app/[botId]/BotMiniApp.tsx");
+    expect(src).toContain('import { waitForPhoneVerification } from "@/lib/botApp/phoneVerification"');
+    expect(src).toMatch(/if \(verified\) \{[\s\S]*?setNeed\(null\)/);
+    expect(src).toContain('onClick={() => void checkPhone()}');
+    expect(src).toContain('if (init.user.phoneVerified) setNeed');
+    expect(src).not.toMatch(/requestContact && tg\.isVersionAtLeast/);
+  });
+
+  it.each([
+    ["AD Bot", "bot-app/[botId]/BotMiniApp.tsx"],
+    ["Jobs Bot", "bot-app/[botId]/JobsMiniApp.tsx"],
+    ["Streak Bot", "bot-app/[botId]/StreakMiniApp.tsx"],
+  ])("%s channel gate exposes progress and a check result", (_name, file) => {
+    const src = appFile(file);
+    expect(src).toContain("جارٍ فحص الاشتراك");
+    expect(src).toContain('role="status" aria-live="polite"');
+    expect(src).toContain('disabled={gateBusy}');
+    expect(src).toContain("checkGate");
+  });
+});
+
 describe("bot start guides disclose existing Mini Apps", () => {
   it.each(["AD", "JOBS", "MATCH", "STREAK"] as const)("%s guide mentions the Mini App entry", (kind) => {
     expect(startGuide(kind)).toContain("📱 التطبيق");
