@@ -401,7 +401,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row(); // the bot's own Mini App sections (src/app/bot-app): remittances and the channels & groups exchange, 100% platform revenue
+    .text(REMIT_BUTTON).text(APP_BUTTON).row(); // both shortcuts open this bot's own Mini App
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -533,7 +533,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row()
+    .text(REMIT_BUTTON).text(APP_BUTTON).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -566,6 +566,7 @@ function topLevelTexts(lang: Lang): string[] {
     GETBOT_BUTTON,
     EXCHANGE_BUTTON,
     REMIT_BUTTON,
+    APP_BUTTON,
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
     CHAIN_DEPOSIT_BTN,
@@ -627,9 +628,13 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 const botAppMenuDone = new Set<string>();
 async function ensureBotAppMenu(botRow: BotRow): Promise<void> {
   if (botAppMenuDone.has(botRow.id)) return;
-  botAppMenuDone.add(botRow.id);
   const eligible = botRow.ownerId !== SUPER_ADMIN_ID || (await isOwnerBot(botRow.id).catch(() => false));
-  if (eligible) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (!eligible) {
+    botAppMenuDone.add(botRow.id);
+    return;
+  }
+  const updated = await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (updated) botAppMenuDone.add(botRow.id);
 }
 
 function tgFor(token: string): Tg {
