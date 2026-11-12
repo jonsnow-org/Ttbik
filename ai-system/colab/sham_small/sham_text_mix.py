@@ -52,7 +52,7 @@ _ensure_hf_token()
 SOURCES = [
     ("en-web-edu", "HuggingFaceFW/fineweb-edu", "sample-10BT", "text", 14, 6000),
     ("ar-web", "HuggingFaceFW/fineweb-2", "arb_Arab", "text", 11, 6000),
-    ("ar-wiki", "wikimedia/wikipedia", "20231101.ar", "text", 3, 6000),
+    ("ar-wiki", "wikimedia/wikipedia", "20231101.ar", "text", 1, 6000),   # 3 -> 1 (owner 2026-11-12): the curated Arabic books source (sham_text_stream, "ar-books") takes its place
     ("en-wiki", "wikimedia/wikipedia", "20231101.en", "text", 3, 6000),
     ("fr", "HuggingFaceFW/fineweb-2", "fra_Latn", "text", 5, 6000),
     ("es", "HuggingFaceFW/fineweb-2", "spa_Latn", "text", 5, 6000),

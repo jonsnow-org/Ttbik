@@ -159,6 +159,8 @@ def _reader_main(sources, slots, chunk_docs, seed, out_q, stop_ev, mem_limit, fa
         label, name, config, field, _w, cap = src
         if name == "@crawl":
             return CrawlCorpusDocs()
+        if name == "@arbooks":
+            return CrawlCorpusDocs(["sham-curated-ar-books"])
         if fake:
             ds = _TestFake(label)
         else:
@@ -255,6 +257,15 @@ class Stream:
                 crawl_weight = 14
             if crawl_weight:
                 self.sources.append(("crawl-corpora", "@crawl", None, "text", crawl_weight, 6000))
+        if sources is None and not os.environ.get("SHAM_NO_ARBOOKS"):
+            # 2026-11-12 (owner): Arabic Wikipedia and news do not reach the goal; the Arabic needs better content. sham-curated-ar-books = 1,545 Hindawi books (modern standard Arabic,
+            # human-edited, CC BY 4.0, sham_ar_books.py): 59k documents, 311M characters. SHAM_ARBOOKS_WEIGHT (default 14, about 8-9%) is the biggest Arabic source after fineweb-2.
+            try:
+                books_weight = max(0, int(os.environ.get("SHAM_ARBOOKS_WEIGHT", "14")))
+            except ValueError:
+                books_weight = 14
+            if books_weight:
+                self.sources.append(("ar-books", "@arbooks", None, "text", books_weight, 6000))
         self.seed = int(time.time()) % 1_000_000 if seed is None else seed
         self.make_stream = make_stream
         self.stop = threading.Event()
@@ -290,6 +301,8 @@ class Stream:
         label, name, config, field, _w, cap = src
         if name == "@crawl":
             return CrawlCorpusDocs()
+        if name == "@arbooks":
+            return CrawlCorpusDocs(["sham-curated-ar-books"])
         if self.make_stream is not None:
             ds = self.make_stream(src)
         else:
