@@ -67,6 +67,13 @@ class DataExpansionTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].source_kind, "natural")
 
+    def test_raw_corpus_is_not_auto_labelled_human_natural(self):
+        row = {"text": "هذا نص عربي تجريبي طويل بما يكفي ليكون سجلاً خاماً ضمن اختبار تصنيف مصدر البيانات."}
+        result = importer.convert_row("jais3_cc", row, 11, "arabic-txt360-cc")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source_kind"], "corpus_candidate")
+        self.assertTrue(result[0]["origin_review_required"])
+
 
 if __name__ == "__main__":
     unittest.main()
