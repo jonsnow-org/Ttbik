@@ -731,6 +731,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_curate_report": {
+      "file": ".github/workflows/sham-curate-report.yml",
+      "title": "قياس وتصنيف مجموعة الزواحف إلى دلاء نظيفة (قياس فقط، لا نشر)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "task_suite_live": {
       "file": ".github/workflows/task-suite-live.yml",
       "title": "مقياس المهمات الحي لكل نموذج على حدة (قياس فقط)",
