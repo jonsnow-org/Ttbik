@@ -761,6 +761,14 @@
         "sham-curated-ar-books"
       ]
     },
+    "sham_embedded_env_probe": {
+      "file": ".github/workflows/sham-embedded-env-probe.yml",
+      "title": "فحص بيئة استوديوهي شام (قراءة فقط) لمعرفة ما يتيحه لسطح مكتب مدمج",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "modelscope_studios_list": {
       "file": ".github/workflows/modelscope-studios-list.yml",
       "title": "قائمة استوديوهات حسابَي ModelScope (قراءة فقط) لاستغلال الفارغ منها في التدريب",

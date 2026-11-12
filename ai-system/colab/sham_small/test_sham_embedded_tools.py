@@ -27,5 +27,15 @@ class EmbeddedTools(unittest.TestCase):
         self.assertFalse(c.changes("o/missing")["ok"])
 
 
+    def test_env_view_is_read_only_and_reports_desktop_prerequisites(self):
+        r = E.view("s", "env")
+        self.assertTrue(r["ok"])
+        env = r["env"]
+        for key in ("root", "cpus", "mem_available_mb", "tools", "home_writable"):
+            self.assertIn(key, env)
+        for tool in ("Xvfb", "xdotool", "openbox", "apt-get"):
+            self.assertIn(tool, env["tools"])
+
+
 if __name__ == "__main__":
     unittest.main()

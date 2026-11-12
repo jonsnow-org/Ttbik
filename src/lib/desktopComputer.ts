@@ -20,6 +20,14 @@ export type DesktopArgs = {
   height?: number;
 };
 
+/** The graphical desktop still lives on the shared computer hub, which is Nova's only (owner's order 2026-11-08): Sham and Sham v2 have their terminal and browser embedded
+ *  in their own Studios, and until a desktop is embedded there too they get no desktop rather than a silent borrow of Nova's hub. */
+export const HUB_DESKTOP_REFUSED = "error: this model's graphical desktop is not embedded in its own Studio yet; the shared computer hub is Nova's only. Use the terminal and the browser, which run inside the model.";
+export function hubDesktopFor(modelId: string | undefined): string | null {
+  if (modelId === "sham" || modelId === "sham_v2") return null;
+  return browserStudioFor(modelId);
+}
+
 const ACTIONS = new Set([
   "status", "start", "frame", "stop", "launch",
   "click", "move", "type", "key", "scroll",
@@ -87,8 +95,8 @@ export async function desktopLive(
   seconds = 20,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
-  const base = browserStudioFor(modelId);
-  if (!base) throw new Error("the dedicated computer hub is unavailable for this model");
+  const base = hubDesktopFor(modelId);
+  if (!base) throw new Error(HUB_DESKTOP_REFUSED.replace(/^error: /, ""));
   if (!session || session.length > 240) throw new Error("invalid desktop session");
   const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
   return studioStream(base, "live", {
@@ -106,8 +114,8 @@ export async function desktopDo(
   args: DesktopArgs,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Record<string, any>> {
-  const base = browserStudioFor(modelId);
-  if (!base) return { ok: false, error: "the dedicated computer hub is unavailable for this model" };
+  const base = hubDesktopFor(modelId);
+  if (!base) return { ok: false, error: HUB_DESKTOP_REFUSED.replace(/^error: /, "") };
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
   try {

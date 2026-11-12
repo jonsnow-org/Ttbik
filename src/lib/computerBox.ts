@@ -176,7 +176,7 @@ export async function boxRaw(modelId: string | undefined, session: string, args:
   if (modelId === "sham" || modelId === "sham_v2") {
     // The owner's Mini App screen of a Sham's computer stays useful WITHOUT any command API: a READ-ONLY view (files, a file, jobs, a job log, what the model just did) served by the
     // model's own app. Commands are run only by the model itself, inside its loop.
-    const map: Record<string, string> = { list: "list", ls: "list", read: "read", job_list: "job_list", job_log: "job_log", activity: "activity" };
+    const map: Record<string, string> = { list: "list", ls: "list", read: "read", job_list: "job_list", job_log: "job_log", activity: "activity", env: "env" };
     const action = map[String((args as { action?: string })?.action || "")];
     if (!action) return { ok: false, error: "the Shams' computer screen is read-only: the model itself runs its commands (you can see its files, jobs and what it just did)" };
     const own = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
