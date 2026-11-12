@@ -107,9 +107,13 @@ jest.mock("@/lib/botApp/adApp", () => ({ handleAdAppAction: jest.fn(async () => 
 jest.mock("@/lib/botApp/streakApp", () => ({ handleStreakAppAction: jest.fn(async () => ({ ok: true, app: "streak" })) }));
 const mockSetBotAppMenu = jest.fn(async () => true);
 jest.mock("@/lib/builderOwnerBot", () => ({
+  ...jest.requireActual("@/lib/builderOwnerBot"),
   setBotAppMenu: (...args: any[]) => mockSetBotAppMenu(...args),
 }));
-jest.mock("@/lib/hostingOps", () => ({ gateUrl: () => "https://mini-app.test" }));
+jest.mock("@/lib/hostingOps", () => ({
+  ...jest.requireActual("@/lib/hostingOps"),
+  gateUrl: () => "https://mini-app.test",
+}));
 
 import { POST } from "@/app/api/bot-app/[botId]/route";
 import { POST as UPLOAD } from "@/app/api/bot-app/[botId]/upload/route";
