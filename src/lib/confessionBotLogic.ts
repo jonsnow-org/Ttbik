@@ -264,9 +264,10 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
     }
     await setPending(tgUserId, null);
     await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
-    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel.startsWith("-100") ? channel : `@${channel}`}`);
+    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel ? (channel.startsWith("-100") ? channel : `@${channel}`) : ""}`);
     return true;
-  }  if (text === "📊 الإحصائيات") {
+  }
+  if (text === "📊 الإحصائيات") {
     await sendAdminStats(bot, botRow, chatId);
     return true;
   }
