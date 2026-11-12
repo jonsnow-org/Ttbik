@@ -11,8 +11,15 @@ jest.mock("grammy", () => {
   class InlineKeyboard { text() { return this; } row() { return this; } url() { return this; } webApp() { return this; } }
   return { Bot, Keyboard, InlineKeyboard };
 });
-jest.mock("@/lib/prisma", () => ({ prisma: { user: { update: jest.fn(), findUnique: jest.fn(async () => ({ balance: 3 })) } } }));
-jest.mock("@/lib/channels/assetMarket", () => ({ recordAssetPhoneContact: jest.fn(async () => ({ ok: true })) }));
+jest.mock("@/lib/prisma", () => ({ prisma: { user: {
+  upsert: jest.fn(async ({ where }: any) => ({ id: where.id, balance: 3, language: "ar", phoneVerified: false })),
+  update: jest.fn(async () => ({})),
+  findUnique: jest.fn(async () => ({ balance: 3 })),
+} } }));
+jest.mock("@/lib/channels/assetMarket", () => ({
+  upsertAssetIdentity: jest.fn(async () => ({ ok: true })),
+  recordAssetPhoneContact: jest.fn(async () => ({ ok: true })),
+}));
 jest.mock("@/lib/adBotLogic", () => ({
   ...jest.requireActual("@/lib/adBotLogic"),
   ensureUser: jest.fn(async () => ({ id: "4242", balance: 3, language: "ar", phoneVerified: true })),
