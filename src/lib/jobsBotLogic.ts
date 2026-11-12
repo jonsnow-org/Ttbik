@@ -1,6 +1,7 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { prisma } from "@/lib/prisma";
+import { enforceRequiredChannel, normalizeRequiredChannel } from "@/lib/telegramChannel";
 import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
@@ -1360,53 +1361,17 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       return;
     }
     if (adminPending?.mode === "admin_channel" && text) {
+      const skip = isSkip(text);
+      const channel = skip ? null : normalizeRequiredChannel(text);
+      if (!skip && !channel) {
+        await bot.api.sendMessage(chatId, "⚠️ لم أتعرف على القناة. أرسل @channel أو https://t.me/channel أو معرّفاً يبدأ بـ -100، أو اضغط تخطّي.");
+        return 
+      }
       await setPending(tgUserId, null);
-      await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: isSkip(text) ? null : text.replace(/^@/, "") } });
-      await bot.api.sendMessage(chatId, isSkip(text) ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: @${text.replace(/^@/, "")}`);
+      await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
+      await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel.startsWith("-100") ? channel : `@${channel}`}`);
       return;
     }
-    if (adminPending?.mode === "admin_reply" && text) {
-      await setPending(tgUserId, null);
-      await bot.api.sendMessage(Number(adminPending.targetUserId), `↩️ رد من الإدارة:\n\n${text}`).catch(() => null);
-      await prisma.jobsAdminMessage.update({ where: { id: adminPending.messageId }, data: { status: "READ" } }).catch(() => null);
-      await bot.api.sendMessage(chatId, "✅ تم إرسال ردك.");
-      return;
-    }
-    if (text === "📊 الإحصائيات") return sendAdminStats(bot, botRow.id, chatId);
-    if (text === "📥 رسائل واردة") return sendAdminInboxSummary(bot, chatId);
-    if (text === "💰 المحفظة") {
-      const [totalBalance, totalEscrowed] = await Promise.all([
-        prisma.jobsUser.aggregate({ where: { id: { not: SUPER_ADMIN_ID || "__none__" } }, _sum: { balance: true } }),
-        prisma.storeOrder.aggregate({ where: { status: "ESCROWED" }, _sum: { amount: true } }),
-      ]);
-      await bot.api.sendMessage(chatId, `💰 محفظة البوت\n\nإجمالي أرصدة المستخدمين: $${(totalBalance._sum.balance || 0).toFixed(2)}\nمبالغ محجوزة حالياً (Escrow): $${(totalEscrowed._sum.amount || 0).toFixed(2)}`);
-      return;
-    }
-    if (text === "🔎 بحث عن مستخدم") {
-      await setPending(tgUserId, { mode: "admin_lookup" });
-      await bot.api.sendMessage(chatId, "أرسل آيدي المستخدم:");
-      return;
-    }
-    if (text === "📡 قناة الاشتراك الإجباري") {
-      await setPending(tgUserId, { mode: "admin_channel" });
-      await bot.api.sendMessage(chatId, "أرسل معرّف القناة (@channel)، أو اضغط تخطّي لإلغاء الاشتراط الحالي:", { reply_markup: skipMenu() });
-      return;
-    }
-    if (text === "🔓 رفع حظر/كتم") {
-      await setPending(tgUserId, { mode: "admin_unban" });
-      await bot.api.sendMessage(chatId, "أرسل آيدي المستخدم:");
-      return;
-    }
-    if (text === "📢 بث جماعي") {
-      await setPending(tgUserId, { mode: "admin_broadcast" });
-      await bot.api.sendMessage(chatId, `✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:\n\n${BROADCAST_COMPOSE_HINT}`);
-      return;
-    }
-    // anything else the owner sends (typo, sticker, stale button) used to get no reply at all
-    await bot.api.sendMessage(chatId, "🛠 اختر من لوحة التحكم بالأسفل.", { reply_markup: adminMenu() });
-    return;
-  }
-
   const user = await ensureJobsUser(botRow.id, tgUserId);
   await prisma.jobsUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
   ensureJobsAppMenu(botRow);
@@ -1424,17 +1389,8 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
 
   // Mandatory subscription channel gate (owner spec, 2026-09-05) — same
   // pattern as AD_BOT's requiredChannel.
-  if (botRow.requiredChannel) {
-    try {
-      const member = await bot.api.getChatMember(`@${botRow.requiredChannel}`, Number(tgUserId));
-      if (!["creator", "administrator", "member"].includes(member.status)) {
-        await bot.api.sendMessage(chatId, `📡 يجب الاشتراك في القناة أولاً: @${botRow.requiredChannel}`);
-        return;
-      }
-    } catch {
-      // channel/bot admin misconfigured — fail open rather than lock everyone out
-    }
-  }
+  if (!(await enforceRequiredChannel(bot, botRow, chatId, tgUserId))) return;
+
 
   if (msg.contact) {
     if (String(msg.contact.user_id) === tgUserId) {
