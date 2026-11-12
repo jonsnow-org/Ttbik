@@ -642,6 +642,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
+  const [tab, setTab] = useState<"models" | "training" | "users" | "health">("models");
   const [fail, setFail] = useState("");
   const load = useCallback(async () => {
     setFail("");
@@ -675,12 +676,20 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const name = (x: any) => (x.name && (ar ? x.name.ar : x.name.en)) || x.id;
   return (
     <List>
-      {d.steps?.length > 0 && (
+      <Section>
+        <SegmentedControl>
+          {([["models", "🤖", ar ? "النماذج" : "Models"], ["training", "🏋️", ar ? "التدريب" : "Training"], ["users", "👥", ar ? "المستخدمون" : "Users"], ["health", "🩺", ar ? "الصحة" : "Health"]] as const).map(([id, ic, lb]) => (
+            <SegmentedControl.Item key={id} selected={tab === id} onClick={() => { haptic("light"); setTab(id); }}>{ic} {lb}</SegmentedControl.Item>
+          ))}
+        </SegmentedControl>
+      </Section>
+      {tab === "models" && d.steps?.length > 0 && (
         <Section header={ar ? "خطوات يدوية باقية" : "Manual steps left"}>
           {d.steps.map((s: any) => <Cell key={s.id} multiline before="📝">{ar ? s.ar : s.en}</Cell>)}
         </Section>
       )}
-      <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />
+      {tab === "models" && <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />}
+      {tab === "training" && (<>
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
         {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · Nova 1 ${g.novaHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
         <Cell multiline subtitle={nova?.request?.not_before ? `${ar ? "يبدأ بعد" : "Starts after"} ${trt(nova.request.not_before)}` : undefined}
@@ -695,6 +704,8 @@ export function PanelPage({ lang }: { lang: Lang }) {
         {(tr?.inspectorLines || []).filter((l: string) => l.startsWith("status:") || l.startsWith("=====")).slice(0, 10).map((l: string, i: number) => <Cell key={"i" + i} multiline>{l}</Cell>)}
         {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
+      </>)}
+      {tab === "users" && (<>
       <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
         {plans.map((p: any) => (
           <Input key={p.id} header={`${name(p)} ⭐`} type="number" dir="ltr" defaultValue={p.price_stars ?? ""}
@@ -706,6 +717,8 @@ export function PanelPage({ lang }: { lang: Lang }) {
         <Cell after={String(d.users?.active7d ?? 0)}>{ar ? "نشطون خلال 7 أيام" : "Active in 7 days"}</Cell>
         {Object.entries(d.users?.subscriptions || {}).map(([k, v]) => <Cell key={k} after={String(v)}>{`${ar ? "اشتراك" : "Plan"} ${k}`}</Cell>)}
       </Section>
+      </>)}
+      {tab === "health" && (<>
       <Section header={`${ar ? "الاستوديوهات" : "Studios"} (${d.health?.studio?.ready ?? 0}/${d.health?.studio?.count ?? 0} ${ar ? "جاهز" : "ready"})`}
         footer={ar ? "كل استوديو يقرأ ويكتب لمحادثة واحدة في كل مرة. الطابور: كم طلباً عنده الآن." : "Each Studio serves one generation at a time. Queue = requests it holds now."}>
         {(d.health?.studios || []).map((x: any) => (
@@ -726,10 +739,11 @@ export function PanelPage({ lang }: { lang: Lang }) {
         {(d.health?.sandbox || []).filter((b: any) => b.configured && String(b.id).toLowerCase() !== "oracle").map((b: any) => <Cell key={b.id} after={b.ok ? "✅" : "⏳"}>{b.id}</Cell>)}
         {(d.health?.search || []).map((x: any) => <Cell key={x.name} after={x.ok ? "✅" : "⏳"}>{x.name}</Cell>)}
       </Section>
-      <Section header={`🔁 ${STR[lang].stalls}`}>
+      </>)}
+      {tab === "health" && <Section header={`🔁 ${STR[lang].stalls}`}>
         {stalls === null ? <Loading /> : !stalls.length ? <Cell><Caption>{STR[lang].noStalls}</Caption></Cell>
           : stalls.slice(0, 15).map((x: any, i: number) => <Cell key={i} multiline><span dir="ltr" style={{ fontFamily: "monospace", fontSize: 11 }}>{trt(x.created_at)} {x.run_id} #{x.step} {x.pattern} L{x.level} — {String(x.detail || "").slice(0, 140)}</span></Cell>)}
-      </Section>
+      </Section>}
       <Section><ButtonCell onClick={() => { haptic("light"); void load(); }}>🔄 {ar ? "تحديث" : "Refresh"}</ButtonCell></Section>
     </List>
   );
