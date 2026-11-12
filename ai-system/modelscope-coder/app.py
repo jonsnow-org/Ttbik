@@ -251,8 +251,16 @@ def _start_server(model: Path, bindir: Path) -> None:
         cmd += ["--reasoning-budget", "0"]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
-    if os.environ.get("CODER_SPEC", "").strip() and not _SPEC["bad"]:
-        cmd += os.environ["CODER_SPEC"].split()
+    # Measured 2026-11-12 (nova-decode-bench.yml, same llama.cpp build and model, 2 cores): ngram-mod writes a file edit / code at 9.3 tokens/s against 3.6 without it (2.6x), free prose
+    # is unchanged (3.9), no extra RAM, no draft model; flash attention, a q8 KV cache and bigger batches gave nothing. So it is ON by default, except for LFM (a recurrent hybrid)
+    # and a Studio that loads the vision file. CODER_SPEC overrides it ("off" turns it off); a server that does not start with it is restarted without it (the _SPEC["bad"] path below).
+    spec = os.environ.get("CODER_SPEC", "").strip()
+    if not spec and "lfm" not in model.name.lower() and not _vision_wanted():
+        spec = "--spec-type ngram-mod"
+    if spec.lower() == "off":
+        spec = ""
+    if spec and not _SPEC["bad"]:
+        cmd += spec.split()
         _SPEC["on"] = True
     else:
         _SPEC["on"] = False
