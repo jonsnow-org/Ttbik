@@ -16,11 +16,17 @@ import {
   buildAppWithAi, detectDialectRequest, detectLegalDoc, DIALECTS, draftLegalDoc, EXERCISES, FORMATS, legalAnalyze, LEGAL_DOCS, mindReply, PSYCHOED, repurpose, translateDialect,
 } from "@/lib/hub/tools";
 import { crisisMessage, detectCrisis, LEGAL_COUNTRIES, LEGAL_DISCLAIMER, MIND_DISCLAIMER } from "@/lib/hub/safety";
+import { setChatMiniAppMenu } from "@/lib/telegramMiniAppMenu";
 
 export const HUB_TEMPLATES = ["HUB_APP_BOT", "HUB_LEGAL_BOT", "HUB_MIND_BOT", "HUB_DIALECT_BOT", "HUB_REPURPOSE_BOT", "HUB_POINTS_BOT"] as const;
 export const isHubTemplate = (t: string) => (HUB_TEMPLATES as readonly string[]).includes(t);
 
 const site = () => publicSiteUrl();
+
+async function activateUserAppMenu(bot: TelegramBot, chatId: number, slug: string): Promise<boolean> {
+  const url = `${site().replace(/\\/$/, "")}/apps/${encodeURIComponent(slug)}`;
+  return setChatMiniAppMenu(bot.api, chatId, url);
+}
 const MOODS = ["😞", "🙁", "😐", "🙂", "😄"];
 
 function kb(rows: string[][]): Keyboard {
@@ -78,6 +84,19 @@ export async function handleHubBotUpdate(bot: TelegramBot, botRow: BotRow, updat
   if (text === "/start" || text.startsWith("/start ")) {
     if (template !== "HUB_MIND_BOT") await recordBotVisit(botRow.id, String(msg.from.id)).catch(() => null);
     await award(uid, "daily");
+    // Restore the creator's last-selected Mini App in this chat's persistent menu.
+    // Telegram supports one menu button per chat, so creators can switch it between their own apps.
+    if (template === "HUB_APP_BOT") {
+      const [mine, saved] = await Promise.all([
+        appsOf(uid).catch(() => []),
+        getState(sk).catch(() => ({} as Record<string, any>)),
+      ]);
+      const active = (saved.slug ? mine.find((a) => a.slug === saved.slug) : null) || mine[0];
+      if (active) {
+        await setState(sk, { ...saved, slug: active.slug });
+        await activateUserAppMenu(bot, chatId, active.slug);
+      }
+    }
     await send(bot, chatId, INTRO[template] || "أهلاً!", template);
     return;
   }
@@ -97,10 +116,26 @@ export async function handleHubBotUpdate(bot: TelegramBot, botRow: BotRow, updat
       const mine = await appsOf(uid);
       if (text === "📱 تطبيقاتي") {
         if (!mine.length) return send(bot, chatId, "لا تطبيقات بعد. اضغط «🧱 تطبيق جديد».", template);
-        return send(bot, chatId, mine.map((a) => `• ${a.config.title} — ${site()}/apps/${a.slug} (${a.views} مشاهدة)`).join("\n") + "\n\nللتعديل على تطبيق آخر اكتب اسمه.", template);
+        const active = (st.slug ? mine.find((a) => a.slug === st.slug) : null) || mine[0];
+        await setState(sk, { ...st, slug: active.slug, mode: null });
+        const menuReady = await activateUserAppMenu(bot, chatId, active.slug);
+        const list = mine.map((a) => `${a.slug === active.slug ? "📌 " : "• "}${a.config.title} — ${site()}/apps/${a.slug} (${a.views} مشاهدة)`).join("\n");
+        const menuNote = menuReady
+          ? "\n\nأيقونة 📱 «التطبيق» بجانب حقل الكتابة تفتح التطبيق المحدد. اكتب اسم تطبيق آخر لتبديل الأيقونة."
+          : "\n\nتعذّر تحديث أيقونة القائمة الآن؛ افتح التطبيق من رابطه أعلاه، ثم جرّب /start لإعادة المحاولة.";
+        return send(bot, chatId, list + "\n\nللتبديل اكتب اسم التطبيق." + menuNote, template);
       }
       const named = mine.find((a) => a.config.title === text);
-      if (named) { await setState(sk, { ...st, slug: named.slug, mode: null }); return send(bot, chatId, `✏️ التعديل الآن على «${named.config.title}».`, template); }
+      if (named) {
+        await setState(sk, { ...st, slug: named.slug, mode: null });
+        const menuReady = await activateUserAppMenu(bot, chatId, named.slug);
+        return send(
+          bot,
+          chatId,
+          `✏️ التطبيق المحدد الآن «${named.config.title}».${menuReady ? "\n✅ أيقونة 📱 بجانب حقل الكتابة تفتح هذا التطبيق." : "\n⚠️ لم أتمكن من تحديث أيقونة القائمة؛ يمكنك فتح التطبيق من رابط التطبيقات."}`,
+          template,
+        );
+      }
       const current = st.slug ? mine.find((a) => a.slug === st.slug) : mine[0];
       if (current && st.mode !== "new") {
         const app = await getApp(current.slug);
@@ -122,8 +157,12 @@ export async function handleHubBotUpdate(bot: TelegramBot, botRow: BotRow, updat
       await award(uid, "app_create");
       await setState(sk, { slug: r.slug, mode: null });
       const url = `${site()}/apps/${r.slug}`;
+      const menuReady = await activateUserAppMenu(bot, chatId, r.slug);
       const t = APP_TEMPLATES[built.config.template as AppTemplate];
-      await send(bot, chatId, `${t.icon} تطبيقك «${built.config.title}» جاهز (${t.label}، ${built.config.items.length} عنصر):\n${url}\n\nعدّله الآن بالكلام، والتغيير يظهر فوراً. لجعله زر قائمة في بوتك: BotFather ← Bot Settings ← Menu Button.\n🔑 مفتاح التعديل من الموقع: ${r.editKey}`, template);
+      const menuNote = menuReady
+        ? "\n\n✅ تم ضبط أيقونة 📱 «التطبيق» بجانب حقل الكتابة لتفتح تطبيقك مباشرة. عند إنشاء تطبيق آخر أو اختياره ستتبدل الأيقونة إليه."
+        : "\n\n⚠️ تعذّر ضبط أيقونة القائمة تلقائياً الآن؛ زر «فتح التطبيق» أدناه يعمل، وستُعاد المحاولة عند /start أو اختيار التطبيق.";
+      await send(bot, chatId, `${t.icon} تطبيقك «${built.config.title}» جاهز (${t.label}، ${built.config.items.length} عنصر):\n${url}\n\nعدّله الآن بالكلام، والتغيير يظهر فوراً.${menuNote}\n🔑 مفتاح التعديل من الموقع: ${r.editKey}`, template);
       await bot.api.sendMessage(chatId, "افتحه كتطبيق مصغّر:", { reply_markup: { inline_keyboard: [[{ text: "📱 فتح التطبيق", web_app: { url } }]] } }).catch(() => null);
       return;
     }
