@@ -197,6 +197,9 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
     if (!r.ok) toast(r.error || "", "err");
   }, [api, toast]);
   useEffect(() => { void load(type); }, [type, load]);
+  useEffect(() => {
+    if (init.user.phoneVerified) setNeed((current) => current?.kind === "phone" ? null : current);
+  }, [init.user.phoneVerified]);
 
   // Keep the latest state in a ref: the focus listeners must not depend on
   // state itself, otherwise every countdown update re-registers them and can
