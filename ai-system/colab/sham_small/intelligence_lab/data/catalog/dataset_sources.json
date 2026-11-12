@@ -71,7 +71,7 @@
       "repo": "Jr23xd23/ArabicText-Large",
       "url": "https://huggingface.co/datasets/Jr23xd23/ArabicText-Large",
       "type": "raw_arabic_text_corpus",
-      "reported_scale": "743,288 articles / about 244M words; published card and file-viewer size figures differ, so verify actual download size",
+      "reported_scale": "743,288 articles / 244M words / 2.8 GB compressed (dataset card)",
       "subsets": [
         {
           "config": "default",
@@ -174,7 +174,7 @@
       "repo": "2A2I/Arabic-OpenHermes-2.5",
       "url": "https://huggingface.co/datasets/2A2I/Arabic-OpenHermes-2.5",
       "type": "arabic_instruction_and_teacher_outputs",
-      "reported_scale": "981.6K rows / about 1.7 GB Parquet",
+      "reported_scale": "981,618 rows; Arabic user/assistant instruction and teacher-output compilation",
       "subsets": [
         {
           "config": "default",
@@ -186,7 +186,7 @@
         "arabic_openhermes"
       ],
       "priority": "highest",
-      "notes": "Teacher/distillation-style data, not organic human conversation. The dataset includes user and GPT response fields."
+      "notes": "Teacher/distillation-style data, not organic human conversation. The dataset includes user and GPT response fields. Dataset metadata identifies this as synthetic GPT-4 distillation/compilation, not organic human conversation."
     },
     {
       "id": "tiny_aya_arabic_reasoning",
@@ -231,7 +231,7 @@
       "repo": "open-r1/OpenR1-Math-220k",
       "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k",
       "type": "teacher_generated_reasoning_and_verified_answers",
-      "reported_scale": "About 225K rows; 2-4 DeepSeek-R1 generations for many problems",
+      "reported_scale": "220K math problems with 2–4 DeepSeek-R1 traces per problem; default subset about 93.7K rows",
       "subsets": [
         {
           "config": "all",
