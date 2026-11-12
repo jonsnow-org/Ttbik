@@ -960,7 +960,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= (run.variant === "v2" ? SHAM_V2_LEGS : SHAM_LEGS);
-    const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
+    const onEvent = run.runId ? (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
     const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
     if (run.runId && !(await taskIsActive(run.runId))) return;
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
@@ -1125,7 +1125,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
-  const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+  const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   // Token-by-token: Sham v2's streamed chat appends each piece as it is written, so the chat grows live (owner: all models live).
   let streamed = false;
   const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
@@ -1152,7 +1152,7 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
         stage = "load model-specific conversation";
         await taskEvent(runId, "info", "جاري تحميل سياق المحادثة الخاص بالنموذج...").catch(() => null);
         const mem = await loadChatMemory(chatId, text);
-        const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+        const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
         let streamed = false;
         const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
         stage = "generate with selected Sham variant";
