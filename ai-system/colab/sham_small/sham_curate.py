@@ -8,6 +8,7 @@ The collectors publish one mixed pile (sham-crawl-*-corpus: documents separated 
   * the rest goes to buckets `ar_prose`, `latin_prose`, `mixed_prose`, `code`, written as shards; a JSON report says how many documents / characters each bucket and
     each reject reason holds, so the mix can be chosen with numbers.
 
+sham-ci: entrypoint (running it needs arguments; the tests are in test_sham_curate.py).
 Pure Python, CPU only, no network: `python sham_curate.py --in DIR --out DIR --report FILE`. Nothing here publishes or changes a training notebook.
 """
 from __future__ import annotations
