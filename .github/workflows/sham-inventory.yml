@@ -1,0 +1,58 @@
+name: Sham weight inventory (read-only)
+
+# جرد أوزان شام: لكل سلالة محفوظة (الرأس المدموج وكل مصدر) — سلامة الأوزان والمُرمِّز، المسافة عن الرأس، درجات الميزان وحدها، منحنى الخلط بالنسب، مقارنة مسطرة المدرّب بمسطرة البوابة،
+# وحكم بالكلمات. للقراءة فقط: لا يكتب في Kaggle ولا في أي نقطة حفظ؛ النتيجة تُرفع كملف (inventory.json / inventory.md) وتُطبع في السجل.
+on:
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "أسماء مجموعات مفصولة بفاصلة (فارغ = كل المصادر المعروفة حتى 14)"
+        required: false
+        default: ""
+
+concurrency:
+  group: sham-inventory
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - name: Free disk (checkpoints are GBs)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies (CPU only)
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle six datasets soundfile imageio-ffmpeg av
+      - name: Inventory
+        working-directory: ai-system/colab/sham_small
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SHAM_INV_SOURCES: ${{ inputs.sources }}
+        run: python sham_inventory.py
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham-inventory
+          path: |
+            /tmp/sham_ci_merge/inventory.json
+            /tmp/sham_ci_merge/inventory.md
+          if-no-files-found: warn
