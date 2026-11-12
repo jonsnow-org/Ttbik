@@ -111,11 +111,17 @@ GATE_SOURCES = [s for s in SOURCES if s[0] not in _ADDED_2026_11_06]
 # arb_Arab above is Standard Arabic only); 101 Billion Arabic Words (Common Crawl, cleaned) is Apache-2.0. Nothing gated or non-commercial.
 ARABIC_EXTRA = [
     ("ar-101b-web", "ClusterlabAi/101_billion_arabic_words_dataset", None, "text", 5, 6000),
+    # 2026-11-12 (owner's Intelligence Lab catalog, PR #894): IFM/Jais-3-Data, the Arabic-web subset ONLY ("arabic-txt360-cc": 39.2M documents, 40.8 GB, a filtered Common Crawl sample of
+    # the data MBZUAI's Jais-3 was trained on; ODC-By + CC-BY-4.0, not gated, streamed). Its other subsets are NOT used: arabic-txt360-style-rewrite and arabic-cc-qa are machine-
+    # generated text and arabic-txt360-3efforts-sft is teacher SFT (owner's data policy). A first look at 4 streamed documents (news, news, a forum how-to, an extremist-sounding post; 600-1,100 characters each) shows raw web quality, so the weight is only 4 (below 101b-web), SHAM_NO_JAIS=1 removes it.
+    ("ar-jais-cc", "IFM/Jais-3-Data", "arabic-txt360-cc", "text", 4, 6000),
     ("ar-egy", "HuggingFaceFW/fineweb-2", "arz_Arab", "text", 2, 6000),
     ("ar-levant", "HuggingFaceFW/fineweb-2", "apc_Arab", "text", 1, 6000),
     ("ar-najdi", "HuggingFaceFW/fineweb-2", "ars_Arab", "text", 1, 6000),
     ("ar-maghreb", "HuggingFaceFW/fineweb-2", "ary_Arab", "text", 1, 6000),
 ]
+if os.environ.get("SHAM_NO_JAIS"):
+    ARABIC_EXTRA = [x for x in ARABIC_EXTRA if x[0] != "ar-jais-cc"]
 if os.environ.get("SHAM_ARABIC_EXTRA", "1").strip().lower() not in ("0", "off", "false", "no"):
     SOURCES = SOURCES + ARABIC_EXTRA
 
