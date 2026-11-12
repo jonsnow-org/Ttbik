@@ -97,10 +97,22 @@ const GALLERY = [
   { t: "quiz", l: "❓ اختبار", d: "اختبار عن عواصم الدول العربية اسمه تحدي العواصم، 5 أسئلة" },
 ];
 
+const APP_COLOR_SWATCHES = [
+  { label: "أزرق", color: "#2563eb", ink: "#ffffff" },
+  { label: "أخضر", color: "#16a34a", ink: "#0f172a" },
+  { label: "بنفسجي", color: "#7c3aed", ink: "#ffffff" },
+  { label: "وردي", color: "#db2777", ink: "#0f172a" },
+  { label: "ذهبي", color: "#b8860b", ink: "#0f172a" },
+  { label: "برتقالي", color: "#ea580c", ink: "#0f172a" },
+  { label: "كحلي", color: "#1e3a8a", ink: "#ffffff" },
+  { label: "تركواز", color: "#0f766e", ink: "#ffffff" },
+] as const;
+
 function Apps({ apps, onChange }: { apps: any[]; onChange: () => void }) {
   const [desc, setDesc] = useState("");
   const [tpl, setTpl] = useState("");
   const [contact, setContact] = useState("");
+  const [colorChoice, setColorChoice] = useState("");
   const [created, setCreated] = useState<{ slug: string; editKey: string } | null>(null);
   const [edit, setEdit] = useState<Record<string, string>>({});
   const { busy, error, run } = useRun();
@@ -115,7 +127,31 @@ function Apps({ apps, onChange }: { apps: any[]; onChange: () => void }) {
             <button key={g.t} className="rounded-full bg-slate-100 px-3 py-1 text-xs" onClick={() => { setDesc(g.d); setTpl(g.t); }}>{g.l}</button>
           ))}
         </div>
-        <textarea className={box + " mt-2"} rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={1500} />
+        <div className="mt-3">
+          <p className="text-xs font-bold text-slate-600">اختر لون الهوية (اختياري)</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {APP_COLOR_SWATCHES.map((swatch) => (
+              <button
+                key={swatch.label}
+                type="button"
+                aria-pressed={colorChoice === swatch.label}
+                onClick={() => {
+                  setColorChoice(swatch.label);
+                  setDesc((current) => {
+                    const clean = current.replace(/(?:باللون|بلون)\\s+[\\u0600-\\u06FF]+/g, "").trim();
+                    return clean ? `${clean} باللون ${swatch.label}` : `تطبيق باللون ${swatch.label}`;
+                  });
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${colorChoice === swatch.label ? "ring-2 ring-slate-900 ring-offset-2" : "border-transparent"}`}
+                style={{ background: swatch.color, color: swatch.ink }}
+                title={`اختر اللون ${swatch.label}`}
+              >
+                {swatch.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <textarea className={box + " mt-3"} rows={3} value={desc} onChange={(e) => { setDesc(e.target.value); setColorChoice(""); }} maxLength={1500} />
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <select className={box} value={tpl} onChange={(e) => setTpl(e.target.value)}>
             <option value="">القالب: تلقائي من الوصف</option>
