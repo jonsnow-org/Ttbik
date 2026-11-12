@@ -777,6 +777,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_desktop_smoke": {
+      "file": ".github/workflows/sham-desktop-smoke.yml",
+      "title": "اختبار حي لسطح المكتب المدمج في كل من شام وشام v2 عبر استوديوهيهما",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_embedded_env_probe": {
       "file": ".github/workflows/sham-embedded-env-probe.yml",
       "title": "فحص بيئة استوديوهي شام (قراءة فقط) لمعرفة ما يتيحه لسطح مكتب مدمج",

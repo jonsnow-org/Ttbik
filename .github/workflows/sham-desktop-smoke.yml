@@ -1,0 +1,27 @@
+name: Sham embedded desktop smoke (live)
+
+# Starts each Sham's OWN desktop through its Studio (the first start installs the packages in the background), reads the window list, checks that a picture comes back, then stops it.
+# The desktop is closed at the end; nothing else is touched. Tokens are never printed.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Smoke both Sham desktops
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+        run: python3 scripts/ops/sham_desktop_smoke.py

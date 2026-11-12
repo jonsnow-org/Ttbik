@@ -94,6 +94,7 @@ class Desktop:
         self.procs: list = []
         self.running = False
         self.last_used = time.time()
+        self.installing, self.install_note = False, ""
         self.show_requested = False            # the model asked the user to look at the screen; a viewer reads and clears it
 
     # --- life cycle
@@ -105,10 +106,23 @@ class Desktop:
             return self.status()
         gone = missing_packages(self._which)
         if gone and self._installer:
-            note = self._installer()
-            gone = missing_packages(self._which)
-            if gone:
-                return {"ok": False, "phase": "unavailable", "error": f"missing: {', '.join(gone)} ({note})"}
+            # installing packages takes minutes (apt): it runs in the background so the call that asked returns at once (a gateway cuts a call after about a minute), and the desktop
+            # starts by itself when the install is done. Asking again meanwhile just reports "installing".
+            if self.installing:
+                return {"ok": True, "phase": "installing", "note": "installing the desktop packages; it starts by itself when done"}
+            self.installing, self.install_note = True, ""
+            size = (width, height)
+
+            def work():
+                try:
+                    self.install_note = str(self._installer())
+                finally:
+                    self.installing = False
+                if not missing_packages(self._which):
+                    self.start(*size)
+
+            threading.Thread(target=work, daemon=True, name="sham-desktop-install").start()
+            return {"ok": True, "phase": "installing"}
         if gone:
             return {"ok": False, "phase": "unavailable", "error": f"missing: {', '.join(gone)} (run install_desktop.sh)"}
         free = self._free()
@@ -143,7 +157,7 @@ class Desktop:
         return {"ok": True, "phase": "stopped"}
 
     def status(self) -> dict:
-        return {"ok": True, "phase": "running" if self.running else "stopped", "display": self.display, "width": self.width, "height": self.height, "free_mb": self._free(), "show": self.show_requested}
+        return {"ok": True, "phase": "running" if self.running else ("installing" if self.installing else "stopped"), **({"install_note": self.install_note} if self.install_note else {}), "display": self.display, "width": self.width, "height": self.height, "free_mb": self._free(), "show": self.show_requested}
 
     # --- input (xdotool only; never a shell string)
     def _xdo(self, args: list[str], quiet: bool = False):
@@ -445,6 +459,20 @@ def _selftest() -> None:
     assert d.state()["windows"] == ["Win", "Win"] and d.state()["focused"] == "xterm"
     assert d.frame().startswith(b"\xff\xd8") and d.clipboard("hi")["ok"]
     assert d.stop()["phase"] == "stopped" and d.act("click", {"x": 1, "y": 1})["ok"] is False
+    # packages missing + a root host: the install runs in the background, the call returns "installing", and the desktop starts by itself afterwards
+    have2 = set()
+    def fake_install():
+        have2.update({"Xvfb", "xdotool", "openbox", "xterm"})
+        return "installed"
+    d3 = Desktop("u:z", 93, which=lambda n: "/usr/bin/" + n if n in have2 else None, popen=P, run=run, free=lambda: 4000, installer=fake_install, home="/tmp/sham-desktop-selftest3")
+    first = d3.start(640, 1000)
+    assert first["phase"] == "installing" or first["phase"] == "running", first
+    for _ in range(100):
+        if d3.running:
+            break
+        time.sleep(0.05)
+    assert d3.running and not d3.installing, (d3.running, d3.installing)
+    d3.stop()
     low = Desktop("u:x", 91, which=which, popen=P, run=run, free=lambda: 100)                                   # memory guard
     assert low.start()["phase"] == "low_memory"
     bare = Desktop("u:y", 92, which=lambda n: None, popen=P, run=run, free=lambda: 4000)                       # no packages: a clear, actionable refusal
