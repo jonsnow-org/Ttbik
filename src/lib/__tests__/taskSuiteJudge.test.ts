@@ -30,4 +30,12 @@ describe("task suite verdicts", () => {
     expect(new Set(TASKS.map((x) => x.id)).size).toBe(TASKS.length);
     expect(TASKS.every((x) => x.limitS >= 60)).toBe(true);
   });
+  it("tool tasks pass only when the answer came through the matching tool", () => {
+    const run = t("computer-run");
+    expect(judge(run, "coder", "الناتج: ZX7Q-4821", true, ["computer_run {\"command\":\"echo ZX7Q-4821\"}"]).pass).toBe(true);
+    expect(judge(run, "coder", "الناتج: ZX7Q-4821", true, []).why).toMatch(/did not come from the tool/);   // guessed the fact without running anything
+    expect(judge(t("desktop"), "sham_v2", "حالته: يعمل", true, ["desktop {\"action\":\"start\"}"]).pass).toBe(true);
+    expect(judge(t("browser"), "lfm25", "عنوانها Example Domain", true, ["browser {}"]).pass).toBe(true);
+    expect(TASKS.map((x) => x.id)).toEqual(expect.arrayContaining(["computer-run", "computer-file", "code-run", "browser", "desktop", "github-list"]));
+  });
 });
