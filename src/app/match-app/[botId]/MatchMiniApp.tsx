@@ -218,7 +218,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
 
       <AnimatePresence>
         {toast && (
-          <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} role="status"
+          <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} role="status" aria-live="polite" aria-atomic="true"
             className={`fixed inset-x-4 z-50 rounded-2xl px-4 py-3 text-center text-sm ${GLASS}`} style={{ bottom: "calc(7rem + env(safe-area-inset-bottom, 0px))" }}>{toast}</motion.div>
         )}
       </AnimatePresence>
