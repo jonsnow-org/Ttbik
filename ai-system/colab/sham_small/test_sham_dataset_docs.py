@@ -2,7 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import dataset
+try:
+    import dataset
+except ImportError as exc:  # the CPU CI job has no soundfile/audio stack: the test runs where dataset.py imports
+    dataset = None
+    _WHY = str(exc)
 
 
 class _Tok:
@@ -10,6 +14,7 @@ class _Tok:
         return [7 for _ in text.split()]
 
 
+@unittest.skipIf(dataset is None, "dataset.py needs soundfile/audio stack")
 class DocBoundaries(unittest.TestCase):
     def test_blank_line_separated_documents_each_end_in_eos(self):
         with tempfile.TemporaryDirectory() as t:
