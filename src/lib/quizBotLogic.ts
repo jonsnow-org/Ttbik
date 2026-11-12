@@ -343,9 +343,10 @@ async function handleQuizAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Prom
     }
     await setPending(tgUserId, null);
     await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
-    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel.startsWith("-100") ? channel : `@${channel}`}`);
+    await bot.api.sendMessage(chatId, skip ? "✅ تم إلغاء اشتراط الاشتراك الإجباري." : `✅ تم تعيين قناة الاشتراك الإجباري: ${channel ? (channel.startsWith("-100") ? channel : `@${channel}`) : ""}`);
     return true;
-  }  if (text === "📢 بث جماعي") {
+  }
+  if (text === "📢 بث جماعي") {
     await setPending(tgUserId, { mode: "admin_broadcast" });
     await bot.api.sendMessage(chatId, `✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:\n\n${BROADCAST_COMPOSE_HINT}`);
     return true;
