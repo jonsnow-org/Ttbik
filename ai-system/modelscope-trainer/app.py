@@ -82,6 +82,44 @@ def settings(env=None) -> dict:
     return {"name": name, "hours": hours, "workers": workers, "source_set": env.get("SHAM_TRAINER_SOURCES") or "gh", "job": job}
 
 
+# What the trainer printed lately, for the status page: the trainers on cn sat in "training" for 16 hours with an empty `last`, and nothing said where. Secrets are never kept:
+# a line that mentions a token / key / secret / authorization is dropped, long lines are cut. Only the last TAIL_LINES lines, plus when the last line arrived.
+TAIL_LINES = 40
+_SECRET_LINE = re.compile(r"token|secret|password|authorization|api[_-]?key|bearer|kaggle_key", re.I)
+_TAIL: list = []
+_LAST_LINE_AT = [0.0]
+
+
+class _Tee:
+    def __init__(self, stream):
+        self.stream, self.pending = stream, ""
+
+    def write(self, text):
+        try:
+            self.stream.write(text)
+        except Exception:  # noqa: BLE001
+            pass
+        self.pending += str(text)
+        while "\n" in self.pending:
+            line, self.pending = self.pending.split("\n", 1)
+            line = line.strip()
+            if line and not _SECRET_LINE.search(line):
+                with _LOCK:
+                    _TAIL.append(line[:220])
+                    del _TAIL[:-TAIL_LINES]
+                    _LAST_LINE_AT[0] = time.time()
+        return len(text)
+
+    def flush(self):
+        try:
+            self.stream.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 def _set(**kw) -> None:
     with _LOCK:
         STATE.update(kw)
@@ -116,6 +154,8 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     if not (os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_API_TOKEN") or os.environ.get("KAGGLE_KEY"))):
         _set(phase="blocked", error="no Kaggle keys in the Studio secrets (KAGGLE_USERNAME + KAGGLE_API_TOKEN)")
         return
+    if not isinstance(sys.stdout, _Tee):
+        sys.stdout = _Tee(sys.stdout)
     cycle = 0
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
@@ -132,7 +172,8 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
 
 def status_json() -> str:
     with _LOCK:
-        return json.dumps({**STATE, "settings": {k: v for k, v in settings().items()}}, ensure_ascii=False)
+        quiet = round((time.time() - _LAST_LINE_AT[0]) / 60) if _LAST_LINE_AT[0] else None
+        return json.dumps({**STATE, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet}, ensure_ascii=False)
 
 
 def main() -> None:
@@ -164,6 +205,10 @@ if __name__ == "__main__":
         del os.environ["KAGGLE_API_TOKEN"]
         train_forever(fake, sleep=lambda s: None, max_cycles=1)
         assert STATE["phase"] == "blocked"
+        t = _Tee(open(os.devnull, "w"))
+        t.write("hello\nkaggle token abc\nsecond line\n" + "x" * 500 + "\n")
+        assert _TAIL[-3:] == ["hello", "second line", "x" * 220] and "abc" not in "".join(_TAIL), _TAIL
+        assert json.loads(status_json())["tail"][-1] == "x" * 220
         print("modelscope-trainer app self-test OK")
         sys.exit(0)
     main()
