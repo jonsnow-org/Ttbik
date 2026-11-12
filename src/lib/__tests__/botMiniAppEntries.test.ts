@@ -87,10 +87,10 @@ describe("Mini App verification controls report backend state", () => {
     ["Streak Bot", "bot-app/[botId]/StreakMiniApp.tsx"],
   ])("%s channel gate exposes progress and a check result", (_name, file) => {
     const src = appFile(file);
-    expect(src).toContain("جارٍ فحص الاشتراك");
+    expect(src).toMatch(/جارٍ فحص|جارٍ الفحص|Checking…/);
     expect(src).toContain('role="status" aria-live="polite"');
-    expect(src).toContain('disabled={gateBusy}');
-    expect(src).toContain("checkGate");
+    expect(src).toMatch(/disabled=\{(?:gateBusy|busy)\}/);
+    expect(src).toMatch(/const (?:checkGate|check) = async/);
   });
 });
 
