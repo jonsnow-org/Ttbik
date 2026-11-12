@@ -1,0 +1,396 @@
+{
+  "catalog_version": "sil-data-catalog-1.0",
+  "last_checked": "2026-11-12",
+  "purpose": "Large Arabic and multilingual source collections for natural-language coverage, instruction tuning, reasoning, and teacher-output distillation.",
+  "sources": [
+    {
+      "id": "jais3_arabic",
+      "repo": "IFM/Jais-3-Data",
+      "url": "https://huggingface.co/datasets/IFM/Jais-3-Data",
+      "type": "mixed_arabic_corpus_and_supervised_data",
+      "reported_scale": "57.3M records / 23.8B tokens across four subsets",
+      "subsets": [
+        {
+          "config": "arabic-txt360-cc",
+          "split": "train",
+          "rows": 39100000,
+          "approx_size": "40.8 GB",
+          "role": "Arabic source text corpus; suitable as raw pretraining text after cleaning and document filtering"
+        },
+        {
+          "config": "arabic-cc-qa",
+          "split": "train",
+          "rows": 3000000,
+          "approx_size": "3.0 GB",
+          "role": "Arabic context passages with question-answer pairs; teacher-like QA output paired with source text"
+        },
+        {
+          "config": "arabic-txt360-3efforts-sft",
+          "split": "train",
+          "rows": 2800000,
+          "approx_size": "5.2 GB",
+          "role": "Arabic conversational supervised examples; assistant messages include final responses and optional separate reasoning fields"
+        },
+        {
+          "config": "arabic-txt360-style-rewrite",
+          "split": "train",
+          "rows": 12400000,
+          "approx_size": "11.0 GB",
+          "role": "Arabic style-rewrite data; treat as transformed/synthetic rather than raw natural text"
+        }
+      ],
+      "import_modes": [
+        "jais3_cc",
+        "jais3_qa",
+        "jais3_sft"
+      ],
+      "priority": "highest",
+      "notes": "Very strong Arabic-first candidate. Do not mix raw corpus text directly into supervised prompt/target files. The importer excludes separate think/think_faster fields and exports only visible prompt/answer content. Important: the Jais-3 collection description reports a mixed-origin corpus, including synthetic or machine-translated data and substantial dialect content. Do not classify every row as naturally human-authored; preserve subset-level provenance and audit origin first. Importer marks raw records as corpus_candidate pending origin, duplication, and quality review."
+    },
+    {
+      "id": "clusterlab_arabic_101b",
+      "repo": "ClusterlabAi/101_billion_arabic_words_dataset",
+      "url": "https://huggingface.co/datasets/ClusterlabAi/101_billion_arabic_words_dataset",
+      "type": "raw_arabic_text_corpus",
+      "reported_scale": "33.1M rows / 96.1 GB; dataset title and card report 101B Arabic words",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "large raw Arabic text corpus for language exposure and pretraining"
+        }
+      ],
+      "import_modes": [
+        "clusterlab_arabic"
+      ],
+      "priority": "high",
+      "notes": "Large volume, but perform language-quality checks, deduplication, contamination screening, and document-level filtering before use. Importer marks raw records as corpus_candidate pending origin, duplication, and quality review."
+    },
+    {
+      "id": "arabictext_large",
+      "repo": "Jr23xd23/ArabicText-Large",
+      "url": "https://huggingface.co/datasets/Jr23xd23/ArabicText-Large",
+      "type": "raw_arabic_text_corpus",
+      "reported_scale": "743,288 articles / 244M words / 2.8 GB compressed (dataset card)",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "modern-standard-Arabic article corpus"
+        }
+      ],
+      "import_modes": [
+        "arabictext_large"
+      ],
+      "priority": "high",
+      "notes": "Good smaller corpus to inspect first before pulling multi-tens-of-GB sources. The raw articles are corpus candidates, not automatically verified as fully human-authored or unique. Importer marks raw records as corpus_candidate pending origin, duplication, and quality review."
+    },
+    {
+      "id": "aya_human_annotations",
+      "repo": "CohereLabs/aya_dataset",
+      "url": "https://huggingface.co/datasets/CohereLabs/aya_dataset",
+      "type": "human_annotated_multilingual_instruction_pairs",
+      "reported_scale": "204K human-annotated prompt-completion pairs overall; 202.4K train rows in the default configuration",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "filter": "language_code in arb, arz, ary, ars, acq, apc",
+          "role": "human-annotated Arabic instruction and answer pairs; importer stores only Arabic rows"
+        }
+      ],
+      "import_modes": [
+        "aya_human"
+      ],
+      "priority": "highest",
+      "notes": "Human annotation source. Arabic is a subset of the multilingual collection; the importer must filter by language code and preserve annotation type."
+    },
+    {
+      "id": "aya_collection_arabic",
+      "repo": "CohereLabs/aya_collection_language_split",
+      "url": "https://huggingface.co/datasets/CohereLabs/aya_collection_language_split",
+      "type": "multilingual_collection_with_arabic_dialect_configs",
+      "reported_scale": "513M instances across all languages; Arabic configs include MSA and multiple regional dialects, with several million rows per large config",
+      "subsets": [
+        {
+          "config": "standard_arabic",
+          "split": "train",
+          "reported_rows": "about 5.9M"
+        },
+        {
+          "config": "egyptian_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "mesopotamian_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "moroccan_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "najdi_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "north_levantine_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "south_levantine_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "tunisian_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "taizzi_adeni_arabic",
+          "split": "train",
+          "reported_rows": "about 3.6M"
+        },
+        {
+          "config": "algerian_arabic",
+          "split": "train",
+          "reported_rows": "about 3.3K"
+        }
+      ],
+      "import_modes": [
+        "aya_collection_config"
+      ],
+      "priority": "high",
+      "notes": "This is a mixed collection of translated, templated, and task-specific examples, not a uniformly organic conversational corpus. Preserve config and task metadata; inspect each subset before promoting it to natural_sft."
+    },
+    {
+      "id": "arabic_openhermes",
+      "repo": "2A2I/Arabic-OpenHermes-2.5",
+      "url": "https://huggingface.co/datasets/2A2I/Arabic-OpenHermes-2.5",
+      "type": "arabic_instruction_and_teacher_outputs",
+      "reported_scale": "981,618 rows; Arabic user/assistant instruction and teacher-output compilation",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "Arabic user/assistant conversations derived from OpenHermes"
+        }
+      ],
+      "import_modes": [
+        "arabic_openhermes"
+      ],
+      "priority": "highest",
+      "notes": "Teacher/distillation-style data, not organic human conversation. The dataset includes user and GPT response fields. Dataset metadata identifies this as synthetic GPT-4 distillation/compilation, not organic human conversation."
+    },
+    {
+      "id": "tiny_aya_arabic_reasoning",
+      "repo": "CohereLabs/tiny-aya-l2-thinker-multilingual-reasoning",
+      "url": "https://huggingface.co/datasets/CohereLabs/tiny-aya-l2-thinker-multilingual-reasoning",
+      "type": "translated_multilingual_teacher_outputs",
+      "reported_scale": "About 23K Arabic train rows and 2.5K Arabic test rows",
+      "subsets": [
+        {
+          "config": "ar",
+          "split": "train",
+          "role": "Arabic question/output data; card attributes teacher traces to gpt-oss-120b, translated using command-a-translate and DeepSeek-V3"
+        }
+      ],
+      "import_modes": [
+        "tiny_aya_arabic"
+      ],
+      "priority": "high",
+      "notes": "The importer uses question and final output only; it does not copy the long thinking field."
+    },
+    {
+      "id": "jais3_teacher_qa",
+      "repo": "IFM/Jais-3-Data",
+      "url": "https://huggingface.co/datasets/IFM/Jais-3-Data",
+      "type": "arabic_contextual_teacher_qa",
+      "reported_scale": "About 3.0M rows in arabic-cc-qa",
+      "subsets": [
+        {
+          "config": "arabic-cc-qa",
+          "split": "train",
+          "role": "source passages plus generated question and answer strings"
+        }
+      ],
+      "import_modes": [
+        "jais3_qa"
+      ],
+      "priority": "highest",
+      "notes": "Preserve the context passage, question, answer, and source metadata. The preview includes historical web text; freshness and factuality must be checked for time-sensitive topics."
+    },
+    {
+      "id": "openr1_math",
+      "repo": "open-r1/OpenR1-Math-220k",
+      "url": "https://huggingface.co/datasets/open-r1/OpenR1-Math-220k",
+      "type": "teacher_generated_reasoning_and_verified_answers",
+      "reported_scale": "220K math problems with 2–4 DeepSeek-R1 traces per problem; default subset about 93.7K rows",
+      "subsets": [
+        {
+          "config": "all",
+          "split": "train",
+          "role": "math problems, answer fields, multiple generations, and verification metadata"
+        }
+      ],
+      "import_modes": [
+        "openr1_math"
+      ],
+      "priority": "high",
+      "notes": "The importer exports concise answer fields, not raw hidden reasoning traces. Review verifier fields and answer consistency before training."
+    },
+    {
+      "id": "mixture_of_thoughts",
+      "repo": "open-r1/Mixture-of-Thoughts",
+      "url": "https://huggingface.co/datasets/open-r1/Mixture-of-Thoughts",
+      "type": "teacher_distilled_reasoning",
+      "reported_scale": "About 349K examples across code, mathematics, and science",
+      "subsets": [
+        {
+          "config": "all",
+          "split": "train",
+          "role": "distilled reasoning conversations"
+        }
+      ],
+      "import_modes": [
+        "mixture_of_thoughts"
+      ],
+      "priority": "high",
+      "notes": "Contains explicit think traces. The importer strips <think> blocks and exports only the final answer where available."
+    },
+    {
+      "id": "ultrachat_200k",
+      "repo": "HuggingFaceH4/ultrachat_200k",
+      "url": "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k",
+      "type": "english_teacher_generated_conversations",
+      "reported_scale": "About 516K rows across train/test generation and SFT splits; original card describes 1.4M generated dialogues",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train_sft",
+          "role": "multi-turn teacher-generated conversation samples"
+        }
+      ],
+      "import_modes": [
+        "ultrachat"
+      ],
+      "priority": "medium",
+      "notes": "English coverage, useful for dialogue format and general skills but should not dominate Arabic training."
+    },
+    {
+      "id": "openhermes_25",
+      "repo": "teknium/OpenHermes-2.5",
+      "url": "https://huggingface.co/datasets/teknium/OpenHermes-2.5",
+      "type": "english_compiled_instruction_and_teacher_outputs",
+      "reported_scale": "About 1.0M rows",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "multi-source assistant conversations and synthetic instruction responses"
+        }
+      ],
+      "import_modes": [
+        "openhermes"
+      ],
+      "priority": "medium",
+      "notes": "Mixed-source compilation; preserve source/model fields and deduplicate against other instruction sets."
+    },
+    {
+      "id": "smollm_corpus",
+      "repo": "HuggingFaceTB/smollm-corpus",
+      "url": "https://huggingface.co/datasets/HuggingFaceTB/smollm-corpus",
+      "type": "large_english_educational_and_code_corpus",
+      "reported_scale": "About 237M rows across Cosmopedia v2, FineWeb-Edu deduplicated, and Python-Edu",
+      "subsets": [
+        {
+          "config": "cosmopedia-v2",
+          "split": "train"
+        },
+        {
+          "config": "fineweb-edu-dedup",
+          "split": "train"
+        },
+        {
+          "config": "python-edu",
+          "split": "train"
+        }
+      ],
+      "import_modes": [
+        "smollm_raw"
+      ],
+      "priority": "medium",
+      "notes": "Primarily English, high-volume educational/code content; separate raw text from instruction pairs."
+    },
+    {
+      "id": "fineweb_edu",
+      "repo": "HuggingFaceFW/fineweb-edu",
+      "url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+      "type": "massive_english_educational_web_corpus",
+      "reported_scale": "1.3T tokens; multiple dataset versions and very large streamed shards",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "educational web documents"
+        }
+      ],
+      "import_modes": [
+        "fineweb_edu_raw"
+      ],
+      "priority": "medium",
+      "notes": "Not Arabic-first. Use only as a controlled general-knowledge and language exposure source."
+    },
+    {
+      "id": "cosmopedia",
+      "repo": "HuggingFaceTB/cosmopedia",
+      "url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+      "type": "synthetic_educational_text",
+      "reported_scale": "About 31.1M rows in Cosmopedia v0.1",
+      "subsets": [
+        {
+          "config": "stories",
+          "split": "train"
+        },
+        {
+          "config": "stanford",
+          "split": "train"
+        },
+        {
+          "config": "wikihow",
+          "split": "train"
+        }
+      ],
+      "import_modes": [
+        "cosmopedia_raw"
+      ],
+      "priority": "medium",
+      "notes": "Machine-generated educational text; never label it as natural human-authored material."
+    },
+    {
+      "id": "arabic_eou_conversations",
+      "repo": "Reverb/arabic-eou-conversations",
+      "url": "https://huggingface.co/datasets/Reverb/arabic-eou-conversations",
+      "type": "arabic_dialect_conversation_classification",
+      "reported_scale": "11,660 labelled examples across Levantine, Egyptian, and Gulf dialects",
+      "subsets": [
+        {
+          "config": "default",
+          "split": "train",
+          "role": "end-of-utterance detection; not ordinary assistant SFT"
+        }
+      ],
+      "import_modes": [
+        "manual_specialist_import"
+      ],
+      "priority": "specialist",
+      "notes": "Use as a separate turn-boundary auxiliary task, not as answer-generation targets."
+    }
+  ]
+}
