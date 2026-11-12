@@ -59,7 +59,11 @@ export default async function MiniAppPage(props: Props) {
       </header>
       <main className="user-created-app__content">
         {c.template === "quiz" ? (
-          <QuizApp items={c.items} color={palette.brand} onColor={palette.onBrand} />
+          c.items.length ? (
+            <QuizApp items={c.items} color={palette.brand} onColor={palette.onBrand} />
+          ) : (
+            <div className="user-created-app__empty"><span aria-hidden="true">❓</span><p>لم يضف صاحب التطبيق أسئلة بعد.</p></div>
+          )
         ) : c.items.length ? (
           <div className="user-created-app__items" data-template={c.template}>
             {c.items.map((it, i) => {
