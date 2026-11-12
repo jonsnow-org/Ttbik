@@ -40,6 +40,10 @@ class Bridge(unittest.TestCase):
         self.assertEqual(B.train_pairs(50, 1), [])
 
     def test_chat_plan_has_the_source_but_the_gate_yardstick_does_not(self):
+        try:
+            import datasets  # noqa: F401  (the CPU CI job has no `datasets`; the plan imports it)
+        except ImportError:
+            self.skipTest("datasets is not installed here")
         import sham_chat as C
         self.assertIn("sil", [p[0] for p in C._chat_plan()])
         self.assertNotIn("sil", [p[0] for p in C._chat_plan(extra=False)])
