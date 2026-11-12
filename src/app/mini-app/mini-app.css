@@ -3,20 +3,21 @@
 .media-mini-app-shell {
   min-height: 100vh;
   min-height: 100dvh;
-  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  --media-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px));
+  padding-bottom: calc(6rem + var(--media-safe-bottom));
   overflow-x: hidden;
 }
 
 .media-mini-app-nav {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
+  padding-bottom: max(var(--media-safe-bottom), 6px);
 }
 
 .media-mini-app-scroll-top {
-  bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(6rem + var(--media-safe-bottom));
 }
 
 .media-mini-app-toast {
-  bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(5rem + var(--media-safe-bottom));
   width: max-content;
   max-width: min(90vw, 32rem);
 }
@@ -28,7 +29,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(2rem + var(--media-safe-bottom));
   -webkit-overflow-scrolling: touch;
 }
 
