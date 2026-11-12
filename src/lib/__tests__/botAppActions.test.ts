@@ -68,6 +68,16 @@ describe("bot-app actions", () => {
     expect(r.note).toContain("المنصة");
     expect(r.note).not.toMatch(/الأدمن|المالك/);
   });
+  it("phone_prompt sends Telegram's native contact keyboard", async () => {
+    const r: any = await handleAdAppAction(botRow, tg, "phone_prompt", {});
+    expect(r).toMatchObject({ ok: true });
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.any(String), expect.objectContaining({ reply_markup: expect.any(Object) }));
+  });
+  it("phone_prompt reports delivery failure instead of pretending the request was sent", async () => {
+    api.sendMessage.mockRejectedValueOnce(new Error("blocked"));
+    const r: any = await handleAdAppAction(botRow, tg, "phone_prompt", {});
+    expect(r).toMatchObject({ ok: false, code: "phone_prompt_failed" });
+  });
   it("unknown action is refused", async () => {
     expect(((await handleAdAppAction(botRow, tg, "drop_tables", {})) as any).ok).toBe(false);
   });
