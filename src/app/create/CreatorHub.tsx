@@ -124,7 +124,7 @@ function Apps({ apps, onChange }: { apps: any[]; onChange: () => void }) {
         <p className="mt-1 text-xs text-slate-500">مثال: «متجر عطور اسمه ريحان باللون الذهبي، عطر عود بسعر 30$ ومسك بسعر 15$». يُنشأ تطبيق ويب يفتح داخل تيليجرام كتطبيق مصغّر ويمكن تثبيته على الشاشة الرئيسية (ليس تطبيقاً لمتجر Google/Apple).</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {GALLERY.map((g) => (
-            <button key={g.t} className="rounded-full bg-slate-100 px-3 py-1 text-xs" onClick={() => { setDesc(g.d); setTpl(g.t); }}>{g.l}</button>
+            <button key={g.t} className="rounded-full bg-slate-100 px-3 py-1 text-xs" onClick={() => { setDesc(g.d); setTpl(g.t); setColorChoice(""); }}>{g.l}</button>
           ))}
         </div>
         <div className="mt-3">
