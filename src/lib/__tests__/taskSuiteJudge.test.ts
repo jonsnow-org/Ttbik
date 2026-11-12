@@ -24,7 +24,7 @@ describe("task suite verdicts", () => {
   it("no answer and unfinished tasks fail with the reason", () => {
     expect(judge(t("greeting"), "coder", "", true).why).toBe("ended with no answer");
     expect(judge(t("greeting"), "coder", "", false).why).toBe("no answer in time");
-    expect(judge(t("repo-read"), "coder", "المستودع يحتوي على تطبيق ويب وبوتات", false).why).toMatch(/did not finish/);
+    expect(judge(t("repo-read"), "coder", "المستودع تطبيق Next.js فيه مجلد src وبوتات", false).why).toMatch(/did not finish/);
   });
   it("every task has a unique id and a time limit", () => {
     expect(new Set(TASKS.map((x) => x.id)).size).toBe(TASKS.length);

@@ -9,8 +9,8 @@ export const TASKS: SuiteTask[] = [
   { id: "memory-save", text: "احفظ في ذاكرتك أن لوني المفضل هو الأزرق.", limitS: 420 },
   { id: "memory-recall", text: "ما هو لوني المفضل؟", expect: /أزرق|الأزرق/, limitS: 420, keep: true },
   { id: "web-search", text: "ابحث في الويب عن أحدث إصدار مستقر من لغة بايثون واذكر رابط المصدر.", expect: /https?:\/\/\S+/, limitS: 900 },
-  { id: "file-read", text: "اقرأ الملف package.json من المستودع jonsnow-org/Ttbik على GitHub واذكر قيمة الحقل name فيه.", limitS: 900 },
-  { id: "repo-read", text: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة", limitS: 1500 },
+  { id: "file-read", text: "اقرأ الملف package.json من المستودع jonsnow-org/Ttbik على GitHub واذكر قيمة الحقل name فيه.", expect: /souqtools\-marketplace/i, limitS: 900 },
+  { id: "repo-read", text: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة", expect: /next|athar|src|prisma/i, limitS: 1500 },
 ];
 export const IDENTITY: Record<string, RegExp> = { coder: /نوفا|Nova/i, lfm25: /نوفا|Nova|LFM/i, sham: /شام|Sham/i, sham_v2: /شام|Sham/i };
 export const PROGRESS = /جاري|🕒|⏳/;
