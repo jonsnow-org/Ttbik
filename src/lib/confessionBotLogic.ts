@@ -8,6 +8,7 @@ import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { earnPoints } from "@/lib/platformPoints";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
+import { chargeAndUnlockConfessionUser } from "@/lib/confessionLedger";
 
 /**
  * CONFESSION_BOT template (docs/claude-feature-backlog.md item 2) — every
@@ -109,16 +110,7 @@ function insufficientBalanceText(userId: string, needed: number, have: number): 
 // Deducts `amount` from the user's CONFESSION_BOT balance and logs a
 // ConfessionTransaction atomically — same shape as chargeMatchUser /
 // chargeJobsUser elsewhere in this codebase.
-async function chargeConfessionUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  const user = await prisma.confessionUser.findUnique({ where: { id: userId } });
-  const balance = Number(user?.balance || 0);
-  if (balance < amount) return { ok: false, balance };
-  await prisma.$transaction([
-    prisma.confessionUser.update({ where: { id: userId }, data: { balance: { decrement: amount } } }),
-    prisma.confessionTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
-  return { ok: true, balance: balance - amount };
-}
+
 async function isBlockedFrom(boxOwnerId: string, senderId: string): Promise<boolean> {
   const b = await prisma.confessionBlock.findUnique({ where: { ownerId_blockedSenderId: { ownerId: boxOwnerId, blockedSenderId: senderId } } });
   return !!b;
@@ -557,24 +549,34 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     );
     return;
   }
-  if (text === `🕵️ كشف هوية المرسلين ($${PRICE_REVEAL_SENDER})`) {
-    const charge = await chargeConfessionUser(tgUserId, PRICE_REVEAL_SENDER, "REVEAL_SENDER");
+  if (text === `🕵️ كشف هوية المرسلين (${PRICE_REVEAL_SENDER})`) {
+    const charge = await chargeAndUnlockConfessionUser(
+      tgUserId, PRICE_REVEAL_SENDER, "REVEAL_SENDER", "revealSenderUnlocked",
+    );
     if (!charge.ok) {
       await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_REVEAL_SENDER, charge.balance), { reply_markup: upgradesMenu(user) });
       return;
     }
-    const updated = await prisma.confessionUser.update({ where: { id: tgUserId }, data: { revealSenderUnlocked: true } });
-    await bot.api.sendMessage(chatId, "✅ تم تفعيل كشف هوية المرسلين.", { reply_markup: upgradesMenu(updated) });
+    await bot.api.sendMessage(
+      chatId,
+      charge.alreadyUnlocked ? "✅ كشف هوية المرسلين مفعّل لديك مسبقاً." : "✅ تم تفعيل كشف هوية المرسلين.",
+      { reply_markup: upgradesMenu(charge.user || user) },
+    );
     return;
   }
-  if (text === `♾️ ردود غير محدودة ($${PRICE_UNLIMITED_REPLIES})`) {
-    const charge = await chargeConfessionUser(tgUserId, PRICE_UNLIMITED_REPLIES, "UNLIMITED_REPLIES");
+  if (text === `♾️ ردود غير محدودة (${PRICE_UNLIMITED_REPLIES})`) {
+    const charge = await chargeAndUnlockConfessionUser(
+      tgUserId, PRICE_UNLIMITED_REPLIES, "UNLIMITED_REPLIES", "unlimitedRepliesUnlocked",
+    );
     if (!charge.ok) {
       await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_UNLIMITED_REPLIES, charge.balance), { reply_markup: upgradesMenu(user) });
       return;
     }
-    const updated = await prisma.confessionUser.update({ where: { id: tgUserId }, data: { unlimitedRepliesUnlocked: true } });
-    await bot.api.sendMessage(chatId, "✅ تم تفعيل الردود غير المحدودة.", { reply_markup: upgradesMenu(updated) });
+    await bot.api.sendMessage(
+      chatId,
+      charge.alreadyUnlocked ? "✅ الردود غير المحدودة مفعّلة لديك مسبقاً." : "✅ تم تفعيل الردود غير المحدودة.",
+      { reply_markup: upgradesMenu(charge.user || user) },
+    );
     return;
   }
 
