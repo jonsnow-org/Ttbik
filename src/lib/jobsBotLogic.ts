@@ -20,7 +20,7 @@ import {
   appLink, depositLink, notifyAcceptOutcome, notifyDisputeOpened, notifyDisputeReady, notifyOfferRejected, notifyOfferToOtherParty, notifyReceived,
 } from "@/lib/jobs/notify";
 import { APP_BUTTON } from "@/lib/botApp/buttons";
-import { setBotAppMenu } from "@/lib/builderOwnerBot";
+import { botAppUrl } from "@/lib/builderOwnerBot";
 import { gateUrl } from "@/lib/hostingOps";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
@@ -265,10 +265,11 @@ export { settleEscrow };
 export const SHOPS_BUTTON = "🛍 متاجر البائعين";
 const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك في مكان واحد داخل تيليجرام. اختر:";
 const appMenuSet = new Set<string>();
-function ensureJobsAppMenu(botRow: BotRow) {
+function ensureJobsAppMenu(bot: TelegramBot, botRow: BotRow) {
   if (appMenuSet.has(botRow.id)) return;
-  appMenuSet.add(botRow.id);
-  void setBotAppMenu(botRow.token, gateUrl(), botRow.id).then((ok) => { if (!ok) appMenuSet.delete(botRow.id); }).catch(() => appMenuSet.delete(botRow.id));
+  void bot.api.setChatMenuButton({
+    menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: botAppUrl(gateUrl(), botRow.id) } },
+  }).then(() => appMenuSet.add(botRow.id)).catch(() => appMenuSet.delete(botRow.id));
 }
 function appKeyboard(botId: string): InlineKeyboard {
   return new InlineKeyboard()
@@ -1284,6 +1285,9 @@ async function handleJobsStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any
 }
 
 export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  // Set the app menu before any owner/admin, callback, or payment branch can return.
+  const menuChat = update.message?.chat ?? update.callback_query?.message?.chat;
+  if (menuChat?.type === "private") ensureJobsAppMenu(bot, botRow);
   if (update.callback_query) {
     await handleJobsCallback(bot, botRow, update.callback_query);
     return;
@@ -1409,7 +1413,6 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
 
   const user = await ensureJobsUser(botRow.id, tgUserId);
   await prisma.jobsUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
-  ensureJobsAppMenu(botRow);
 
   if (user.isBanned) {
     await bot.api.sendMessage(chatId, "🚫 تم حظرك من استخدام هذا البوت من قِبل الإدارة.");
