@@ -16,6 +16,7 @@ import threading
 import sham_computer
 
 BROWSER = "browser"
+DESKTOP = "desktop"          # the graphical desktop (sham_desktop.py), part of the model's own code like the browser
 def _p(a: dict) -> str:
     return f"{str(a['cwd']).rstrip('/')}/{a.get('path', '')}" if a.get("cwd") else a.get("path", "")
 
@@ -31,7 +32,7 @@ SANDBOX_ALIAS = {
     "sandbox_search": lambda a: ("computer_search", {"pattern": a.get("pattern", ""), "path": a.get("path") or a.get("cwd"), "glob": a.get("glob")}),
     "sandbox_read_file": lambda a: ("computer_read", {"path": _p(a)}),
 }
-EMBEDDED = frozenset(sham_computer.TOOL_NAMES) | {BROWSER} | frozenset(SANDBOX_ALIAS)
+EMBEDDED = frozenset(sham_computer.TOOL_NAMES) | {BROWSER, DESKTOP} | frozenset(SANDBOX_ALIAS)
 MAX_CALLS = 6
 RESULT_CHARS = 1800
 _COMPUTERS: dict[str, "sham_computer.Computer"] = {}
@@ -66,6 +67,9 @@ def run_embedded(name: str, args: dict, session: str) -> str:
                 if reply.get(k):
                     parts.append(str(reply[k]))
             return "\n".join(parts)[:4000] or "ok"
+        if name == DESKTOP:
+            import sham_desktop
+            return sham_desktop.run_tool(args or {}, session or "default")
         return computer_for(session).execute(name, args or {})
     except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model can read, not a crash of the loop
         return f"error: {type(exc).__name__}: {str(exc)[:200]}"

@@ -118,20 +118,34 @@ describe("richer desktop input actions", () => {
 });
 
 describe("the shared hub's desktop is Nova's only", () => {
-  test("Sham and Sham v2 are refused a hub desktop (no silent borrow); other models still reach it", async () => {
-    const previousUrl = process.env.COMPUTER_STUDIO_URL;
-    process.env.COMPUTER_STUDIO_URL = "https://computer.test";
+  test("Sham and Sham v2 reach THEIR OWN Studio (desktop_do / desktop_live), never the hub; Nova and LFM reach the hub", async () => {
+    const saved = { hub: process.env.COMPUTER_STUDIO_URL, v1: process.env.SHAM_MODELSCOPE_URL, v2: process.env.SHAM_V2_URL };
+    process.env.COMPUTER_STUDIO_URL = "https://hub.test";
+    process.env.SHAM_MODELSCOPE_URL = "https://sham1.test";
+    process.env.SHAM_V2_URL = "https://sham2.test";
     try {
-      const never = (async () => { throw new Error("must not be called"); }) as unknown as typeof fetch;
-      const { desktopDo } = await import("@/lib/desktopComputer");
-      for (const m of ["sham", "sham_v2"]) {
-        expect(await desktopDo(m, "1:" + m, { action: "status" }, never)).toMatchObject({ ok: false, error: expect.stringMatching(/not embedded/) });
-        await expect(desktopLive(m, "1:" + m, 5, never)).rejects.toThrow(/not embedded/);
-      }
+      const { desktopTargetFor, desktopDo } = await import("@/lib/desktopComputer");
+      expect(desktopTargetFor("sham")).toEqual({ base: "https://sham1.test", own: true });
+      expect(desktopTargetFor("sham_v2")).toEqual({ base: "https://sham2.test", own: true });
+      expect(desktopTargetFor("coder")).toEqual({ base: "https://hub.test", own: false });
+      expect(desktopTargetFor("lfm25")).toEqual({ base: "https://hub.test", own: false });
+      expect(desktopTargetFor("nope")).toBeNull();
+      const urls: string[] = [];
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(String(input));
+        if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
+        return new Response('event: complete\ndata: ["{\\"ok\\":true,\\"phase\\":\\"stopped\\"}"]\n\n', { status: 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      await desktopDo("sham_v2", "1:sham_v2", { action: "status" }, fetchMock);
+      expect(urls[0]).toBe("https://sham2.test/gradio_api/call/desktop_do");
+      const live = await desktopLive("sham", "1:sham", 5, fetchMock);
+      expect(live.ok).toBe(true);
+      expect(urls.some((u) => u.includes("sham1.test/gradio_api/call/desktop_live"))).toBe(true);
+      expect(urls.every((u) => !u.includes("hub.test"))).toBe(true);
     } finally {
-      if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
-      else process.env.COMPUTER_STUDIO_URL = previousUrl;
+      for (const [k, v] of [["COMPUTER_STUDIO_URL", saved.hub], ["SHAM_MODELSCOPE_URL", saved.v1], ["SHAM_V2_URL", saved.v2]] as const) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
     }
   });
 });
-

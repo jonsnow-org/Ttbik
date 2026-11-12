@@ -611,6 +611,52 @@ def computer_view(body: str = "") -> str:
         return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
 
 
+def _desktop_body(body: str) -> dict:
+    import base64
+    text = str(body or "")
+    if text.startswith("b64:"):
+        text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+    return json.loads(text or "{}")
+
+
+def desktop_do(body: str = "") -> str:
+    """The model's OWN embedded desktop (sham_desktop.py), for a client that shows it: start / stop / status / launch and a human's tap, drag, key or paste. The reply carries a JPEG
+    after an input so the viewer redraws at once. Same functions the model's `desktop` tool calls; the ModelScope token is the door here, serve.py has its own."""
+    try:
+        import base64
+        import sham_desktop
+        job = _desktop_body(body)
+        session = str(job.pop("session", "") or "default")
+        reply = sham_desktop.serve_input(session, job)
+        if reply.get("ok") is not False and str(job.get("action") or "status") != "stop":
+            frame = sham_desktop.serve_frame(session)
+            if frame:
+                reply = {**reply, "screenshot_b64": base64.b64encode(frame).decode("ascii")}
+        return json.dumps(reply, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+
+
+def desktop_live(body: str = ""):
+    """About two frames a second for up to 25 s of the model's embedded desktop (the viewer reconnects when it ends)."""
+    import base64
+    import sham_desktop
+    try:
+        job = _desktop_body(body)
+    except Exception as exc:  # noqa: BLE001
+        yield json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+        return
+    session = str(job.get("session") or "default")
+    end = time.time() + max(1, min(25, int(job.get("seconds") or 20)))
+    while time.time() < end:
+        frame = sham_desktop.serve_frame(session)
+        if not frame:
+            yield json.dumps({"ok": True, "phase": "stopped"})
+            return
+        yield json.dumps({"ok": True, "phase": "running", "screenshot_b64": base64.b64encode(frame).decode("ascii")})
+        time.sleep(0.5)
+
+
 def _vet(res, raw_test: bool = False):
     """Per-request owner raw-output test; the bot client still checks decoding and model/weight identity."""
     if raw_test:
@@ -854,9 +900,13 @@ def build_ui():
                                    api_name="computer_changes", flagging_mode="never"))
     labels.append("تغييرات الحاسوب المدمج (قراءة فقط)")
     interfaces.append(gr.Interface(computer_view, gr.Textbox(label="body"), gr.Textbox(label="view"), api_name="computer_view", flagging_mode="never"))
+    interfaces.append(gr.Interface(desktop_do, gr.Textbox(label="body"), gr.Textbox(label="desktop"), api_name="desktop_do", flagging_mode="never"))
+    interfaces.append(gr.Interface(desktop_live, gr.Textbox(label="body"), gr.Textbox(label="live"), api_name="desktop_live", flagging_mode="never"))
     interfaces.append(gr.Interface(bank_search, [gr.Textbox(label="query"), gr.Number(label="k", value=4)], gr.Textbox(label="results"), api_name="bank_search", flagging_mode="never"))
     labels.append("مخزن المعرفة المركزي (قراءة فقط)")
     labels.append("شاشة الحاسوب المدمج (قراءة فقط)")
+    labels.append("سطح المكتب المدمج")
+    labels.append("بث سطح المكتب المدمج")
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 

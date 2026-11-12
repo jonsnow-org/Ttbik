@@ -31,15 +31,7 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
             : `⚠ ${String(status.error || (ar ? "الحاسوب غير متاح الآن (الاستوديو يعمل أو يعيد التشغيل)" : "computer unavailable now"))}`}
         </div>
       </div>
-      {model === "sham" || model === "sham_v2" ? (
-        <div className="n-card" style={{ padding: 12 }}>
-          <div className="n-meta">
-            {ar
-              ? "حاسوب هذا النموذج مدمج داخله (الطرفية والملفات والمتصفح تعمل داخل استوديو النموذج نفسه). الحاسوب المركزي الرسومي لنوفا وحده، ولا يُشارَك مع شام. سطح مكتب رسومي خاص بهذا النموذج لم يُدمج بعد."
-              : "This model's computer is embedded in it (terminal, files and browser run inside the model's own Studio). The shared graphical hub is Nova's only and is not shared with Sham. A graphical desktop of its own is not embedded yet."}
-          </div>
-        </div>
-      ) : <GraphicalDesktop key={model} model={model} ar={ar} />}
+      <GraphicalDesktop key={model} model={model} ar={ar} />
     </div>
   );
 }
