@@ -60,9 +60,31 @@ def memory_root() -> Path:
     return Path(os.environ.get("SHAM_MEMORY_DIR", "/tmp/sham_memory"))
 
 
+def _install_salt() -> str:
+    """No shared constant (review 2026-11-12: a published default salt makes the hashes guessable): without SHAM_MEMORY_SALT each install makes its own random salt
+    once and keeps it (mode 0600) next to the memory it protects. If the folder cannot be written, the old constant is the last fallback so memory still works."""
+    f = memory_root() / ".salt"
+    try:
+        if f.exists():
+            v = f.read_text(encoding="utf-8").strip()
+            if len(v) >= 16:
+                return v
+        import secrets
+        f.parent.mkdir(parents=True, exist_ok=True)
+        v = secrets.token_hex(16)
+        f.write_text(v, encoding="utf-8")
+        try:
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+        return v
+    except OSError:
+        return "sham-palmyra"
+
+
 def user_key(user_id: str) -> str:
     """Never the raw chat id on disk: a salted hash (SHAM_MEMORY_SALT)."""
-    salt = os.environ.get("SHAM_MEMORY_SALT", "sham-palmyra")
+    salt = os.environ.get("SHAM_MEMORY_SALT") or _install_salt()
     return hashlib.sha256((salt + "|" + str(user_id)).encode("utf-8")).hexdigest()[:32]
 
 

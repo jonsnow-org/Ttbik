@@ -72,11 +72,15 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         stream: list[int] = []
         for path in file_paths:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
-            lines = [line for line in text.split("\n") if line.strip()]
-            if not lines:
-                continue
-            stream.extend(self.tokenizer.encode("\n".join(lines)))
-            stream.append(SpecialTokens.EOS)
+            # The project's corpus convention (collectors, sham_text_stream.CrawlCorpusDocs): documents are separated by a blank line. A file with blank lines is
+            # many documents, each ending in EOS (review 2026-11-12: one EOS per FILE lost every document boundary); a file without blank lines stays one document.
+            docs = [d for d in text.split("\n\n") if d.strip()] if "\n\n" in text else [text]
+            for doc in docs:
+                lines = [line for line in doc.split("\n") if line.strip()]
+                if not lines:
+                    continue
+                stream.extend(self.tokenizer.encode("\n".join(lines)))
+                stream.append(SpecialTokens.EOS)
         # ShamSmall.forward() already does its own internal next-token
         # shift (see model.py) when input_ids and labels are the same
         # tensor, exactly like every other verified test in this
