@@ -769,6 +769,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_trainer_status": {
+      "file": ".github/workflows/sham-trainer-status.yml",
+      "title": "حالة استوديوهات المدربين على حساب cn (قراءة فقط) لتشخيص من لا ينشر",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_embedded_env_probe": {
       "file": ".github/workflows/sham-embedded-env-probe.yml",
       "title": "فحص بيئة استوديوهي شام (قراءة فقط) لمعرفة ما يتيحه لسطح مكتب مدمج",
