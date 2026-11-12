@@ -1062,6 +1062,9 @@ async function shamMediaJobStep(bot: TelegramBot, chatId: number, botId: string,
         const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + job.request.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
         prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
         await cardStepDone(bot, chatId, card, Boolean(prompt));
+        // the translation is a helper, not a gate: when it fails or times out (a busy Studio, live 2026-11-11: «قم بتوليد فديو فتاة ترقص» was answered with «ما المشهد…؟»)
+        // the user's own words go to the model's own generator exactly as Sham v1 does; only an empty subject is asked about
+        if (!prompt) prompt = job.subject.trim().slice(0, 1800) || null;
       }
       if (!prompt) { await askForDescription(); return; }
       const sp = mf.splitAspect(prompt);
