@@ -116,3 +116,21 @@ describe("richer desktop input actions", () => {
     expect(cleanDesktopArgs({ action: "type", text: "x".repeat(2000) })?.text).toHaveLength(1200);
   });
 });
+
+describe("the shared hub's desktop is Nova's only", () => {
+  test("Sham and Sham v2 are refused a hub desktop (no silent borrow); other models still reach it", async () => {
+    const previousUrl = process.env.COMPUTER_STUDIO_URL;
+    process.env.COMPUTER_STUDIO_URL = "https://computer.test";
+    try {
+      const never = (async () => { throw new Error("must not be called"); }) as unknown as typeof fetch;
+      const { desktopDo } = await import("@/lib/desktopComputer");
+      for (const m of ["sham", "sham_v2"]) {
+        expect(await desktopDo(m, "1:" + m, { action: "status" }, never)).toMatchObject({ ok: false, error: expect.stringMatching(/not embedded/) });
+        await expect(desktopLive(m, "1:" + m, 5, never)).rejects.toThrow(/not embedded/);
+      }
+    } finally {
+      if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
+      else process.env.COMPUTER_STUDIO_URL = previousUrl;
+    }
+  });
+});
