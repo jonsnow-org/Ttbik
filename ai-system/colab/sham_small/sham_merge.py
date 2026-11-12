@@ -280,7 +280,7 @@ def research_corpus_files(root: Path | None, crawl: bool = True) -> list[str]:
     if crawl:
         try:
             from sham_inputs import crawl_dataset_names, fetch_dataset
-            corpora = sorted(set(crawl_dataset_names()["corpora"]) | {"sham-crawl-corpus"})
+            corpora = sorted(set(crawl_dataset_names()["corpora"]) | {"sham-crawl-corpus", "sham-curated-ar-books"})   # + the curated Arabic books (2026-11-12): Sham v2 reads them through the same pool
         except Exception:
             corpora = []
         for name in corpora:
