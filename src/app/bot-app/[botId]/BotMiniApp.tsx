@@ -47,12 +47,13 @@ function Shell() {
   const { api, stack, setLang, lang, tg } = useApp();
   const [init, setInit] = useState<Init | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const load = useCallback(async (action = "init") => {
+  const load = useCallback(async (action = "init"): Promise<Init | null> => {
     const r = (await api<Init>(action)) as Init;
-    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return; }
+    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return null; }
     setFailed(null);
     setInit(r);
     setLang(r.user.lang);
+    return r;
   }, [api, setLang]);
   useEffect(() => { void load(); }, [load]);
   // Fresh balance when the user comes back to the app (after paying an invoice, sharing the phone, joining a channel...).
@@ -87,12 +88,30 @@ function Shell() {
   );
 }
 
-function Gate({ channel, onCheck }: { channel: string; onCheck: () => void }) {
+function Gate({ channel, onCheck }: { channel: string; onCheck: () => Promise<Init | null> }) {
   const { lang, open } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const check = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice(lang === "en" ? "Checking your channel membership with Telegram…" : "جارٍ فحص اشتراكك لدى Telegram…");
+    const result = await onCheck();
+    setNotice(result
+      ? result.gate
+        ? (lang === "en" ? "Telegram has not confirmed the subscription yet. Join the channel, then check again." : "لم يظهر اشتراكك بعد. تأكد من الانضمام إلى القناة ثم أعد الفحص.")
+        : (lang === "en" ? "✅ Subscription confirmed." : "✅ تم تأكيد الاشتراك.")
+      : (lang === "en" ? "Could not check membership. Check your connection and try again." : "تعذّر فحص الاشتراك الآن. تحقق من اتصالك وحاول مجدداً."));
+    setBusy(false);
+  };
   return (
     <main className="mx-auto max-w-md p-4">
       <Empty icon="📢" title={tr(lang, "gateTitle")} sub={`${tr(lang, "gateSub")} @${channel}`}
-        action={<div className="flex flex-col gap-2"><Btn onClick={() => open(`https://t.me/${channel}`)}>{tr(lang, "gateJoin")}</Btn><Btn kind="soft" onClick={onCheck}>{tr(lang, "gateCheck")}</Btn></div>} />
+        action={<div className="flex flex-col gap-2">
+          <Btn disabled={busy} onClick={() => open(`https://t.me/${channel}`)}>{tr(lang, "gateJoin")}</Btn>
+          <Btn kind="soft" disabled={busy} onClick={() => void check()}>{busy ? (lang === "en" ? "Checking…" : "جارٍ الفحص…") : tr(lang, "gateCheck")}</Btn>
+          {notice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{notice}</p>}
+        </div>} />
     </main>
   );
 }
