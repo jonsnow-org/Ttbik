@@ -761,6 +761,14 @@
         "sham-curated-ar-books"
       ]
     },
+    "sham_inventory": {
+      "file": ".github/workflows/sham-inventory.yml",
+      "title": "جرد أوزان شام (قراءة فقط): سلامة، مسافة عن الرأس، درجات الميزان، منحنى الخلط، حكم لكل سلالة",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_embedded_env_probe": {
       "file": ".github/workflows/sham-embedded-env-probe.yml",
       "title": "فحص بيئة استوديوهي شام (قراءة فقط) لمعرفة ما يتيحه لسطح مكتب مدمج",
