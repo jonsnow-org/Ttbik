@@ -7,6 +7,7 @@
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow, JobsProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeRequiredChannel, requiredChannelChatId } from "@/lib/telegramChannel";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 import {
   PROFESSIONAL_CATEGORIES, ROLES, acceptOfferCore, adminMessageCore, blockUser, chargeJobsUser, confirmReceivedCore, contactUrlOf, counterOfferCore,
@@ -40,7 +41,9 @@ async function passesChannelGate(bot: TelegramBot, botRow: BotRow, tgId: string,
   const hit = gateCache.get(key);
   if (!fresh && hit && Date.now() - hit.at < 5 * 60_000) return hit.ok;
   // Same rule as the chat: fail open when the channel or the bot's admin rights are misconfigured.
-  const m = await bot.api.getChatMember(`@${botRow.requiredChannel.replace(/^@/, "")}`, Number(tgId)).catch(() => null);
+  const channel = normalizeRequiredChannel(botRow.requiredChannel);
+  if (!channel) return false;
+  const m = await bot.api.getChatMember(requiredChannelChatId(channel) as any, Number(tgId)).catch(() => null);
   const ok = !m || ["creator", "administrator", "member"].includes(m.status);
   gateCache.set(key, { at: Date.now(), ok });
   return ok;
