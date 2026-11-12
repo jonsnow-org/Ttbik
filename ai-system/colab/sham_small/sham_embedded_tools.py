@@ -91,6 +91,29 @@ def run_call(call: dict, session: str) -> str:
     return result
 
 
+def environment_report() -> dict:
+    """What this Studio container can do for an embedded graphical desktop: the user it runs as, package tools, free memory, cores. Read-only; runs nothing but `which`."""
+    import os
+    import shutil
+    mem = None
+    try:
+        for line in open("/proc/meminfo", encoding="utf-8"):
+            if line.startswith("MemAvailable:"):
+                mem = int(line.split()[1]) // 1024
+                break
+    except OSError:
+        pass
+    tools = ("Xvfb", "Xvnc", "xdotool", "openbox", "tint2", "xterm", "pcmanfm", "xclip", "scrot", "import", "chromium", "chrome", "apt-get", "pip", "node", "git", "ffmpeg")
+    return {
+        "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "root": bool(hasattr(os, "geteuid") and os.geteuid() == 0),
+        "cpus": os.cpu_count(),
+        "mem_available_mb": mem,
+        "tools": {t: bool(shutil.which(t)) for t in tools},
+        "home_writable": os.access(os.path.expanduser("~"), os.W_OK),
+    }
+
+
 def view(session: str, action: str, path: str = "", id: str = "") -> dict:
     """READ-ONLY look at a session's workspace for the owner's Mini App screen (files, a file, jobs, a job log, what the model just did). It runs nothing and writes nothing."""
     key = (session or "default").strip() or "default"
@@ -98,6 +121,8 @@ def view(session: str, action: str, path: str = "", id: str = "") -> dict:
         c = computer_for(key)
         if action == "activity":
             return {"ok": True, "activity": list(_ACTIVITY.get(key, []))}
+        if action == "env":
+            return {"ok": True, "env": environment_report()}
         if action == "list":
             return {"ok": True, "output": c.read(path or ".")}
         if action == "read":
@@ -106,7 +131,7 @@ def view(session: str, action: str, path: str = "", id: str = "") -> dict:
             return {"ok": True, "output": c.job("list")}
         if action == "job_log":
             return {"ok": True, "output": c.job("log", id=id)}
-        return {"ok": False, "error": "the Shams' computer screen is read-only here: list, read, job_list, job_log, activity"}
+        return {"ok": False, "error": "the Shams' computer screen is read-only here: list, read, job_list, job_log, activity, env"}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
