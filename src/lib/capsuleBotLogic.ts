@@ -5,6 +5,7 @@ import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
+import { claimFriendCapsule } from "@/lib/capsuleClaim";
 
 /**
  * CAPSULE_BOT template — «كبسولة الزمن» ⏳. Write a message to your future
@@ -237,7 +238,19 @@ async function claimCapsule(bot: TelegramBot, chatId: number, tgUserId: string, 
     await bot.api.sendMessage(chatId, "⚠️ حُجزت هذه الكبسولة لشخص آخر.", { reply_markup: mainMenu() });
     return;
   }
-  await prisma.capsule.update({ where: { id: cap.id }, data: { recipientId: tgUserId } });
+  const claim = await claimFriendCapsule(cap.id, tgUserId);
+  if (claim === "taken") {
+    await bot.api.sendMessage(chatId, "⚠️ حُجزت هذه الكبسولة لشخص آخر.", { reply_markup: mainMenu() });
+    return;
+  }
+  if (claim === "unavailable") {
+    await bot.api.sendMessage(chatId, "⚠️ لم تعد هذه الكبسولة متاحة للحجز.", { reply_markup: mainMenu() });
+    return;
+  }
+  if (claim === "already_claimed") {
+    await bot.api.sendMessage(chatId, `✅ هذه الكبسولة محجوزة لك بالفعل، وستصلك في ${fmtDate(cap.deliverAt)}.`, { reply_markup: mainMenu() });
+    return;
+  }
   await bot.api.sendMessage(
     chatId,
     `🎁 حُجزت لك كبسولة من صديق!\n\nستصلك رسالته في ${fmtDate(cap.deliverAt)} — لا تحذف البوت حتى ذلك الحين ⏳\n\nيمكنك أيضاً كتابة كبسولة لنفسك:`,
