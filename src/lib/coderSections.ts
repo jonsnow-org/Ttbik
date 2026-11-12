@@ -2494,6 +2494,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
       }
     }
+    // A task must always END with a report. Owner 2026-11-12: Nova read a repository for about 5 hours and never gave a clear report. After a wall-clock budget
+    // (CODER_TASK_WRAP_MIN, default 30 min; 0 = off) the next step is the last: tools are withdrawn and the model writes the report from what it has read,
+    // saying what is missing; the user can then ask it to continue. Agents keep their own step budgets.
+    const wrapMs = (Number(process.env.CODER_TASK_WRAP_MIN ?? 30) || 0) * 60000;
+    if (wrapMs > 0 && !run.agent && !run.softSteps && run.step > 0 && Date.now() - (run.startedAt || Date.now()) > wrapMs) {
+      run.softSteps = run.step + 1;
+      await taskEvent(run.id, "info", "⏱️ انتهت ميزانية الوقت للمهمة؛ الخطوة التالية هي كتابة التقرير بما تمّت قراءته.");
+    }
     const softLast = Boolean(run.softSteps && run.step >= run.softSteps - 1);
     if (softLast && !run.softWarned) {
       run.softWarned = true;
