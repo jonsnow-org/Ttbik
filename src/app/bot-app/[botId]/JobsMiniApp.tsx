@@ -64,6 +64,11 @@ function Shell() {
     return r;
   }, [api]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const onReturn = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onReturn);
+    return () => document.removeEventListener("visibilitychange", onReturn);
+  }, [load]);
   const reload = useCallback(async () => { await load(); }, [load]);
   const checkGate = async () => {
     if (gateBusy) return;
