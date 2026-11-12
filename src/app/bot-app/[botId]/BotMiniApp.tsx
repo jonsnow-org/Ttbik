@@ -8,6 +8,7 @@ import {
   type Lang, type Screen,
 } from "./ui";
 import { AD_STATUS, TX_LABEL, tr } from "./strings";
+import { waitForPhoneVerification } from "@/lib/botApp/phoneVerification";
 import RemitSection from "./Remit";
 import ExchangeSection from "./Exchange";
 
@@ -46,12 +47,13 @@ function Shell() {
   const { api, stack, setLang, lang, tg } = useApp();
   const [init, setInit] = useState<Init | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const load = useCallback(async (action = "init") => {
+  const load = useCallback(async (action = "init"): Promise<Init | null> => {
     const r = (await api<Init>(action)) as Init;
-    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return; }
+    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return null; }
     setFailed(null);
     setInit(r);
     setLang(r.user.lang);
+    return r;
   }, [api, setLang]);
   useEffect(() => { void load(); }, [load]);
   // Fresh balance when the user comes back to the app (after paying an invoice, sharing the phone, joining a channel...).
@@ -86,12 +88,30 @@ function Shell() {
   );
 }
 
-function Gate({ channel, onCheck }: { channel: string; onCheck: () => void }) {
+function Gate({ channel, onCheck }: { channel: string; onCheck: () => Promise<Init | null> }) {
   const { lang, open } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const check = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice(lang === "en" ? "Checking your channel membership with Telegram…" : "جارٍ فحص اشتراكك لدى Telegram…");
+    const result = await onCheck();
+    setNotice(result
+      ? result.gate
+        ? (lang === "en" ? "Telegram has not confirmed the subscription yet. Join the channel, then check again." : "لم يظهر اشتراكك بعد. تأكد من الانضمام إلى القناة ثم أعد الفحص.")
+        : (lang === "en" ? "✅ Subscription confirmed." : "✅ تم تأكيد الاشتراك.")
+      : (lang === "en" ? "Could not check membership. Check your connection and try again." : "تعذّر فحص الاشتراك الآن. تحقق من اتصالك وحاول مجدداً."));
+    setBusy(false);
+  };
   return (
     <main className="mx-auto max-w-md p-4">
       <Empty icon="📢" title={tr(lang, "gateTitle")} sub={`${tr(lang, "gateSub")} @${channel}`}
-        action={<div className="flex flex-col gap-2"><Btn onClick={() => open(`https://t.me/${channel}`)}>{tr(lang, "gateJoin")}</Btn><Btn kind="soft" onClick={onCheck}>{tr(lang, "gateCheck")}</Btn></div>} />
+        action={<div className="flex flex-col gap-2">
+          <Btn disabled={busy} onClick={() => open(`https://t.me/${channel}`)}>{tr(lang, "gateJoin")}</Btn>
+          <Btn kind="soft" disabled={busy} onClick={() => void check()}>{busy ? (lang === "en" ? "Checking…" : "جارٍ الفحص…") : tr(lang, "gateCheck")}</Btn>
+          {notice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{notice}</p>}
+        </div>} />
     </main>
   );
 }
@@ -165,6 +185,9 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
   const [cards, setCards] = useState<Card[] | null>(null);
   const [state, setState] = useState<Record<string, { until?: number; opened?: boolean; busy?: boolean; done?: number }>>({});
   const [need, setNeed] = useState<{ kind: "phone" | "link"; platform?: string } | null>(null);
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneNotice, setPhoneNotice] = useState("");
+  const phoneFlowInFlight = useRef(false);
   const [, tick] = useState(0);
   useEffect(() => { const i = window.setInterval(() => tick((x) => x + 1), 500); return () => window.clearInterval(i); }, []);
   const load = useCallback(async (t: string) => {
@@ -174,6 +197,9 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
     if (!r.ok) toast(r.error || "", "err");
   }, [api, toast]);
   useEffect(() => { void load(type); }, [type, load]);
+  useEffect(() => {
+    if (init.user.phoneVerified) setNeed((current) => current?.kind === "phone" ? null : current);
+  }, [init.user.phoneVerified]);
 
   // Keep the latest state in a ref: the focus listeners must not depend on
   // state itself, otherwise every countdown update re-registers them and can
@@ -246,15 +272,63 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
     toast(r.ok ? r.message : r.error || "", r.ok ? "ok" : "err");
     if (r.ok) skip(c);
   };
-  const sharePhone = async () => {
-    // Telegram's own contact request: the bot receives the contact and verifies it exactly as in the chat.
-    if (tg?.requestContact && tg.isVersionAtLeast?.("6.9")) {
-      tg.requestContact((sent: boolean) => { if (sent) { toast("✓"); setNeed(null); window.setTimeout(onBalance, 1500); } });
-      return;
+  const checkPhone = async (alreadyLocked = false) => {
+    if (!alreadyLocked) {
+      if (phoneFlowInFlight.current) return;
+      phoneFlowInFlight.current = true;
     }
-    await api("phone_prompt");
-    toast(tr(lang, "phoneSent"));
-    setNeed(null);
+    setPhoneBusy(true);
+    setPhoneNotice(lang === "en" ? "Waiting for Telegram to confirm your number…" : "جارٍ التأكد من وصول رقمك إلى البوت…");
+    const verified = await waitForPhoneVerification(async () => {
+      const r = await api<Init>("init");
+      return { ok: !!r.ok, phoneVerified: !!r.ok && r.user?.phoneVerified === true };
+    }, { attempts: 25, intervalMs: 1_000 });
+    phoneFlowInFlight.current = false;
+    setPhoneBusy(false);
+    if (verified) {
+      setNeed(null);
+      setPhoneNotice("");
+      toast(lang === "en" ? "Phone number verified ✓" : "✅ تم التحقق من رقم هاتفك.");
+      onBalance();
+    } else {
+      setPhoneNotice(lang === "en"
+        ? "The bot has not confirmed your number yet. Share it in the bot chat, then tap Check again."
+        : "لم يصل تأكيد المشاركة بعد. افتح محادثة البوت وشارك رقمك من زر تيليجرام الرسمي، ثم اضغط «تحقّق» هنا.");
+    }
+  };
+  const sharePhone = () => {
+    if (phoneFlowInFlight.current) return;
+    // Feature-detect requestContact directly; do not depend on an optional version helper.
+    if (typeof tg?.requestContact === "function") {
+      phoneFlowInFlight.current = true;
+      setPhoneBusy(true);
+      setPhoneNotice(lang === "en" ? "Complete Telegram's phone-sharing prompt…" : "أكمل نافذة Telegram لمشاركة رقم هاتفك…");
+      try {
+        tg.requestContact((sent: boolean) => {
+          if (!sent) {
+            phoneFlowInFlight.current = false;
+            setPhoneBusy(false);
+            setPhoneNotice(lang === "en" ? "The phone number was not shared. You can try again." : "لم تتم مشاركة رقم الهاتف. يمكنك المحاولة مجدداً.");
+            return;
+          }
+          void checkPhone(true);
+        });
+        return;
+      } catch {
+        phoneFlowInFlight.current = false;
+        setPhoneBusy(false);
+      }
+    }
+    void (async () => {
+      const r = await api("phone_prompt");
+      if (!r.ok) {
+        toast(r.error || (lang === "en" ? "Could not open phone sharing." : "تعذّر إرسال طلب مشاركة الرقم."), "err");
+        return;
+      }
+      setPhoneNotice(lang === "en"
+        ? "A phone-sharing button was sent to the bot chat. Share your number there, then return and tap Check."
+        : "أرسلنا زر مشاركة الرقم إلى محادثة البوت. شارك رقمك هناك، ثم ارجع واضغط «تحقّق».");
+    })();
   };
 
   return (
@@ -262,7 +336,14 @@ function Earn({ init, onBalance }: { init: Init; onBalance: () => void }) {
       <ScreenTitle icon="👀" title={tr(lang, "watchEarn")} sub={tr(lang, "watchEarnSub")} />
       <div className="mb-3"><Chips wrap={false} items={init.config.types.map((x) => ({ id: x.type, label: lang === "en" ? x.en : x.ar }))} value={type} onChange={setType} /></div>
       {need?.kind === "phone" && (
-        <Section><Empty icon="📱" title={tr(lang, "phoneTitle")} sub={tr(lang, "phoneSub")} action={<Btn onClick={sharePhone}>{tr(lang, "phoneBtn")}</Btn>} /></Section>
+        <Section>
+          <Empty icon="📱" title={tr(lang, "phoneTitle")} sub={tr(lang, "phoneSub")}
+            action={<div className="flex flex-col gap-2">
+              <Btn disabled={phoneBusy} onClick={sharePhone}>{phoneBusy ? (lang === "en" ? "Checking…" : "جارٍ التحقق…") : tr(lang, "phoneBtn")}</Btn>
+              <Btn kind="soft" disabled={phoneBusy} onClick={() => void checkPhone()}>{lang === "en" ? "I shared it — check" : "شاركته، تحقّق"}</Btn>
+              {phoneNotice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{phoneNotice}</p>}
+            </div>} />
+        </Section>
       )}
       {need?.kind === "link" && (
         <Section><Empty icon="🔗" title={tr(lang, "linkTitle")} sub={need.platform ? need.platform.toUpperCase() : ""}

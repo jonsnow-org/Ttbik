@@ -3,7 +3,8 @@
 // The jobs/store bot's own Mini App (JOBS_BOT, @Saragptbotbot). It mirrors the bot: 🛒 the store (sell listings and buy requests,
 // offers, escrow), 🛍 seller shops, 📂 my orders, 💼 work, 🏷 tenders, 💰 balance and 👤 profile — the same rules as the chat
 // (src/lib/botApp/jobsApp.ts). Nothing here opens the website.
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { waitForPhoneVerification } from "@/lib/botApp/phoneVerification";
 import { AppFrame, AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, useApp, type Screen } from "./ui";
 import { StoreScreen, ProductScreen, WantedScreen, ListingForm, WantedForm, ShopsScreen, ShopScreen, MyShopScreen, OrdersScreen } from "./JobsStore";
 import { WorkScreen, JobScreen, ProScreen, TendersScreen, TenderBidsScreen, TenderBidScreen } from "./JobsWork";
@@ -50,14 +51,35 @@ function Shell() {
   const { api, stack, open, tg, toast } = useApp();
   const [init, setInit] = useState<JobsInit | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const load = useCallback(async (action = "init") => {
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneNotice, setPhoneNotice] = useState("");
+  const phoneFlowInFlight = useRef(false);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateNotice, setGateNotice] = useState("");
+  const load = useCallback(async (action = "init"): Promise<JobsInit | null> => {
     const r = (await api<JobsInit>(action)) as JobsInit;
-    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return; }
+    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return null; }
     setFailed(null);
     setInit(r);
+    return r;
   }, [api]);
   useEffect(() => { void load(); }, [load]);
-  const reload = useCallback(() => load(), [load]);
+  useEffect(() => {
+    const onReturn = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onReturn);
+    return () => document.removeEventListener("visibilitychange", onReturn);
+  }, [load]);
+  const reload = useCallback(async () => { await load(); }, [load]);
+  const checkGate = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    setGateNotice("جارٍ فحص اشتراكك لدى Telegram…");
+    const result = await load("gate_check");
+    setGateNotice(result
+      ? result.gate ? "لم يظهر اشتراكك بعد. تأكد من الانضمام إلى القناة ثم أعد الفحص." : "✅ تم تأكيد الاشتراك."
+      : "تعذّر فحص الاشتراك الآن. تحقق من اتصالك وحاول مجدداً.");
+    setGateBusy(false);
+  };
 
   if (failed && !init) return <div className="mx-auto max-w-md p-4"><Empty icon="⚠️" title={failed} sub="افتح التطبيق من زر «التطبيق» في محادثة البوت." action={<Btn onClick={() => void load()}>إعادة المحاولة</Btn>} /></div>;
   if (!init) return <div className="mx-auto max-w-md p-4"><div className="h-40 animate-pulse rounded-3xl" style={{ background: "var(--app-card)" }} /><div className="mt-4"><Loading lines={4} /></div></div>;
@@ -65,30 +87,77 @@ function Shell() {
     return (
       <main className="mx-auto max-w-md p-4">
         <Empty icon="📡" title="اشترك في القناة أولاً" sub={`هذا البوت يطلب الاشتراك في @${init.gate.channel} قبل الاستخدام.`}
-          action={<div className="flex flex-col gap-2"><Btn onClick={() => open(`https://t.me/${init.gate!.channel}`)}>اشترك في القناة</Btn><Btn kind="soft" onClick={() => void load("gate_check")}>اشتركت، تحقّق</Btn></div>} />
+          action={<div className="flex flex-col gap-2">
+            <Btn disabled={gateBusy} onClick={() => open(`https://t.me/${init.gate!.channel}`)}>اشترك في القناة</Btn>
+            <Btn kind="soft" disabled={gateBusy} onClick={() => void checkGate()}>{gateBusy ? "جارٍ فحص الاشتراك…" : "اشتركت، تحقّق"}</Btn>
+            {gateNotice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{gateNotice}</p>}
+          </div>} />
       </main>
     );
   }
   if (!init.phoneVerified) {
+    const checkPhone = async (alreadyLocked = false) => {
+      if (!alreadyLocked) {
+        if (phoneFlowInFlight.current) return;
+        phoneFlowInFlight.current = true;
+      }
+      setPhoneBusy(true);
+      setPhoneNotice("جارٍ التأكد من وصول رقمك إلى البوت…");
+      const verified = await waitForPhoneVerification(async () => {
+        const r = (await api<JobsInit>("init")) as JobsInit;
+        if (r.ok) {
+          setFailed(null);
+          setInit(r);
+        } else {
+          setFailed(r.error || "تعذّر تحديث حالة التحقق");
+        }
+        return { ok: !!r.ok, phoneVerified: !!r.ok && r.phoneVerified === true };
+      }, { attempts: 25, intervalMs: 1_000 });
+      phoneFlowInFlight.current = false;
+      setPhoneBusy(false);
+      if (verified) {
+        setPhoneNotice("✅ تم تأكيد رقم هاتفك.");
+        toast("✅ تم التحقق من رقم هاتفك.");
+      } else {
+        setPhoneNotice("لم يصل تأكيد المشاركة بعد. افتح محادثة البوت، وشارك رقمك من زر تيليجرام، ثم اضغط «شاركته، تحقّق» هنا.");
+      }
+    };
     const share = () => {
-      // Telegram's own «share my phone number» sheet: the number reaches the bot chat, which verifies it exactly like the chat button.
-      if (tg?.requestContact && tg.isVersionAtLeast?.("6.9")) {
+      if (phoneFlowInFlight.current) return;
+      // Feature-detect the method itself: some Telegram clients expose requestContact
+      // without a reliable isVersionAtLeast implementation.
+      if (typeof tg?.requestContact === "function") {
+        phoneFlowInFlight.current = true;
+        setPhoneBusy(true);
+        setPhoneNotice("أكمل نافذة Telegram لمشاركة رقم هاتفك…");
         try {
-          tg.requestContact((ok: boolean) => {
-            if (!ok) return;
-            toast("✅ تم إرسال رقمك، جارٍ التحقق…");
-            let n = 0;
-            const t = window.setInterval(async () => { n++; await load(); if (n >= 5) window.clearInterval(t); }, 1500);
+          tg.requestContact((shared: boolean) => {
+            if (!shared) {
+              phoneFlowInFlight.current = false;
+              setPhoneBusy(false);
+              setPhoneNotice("لم تتم مشاركة رقم الهاتف. يمكنك المحاولة مجدداً.");
+              return;
+            }
+            void checkPhone(true);
           });
           return;
-        } catch { /* fall through */ }
+        } catch {
+          phoneFlowInFlight.current = false;
+          setPhoneBusy(false);
+        }
       }
+      setPhoneNotice("افتح محادثة البوت وشارك رقم هاتفك من زر تيليجرام الرسمي، ثم ارجع إلى التطبيق للتحقق.");
       if (init.bot.username) open(`https://t.me/${init.bot.username}`);
     };
     return (
       <main className="mx-auto max-w-md p-4">
         <Empty icon="📱" title="تحقق من رقم هاتفك" sub="التحقق من رقم الهاتف خطوة إلزامية قبل استخدام هذا البوت (يحمي المشترين والبائعين من الحسابات الوهمية)."
-          action={<div className="flex flex-col gap-2"><Btn onClick={share}>📱 مشاركة رقم الهاتف</Btn><Btn kind="soft" onClick={() => void load()}>شاركته، تحقّق</Btn></div>} />
+          action={<div className="flex flex-col gap-2">
+            <Btn disabled={phoneBusy} onClick={share}>{phoneBusy ? "جارٍ التحقق…" : "📱 مشاركة رقم الهاتف"}</Btn>
+            <Btn kind="soft" disabled={phoneBusy} onClick={() => void checkPhone()}>شاركته، تحقّق</Btn>
+            {init.bot.username && <Btn kind="ghost" disabled={phoneBusy} onClick={() => open(`https://t.me/${init.bot.username}`)}>فتح محادثة البوت</Btn>}
+            {phoneNotice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{phoneNotice}</p>}
+          </div>} />
       </main>
     );
   }
