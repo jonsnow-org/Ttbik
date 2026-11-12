@@ -63,7 +63,7 @@ _ALLOWED_UNARY: dict[type, Callable[[Any], Any]] = {ast.UAdd: operator.pos, ast.
 
 
 def safe_arithmetic(expression: str) -> int | float:
-    """Evaluate a tiny arithmetic grammar; no eval(), names, calls, attributes or imports."""
+    """Evaluate a tiny arithmetic grammar; no dynamic code evaluation, names, calls, attributes or imports."""
     if len(expression) > 120:
         raise ValueError("expression too long")
     node = ast.parse(expression, mode="eval").body
