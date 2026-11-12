@@ -136,7 +136,7 @@ export function AppProvider({ botId, initial, lang, setLang, children }: { botId
       {children}
       {toastMsg && (
         <div role="status" aria-live="polite" aria-atomic="true" className="fixed inset-x-3 z-50 mx-auto max-w-md rounded-2xl px-4 py-3 text-center text-sm font-bold shadow-lg"
-          style={{ background: toastMsg.kind === "ok" ? "#0f766e" : "#b91c1c", color: "#fff", bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}>{toastMsg.text}</div>
+          style={{ background: toastMsg.kind === "ok" ? "#0f766e" : "#b91c1c", color: "#fff", bottom: "calc(5rem + var(--app-safe-bottom))" }}>{toastMsg.text}</div>
       )}
     </AppCtx.Provider>
   );
@@ -158,7 +158,7 @@ export function MainAction({ text, onClick, disabled, busy, color }: { text: str
   }, [native, tg, text, disabled, busy, color]);
   if (native) return null;
   return (
-    <div className="sticky bottom-0 z-20 -mx-4 mt-4 px-4 pt-2" style={{ background: "linear-gradient(to top, var(--app-bg) 70%, transparent)", paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}>
+    <div className="sticky bottom-0 z-20 -mx-4 mt-4 px-4 pt-2" style={{ background: "linear-gradient(to top, var(--app-bg) 70%, transparent)", paddingBottom: "calc(1rem + var(--app-safe-bottom))" }}>
       <button type="button" onClick={onClick} disabled={disabled || busy}
         className="w-full rounded-xl py-3.5 text-base font-extrabold shadow-sm transition active:scale-[0.99] disabled:opacity-50"
         style={{ background: color || "var(--app-btn)", color: "var(--app-btn-text)" }}>{busy ? "…" : text}</button>
@@ -324,6 +324,7 @@ export function useInnerBack(active: boolean, onBack: () => void) {
 /** Telegram theme colours (set by telegram-web-app.js as --tg-theme-*) mapped to the app's own variables, with light fallbacks. */
 export const THEME: React.CSSProperties = {
   ["--app-bg" as any]: "var(--tg-theme-secondary-bg-color, #f1f2f6)",
+  ["--app-safe-bottom" as any]: "max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px))",
   ["--app-card" as any]: "var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff))",
   ["--app-text" as any]: "var(--tg-theme-text-color, #0f172a)",
   ["--app-hint" as any]: "var(--tg-theme-hint-color, #6b7280)",
@@ -338,7 +339,7 @@ export const THEME: React.CSSProperties = {
 
 export function AppFrame({ lang, children }: { lang: Lang; children: React.ReactNode }) {
   return (
-    <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100dvh", paddingBottom: "env(safe-area-inset-bottom, 0px)", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
+    <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100dvh", paddingBottom: "var(--app-safe-bottom)", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
       {children}
     </div>
   );
