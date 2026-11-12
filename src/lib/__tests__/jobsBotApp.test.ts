@@ -98,6 +98,7 @@ const api = {
   createInvoiceLink: jest.fn(async () => "https://t.me/$jobs"),
   sendMessage: jest.fn(async () => ({})),
   answerCallbackQuery: jest.fn(async () => true),
+  setChatMenuButton: jest.fn(async () => true),
 };
 jest.mock("grammy", () => {
   const actual = jest.requireActual("grammy");
@@ -285,7 +286,10 @@ describe("chat callbacks", () => {
     user("88", 100);
     const o: any = await createOfferCore("88", "LISTING", listing("77"), "50");
     jest.clearAllMocks();
-    await handleJobsBotUpdate({ api } as any, bots["bot-j"], { callback_query: { id: "cq", from: { id: 77 }, data: `joffer_accept|${o.offer.id}`, message: { chat: { id: 77 } } } });
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], { callback_query: { id: "cq", from: { id: 77 }, data: `joffer_accept|${o.offer.id}`, message: { chat: { id: 77, type: "private" } } } });
+    expect(api.setChatMenuButton).toHaveBeenCalledWith({
+      menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: expect.stringContaining("/bot-app/bot-j") } },
+    });
     expect(api.answerCallbackQuery).toHaveBeenCalledWith("cq", expect.objectContaining({ show_alert: true }));
     expect(db.storeOffer.updateMany).not.toHaveBeenCalled();
     expect(orders()).toHaveLength(0);
