@@ -6,7 +6,7 @@ const source = (relative: string) => fs.readFileSync(path.join(__dirname, "..", 
 describe("Mini App entry point coverage across supported bots", () => {
   it("ads and earnings bot registers its app menu on start and activation", () => {
     expect(source("adBotLogic.ts")).toContain("ensureBotAppMenu(botRow)");
-    expect(source("../app/api/bots/deploy/route.ts")).toContain("setBotAppMenu(token, gateUrl(), botId)");
+    expect(fs.readFileSync(path.join(__dirname, "..", "..", "app", "api", "bots", "deploy", "route.ts"), "utf8")).toContain("setBotAppMenu(token, gateUrl(), botId)");
   });
 
   it("jobs, chains, and match bots register their own Mini Apps", () => {
