@@ -36,6 +36,7 @@ describe("Mini App entry points are visible and actionable in their owning bots"
     expect(src).toMatch(/\[MATCH_APP_BUTTON\]/);
     expect(src).toMatch(/if \(text === MATCH_APP_BUTTON\)[\s\S]*?new InlineKeyboard\(\)\.webApp/);
     expect(src).toContain('const ADMIN_APP_BUTTON = "📱 التطبيق المصغر"');
+    expect(src).toContain('text: "🛡 لوحة القيادة"');
     expect(src).toMatch(/if \(commandsReady && menuReady\) setupDone\.add\(botId\)/);
   });
 
