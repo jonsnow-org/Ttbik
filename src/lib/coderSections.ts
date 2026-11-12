@@ -2563,7 +2563,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
       // one fixed example pair (same text every time, so the Studio caches it): a small model answered «من انت» by repeating the question (live LFM2.5, 2026-11-04)
       const who = modelDisplayName(novaModelOf(st.model));
-      const example: CoderMessage[] = prof.klass === "trivial" ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
+      // the one-shot example is ONLY for a greeting / "who are you": a small model (LFM2.5) copied its identity answer to "capital of Egypt" and "capital of Syria" (live task suite 2026-11-12)
+      const askedWho = /(?:من\s+(?:أنت|انت)|مرحب|أهلا|اهلا|السلام|who are you|^\s*(?:hi|hello|hey)\b)/i.test(String([...plain].reverse().find((m) => m.role === "user")?.content || ""));
+      const example: CoderMessage[] = prof.klass === "trivial" && askedWho ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
       // the language rule is explicit: LFM2.5 answered the Arabic «من انت» in English (live 2026-11-04). Two fixed texts (Arabic / other), so the cache still holds.
       const lastUserText = String([...plain].reverse().find((m) => m.role === "user")?.content || "");
       const arabic = /[\u0600-\u06FF]/.test(lastUserText);
