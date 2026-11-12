@@ -3535,5 +3535,5 @@ export async function ensureMatchBotSetup(bot: TelegramBot, botId: string) {
   if (commandsReady && menuReady) setupDone.add(botId);
 }
 async function setAdminMenuButton(bot: TelegramBot, botId: string, chatId: number) {
-  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
+  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "🛡 لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
 }
