@@ -40,7 +40,8 @@ export const useApp = () => useContext(AppCtx)!;
 export function AppProvider({ botId, initial, lang, setLang, children }: { botId: string; initial: Screen; lang: Lang; setLang: (l: Lang) => void; children: React.ReactNode }) {
   const tg = getTg();
   const [stack, setStack] = useState<Screen[]>(initial.name === "home" ? [initial] : [{ name: "home" }, initial]);
-  const [toastMsg, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
+  const [toastMsg, setToast] = useState<{ id: number; text: string; kind: "ok" | "err" } | null>(null);
+  const toastSequence = useRef(0);
   const dirty = useRef(false);
   const intercept = useRef<(() => void) | null>(null);
   const interceptBack = useCallback((fn: (() => void) | null) => { intercept.current = fn; }, []);
@@ -52,9 +53,10 @@ export function AppProvider({ botId, initial, lang, setLang, children }: { botId
     try { if (kind === "light") h.impactOccurred("light"); else h.notificationOccurred(kind); } catch { /* old clients */ }
   }, [tg]);
   const toast = useCallback((text: string, kind: "ok" | "err" = "ok") => {
-    setToast({ text, kind });
+    const id = ++toastSequence.current;
+    setToast({ id, text, kind });
     haptic(kind === "ok" ? "success" : "error");
-    window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 3200);
+    window.setTimeout(() => setToast((current) => (current?.id === id ? null : current)), 3200);
   }, [haptic]);
   const confirm = useCallback((text: string) => new Promise<boolean>((resolve) => {
     if (tg?.showConfirm && tg.platform !== "unknown") { try { tg.showConfirm(text, (ok: boolean) => resolve(!!ok)); return; } catch { /* fall through */ } }
@@ -133,8 +135,8 @@ export function AppProvider({ botId, initial, lang, setLang, children }: { botId
     <AppCtx.Provider value={value}>
       {children}
       {toastMsg && (
-        <div role="status" className="fixed inset-x-3 bottom-4 z-50 mx-auto max-w-md rounded-2xl px-4 py-3 text-center text-sm font-bold shadow-lg"
-          style={{ background: toastMsg.kind === "ok" ? "#0f766e" : "#b91c1c", color: "#fff" }}>{toastMsg.text}</div>
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed inset-x-3 z-50 mx-auto max-w-md rounded-2xl px-4 py-3 text-center text-sm font-bold shadow-lg"
+          style={{ background: toastMsg.kind === "ok" ? "#0f766e" : "#b91c1c", color: "#fff", bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}>{toastMsg.text}</div>
       )}
     </AppCtx.Provider>
   );
