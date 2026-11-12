@@ -54,3 +54,17 @@
 ## المطلوب في رد المراجعة
 
 قدّم جدولًا يذكر: الملفات المقبولة، الملفات التي تحتاج تعديلًا، المخاطر، تحويل تنسيق البيانات إلى شام، الاختبارات المطلوبة، وأثر الموارد على CPU وRAM. لا تبدأ الربط قبل اعتماد المراجعة.
+
+## ملحق البيانات الموسعة — 12 نوفمبر 2026
+
+أُضيف فهرس ومجموعة عينات ومستورد متدفق في:
+- `DATA_EXPANSION_AR.md`
+- `data/catalog/dataset_sources.json`
+- `data/samples/aya_human_arabic_sample.jsonl`
+- `data/samples/teacher_outputs_public_sample.jsonl`
+- `data/samples/gpt6_teacher_seed.jsonl`
+- `tools/import_hf_sources.py`
+
+افحص الفهرس، خصوصاً Jais-3 Data (نص عربي خام + QA + SFT)، Aya human annotations، Arabic-OpenHermes، Tiny Aya Arabic reasoning، ومجموعات OpenR1. لا تخلط مجموعات النص الخام مع SFT؛ المستورد يصنف النص الخام `corpus_candidate` حتى مراجعة المنشأ، ولا يصف كل مجموعة بأنها بشرية. ملفات GPT-6 استجابات مولدة فعلياً في جلسة التأليف الحالية وليست API خارجياً؛ تعامل معها كبيانات معلم غير مراجعة حتى التحقق. عينات المصادر العامة تحتفظ بمعرف المصدر وتظل pending. المستورد يستعمل streaming ويستبعد حقول think/think_faster وكتل التفكير المطولة ويستخرج الإجابة النهائية فقط. راجع DATA_EXPANSION_AR.md لأوامر التشغيل والحدود.
+
+لم تُعدّل أي نقطة تشغيل أو وزن أو تدريب في Sham v1، ولم تُربط هذه البيانات بالنموذج.
