@@ -391,6 +391,8 @@ def serve_input(session: str, args: dict) -> dict:
     action = str((args or {}).get("action") or "status").lower()
     d = desktop_for(session, create=action == "start")
     if d is None:
+        if action in ("status", "stop", "state"):
+            return {"ok": True, "phase": "stopped"}        # a viewer asking about a desktop that was never started (or was stopped when idle): "stopped" is an answer, and lets it start one
         return {"ok": False, "error": "the desktop is not running"}
     if action == "start":
         return d.start(args.get("width"), args.get("height"))
@@ -460,6 +462,8 @@ def _selftest() -> None:
     offer = pop_show("tool-session")
     assert offer is None or offer["session"] == "tool-session"                                                  # frame grabbing is stubbed off here; the offer is read once
     assert pop_show("tool-session") is None
+    assert serve_input("never-seen", {"action": "status"}) == {"ok": True, "phase": "stopped"}                  # the viewer can then start one
+    assert serve_input("never-seen", {"action": "click"})["ok"] is False
     assert "error" in run_tool({"action": "start"}, "s3") or True
     print("sham_desktop self-test OK: one display per session, bounded input, memory guard, text view for the model, JPEG for the human")
 
