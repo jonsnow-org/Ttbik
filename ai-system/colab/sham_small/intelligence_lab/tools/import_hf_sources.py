@@ -160,10 +160,11 @@ def convert_row(source: str, row: dict, index: int, config: str) -> list[dict]:
         if not text_value:
             return []
         return [{"record_id": _stable_id(sid, text_value[:500]), "record_type": "raw_corpus",
-                 "source_kind": "synthetic_corpus" if source == "cosmopedia_raw" else "natural_corpus",
+                 "source_kind": "synthetic_corpus" if source in {"cosmopedia_raw", "smollm_raw"} else "corpus_candidate",
                  "text": text_value, "source_dataset": repo, "source_config": config,
                  "source_split": "train", "source_row": index,
-                 "source_metadata": _jsonable({k: v for k, v in row.items() if k not in {"text", "content", "document", "article", "body", "raw"}})}]
+                 "source_metadata": _jsonable({k: v for k, v in row.items() if k not in {"text", "content", "document", "article", "body", "raw"}}),
+                 "origin_review_required": True}]
 
     if source == "aya_human":
         code = _text(row, "language_code", "language").lower()
