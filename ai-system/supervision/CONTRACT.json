@@ -731,6 +731,14 @@
       "reads": [],
       "writes": []
     },
+    "task_suite_live": {
+      "file": ".github/workflows/task-suite-live.yml",
+      "title": "مقياس المهمات الحي لكل نموذج على حدة (قياس فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "kernel_log": {
       "file": ".github/workflows/sham-kernel-log.yml",
       "title": "نهاية سجل دفتر كاكل واحد وحالته (قراءة فقط)",
