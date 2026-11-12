@@ -82,3 +82,16 @@
 ## حد التكامل وتسليم المهندس
 
 راجع ENGINEER_HANDOFF_AR.md وDESIGN_AR.md وTEST_PLAN_AR.md. لا توصل الحزمة بموديل شام أو مدربه قبل اكتمال المراجعة وموافقة مالكة المشروع.
+
+## توسعة المصادر والبيانات الكبيرة
+
+راجع `DATA_EXPANSION_AR.md` و`data/catalog/dataset_sources.json` لقائمة المصادر العربية والعالمية وأحجامها وأنواعها وطريقة استيرادها. أضيفت عينات منفصلة من Aya ذات التعليق البشري، ومخرجات مجموعات منشورة، ومخرجات GPT-6 التي أُنشئت في جلسة التأليف. لا تخلط هذه الفئات.
+
+للاستيراد المتدفق من Hugging Face (اختياري):
+
+```bash
+pip install datasets
+python ai-system/colab/sham_small/intelligence_lab/tools/import_hf_sources.py --source jais3_sft --max-records 5000 --output /tmp/jais3_teacher.jsonl
+```
+
+مخرجات المعلم تظل غير مراجعة وتذهب إلى الحجر الصحي. ملفات النص الخام ليست ملفات SFT ولا ينبغي تمريرها إلى `--natural-jsonl`.
