@@ -9,7 +9,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
-import { looksLikeToolPlan } from "@/lib/coderMediaFast";
+import { detectMediaIntent, looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { requiresProgressCard } from "@/lib/modes";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
@@ -961,7 +961,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= (run.variant === "v2" ? SHAM_V2_LEGS : SHAM_LEGS);
     const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
+    const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
     if (run.runId && !(await taskIsActive(run.runId))) return;
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
@@ -1131,7 +1131,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
   await progress.flush();
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard(), false, streamed);
 }
@@ -1157,7 +1157,7 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
         const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
         stage = "generate with selected Sham variant";
         await taskEvent(runId, "info", `جاري التوليد عبر ${variant === "v2" ? "استوديو شام v2" : "استوديو شام v1"} فقط.`).catch(() => null);
-        const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
+        const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
         if (!(await taskIsActive(runId))) return;
         stage = "deliver model result";
         await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true, streamed);
