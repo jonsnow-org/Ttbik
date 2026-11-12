@@ -324,7 +324,15 @@ def arabic_replay_pairs(seed: int, n: int = 600) -> list[tuple[str, str]]:
                     break
     except Exception as exc:  # noqa: BLE001
         print(f"Arabic replay: skipped ({type(exc).__name__})", flush=True)
-    return out[:n]
+    # a sixth of the replay: verified evidence-grounding / error-repair / logic pairs of the owner's Intelligence Lab (sham_sil_bridge; SHAM_SIL=0 turns it off; the lab's fixed
+    # held-out set is never in it)
+    sil: list[tuple[str, str]] = []
+    try:
+        import sham_sil_bridge as _sil
+        sil = [(q[:600], a[:900]) for q, a in _sil.train_pairs(max(20, n // 6), seed)]
+    except Exception as exc:  # noqa: BLE001
+        print(f"SIL pairs: skipped ({type(exc).__name__})", flush=True)
+    return out[: max(0, n - len(sil))] + sil
 
 
 def published_step(fetch_dataset, dataset: str) -> int:

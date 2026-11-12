@@ -1,0 +1,1 @@
+{"prompt":"احسب 17 × 6.","target":"102","task":"reasoning","teacher_id":"example-teacher-placeholder","confidence":0.93,"difficulty":2,"verifier":"numeric_match","verification":{"expected":102},"metadata":{"reviewed":false,"verification_status":"pending","model_version":"REPLACE_WITH_REAL_TEACHER_VERSION","prompt_version":"sil-distill-v1"}}

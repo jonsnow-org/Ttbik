@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sham-intelligence-lab"
+version = "0.1.0"
+description = "Isolated data, distillation, curriculum and evaluation toolkit for Sham research"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+sham-intelligence-lab = "sham_intelligence_lab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
