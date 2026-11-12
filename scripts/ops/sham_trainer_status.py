@@ -38,8 +38,10 @@ def main() -> int:
     for repo in [r.strip() for r in (os.environ.get("SHAM_TRAINER_REPOS") or DEFAULT).split(",") if r.strip()]:
         try:
             st = call(repo, token)
-            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycles", "started", "updated") if k in st}
+            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device") if k in st}
             print(f"{repo}: {json.dumps(keep or st, ensure_ascii=False)[:900]}")
+            for line in (st.get("tail") or [])[-25:]:
+                print(f"{repo} | {line}")
         except Exception as exc:  # noqa: BLE001
             print(f"{repo}: unreachable {type(exc).__name__}: {str(exc)[:120]}")
     return 0
