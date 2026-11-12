@@ -2,6 +2,7 @@ import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { generateMedicalActivationCode, redeemMedicalActivationCode } from "@/lib/medicalActivation";
 import { startGuide } from "@/lib/botStartGuide";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
+import { botCallbackRestriction } from "@/lib/botCallbackRestriction";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
@@ -1446,19 +1447,25 @@ async function handleCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     return;
   }
 
+  // Admin-only blood-bank controls were authorized above. Every member action,
+  // including older inline booking/role/prescription buttons, passes moderation.
+  const actor = await ensureMedUser(botRow.id, tgUserId);
+  const restriction = botCallbackRestriction(actor.isBanned, null);
+  if (restriction) {
+    await bot.api.answerCallbackQuery(cq.id, {
+      text: "🚫 تم حظرك من استخدام هذا البوت.",
+      show_alert: true,
+    }).catch(() => null);
+    return;
+  }
+
   if (data.startsWith("bld|")) {
-    const u = await ensureMedUser(botRow.id, tgUserId);
-    if (u.isBanned) {
-      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-      return;
-    }
-    await handleBloodCallback(bloodCtx(bot, chatId, tgUserId, u.role), cq, u.pendingAction);
+    await handleBloodCallback(bloodCtx(bot, chatId, tgUserId, actor.role), cq, actor.pendingAction);
     return;
   }
 
   if (data.startsWith("medrole|")) {
     const role = data.split("|")[1] as MedRoleStr;
-    await ensureMedUser(botRow.id, tgUserId);
     if (role === "PATIENT") {
       await setPending(tgUserId, { mode: "patient_reg", step: "fullName", data: {} });
       await bot.api.sendMessage(chatId, "أدخل اسمك الكامل:", { reply_markup: plainBackMenu() });
@@ -1472,7 +1479,6 @@ async function handleCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
 
   if (data.startsWith("medask|")) {
     const facilityId = data.split("|")[1];
-    await ensureMedUser(botRow.id, tgUserId);
     await setPending(tgUserId, { mode: "prescription_query", facilityId });
     await bot.api.sendMessage(chatId, "أرسل نص سؤالك أو صورة الروشتة:", { reply_markup: plainBackMenu() });
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
