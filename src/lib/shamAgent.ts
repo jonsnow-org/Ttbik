@@ -50,6 +50,8 @@ export async function shamAgentRun(opts: {
   tools: CoderTool[];
   budgetMs: number;
   maxSteps?: number;
+  /** The host tells whether the user's message asked for a picture / sound / clip (Sham modules never import Nova's media detector); absent = no check. */
+  mediaAsked?: (userText: string) => boolean;
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
@@ -184,6 +186,7 @@ export async function shamAgentRun(opts: {
   const lim = v2 ? { turns: 10, turnChars: 1400, maxChars: 10000 } : { turns: 6, turnChars: 400, maxChars: 3600 };
   const toolClip = v2 ? 5000 : 1800;
   let recoveries = 0;
+  let mediaRefused = false;
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
     let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown; seconds?: number } = {};
@@ -325,6 +328,17 @@ export async function shamAgentRun(opts: {
       return final ? { kind: "text", text: final, used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
     }
     const made = valid.find((c) => c.function.name === "make_media");
+    if (made) {
+      // Live task suite 2026-11-12: Sham v1 answered "what is the capital of Egypt", a web search and a file read by calling make_media (a blank picture). The model may make a
+      // picture / sound / clip only when the user's own message asks for one (the same detector the fast lane uses); otherwise it is told to answer in words, once.
+      const lastUser = String([...messages].reverse().find((m) => m.role === "user")?.content || "");
+      if (opts.mediaAsked && !opts.mediaAsked(lastUser.slice(0, 300)) && !mediaRefused) {
+        mediaRefused = true;
+        messages.push({ role: "assistant", content: p.text, tool_calls: [made] } as CoderMessage);
+        messages.push({ role: "tool", name: "make_media", tool_call_id: made.id, content: "error: the user did not ask for a picture, sound or video. Answer their message in words." } as CoderMessage);
+        continue;
+      }
+    }
     if (made) {
       // a picture / sound / clip takes minutes on the CPU Studio (measured: 123 s for a 256x256 picture): inside the webhook it goes to the background leg, which waits long
       if (opts.continuable && left() < 160000) {
