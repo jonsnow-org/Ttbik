@@ -101,7 +101,7 @@ const APP_COLOR_SWATCHES = [
   { label: "أزرق", color: "#2563eb", ink: "#ffffff" },
   { label: "أخضر", color: "#16a34a", ink: "#0f172a" },
   { label: "بنفسجي", color: "#7c3aed", ink: "#ffffff" },
-  { label: "وردي", color: "#db2777", ink: "#0f172a" },
+  { label: "وردي", color: "#db2777", ink: "#ffffff" },
   { label: "ذهبي", color: "#b8860b", ink: "#0f172a" },
   { label: "برتقالي", color: "#ea580c", ink: "#0f172a" },
   { label: "كحلي", color: "#1e3a8a", ink: "#ffffff" },
