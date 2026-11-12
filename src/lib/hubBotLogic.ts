@@ -24,7 +24,9 @@ export const isHubTemplate = (t: string) => (HUB_TEMPLATES as readonly string[])
 const site = () => publicSiteUrl();
 
 async function activateUserAppMenu(bot: TelegramBot, chatId: number, slug: string): Promise<boolean> {
-  const url = `${site().replace(/\\/$/, "")}/apps/${encodeURIComponent(slug)}`;
+  const base = site();
+  const root = base.endsWith("/") ? base.slice(0, -1) : base;
+  const url = `${root}/apps/${encodeURIComponent(slug)}`;
   return setChatMiniAppMenu(bot.api, chatId, url);
 }
 const MOODS = ["😞", "🙁", "😐", "🙂", "😄"];
