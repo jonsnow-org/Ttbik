@@ -1,0 +1,48 @@
+/* Remittance pages are opened inside Telegram as a Mini App.
+   Keep the existing blue/silver financial-service visual design. */
+.remit-mini-app {
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-viewport-safe-area-inset-top, 0px),
+    var(--tg-viewport-content-safe-area-inset-top, 0px)
+  );
+  padding-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-viewport-safe-area-inset-bottom, 0px),
+    var(--tg-viewport-content-safe-area-inset-bottom, 0px)
+  );
+  background: #f8fafc;
+  color: #334155;
+}
+
+.remit-mini-app *,
+.remit-mini-app *::before,
+.remit-mini-app *::after {
+  box-sizing: border-box;
+}
+
+.remit-mini-app iframe {
+  display: block;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0.75rem;
+}
+
+.remit-mini-app :where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid #0284c7;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remit-mini-app *,
+  .remit-mini-app *::before,
+  .remit-mini-app *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
