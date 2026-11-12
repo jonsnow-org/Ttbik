@@ -103,3 +103,16 @@ describe("the graphical Linux desktop RPC contract", () => {
     expect(cleanDesktopArgs({ action: "launch", app: "notepad" as any })).toBeNull();
   });
 });
+
+describe("richer desktop input actions", () => {
+  test("double click, drag, scroll at a point and the clipboard pass the bounded cleaner", () => {
+    expect(cleanDesktopArgs({ action: "dblclick", x: 10, y: 20 })).toEqual({ action: "dblclick", x: 10, y: 20 });
+    expect(cleanDesktopArgs({ action: "drag", x: 10, y: 20, x2: 300, y2: 400 })).toEqual({ action: "drag", x: 10, y: 20, x2: 300, y2: 400 });
+    expect(cleanDesktopArgs({ action: "drag", x: 10, y: 20 })).toBeNull();
+    expect(cleanDesktopArgs({ action: "scroll", direction: "left", amount: 2, x: 5, y: 6 })).toMatchObject({ direction: "left", amount: 2, x: 5, y: 6 });
+    expect(cleanDesktopArgs({ action: "scroll", direction: "sideways" as any })).toBeNull();
+    expect(cleanDesktopArgs({ action: "clipboard_set", text: "x".repeat(30000) })?.text).toHaveLength(20000);
+    expect(cleanDesktopArgs({ action: "clipboard_get" })).toEqual({ action: "clipboard_get" });
+    expect(cleanDesktopArgs({ action: "type", text: "x".repeat(2000) })?.text).toHaveLength(1200);
+  });
+});

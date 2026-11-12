@@ -21,8 +21,8 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
   const chip = (on: boolean) => ({ borderRadius: 999, padding: "6px 12px", border: "1px solid var(--n-line, #8883)", background: on ? "var(--n-accent, #0d9488)" : "transparent", color: on ? "#fff" : "inherit", cursor: "pointer" });
   return (
     <div className="n-page">
-      <div className="n-card" style={{ padding: 12, marginBottom: 10 }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+      <div className="n-card" style={{ padding: 10, marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
           {MODELS.map((m) => <button key={m.id} type="button" style={chip(model === m.id)} onClick={() => setModel(m.id)}>{m.label}</button>)}
         </div>
         <div className="n-meta" style={{ ...mono, fontSize: 12 }}>

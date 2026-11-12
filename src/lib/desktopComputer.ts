@@ -9,10 +9,12 @@ export type DesktopArgs = {
   url?: string;
   x?: number;
   y?: number;
+  x2?: number;
+  y2?: number;
   button?: "left" | "middle" | "right";
   text?: string;
   key?: string;
-  direction?: "up" | "down";
+  direction?: "up" | "down" | "left" | "right";
   amount?: number;
   width?: number;
   height?: number;
@@ -21,6 +23,7 @@ export type DesktopArgs = {
 const ACTIONS = new Set([
   "status", "start", "frame", "stop", "launch",
   "click", "move", "type", "key", "scroll",
+  "dblclick", "drag", "mousedown", "mouseup", "clipboard_set", "clipboard_get",
 ]);
 
 export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | null {
@@ -40,19 +43,24 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }
-  if (action === "click" || action === "move") {
+  if (["click", "move", "dblclick", "drag", "mousedown", "mouseup"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
     out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
-    if (action === "click") {
+    if (action === "drag") {
+      if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
+      out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
+      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+    }
+    if (action === "click" || action === "mousedown" || action === "mouseup") {
       const button = String(input.button || "left");
       if (!["left", "middle", "right"].includes(button)) return null;
       out.button = button;
     }
   }
-  if (action === "type") {
+  if (action === "type" || action === "clipboard_set") {
     if (input.text === undefined) return null;
-    out.text = String(input.text).slice(0, 1200);
+    out.text = String(input.text).slice(0, action === "type" ? 1200 : 20000);
   }
   if (action === "key") {
     const key = String(input.key || "");
@@ -61,8 +69,12 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "scroll") {
     const direction = String(input.direction || "down");
-    if (!["up", "down"].includes(direction)) return null;
+    if (!["up", "down", "left", "right"].includes(direction)) return null;
     out.direction = direction;
+    if (Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y))) {
+      out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
+      out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+    }
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
   return out;
