@@ -542,7 +542,9 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160,
         kind, first, result = embedded.step(lambda p: _studio_chat().studio_generate(model, tok, p, n, search_fn=None), extract_tool_call, str(prompt or ""), active_names,
                                             str(session or "default"))
         if kind == "embedded":
-            return json.dumps({"type": "embedded_step", "text": first.get("text", ""), "tool_call": {"id": "call_" + uuid.uuid4().hex[:16], "type": "function",
+            import sham_desktop
+            offer = sham_desktop.pop_show(str(session or "default")) if first.get("name") == "desktop" else None      # the model chose to show its screen: the offer travels IN its reply
+            return json.dumps({"type": "embedded_step", **({"desktop": offer} if offer else {}), "text": first.get("text", ""), "tool_call": {"id": "call_" + uuid.uuid4().hex[:16], "type": "function",
                                "function": {"name": first["name"], "arguments": json.dumps(first["arguments"], ensure_ascii=False, separators=(",", ":"))}},
                                "result": str(result)[:3500]}, ensure_ascii=False)
         raw, trace = first, []

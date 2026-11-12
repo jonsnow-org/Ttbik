@@ -276,6 +276,7 @@ export async function shamAgentRun(opts: {
       const result = String(reply.result || "");
       opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(result) });
       opts.onEvent?.("info", clip(result, 300));
+      if (reply.desktop) opts.onEvent?.("info", "🖥 شام يعرض لك شاشته الآن: افتح تبويب «الحاسوب» لتراها وتلمسها.");
       messages.push({ role: "assistant", content: String(reply.text || ""), tool_calls: [c] } as CoderMessage);
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(result, toolClip) } as CoderMessage);
       continue;

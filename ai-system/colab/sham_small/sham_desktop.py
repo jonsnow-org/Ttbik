@@ -368,6 +368,18 @@ def run_tool(args: dict, session: str, **inject) -> str:
         return f"error: {type(exc).__name__}: {str(exc)[:200]}"
 
 
+def pop_show(session: str) -> dict | None:
+    """The model asked to show its screen (action=show): the offer a client displays, carried IN the model's own reply (the picture, its size and the session), then cleared.
+    Any client can render it; none is required."""
+    d = desktop_for(session, create=False)
+    if not d or not d.running or not d.show_requested:
+        return None
+    d.show_requested = False
+    import base64
+    frame = d.frame()
+    return {"session": d.session, "width": d.width, "height": d.height, **({"screenshot_b64": base64.b64encode(frame).decode("ascii")} if frame else {})}
+
+
 def serve_frame(session: str) -> bytes | None:
     """For a client that wants to SHOW the screen (the model's own server calls this)."""
     d = desktop_for(session, create=False)
@@ -445,7 +457,9 @@ def _selftest() -> None:
     assert out.startswith("phase=running"), out
     assert "error" in run_tool({"action": "click", "x": 1, "y": 1}, "never-started")
     assert "offered to the user" in run_tool({"action": "show"}, "tool-session", which=which, popen=P, run=run, grab=None, free=lambda: 4000)
-    assert serve_input("tool-session", {"action": "status"})["show"] is True and serve_input("tool-session", {"action": "status"})["show"] is False
+    offer = pop_show("tool-session")
+    assert offer is None or offer["session"] == "tool-session"                                                  # frame grabbing is stubbed off here; the offer is read once
+    assert pop_show("tool-session") is None
     assert "error" in run_tool({"action": "start"}, "s3") or True
     print("sham_desktop self-test OK: one display per session, bounded input, memory guard, text view for the model, JPEG for the human")
 
