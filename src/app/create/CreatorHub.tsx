@@ -138,7 +138,7 @@ function Apps({ apps, onChange }: { apps: any[]; onChange: () => void }) {
                 onClick={() => {
                   setColorChoice(swatch.label);
                   setDesc((current) => {
-                    const clean = current.replace(/(?:باللون|بلون)\\s+[\\u0600-\\u06FF]+/g, "").trim();
+                    const clean = current.replace(/(?:باللون|بلون)\s+[\u0600-\u06FF]+/g, "").trim();
                     return clean ? `${clean} باللون ${swatch.label}` : `تطبيق باللون ${swatch.label}`;
                   });
                 }}
