@@ -41,7 +41,7 @@ class DataExpansionTests(unittest.TestCase):
         sample = ROOT / "data/samples/teacher_outputs_public_sample.jsonl"
         rows, report = ingest_teacher_jsonl(sample)
         self.assertEqual(report["rejected"], [])
-        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(rows), 6)
         self.assertTrue(all(row.source_kind == "teacher" for row in rows))
         self.assertTrue(all(row.metadata.get("teacher_output_is_unverified") for row in rows))
 
