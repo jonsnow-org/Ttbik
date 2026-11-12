@@ -131,21 +131,77 @@ def _short(res) -> dict:
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
+RESULT_MARK = "@@CYCLE_RESULT@@ "
+
+
+def _resolve_run_fn(cfg: dict):
+    for k, v in PROFILES[cfg["job"]].items():          # the job's shares, before sham_live is imported (it reads some of them at import time)
+        os.environ.setdefault(k, v)
+    if cfg["job"] == "codec":
+        return run_codec
+    if cfg["job"] == "motion":
+        return run_motion
+    sys.path.insert(0, str(SHAM))
+    import sham_live
+    return sham_live.run
+
+
+def child_cycle() -> None:
+    """One cycle in its OWN process (python app.py --cycle): an out-of-memory kill or a hang here can no longer take the Studio's web page down (502) or freeze the status forever."""
+    cfg = settings()
+    WORK.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
+    run_fn = _resolve_run_fn(cfg)
+    res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"])
+    print(RESULT_MARK + json.dumps(_short(res)), flush=True)
+
+
+def run_cycle_subprocess(cfg: dict) -> dict:
+    """Run child_cycle in a subprocess; copy its printed lines into the status tail; kill it when it overruns the wall-clock budget (hours + 40 min)."""
+    import subprocess
+    deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
+    proc = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    result: dict = {}
+    killed = False
+
+    def watchdog():
+        nonlocal killed
+        while proc.poll() is None:
+            if time.time() > deadline:
+                killed = True
+                proc.kill()
+                return
+            time.sleep(20)
+
+    threading.Thread(target=watchdog, daemon=True, name="trainer-watchdog").start()
+    tee = _Tee(open(os.devnull, "w"))
+    for line in proc.stdout:                         # type: ignore[union-attr]
+        if line.startswith(RESULT_MARK):
+            try:
+                result = json.loads(line[len(RESULT_MARK):])
+            except ValueError:
+                pass
+        tee.write(line)
+        try:
+            sys.__stdout__.write(line)               # the Studio's own log keeps everything
+        except Exception:  # noqa: BLE001
+            pass
+    code = proc.wait()
+    if killed:
+        raise RuntimeError(f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget")
+    if code != 0:
+        raise RuntimeError(f"cycle process exited with code {code}" + (" (killed: out of memory?)" if code in (-9, 137) else ""))
+    return result
+
+
 def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) -> None:
     cfg = settings()
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
-    for k, v in PROFILES[cfg["job"]].items():          # the job's shares, before sham_live is imported (it reads some of them at import time)
-        os.environ.setdefault(k, v)
-    if run_fn is None:
-        if cfg["job"] == "codec":
-            run_fn = run_codec
-        elif cfg["job"] == "motion":
-            run_fn = run_motion
-        else:
-            sys.path.insert(0, str(SHAM))
-            import sham_live
-            run_fn = sham_live.run
+    in_process = run_fn is not None                    # tests inject run_fn; the real Studio runs every cycle in a child process
+    if not in_process:
+        for k, v in PROFILES[cfg["job"]].items():
+            os.environ.setdefault(k, v)
         try:
             import torch
             _set(device="cuda" if torch.cuda.is_available() else "cpu")
@@ -161,7 +217,7 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
         cycle += 1
         _set(phase="training", cycle=cycle, error="")
         try:
-            res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"])
+            res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
             _set(phase="between-cycles", last=_short(res))
         except Exception as exc:   # one failed cycle never stops the next
             _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}")
@@ -187,6 +243,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "--cycle" in sys.argv:
+        child_cycle()
+        sys.exit(0)
     if "--selftest" in sys.argv:
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
