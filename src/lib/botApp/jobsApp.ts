@@ -288,10 +288,12 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
           const l = lm.get(o.listingId);
           const d = dm.get(o.id);
           const role = o.buyerId === uid ? "buyer" : "seller";
+          const storedFee = fm.get(o.id);
+          const platformFee = o.status === "REFUNDED" ? 0 : storedFee ?? jobsStoreCommission(o.amount).platformFee;
           const other = pm.get(role === "buyer" ? o.sellerId : o.buyerId);
           const myStatement = d ? (role === "buyer" ? d.buyerStatement : d.sellerStatement) : null;
           return {
-            id: o.id, short: o.id.slice(-6), role, amount: o.amount, platformFee: fm.get(o.id) ?? jobsStoreCommission(o.amount).platformFee, sellerNet: o.amount - (fm.get(o.id) ?? jobsStoreCommission(o.amount).platformFee), status: o.status, shipping: o.deliveryMethod === "SHIPPING", title: l?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null,
+            id: o.id, short: o.id.slice(-6), role, amount: o.amount, platformFee, sellerNet: o.amount - platformFee, status: o.status, shipping: o.deliveryMethod === "SHIPPING", title: l?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null,
             at: o.created_at.toISOString(), escrowedAt: o.escrowedAt?.toISOString() || null, releasedAt: o.releasedAt?.toISOString() || null,
             other: other ? { name: other.name, city: other.city, contact: o.status === "ESCROWED" ? contactUrlOf(other) : null } : null,
             dispute: d ? { status: d.status, resolution: d.resolution, mine: !!myStatement, opener: d.openedBy === uid } : null,
