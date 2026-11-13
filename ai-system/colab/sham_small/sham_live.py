@@ -583,7 +583,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     print(f"عناوين سبقت زيارتها (لا تُحمَّل ثانيةً): {len(sham_spider.URL_SEEN):,}")
 
     # — the spider network and the encoders
-    raw_q, enc_q = queue.Queue(maxsize=256), queue.Queue(maxsize=512)
+    # CPU trainer on a small machine: 256 raw items (images / audio bytes, up to MBs each) + 512 encoded examples were part of the memory that got the cn Studio killed (8 GB limit)
+    raw_q, enc_q = (queue.Queue(maxsize=256), queue.Queue(maxsize=512)) if cuda else (queue.Queue(maxsize=int(os.environ.get("SHAM_RAW_Q") or 32)), queue.Queue(maxsize=int(os.environ.get("SHAM_ENC_Q") or 128)))
     ledgers = {}
     if source_set == "gh":   # the GitHub-hosted trainer reads different sources than the Kaggle one (sham_sources_gh.py)
         from sham_sources_gh import gh_sources
