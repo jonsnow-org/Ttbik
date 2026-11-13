@@ -119,7 +119,7 @@ import { POST } from "@/app/api/bot-app/[botId]/route";
 import { POST as UPLOAD } from "@/app/api/bot-app/[botId]/upload/route";
 import { GET as PHOTO } from "@/app/api/bot-app/[botId]/photo/route";
 import { handleJobsAppAction } from "@/lib/botApp/jobsApp";
-import { acceptOfferCore, confirmReceivedCore, createOfferCore, saveListingCore, submitDisputeCore, openDisputeCore } from "@/lib/jobs/core";
+import { acceptOfferCore, confirmReceivedCore, createOfferCore, jobsStoreCommissionBreakdown, saveListingCore, settleEscrow, submitDisputeCore, openDisputeCore } from "@/lib/jobs/core";
 import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 
 const initFor = (token: string, id = 4242) =>
@@ -136,6 +136,8 @@ const holds = () => [...T("jobsTransaction").values()].filter((t) => t.type === 
 beforeEach(() => {
   for (const k of Object.keys(tables)) delete tables[k];
   jest.clearAllMocks();
+  process.env.SUPER_ADMIN_TELEGRAM_ID = "platform-admin";
+  process.env.JOBS_STORE_COMMISSION_PERCENT = "10";
 });
 
 describe("jobs Mini App auth and gates", () => {
@@ -221,6 +223,19 @@ describe("offers and escrow (shared by chat and app)", () => {
     expect(await acceptOfferCore("b", o.offer.id)).toMatchObject({ ok: false, reason: "not_allowed" });
     expect(orders()).toHaveLength(0);
   });
+  it("legacy MANUAL listings are still converted to escrow; accepting them cannot bypass the hold", async () => {
+    user("buyer", 100); user("seller"); user("platform-admin");
+    profile("buyer"); profile("seller");
+    const lid = listing("seller", 60, { paymentMethod: "MANUAL" });
+    const offer: any = await createOfferCore("buyer", "LISTING", lid, "60");
+    const accepted = await acceptOfferCore("seller", offer.offer.id);
+    expect(accepted).toMatchObject({ ok: true, mode: "escrow" });
+    expect(orders()).toHaveLength(1);
+    expect(orders()[0].status).toBe("ESCROWED");
+    expect(holds()).toHaveLength(1);
+    expect(T("jobsUser").get("buyer")!.balance).toBe(40);
+    expect(T("jobsUser").get("seller")!.balance).toBe(0);
+  });
   it("the app's offer_accept notifies both sides in the chat", async () => {
     user("101", 100); user("202"); profile("101"); profile("202");
     const o: any = await createOfferCore("101", "LISTING", listing("202", 20), "20");
@@ -228,19 +243,44 @@ describe("offers and escrow (shared by chat and app)", () => {
     expect(r).toMatchObject({ ok: true, mode: "escrow" });
     const to = api.sendMessage.mock.calls.map((c: any[]) => String(c[0]));
     expect(to).toEqual(expect.arrayContaining(["101", "202"]));
+    const texts = api.sendMessage.mock.calls.map((call: any[]) => String(call[1]));
+    expect(texts.some((text) => text.includes("https://t.me/u101"))).toBe(true);
+    expect(texts.some((text) => text.includes("https://t.me/u202"))).toBe(true);
+    expect(texts.some((text) => text.includes("عمولة المنصة 10%"))).toBe(true);
     expect(T("jobsUser").get("101")!.balance).toBe(80);
   });
 });
 
 describe("receipt and disputes", () => {
-  const escrowed = () => { user("b", 0); user("s", 0); const lid = listing("s", 25, { status: "SOLD" }); const id = uuid(); T("storeOrder").set(id, { id, buyerId: "b", sellerId: "s", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() }); return id; };
+  const escrowed = () => {
+    user("b", 0); user("s", 0); user("platform-admin", 0);
+    const lid = listing("s", 25, { status: "SOLD" });
+    const id = uuid();
+    T("storeOrder").set(id, { id, buyerId: "b", sellerId: "s", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() });
+    return id;
+  };
   it("confirming receipt pays the seller once and closes a pending dispute", async () => {
     const id = escrowed();
     await openDisputeCore("b", id);
     expect((await confirmReceivedCore("b", id)).ok).toBe(true);
     expect((await confirmReceivedCore("b", id)).ok).toBe(false);
-    expect(T("jobsUser").get("s")!.balance).toBe(25);
+    expect(T("jobsUser").get("s")!.balance).toBe(22.5);
+    expect(T("jobsUser").get("platform-admin")!.balance).toBe(2.5);
+    expect([...T("jobsTransaction").values()].filter((t) => t.type === "PLATFORM_COMMISSION")).toHaveLength(1);
     expect(T("jobsDispute").get(id)).toMatchObject({ status: "RESOLVED", resolution: "RELEASED_TO_SELLER" });
+  });
+  it("a full buyer refund never charges a platform commission", async () => {
+    const id = escrowed();
+    expect(await settleEscrow(id, "REFUNDED", "b", 25, "ESCROW_REFUND")).toBe(true);
+    expect(T("jobsUser").get("b")!.balance).toBe(25);
+    expect(T("jobsUser").get("s")!.balance).toBe(0);
+    expect(T("jobsUser").get("platform-admin")!.balance).toBe(0);
+    expect([...T("jobsTransaction").values()].filter((t) => t.type === "PLATFORM_COMMISSION")).toHaveLength(0);
+  });
+
+  it("commission math uses the configured rate and rounds to cents", () => {
+    process.env.JOBS_STORE_COMMISSION_PERCENT = "12.5";
+    expect(jobsStoreCommissionBreakdown(19.99)).toEqual({ gross: 19.99, percent: 12.5, commission: 2.5, sellerNet: 17.49 });
   });
   it("only the buyer confirms receipt", async () => {
     const id = escrowed();
@@ -257,6 +297,38 @@ describe("receipt and disputes", () => {
 });
 
 describe("listings", () => {
+  it("new listings normalize legacy MANUAL input to escrow-only payment", async () => {
+    profile("seller");
+    const result = await saveListingCore("seller", { title: "جهاز", price: "50", deliveryMethod: "SHIPPING", paymentMethod: "MANUAL" });
+    expect(result).toMatchObject({ ok: true, created: true });
+    if (result.ok) expect(T("storeListing").get(result.id)!.paymentMethod).toBe("ESCROW");
+  });
+
+  it("public wanted requests never expose the buyer's phone or Telegram contact", async () => {
+    user("buyer"); profile("buyer");
+    user("seller"); profile("seller");
+    const id = uuid();
+    T("storeWantedListing").set(id, { id, buyerId: "buyer", title: "براد", description: "", budget: 100, status: "ACTIVE", created_at: new Date() });
+    const result: any = await handleJobsAppAction(bots["bot-j"], tgUser("seller"), "wanted_get", { id });
+    expect(result).toMatchObject({ ok: true, buyer: { id: "buyer", contact: null } });
+    expect(JSON.stringify(result)).not.toContain("https://t.me/ubuyer");
+  });
+
+  it("an order exposes contact only after its escrow is active or released", async () => {
+    user("buyer"); user("seller"); profile("buyer"); profile("seller");
+    const id = uuid();
+    const listingId = listing("seller", 20, { status: "SOLD" });
+    T("storeOrder").set(id, { id, buyerId: "buyer", sellerId: "seller", listingId, amount: 20, deliveryMethod: "SHIPPING", status: "PENDING", created_at: new Date(), updated_at: new Date() });
+    let result: any = await handleJobsAppAction(bots["bot-j"], tgUser("buyer"), "orders", {});
+    expect(result.orders[0].other.contact).toBeNull();
+    T("storeOrder").get(id)!.status = "ESCROWED";
+    result = await handleJobsAppAction(bots["bot-j"], tgUser("buyer"), "orders", {});
+    expect(result.orders[0].other.contact).toBe("https://t.me/useller");
+    T("storeOrder").get(id)!.status = "RELEASED";
+    result = await handleJobsAppAction(bots["bot-j"], tgUser("buyer"), "orders", {});
+    expect(result.orders[0].other.contact).toBe("https://t.me/useller");
+  });
+
   it("a sold listing or someone else's cannot be rewritten; selling is for traders", async () => {
     profile("s"); profile("o"); profile("j", "SEEKER");
     const sold = listing("s", 10, { status: "SOLD" });
