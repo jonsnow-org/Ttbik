@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Bot as TelegramBot } from "grammy";
 import { settleEscrow } from "@/lib/jobsBotLogic";
+import { jobsStoreCommissionBreakdown } from "@/lib/jobs/core";
 
 // Auto-release stale escrowed StoreOrders (owner spec, 2026-09-05): if a
 // buyer never presses "لقد استلمت المنتج" and never opens a dispute
@@ -46,8 +47,9 @@ export async function GET(req: NextRequest) {
         bot = new TelegramBot(botRow.token);
         botCache.set(botRow.id, bot);
       }
+      const fee = jobsStoreCommissionBreakdown(order.amount);
       await bot.api
-        .sendMessage(Number(order.sellerId), `✅ تم تحرير مبلغ $${order.amount.toFixed(2)} لرصيدك تلقائياً بعد مرور ${ESCROW_AUTO_RELEASE_DAYS} أيام دون بلاغ أو نزاع.`)
+        .sendMessage(Number(order.sellerId), `✅ تم تحرير الصفقة تلقائياً بعد ${ESCROW_AUTO_RELEASE_DAYS} أيام دون نزاع. القيمة ${fee.gross.toFixed(2)} — عمولة المنصة ${fee.percent}% (${fee.commission.toFixed(2)}) — صافي المبلغ المضاف لرصيدك ${fee.sellerNet.toFixed(2)}.`)
         .catch(() => null);
       await bot.api
         .sendMessage(Number(order.buyerId), `ℹ️ تم تحرير مبلغ طلبك تلقائياً للبائع بعد مرور ${ESCROW_AUTO_RELEASE_DAYS} أيام دون تأكيد استلام أو فتح نزاع.`)
