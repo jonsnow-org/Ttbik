@@ -37,7 +37,7 @@ import zipfile
 from pathlib import Path
 
 KAGGLE_INPUT = Path("/kaggle/input")
-FETCH_ROOT = Path("/tmp/sham_inputs")
+FETCH_ROOT = Path(os.environ.get("SHAM_FETCH_ROOT") or "/tmp/sham_inputs")      # a ModelScope trainer Studio points this at its persistent disk (the root file system counts as memory there)
 
 # Earlier names of the same datasets (renames), treated as the notebook's own lineage.
 OLD_NAMES = {

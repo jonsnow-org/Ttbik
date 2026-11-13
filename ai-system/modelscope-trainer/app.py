@@ -18,6 +18,18 @@ import time
 import traceback
 from pathlib import Path
 
+# The Studio's container has 8 GB of memory and the root file system counts against it (2026-11-13 memory watch: process 4.0 GB, container 7.1 GB, then killed with -9 right after the chat data
+# loaded). The persistent disk /mnt/workspace does not: downloads (the 850 MB head), the Hugging Face dataset cache and temp files go there when it exists. Inherited by the cycle process.
+_DISK = Path("/mnt/workspace")
+if _DISK.is_dir() and os.access(_DISK, os.W_OK):
+    for _k, _sub in (("SHAM_LIVE_WORK", "live_work"), ("SHAM_FETCH_ROOT", "inputs"), ("HF_HOME", "hf"), ("HF_DATASETS_CACHE", "hf/datasets"), ("TMPDIR", "tmp")):
+        _p = _DISK / "sham_trainer" / _sub
+        try:
+            _p.mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault(_k, str(_p))
+        except OSError:
+            pass
+
 HERE = Path(__file__).resolve().parent
 SHAM = HERE / "sham_small"                      # the sham_small code the deploy workflow copies next to this file
 WORK = Path(os.environ.get("SHAM_LIVE_WORK") or (Path.home() / "sham_live_work"))
