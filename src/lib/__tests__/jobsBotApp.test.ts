@@ -237,7 +237,16 @@ describe("offers and escrow (shared by chat and app)", () => {
 });
 
 describe("receipt and disputes", () => {
-  const escrowed = () => { user("b", 0); user("s", 0); const lid = listing("s", 25, { status: "SOLD" }); const id = uuid(); T("storeOrder").set(id, { id, buyerId: "b", sellerId: "s", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() }); return id; };
+  const escrowed = () => {
+    user("b", 0); user("s", 0);
+    const lid = listing("s", 25, { status: "SOLD" });
+    const id = uuid();
+    T("storeOrder").set(id, { id, buyerId: "b", sellerId: "s", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() });
+    const fee = Math.round(25 * 5) / 100;
+    const feeId = uuid();
+    T("jobsTransaction").set(feeId, { id: feeId, userId: "s", amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: id });
+    return id;
+  };
   it("confirming receipt pays the seller once and closes a pending dispute", async () => {
     const id = escrowed();
     await openDisputeCore("b", id);
@@ -251,12 +260,22 @@ describe("receipt and disputes", () => {
   });
   it("refunds the entire hold and voids the reserved commission without revenue", async () => {
     const id = escrowed();
-    T("jobsTransaction").set(uuid(), { id: "fee-hold", userId: "s", amount: 1.25, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: id });
     expect(await settleEscrow(id, "REFUNDED", "b", 25, "ESCROW_REFUND")).toBe(true);
     expect(T("jobsUser").get("b")!.balance).toBe(25);
     expect(T("jobsUser").get("s")!.balance).toBe(0);
     expect(fees()).toHaveLength(0);
-    expect([...T("jobsTransaction").values()].find((x) => x.id === "fee-hold")).toMatchObject({ type: "PLATFORM_FEE_VOID", status: "CANCELLED" });
+    expect(feeHolds()).toHaveLength(0);
+    expect([...T("jobsTransaction").values()].filter((x) => x.type === "PLATFORM_FEE_VOID")).toHaveLength(1);
+  });
+  it("releases legacy escrow orders in full without applying a new commission retroactively", async () => {
+    user("b", 0); user("s", 0);
+    const lid = listing("s", 25, { status: "SOLD" });
+    const id = uuid();
+    T("storeOrder").set(id, { id, buyerId: "b", sellerId: "s", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() });
+    const released: any = await confirmReceivedCore("b", id);
+    expect(released).toMatchObject({ ok: true, platformFee: 0, commissionPercent: 0, sellerNet: 25 });
+    expect(T("jobsUser").get("s")!.balance).toBe(25);
+    expect(fees()).toHaveLength(0);
   });
   it("only the buyer confirms receipt", async () => {
     const id = escrowed();
@@ -284,6 +303,26 @@ describe("listings", () => {
     expect(await saveListingCore("s", { ...d, paymentMethod: "MANUAL" })).toMatchObject({ ok: false, error: expect.stringContaining("الحجز الآمن") });
     expect(await saveListingCore("s", d, mine)).toMatchObject({ ok: true, created: false });
     expect(T("storeListing").get(mine)!.price).toBe(12);
+  });
+  it("a zero-percent commission remains zero even if the environment changes before receipt", async () => {
+    user("b", 100); user("s");
+    const lid = listing("s", 60);
+    const offer: any = await createOfferCore("b", "LISTING", lid, "60");
+    const original = process.env.JOBS_STORE_COMMISSION_PERCENT;
+    process.env.JOBS_STORE_COMMISSION_PERCENT = "0";
+    try {
+      const accepted: any = await acceptOfferCore("s", offer.offer.id);
+      expect(accepted.ok).toBe(true);
+      expect(feeHolds()).toHaveLength(1);
+      expect(feeHolds()[0].amount).toBe(0);
+      process.env.JOBS_STORE_COMMISSION_PERCENT = "12";
+      const released: any = await confirmReceivedCore("b", accepted.orderId);
+      expect(released).toMatchObject({ ok: true, platformFee: 0, commissionPercent: 0, sellerNet: 60 });
+      expect(T("jobsUser").get("s")!.balance).toBe(60);
+    } finally {
+      if (original === undefined) delete process.env.JOBS_STORE_COMMISSION_PERCENT;
+      else process.env.JOBS_STORE_COMMISSION_PERCENT = original;
+    }
   });
   it("a legacy manual listing cannot complete an offer or reveal contact details", async () => {
     user("b", 100); user("s"); profile("b"); profile("s");
