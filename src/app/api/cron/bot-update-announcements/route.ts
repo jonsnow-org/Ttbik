@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ANNOUNCEMENT_MAX_AGE_MS, MAX_BROADCASTS_PER_RUN } from "@/lib/announcementLimits";
 
 // Owner directive, 2026-09-22: after a real bot update ships, the bot
 // itself should tell its users -- automatically, not the owner pressing
@@ -10,11 +11,6 @@ import { prisma } from "@/lib/prisma";
 // delivers it, no manual send action required.
 export const maxDuration = 60;
 
-// An announcement that has waited longer than this is stale ("we added X" a month later is noise, and after an outage of the scheduler the
-// whole backlog would otherwise go out in one burst): it is marked sent with sentCount 0 instead of being broadcast. Exported for the test.
-export const ANNOUNCEMENT_MAX_AGE_MS = 72 * 3600 * 1000;
-// At most this many announcements are broadcast per run, oldest first, so one run never exceeds its time budget; the rest go on the next run.
-export const MAX_BROADCASTS_PER_RUN = 3;
 
 async function sendToNovaUsers(text: string): Promise<number> {
   const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT" }, orderBy: { created_at: "asc" } });

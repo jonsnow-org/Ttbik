@@ -16,7 +16,8 @@ jest.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { GET, ANNOUNCEMENT_MAX_AGE_MS, MAX_BROADCASTS_PER_RUN } from "@/app/api/cron/bot-update-announcements/route";
+import { GET } from "@/app/api/cron/bot-update-announcements/route";
+import { ANNOUNCEMENT_MAX_AGE_MS, MAX_BROADCASTS_PER_RUN } from "@/lib/announcementLimits";
 
 const call = () => GET(new NextRequest("https://site.test/api/cron/bot-update-announcements", { headers: { authorization: "Bearer s3cret" } }));
 const ago = (ms: number) => new Date(Date.now() - ms);
