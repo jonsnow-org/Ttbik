@@ -241,7 +241,12 @@ def _kaggle(cmd: list, tries: int = 6):
     import time as _time
     r = None
     for attempt in range(tries):
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            # a download that never ends froze a cn trainer for 35 minutes without a line (2026-11-13): give each Kaggle command a limit (SHAM_KAGGLE_TIMEOUT, 900 s)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("SHAM_KAGGLE_TIMEOUT") or 900))
+        except subprocess.TimeoutExpired:
+            print(f"  ⏱ Kaggle لم يُنهِ الأمر في المهلة: {' '.join(str(c) for c in cmd[:5])}")
+            return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_TIMEOUT)")
         out = (r.stderr or "") + (r.stdout or "")
         if r.returncode == 0 or not any(t in out for t in ("429", "Too Many Requests", "502", "503", "504", "timed out", "Connection")):
             return r
