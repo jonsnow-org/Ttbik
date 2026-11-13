@@ -101,7 +101,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
         ])
       : [0, 0, 0];
     return {
-      ok: true, gate: joined ? null : { channel: String(botRow.requiredChannel || "").replace(/^@/, "") }, phoneVerified: user.phoneVerified,
+      ok: true, gate: joined ? null : { channel: String(botRow.requiredChannel || "").replace(/^@/, "") }, phoneVerified: user.phoneVerified, commissionPercent: jobsStoreCommissionBreakdown(100).percent,
       user: { id: uid, firstName: tg.firstName || "", username: tg.username || "" }, bot: { username }, profile: profileView(profile),
       balance: user.balance, counts: { offersWaiting, ordersOpen, active }, categories: PROFESSIONAL_CATEGORIES, roles: ROLES.map((r) => ({ id: r, label: roleLabel(r) })),
       durations: Object.entries(TENDER_DURATIONS).map(([label, hours]) => ({ label: label.replace("⏱ ", ""), hours })), maxOpenTenders: TENDER_MAX_OPEN,
