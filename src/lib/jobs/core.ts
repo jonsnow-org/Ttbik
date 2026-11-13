@@ -36,6 +36,24 @@ export function parsePrice(v: unknown): number | null {
 const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+\n/g, "\n").trim().slice(0, max);
 
 // ---------------------------------------------------------------- balance & escrow
+// The seller commission is fixed on the order at acceptance, then collected only
+// when escrow is released. A later env change cannot alter an existing deal.
+export function jobsStoreCommissionPercent(): number {
+  const raw = Number(process.env.JOBS_STORE_COMMISSION_PERCENT ?? "5");
+  return Number.isFinite(raw) && raw >= 0 && raw <= 20 ? raw : 5;
+}
+export function jobsStoreCommission(grossAmount: number) {
+  const commissionPercent = jobsStoreCommissionPercent();
+  const platformFee = Math.round(Math.max(0, grossAmount) * commissionPercent) / 100;
+  return { commissionPercent, platformFee, sellerNet: Math.round((grossAmount - platformFee) * 100) / 100 };
+}
+export async function escrowFeeBreakdown(orderId: string, grossAmount: number) {
+  const fee = await prisma.jobsTransaction.findFirst({ where: { txHash: orderId, type: { in: ["PLATFORM_FEE_PENDING", "PLATFORM_FEE"] } } });
+  const calculated = jobsStoreCommission(grossAmount);
+  const platformFee = fee ? Math.min(grossAmount, Math.max(0, Number(fee.amount) || 0)) : calculated.platformFee;
+  const commissionPercent = fee && grossAmount > 0 ? Math.round(platformFee / grossAmount * 10000) / 100 : calculated.commissionPercent;
+  return { commissionPercent, platformFee, sellerNet: Math.round((grossAmount - platformFee) * 100) / 100 };
+}
 export async function chargeJobsUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
   return prisma.$transaction(async (tx) => {
     const result = await tx.jobsUser.updateMany({ where: { id: userId, balance: { gte: amount } }, data: { balance: { decrement: amount } } });
@@ -49,10 +67,23 @@ export async function chargeJobsUser(userId: string, amount: number, type: strin
 
 export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "REFUNDED", payeeId: string, amount: number, ledgerType: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
+    const feeHold = await tx.jobsTransaction.findFirst({ where: { txHash: orderId, type: "PLATFORM_FEE_PENDING", status: "PENDING" } });
+    const fallbackFee = finalStatus === "RELEASED" ? jobsStoreCommission(amount).platformFee : 0;
+    const platformFee = finalStatus === "RELEASED" ? Math.min(amount, Math.max(0, Number(feeHold?.amount ?? fallbackFee) || 0)) : 0;
+    const creditedAmount = finalStatus === "RELEASED" ? Math.round((amount - platformFee) * 100) / 100 : amount;
     const claim = await tx.storeOrder.updateMany({ where: { id: orderId, status: "ESCROWED" }, data: { status: finalStatus, releasedAt: new Date() } });
     if (claim.count !== 1) return false;
-    await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: amount } } });
-    await tx.jobsTransaction.create({ data: { userId: payeeId, amount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
+    await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: creditedAmount } } });
+    await tx.jobsTransaction.create({ data: { userId: payeeId, amount: creditedAmount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
+    if (finalStatus === "RELEASED" && platformFee > 0) {
+      if (feeHold) {
+        await tx.jobsTransaction.updateMany({ where: { id: feeHold.id, type: "PLATFORM_FEE_PENDING", status: "PENDING" }, data: { type: "PLATFORM_FEE", status: "COMPLETED" } });
+      } else {
+        await tx.jobsTransaction.create({ data: { userId: payeeId, amount: platformFee, currency: "internal", type: "PLATFORM_FEE", status: "COMPLETED", txHash: orderId } });
+      }
+    } else if (finalStatus === "REFUNDED" && feeHold) {
+      await tx.jobsTransaction.updateMany({ where: { id: feeHold.id, type: "PLATFORM_FEE_PENDING", status: "PENDING" }, data: { type: "PLATFORM_FEE_VOID", status: "CANCELLED" } });
+    }
     return true;
   });
 }
@@ -123,8 +154,8 @@ export function validateListing(d: ListingInput) {
   if (price === null) return { ok: false as const, error: "أرسل سعراً صحيحاً." };
   const deliveryMethod = d.deliveryMethod === "SHIPPING" ? "SHIPPING" : d.deliveryMethod === "PICKUP_MANUAL" ? "PICKUP_MANUAL" : null;
   if (!deliveryMethod) return { ok: false as const, error: "اختر طريقة التسليم." };
-  const paymentMethod = d.paymentMethod === "MANUAL" ? "MANUAL" : d.paymentMethod === "ESCROW" ? "ESCROW" : null;
-  if (!paymentMethod) return { ok: false as const, error: "اختر طريقة الدفع." };
+  if (d.paymentMethod !== "ESCROW") return { ok: false as const, error: "🔒 الحجز الآمن عبر البوت إلزامي لحماية المشتري والبائع." };
+  const paymentMethod = "ESCROW" as const;
   const photos = Array.isArray(d.photoFileIds) ? d.photoFileIds.filter((x) => typeof x === "string" && /^[A-Za-z0-9_-]{20,200}$/.test(x)).slice(0, MAX_PHOTOS) : [];
   return { ok: true as const, data: { title, description: clean(d.description, 1500) || null, price, photoFileIds: photos as string[], deliveryMethod, paymentMethod } };
 }
@@ -181,6 +212,7 @@ export async function searchListings(viewerId: string, keyword: string, offset: 
   if (f.max && f.max > 0) price.lte = f.max;
   const where: Prisma.StoreListingWhereInput = {
     status: "ACTIVE",
+    paymentMethod: "ESCROW",
     sellerId: { notIn: [...blocked, viewerId] },
     ...(kw ? { OR: [{ title: { contains: kw, mode: "insensitive" } }, { description: { contains: kw, mode: "insensitive" } }] } : {}),
     ...(Object.keys(price).length ? { price } : {}),
@@ -256,16 +288,14 @@ export async function counterOfferCore(userId: string, offerId: string, rawPrice
 
 class Abort extends Error { constructor(public why: "gone" | "unavailable" | "balance") { super(why); } }
 export type AcceptOutcome =
-  | { ok: true; mode: "manual"; offer: OfferRow; title: string }
   | { ok: true; mode: "escrow"; offer: OfferRow; title: string; orderId: string; wanted: boolean }
   | { ok: false; reason: "gone" | "not_allowed"; error: string }
   | { ok: false; reason: "unavailable"; error: string; offer: OfferRow; wanted: boolean }
   | { ok: false; reason: "balance"; error: string; offer: OfferRow; balance: number };
 
 /**
- * «✅ قبول». Manual payment: the offer is accepted and both sides get each other's contact. Escrow: in ONE transaction the offer is
- * claimed (PENDING → ACCEPTED), the listing (ACTIVE → SOLD) or request (ACTIVE → FULFILLED) is claimed, the buyer's balance is held
- * and the StoreOrder is created; if any step fails nothing is written, then the offer is rejected as before.
+ * «✅ قبول». The listing/request, buyer hold, seller commission hold and StoreOrder are committed in ONE transaction.
+ * Contact is shared only through the resulting ESCROWED order after money has been reserved.
  */
 export async function acceptOfferCore(userId: string, offerId: string): Promise<AcceptOutcome> {
   const p = await pendingOfferFor(userId, offerId);
@@ -276,10 +306,9 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
   if (!isWanted) {
     const listing = await prisma.storeListing.findUnique({ where: { id: offer.listingId! } });
     if (!listing || listing.status !== "ACTIVE") { await rejectOffer(); return { ok: false, reason: "unavailable", error: "❌ لم يعد هذا الاتفاق ممكناً — المنتج لم يعد متاحاً.", offer, wanted: false }; }
-    if (listing.paymentMethod === "MANUAL") {
-      const n = await prisma.storeOffer.updateMany({ where: { id: offer.id, status: "PENDING" }, data: { status: "ACCEPTED" } });
-      if (n.count !== 1) return { ok: false, reason: "gone", error: "هذا العرض لم يعد متاحاً." };
-      return { ok: true, mode: "manual", offer, title: listing.title };
+    if (listing.paymentMethod !== "ESCROW") {
+      await rejectOffer();
+      return { ok: false, reason: "unavailable", error: "🔒 هذا المنتج قديم ولم يُفعّل الحجز الآمن بعد. على البائع تعديله وإعادة نشره.", offer, wanted: false };
     }
     try {
       const orderId = await prisma.$transaction(async (tx) => {
@@ -288,6 +317,8 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
         if ((await tx.jobsUser.updateMany({ where: { id: offer.buyerId, balance: { gte: offer.price } }, data: { balance: { decrement: offer.price } } })).count !== 1) throw new Abort("balance");
         await tx.jobsTransaction.create({ data: { userId: offer.buyerId, amount: offer.price, currency: "internal", type: "ESCROW_HOLD", status: "COMPLETED" } });
         const order = await tx.storeOrder.create({ data: { buyerId: offer.buyerId, sellerId: listing.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: listing.deliveryMethod, status: "ESCROWED", escrowedAt: new Date() } });
+        const fee = jobsStoreCommission(offer.price).platformFee;
+        if (fee > 0) await tx.jobsTransaction.create({ data: { userId: listing.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
         return order.id;
       });
       return { ok: true, mode: "escrow", offer, title: listing.title, orderId, wanted: false };
@@ -307,6 +338,8 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
       // No pre-existing StoreListing: one is synthesised (SOLD) so the escrow/dispute/auto-release pipeline keeps working unchanged.
       const listing = await tx.storeListing.create({ data: { sellerId: offer.sellerId, title: wanted.title, description: wanted.description, price: offer.price, photoFileIds: [], deliveryMethod: "PICKUP_MANUAL", paymentMethod: "ESCROW", status: "SOLD" } });
       const order = await tx.storeOrder.create({ data: { buyerId: offer.buyerId, sellerId: offer.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: "PICKUP_MANUAL", status: "ESCROWED", escrowedAt: new Date() } });
+      const fee = jobsStoreCommission(offer.price).platformFee;
+      if (fee > 0) await tx.jobsTransaction.create({ data: { userId: offer.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
       return order.id;
     });
     return { ok: true, mode: "escrow", offer, title: wanted.title, orderId, wanted: true };
@@ -327,10 +360,11 @@ async function abortOutcome(why: Abort["why"], offer: OfferRow, wanted: boolean,
 export async function confirmReceivedCore(buyerId: string, orderId: string) {
   const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
   if (!order || order.buyerId !== buyerId || order.status !== "ESCROWED") return { ok: false as const, error: "هذا الطلب غير متاح لهذا الإجراء." };
+  const breakdown = await escrowFeeBreakdown(order.id, order.amount);
   if (!(await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE"))) return { ok: false as const, error: "هذا الطلب غير متاح لهذا الإجراء." };
   // A dispute the buyer opened and then settled by confirming receipt no longer waits in the admin inbox.
   await prisma.jobsDispute.updateMany({ where: { orderId, status: { not: "RESOLVED" } }, data: { status: "RESOLVED", resolution: "RELEASED_TO_SELLER", resolvedAt: new Date() } }).catch(() => null);
-  return { ok: true as const, order };
+  return { ok: true as const, order, ...breakdown };
 }
 export async function openDisputeCore(userId: string, orderId: string) {
   const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
