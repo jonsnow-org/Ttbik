@@ -168,13 +168,31 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     from sham_inputs import fetch_dataset
 
     mains = []
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
-                          ("sham-grown-checkpoint", "final_grown.pt"),
-                          ("sham-merged-checkpoint", "final_merged.pt")):   # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    anchor_on = (os.environ.get("SHAM_START_ANCHOR") or "merged").lower() != "off"
+    fast = anchor_on and (os.environ.get("SHAM_START_FAST") or "1").strip().lower() not in ("0", "off", "false", "no")
+    lines = [("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-grown-checkpoint", "final_grown.pt"),
+             ("sham-merged-checkpoint", "final_merged.pt")]    # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    if fast:       # 2026-11-13: four checkpoints (3 GB) were downloaded on every cycle start over a slow link (and every redeploy got Kaggle to rate-limit us) only to end up on the head anyway
+        lines = lines[::-1][:1] + lines[:-1]
+    head_ok = False
+    for name, pattern in lines:
+        if head_ok:
+            print(f"⚡ الرأس المنشور سليم: لا حاجة لتنزيل {name} (SHAM_START_FAST=0 يعيد القياس الكامل)")
+            continue
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
             mains.append((name, hits[0], hits[0].parent))
+            if fast and name == "sham-merged-checkpoint":
+                try:
+                    toks = sorted(hits[0].parent.rglob("sham_small_tokenizer.json"))
+                    probe = make_probe("cuda" if torch.cuda.is_available() else "cpu")
+                    loss = probe(hits[0], toks[0]) if toks else None
+                    head_ok = bool(loss is not None and probe.last_chance and loss <= 0.9 * probe.last_chance)
+                    if head_ok:
+                        print(f"⚓ الرأس المنشور سليم (الخسارة النصية {loss:.2f} أقل بكثير من التخمين العشوائي {probe.last_chance:.1f}): نقطة الانطلاق مباشرة بلا تنزيل بقية الخطوط")
+                except Exception as exc:
+                    print(f"⚠ تعذّر فحص الرأس سريعًا ({type(exc).__name__}): يُنزَّل بقية الخطوط ويُقاس الجميع")
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -192,7 +210,9 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
     best = cands[0][0]
-    if len(cands) > 1:
+    if head_ok:
+        best = "sham-merged-checkpoint"
+    elif len(cands) > 1:
         try:
             best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
                                 prefer=("sham-merged-checkpoint", "sham-grown-checkpoint"),   # the head first: it IS the grown lineage plus every merged gain
