@@ -23,12 +23,12 @@ jobs:
         run: |
           base="https://ttbik-gate.jonsnowx1r.workers.dev/api/youtube/oauth"
           if [ -z "${PASTED}" ]; then
-            loc=$(curl -sS -m 60 -o /dev/null -w '%{redirect_url}' --get --data-urlencode "secret=${CRON_SECRET}" "${base}")
+            loc=$(curl -sS -m 60 -o /dev/null -w '%{redirect_url}' -H "Authorization: Bearer ${CRON_SECRET}" "${base}")
             if [ -z "${loc}" ]; then echo "no consent link returned (keys missing on the serving server?)"; exit 1; fi
             echo "OPEN THIS LINK, approve, then copy the localhost address from the browser:"
             echo "${loc}"
           else
-            curl -sS -m 60 -o out.html -w 'HTTP %{http_code}\n' --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "url=${PASTED}" "${base}"
+            curl -sS -m 60 -o out.html -w 'HTTP %{http_code}\n' -H "Authorization: Bearer ${CRON_SECRET}" --data-urlencode "url=${PASTED}" "${base}"
             sed -e 's/<[^>]*>/ /g' out.html | head -c 600; echo
             grep -q "✅" out.html
           fi
