@@ -503,6 +503,8 @@ def _start_memory_watch(every: float = 60.0) -> None:
             last = _tb.extract_stack(frame)[-4:]
             print(f"  🧵 {names.get(ident, ident)}: " + " ← ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in reversed(last)), flush=True)
 
+    shown = {"rss": -9.0, "at": 0.0}      # the Studio keeps only a short tail of the log: a line every minute pushed the training lines out of it (2026-11-13), so a line is printed only on a change of 0.4 GB or every 15 minutes
+
     def loop():
         while True:
             try:
@@ -515,7 +517,9 @@ def _start_memory_watch(every: float = 60.0) -> None:
                 while marks and rss >= marks[0]:
                     dump_threads(rss)
                     marks.pop(0)
-                print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
+                if abs(rss - shown["rss"]) >= 0.4 or time.time() - shown["at"] >= 900:
+                    shown.update(rss=rss, at=time.time())
+                    print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
             except Exception:
                 return
             time.sleep(every)
