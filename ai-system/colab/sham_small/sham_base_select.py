@@ -63,7 +63,7 @@ def text_loss(model, tok, text: str, device: str = "cpu", windows: int = 16, len
 
 
 def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = (), hysteresis: float = HYSTERESIS,
-                edge: dict | None = None, edge_tolerance: float = 1.03):
+                edge: dict | None = None, edge_tolerance: float = 1.03, anchor: str | None = None):
     scores: dict[str, float] = {}
     for name, ckpt, tok in candidates:
         if tok is None:
@@ -90,6 +90,12 @@ def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: t
             best = name
             break
     chance = getattr(probe, "last_chance", None)
+    # The anchor is the published head: the merge gate judges every candidate against IT (text AND chat AND media), so a trainer must start from it. Choosing by text loss alone
+    # sent the trainers to the multimodal line (text 3.9, but chat 4.2 against the head's 2.0), their outputs landed far from the head, lost chat/media and the gate refused every one
+    # (2026-11-13 inventory + merge log). The anchor is dropped only when it is broken (at chance level) or missing.
+    if anchor and anchor in scores and chance and scores[anchor] <= CHANCE_FRACTION * chance and best != anchor:
+        log(f"⚓ الأساس هو الرأس المنشور {anchor} (القياس النصي وحده كان سيختار {best}): الدمج يحكم على الرأس بالنص والمحادثة والوسائط معًا")
+        best = anchor
     note = ""
     if chance and scores[best] > CHANCE_FRACTION * chance:
         note = f" ⚠ حتى الأفضل بمستوى التخمين العشوائي ({chance:.1f}): لا نقطة سليمة"
@@ -137,4 +143,17 @@ if __name__ == "__main__":
         assert best4 == "grown", "a preferred (grown) checkpoint wins a near-tie"
         best3, _ = choose_base([("good", paths["good"], Path(d) / "t.json"), ("good2", paths["good"], Path(d) / "t.json")], probe, keep="good2")
         assert best3 == "good2", "a lineage within 5% of the best is kept"
+        mid = ShamSmall(cfg)                      # a partly trained, healthy model: worse than `good` but far from chance level
+        opt = torch.optim.AdamW(mid.parameters(), lr=3e-3)
+        for _ in range(40):
+            loss = mid(pattern, labels=pattern)[1]
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+        save_checkpoint(Path(d) / "mid.pt", mid, 1)
+        best5, sc5 = choose_base([("mid", Path(d) / "mid.pt", Path(d) / "t.json"), ("good", paths["good"], Path(d) / "t.json")], probe, anchor="mid")
+        assert sc5["mid"] > sc5["good"] * 1.05 and sc5["mid"] < 0.9 * probe.last_chance, sc5
+        assert best5 == "mid", "a healthy anchor wins over a better text loss"
+        best6, _ = choose_base([("bad", paths["bad"], Path(d) / "t.json"), ("good", paths["good"], Path(d) / "t.json")], probe, anchor="bad")
+        assert best6 == "good", "a broken (chance-level) anchor is dropped"
     print("sham_base_select self-test OK")
