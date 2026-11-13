@@ -212,7 +212,7 @@ export function ProductScreen({ id }: { id: string }) {
       <h1 className="text-[20px] font-black leading-tight" style={{ color: "var(--app-text)" }}>{l.title}</h1>
       <div className="mt-1 text-[24px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
       <Section>
-        <Row icon="🔒" title="دفع بحجز آمن" sub={`يُحجز كامل السعر من رصيد المشتري عند الاتفاق. عمولة المنصة ${d.listing.commissionPercent ?? 5}% تُخصم من مستحق البائع عند إتمام الصفقة؛ صافي البائع ${money(l.price * (1 - (d.listing.commissionPercent ?? 5) / 100))}.`} />
+        <Row icon={l.escrow ? "🔒" : "⚠️"} title={l.escrow ? "دفع بحجز آمن" : "يلزم تفعيل الحجز الآمن"} sub={l.escrow ? `يُحجز كامل السعر من رصيد المشتري عند الاتفاق. عمولة المنصة ${d.listing.commissionPercent ?? 5}% تُخصم من مستحق البائع عند إتمام الصفقة؛ صافي البائع ${money(l.price * (1 - (d.listing.commissionPercent ?? 5) / 100))}.` : "هذا منتج قديم غير متاح للشراء حتى يعدّله البائع ويعيد نشره بالحجز الآمن."} />
         <Row icon={l.shipping ? "🚚" : "📍"} title={l.shipping ? "يوجد شحن" : "استلام يدوي من البائع"} />
         <Row icon="🏪" title={d.seller.name} sub={d.seller.place || undefined} onClick={d.seller.shop ? () => push({ name: "shop", params: { slug: d.seller.shop } }) : undefined} right={d.seller.shop ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>المتجر ‹</span> : undefined} />
       </Section>

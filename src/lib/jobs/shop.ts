@@ -68,7 +68,7 @@ export async function jobsBotUsername(): Promise<string> {
 export async function sendMyShop(bot: TelegramBot, chatId: number, userId: string, appUrl?: string) {
   const [profile, count] = await Promise.all([
     prisma.jobsProfile.findUnique({ where: { userId } }),
-    prisma.storeListing.count({ where: { sellerId: userId, status: "ACTIVE" } }),
+    prisma.storeListing.count({ where: { sellerId: userId, status: "ACTIVE", paymentMethod: "ESCROW" } }),
   ]);
   if (!count) {
     await bot.api.sendMessage(chatId, "🏪 متجرك فارغ. أضف منتجاً من «🛒 قسم المتجر ← 💰 أمر بيع»، ثم ارجع هنا لتأخذ رابط متجرك.",

@@ -9,7 +9,7 @@ import type { Bot as BotRow, JobsProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 import {
-  PROFESSIONAL_CATEGORIES, ROLES, acceptOfferCore, adminMessageCore, blockUser, chargeJobsUser, confirmReceivedCore, contactUrlOf, counterOfferCore, jobsStoreCommission, jobsStoreCommissionPercent, escrowFeeBreakdown,
+  PROFESSIONAL_CATEGORIES, ROLES, acceptOfferCore, adminMessageCore, blockUser, chargeJobsUser, confirmReceivedCore, contactUrlOf, counterOfferCore, jobsStoreCommission, jobsStoreCommissionPercent,
   createJobPostingCore, createOfferCore, deleteListingCore, deleteWantedCore, isBlocked, openDisputeCore, otherPartyOf, rejectOfferCore, reportCore,
   saveListingCore, saveProfileCore, saveWantedCore, searchJobPostings, searchListings, searchProfessionals, searchWanted, submitDisputeCore,
   toggleListingCore, toggleProfilePause, toggleWantedCore, type StoreFilters,
@@ -97,7 +97,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       ? await Promise.all([
           prisma.storeOffer.findMany({ where: { status: "PENDING", OR: [{ buyerId: uid }, { sellerId: uid }] }, select: { lastOfferBy: true } }).then((r) => r.filter((o) => o.lastOfferBy !== uid).length),
           prisma.storeOrder.count({ where: { status: "ESCROWED", OR: [{ buyerId: uid }, { sellerId: uid }] } }),
-          prisma.storeListing.count({ where: { sellerId: uid, status: "ACTIVE" } }),
+          prisma.storeListing.count({ where: { sellerId: uid, status: "ACTIVE", paymentMethod: "ESCROW" } }),
         ])
       : [0, 0, 0];
     return {
