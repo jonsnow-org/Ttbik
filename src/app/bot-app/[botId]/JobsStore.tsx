@@ -212,7 +212,7 @@ export function ProductScreen({ id }: { id: string }) {
       <h1 className="text-[20px] font-black leading-tight" style={{ color: "var(--app-text)" }}>{l.title}</h1>
       <div className="mt-1 text-[24px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
       <Section>
-        <Row icon={l.escrow ? "🔒" : "🤝"} title={l.escrow ? "دفع بحجز آمن" : "دفع يدوي مع البائع"} sub={l.escrow ? "يُحجز المبلغ من رصيدك عند الاتفاق، ويصل للبائع بعد تأكيدك الاستلام." : "تتفق مع البائع مباشرة على الدفع والتسليم."} />
+        <Row icon="🔒" title="دفع بحجز آمن" sub={`يُحجز كامل السعر من رصيد المشتري عند الاتفاق. عمولة المنصة ${d.listing.commissionPercent ?? 5}% تُخصم من مستحق البائع عند إتمام الصفقة؛ صافي البائع ${money(l.price * (1 - (d.listing.commissionPercent ?? 5) / 100))}.`} />
         <Row icon={l.shipping ? "🚚" : "📍"} title={l.shipping ? "يوجد شحن" : "استلام يدوي من البائع"} />
         <Row icon="🏪" title={d.seller.name} sub={d.seller.place || undefined} onClick={d.seller.shop ? () => push({ name: "shop", params: { slug: d.seller.shop } }) : undefined} right={d.seller.shop ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>المتجر ‹</span> : undefined} />
       </Section>
@@ -264,7 +264,7 @@ export function WantedScreen({ id }: { id: string }) {
       <div className="mb-2"><StatusPill s={w.status} /></div>
       <Section>
         <Row icon="💵" title={w.budget != null ? `الميزانية: ${money(w.budget)}` : "الميزانية: غير محددة"} />
-        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} onClick={d.buyer.contact ? () => open(d.buyer.contact) : undefined} right={d.buyer.contact ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>تواصل ‹</span> : undefined} />}
+        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} />}
       </Section>
       {w.description && <Section title="التفاصيل"><p className="whitespace-pre-wrap px-4 py-3 text-[14px] leading-6" style={{ color: "var(--app-text)" }}>{w.description}</p></Section>}
       {w.mine ? (w.status === "ACTIVE" || w.status === "PAUSED") && (
@@ -309,9 +309,9 @@ export function useUpload() {
 
 export function ListingForm({ id }: { id?: string }) {
   const { api, toast, back, replace, setDirty } = useApp();
-  const { reload } = useInit();
+  const { reload, init } = useInit();
   const upload = useUpload();
-  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "", paymentMethod: "" });
+  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "", paymentMethod: "ESCROW" });
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -322,7 +322,7 @@ export function ListingForm({ id }: { id?: string }) {
     void api("listing_get", { id }).then((r: any) => {
       if (!r.ok || !r.listing.mine) { toast(r.error || "غير مسموح.", "err"); back(); return; }
       const l = r.listing;
-      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL", paymentMethod: l.escrow ? "ESCROW" : "MANUAL" });
+      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL", paymentMethod: "ESCROW" });
     });
   }, [api, id, toast, back]);
   if (!f) return <Loading lines={5} />;
@@ -379,8 +379,8 @@ export function ListingForm({ id }: { id?: string }) {
       <Section title="طريقة التسليم">
         <div className="p-3"><Chips items={[{ id: "PICKUP_MANUAL", label: "📍 استلام يدوي" }, { id: "SHIPPING", label: "🚚 يوجد شحن" }]} value={f.deliveryMethod} onChange={(v) => set("deliveryMethod", v)} /></div>
       </Section>
-      <Section title="طريقة الدفع" hint="🔒 الحجز الآمن: يُحجز المبلغ من رصيد المشتري ويصلك بعد تأكيده الاستلام (أو تلقائياً بعد 7 أيام بلا نزاع). 🤝 اليدوي: تتفق مع المشتري مباشرة.">
-        <div className="p-3"><Chips items={[{ id: "ESCROW", label: "🔒 حجز آمن" }, { id: "MANUAL", label: "🤝 يدوي" }]} value={f.paymentMethod} onChange={(v) => set("paymentMethod", v)} /></div>
+      <Section title="الحجز الآمن والعمولة" hint={`الحجز الآمن إلزامي لحماية الطرفين. يُحجز كامل السعر حتى تأكيد الاستلام أو انقضاء 7 أيام دون نزاع. عمولة المنصة ${init.commissionPercent}% من البائع فقط؛ تقدير صافي البائع عند بيع هذا المنتج ${money((Number(f.price) || 0) * (1 - init.commissionPercent / 100))}.`}>
+        <Row icon="🔒" title="الحجز الآمن مفعّل تلقائياً" sub={`لا نكشف بيانات التواصل قبل إتمام الحجز. عمولة ${init.commissionPercent}% تُحتسب عند تحرير المبلغ.`} />
       </Section>
       {err && <p className="mb-2 px-1 text-sm font-bold" style={{ color: "var(--app-danger)" }}>{err}</p>}
       <MainAction text={id ? "💾 حفظ التعديلات" : "📢 نشر المنتج"} onClick={save} busy={busy} disabled={uploading > 0} />
@@ -675,6 +675,7 @@ function OrderCard({ o, reload }: { o: any; reload: () => Promise<void> }) {
           <b className="block truncate text-[14px]" style={{ color: "var(--app-text)" }}>{o.title}</b>
           <span className="block text-xs" style={{ color: "var(--app-hint)" }}>#{o.short} · {ago(o.at)}{o.shipping ? " · 🚚 شحن" : " · 📍 استلام"}</span>
           <span className="block text-[14px] font-black" style={{ color: "var(--app-accent)" }}>{money(o.amount)}</span>
+      <span className="block text-[10.5px]" style={{ color: "var(--app-hint)" }}>عمولة المنصة {money(o.platformFee)} · صافي البائع {money(o.sellerNet)}</span>
         </div>
         <StatusPill s={o.status} />
       </div>

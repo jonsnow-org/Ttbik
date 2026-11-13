@@ -12,7 +12,7 @@ import { WorkScreen, JobScreen, ProScreen, TendersScreen, TenderBidsScreen, Tend
 export type JobsInit = {
   ok: boolean; error?: string; code?: string; gate: { channel: string } | null; phoneVerified: boolean;
   user: { id: string; firstName: string; username: string }; bot: { username: string }; profile: any | null; balance: number;
-  counts: { offersWaiting: number; ordersOpen: number; active: number }; categories: string[]; roles: { id: string; label: string }[];
+  counts: { offersWaiting: number; ordersOpen: number; active: number }; commissionPercent: number; categories: string[]; roles: { id: string; label: string }[];
   durations: { label: string; hours: number }[]; maxOpenTenders: number; feature: { price: number; days: number };
 };
 const InitCtx = createContext<{ init: JobsInit; reload: () => Promise<void> } | null>(null);
@@ -210,7 +210,7 @@ function Home() {
         <span>أهلاً {p?.name || init.user.firstName} 👋</span>
         <button type="button" onClick={() => push({ name: "account" })} className="rounded-full px-3 py-1 text-xs" style={{ background: "var(--app-card)", color: "var(--app-text)" }}>{p?.roleLabel}</button>
       </div>
-      <div className="relative mb-4 overflow-hidden rounded-3xl p-5" style={{ background: "linear-gradient(135deg,#0ea5e9,#1d4ed8)", color: "#fff" }}>
+      <div className="relative mb-4 overflow-hidden rounded-3xl p-5" style={{ background: "linear-gradient(135deg,var(--app-btn),color-mix(in srgb,var(--app-btn) 68%,#0f172a))", color: "var(--app-btn-text)" }}>
         <div className="text-[13px] font-bold opacity-85">💼 فرص العمل والمتجر</div>
         <div className="mt-1 text-[22px] font-black leading-tight">بيع واشترِ بأمان، وابحث عن عمل أو مهني</div>
         <div className="mt-3 flex flex-wrap gap-2 text-[11.5px] font-bold">
