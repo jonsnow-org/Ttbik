@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     if (!filePath) {
       return NextResponse.json(
         { error: fileJson?.description || "telegram file lookup failed" },
-        { status: 502 }
+        { status: 424 }
       );
     }
 
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
       headers: upstreamHeaders,
     });
     if (!mediaResp.ok || !mediaResp.body) {
-      return NextResponse.json({ error: "media download failed" }, { status: 502 });
+      return NextResponse.json({ error: "media download failed" }, { status: 424 });
     }
 
     const fallbackType = mediaType === "audio" || mediaType === "voice" ? "audio/mpeg" : "video/mp4";
@@ -91,6 +91,6 @@ export async function GET(req: NextRequest) {
     if (contentRange) headers["content-range"] = contentRange;
     return new NextResponse(mediaResp.body, { status: mediaResp.status, headers });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 424 });
   }
 }
