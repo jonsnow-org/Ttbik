@@ -4,7 +4,22 @@
 // Needs ONE secret in the Worker settings:  BOT_TOKEN  (the media bot's token)
 // Usage:  https://<worker>.workers.dev/?id=<post id>
 
-const SITE = "https://ttbik.vercel.app";
+const DEFAULT_MEDIA_PATH_ORIGIN = "https://ttbik-gate.jonsnowx1r.workers.dev";
+
+// Vercel is a standby and may be paused. The file-path lookup always goes
+// through the permanent gate so it reaches the active site origin.
+function mediaPathOrigin(env) {
+  const configured = String(env.MEDIA_PATH_ORIGIN || "").trim();
+  try {
+    const origin = new URL(configured || DEFAULT_MEDIA_PATH_ORIGIN);
+    if (origin.protocol !== "https:" || /(^|\\.)vercel\\.app$/i.test(origin.hostname)) {
+      return DEFAULT_MEDIA_PATH_ORIGIN;
+    }
+    return origin.origin;
+  } catch {
+    return DEFAULT_MEDIA_PATH_ORIGIN;
+  }
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -23,7 +38,7 @@ export default {
 
     // 1) post id -> Telegram file_path (cached at Cloudflare for 50 minutes)
     const cache = caches.default;
-    const pathKey = new Request(`${SITE}/api/media-path?id=${encodeURIComponent(id)}`);
+    const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}`, mediaPathOrigin(env)));
     let pathResp = await cache.match(pathKey);
     if (!pathResp) {
       pathResp = await fetch(pathKey);

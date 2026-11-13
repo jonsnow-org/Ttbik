@@ -27,11 +27,11 @@ describe("media mini-app persistent video player", () => {
     expect(styles).toContain("prefers-reduced-motion: reduce");
   });
 
-  it("actively starts the muted autoplay preview and tries the Vercel fallback once", () => {
+  it("actively starts the muted autoplay preview and tries the site-stream fallback once", () => {
     const src = page();
     expect(src).toContain("const started = video.play()");
     expect(src).toContain("video.muted = true");
-    expect(src).toContain("const onAutoPreviewError = (id: string)");
+    expect(src).toContain("const onAutoPreviewError = useCallback((id: string) =>");
     expect(src).toContain("autoPreviewAttempts.current[id] = 1");
     expect(src).toContain("onError={() => onAutoPreviewError(item.id)}");
     expect(src).toContain("mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)");
@@ -41,5 +41,26 @@ describe("media mini-app persistent video player", () => {
     const src = page();
     expect(src).toContain('media.dataset.miniPlayer === "true" && media.dataset.playerId === playingId');
     expect(src).toContain('preload="auto"');
+  });
+});
+
+
+describe("Cloudflare media stream Worker origin routing", () => {
+  const worker = fs.readFileSync(path.join(__dirname, "..", "..", "..", "cloudflare", "media-stream-worker.js"), "utf8");
+  const wrangler = fs.readFileSync(path.join(__dirname, "..", "..", "..", "cloudflare", "media-stream.wrangler.jsonc"), "utf8");
+
+  it("resolves Telegram file paths through the permanent site gate, not a Vercel-only origin", () => {
+    expect(worker).toContain('const DEFAULT_MEDIA_PATH_ORIGIN = "https://ttbik-gate.jonsnowx1r.workers.dev"');
+    expect(worker).toContain("mediaPathOrigin(env)");
+    expect(worker).toContain("/api/media-path?id=");
+    expect(worker).toContain("vercel\\\\.app");
+    expect(worker).not.toContain('const SITE = "https://ttbik.vercel.app"');
+  });
+
+  it("keeps the media Worker deploy config separate and stores no bot secret in it", () => {
+    expect(wrangler).toContain('"name": "media-stream"');
+    expect(wrangler).toContain('"main": "media-stream-worker.js"');
+    expect(wrangler).toContain('"MEDIA_PATH_ORIGIN": "https://ttbik-gate.jonsnowx1r.workers.dev"');
+    expect(wrangler).not.toContain("BOT_TOKEN");
   });
 });
