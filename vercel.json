@@ -195,10 +195,6 @@
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/api/cron/bot-update-announcements",
-      "schedule": "0 2 * * *"
-    },
-    {
       "path": "/api/cron/fake-chat-cleanup",
       "schedule": "30 1 * * *"
     },
