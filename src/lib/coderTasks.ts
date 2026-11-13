@@ -6,18 +6,18 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
-export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "qwen35-9b" | "gemma4-e4b" | "minicpmo45" | "all";
+export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "lfm25" | "all";
 export const shamTaskSlot = (variant: "v1" | "v2"): string => variant === "v2" ? "sham_v2" : "sham_v1";
-function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column = "slot"): void {
+function applyTaskModelFilter(where: string[], model?: TaskModelFilter, slotColumn = "slot", modelColumn = "model_id"): void {
   if (!model || model === "all") return;
-  if (model === "coder") where.push(`(${column} = '' OR ${column} LIKE 's:%')`);
-  else if (model === "sham_v2") where.push(`${column} = 'sham_v2'`);
-  else if (model === "sham") where.push(`${column} IN ('sham_v1', 'sham')`);
-  else where.push(`${column} = 'model:${model}'`);
+  if (model === "coder") where.push(`(${modelColumn} = 'coder' OR (${modelColumn} IS NULL AND (${slotColumn} = '' OR ${slotColumn} LIKE 's:%')))`);
+  else if (model === "lfm25") where.push(`${modelColumn} = 'lfm25'`);
+  else if (model === "sham_v2") where.push(`(${slotColumn} = 'sham_v2' OR ${modelColumn} = 'sham_v2')`);
+  else where.push(`(${slotColumn} IN ('sham_v1', 'sham') OR ${modelColumn} = 'sham')`);
 }
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
-  run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
+  run_id: string; slot: string; model_id?: string | null; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
   steps: number; started_at: string; updated_at: string; finished_at: string | null; thread_id?: string | null;
 };
 export type EventRow = { id: number; run_id: string; kind: EventKind; text: string; created_at: string };
@@ -27,12 +27,13 @@ export function ensureTaskTables(db: Db): Promise<void> {
   if (db !== prismaDb && !(db as { ddl?: boolean }).ddl) return Promise.resolve();   // `ddl: true` = a real SQL engine in tests
   if (!ready) {
     ready = (async () => {
-      await db.exec(`CREATE TABLE IF NOT EXISTS coder_tasks (run_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'interactive', schedule_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'running', steps INT NOT NULL DEFAULT 0, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ)`);
+      await db.exec(`CREATE TABLE IF NOT EXISTS coder_tasks (run_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', model_id TEXT, source TEXT NOT NULL DEFAULT 'interactive', schedule_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'running', steps INT NOT NULL DEFAULT 0, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ)`);
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_tasks_chat_idx ON coder_tasks (chat_key, started_at DESC)`);
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_task_events (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_task_events_run_idx ON coder_task_events (run_id, id)`);
       // conversation threads (src/lib/coderThreads.ts): the request's conversation; older rows keep NULL
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS thread_id TEXT`);
+      await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS model_id TEXT`);
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`);
       // who to resume a run for if its server is replaced mid-task (the chat id stays encrypted, like in coder_schedules)
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS chat_enc TEXT`);
@@ -45,13 +46,13 @@ export function ensureTaskTables(db: Db): Promise<void> {
   return ready;
 }
 
-export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null; botId?: string }, db: Db = prismaDb): Promise<void> {
+export async function taskStart(chatId: number | string, t: { runId: string; slot: string; modelId?: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null; botId?: string }, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);
     // Only a genuinely new task row receives a START event; retries must not duplicate it.
     const inserted = await db.query<{ run_id: string }>(
-      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) ON CONFLICT (run_id) DO NOTHING RETURNING run_id`,
-      t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
+      `INSERT INTO coder_tasks (run_id, chat_key, slot, model_id, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8) ON CONFLICT (run_id) DO NOTHING RETURNING run_id`,
+      t.runId, coderChatKey(chatId), t.slot, t.modelId || null, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
     );
     if (inserted.length) {
       if (t.source === "agent") await db.exec(`UPDATE coder_tasks SET archived_at = now() WHERE run_id = $1`, t.runId);   // a sub-agent's task stays out of the user's history
@@ -186,7 +187,7 @@ export async function listTasks(chatId: number | string, opts: { limit?: number;
     }
     applyTaskModelFilter(where, opts.model);
     return await db.query<TaskRow>(
-      `SELECT run_id, slot, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at, thread_id FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
+      `SELECT run_id, slot, model_id, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at, thread_id FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
       ...args,
     );
   } catch {
@@ -199,7 +200,7 @@ export async function taskEvents(chatId: number | string, runId: string, after =
     await ensureTaskTables(db);
     const where = ["e.run_id = $1", "t.chat_key = $2", "t.archived_at IS NULL", "e.id > $3"];
     const args: unknown[] = [runId, coderChatKey(chatId), after];
-    applyTaskModelFilter(where, model, "t.slot");
+    applyTaskModelFilter(where, model, "t.slot", "t.model_id");
     return await db.query<EventRow>(
       `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE ${where.join(" AND ")} ORDER BY e.id ASC LIMIT 500`,
       ...args,

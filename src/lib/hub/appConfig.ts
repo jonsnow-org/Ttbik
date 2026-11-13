@@ -39,12 +39,17 @@ const safeUrl = (u: unknown): string | undefined => {
 
 export type ValidateResult = { ok: true; config: AppConfig } | { ok: false; error: string };
 
+export function isAppTemplate(value: unknown): value is AppTemplate {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(APP_TEMPLATES, value);
+}
+
 /** Accepts anything (user JSON / model JSON) and returns a clean config or an Arabic error. Strips HTML, non-https links, extras. */
 export function validateAppConfig(raw: unknown): ValidateResult {
   if (!raw || typeof raw !== "object") return { ok: false, error: "إعدادات التطبيق غير صالحة" };
   const r = raw as Record<string, unknown>;
-  const template = String(r.template || "") as AppTemplate;
-  if (!(template in APP_TEMPLATES)) return { ok: false, error: "اختر قالباً: متجر، حجز، قائمة مطعم، معرض أعمال، روابط، اختبار" };
+  const templateValue = String(r.template || "");
+  if (!isAppTemplate(templateValue)) return { ok: false, error: "اختر قالباً: متجر، حجز، قائمة مطعم، معرض أعمال، روابط، اختبار" };
+  const template = templateValue;
   const title = clip(r.title, 60);
   if (title.length < 2) return { ok: false, error: "اسم التطبيق مطلوب (حرفان على الأقل)" };
   const color = /^#[0-9a-fA-F]{6}$/.test(String(r.color || "")) ? String(r.color).toLowerCase() : "#4f46e5";

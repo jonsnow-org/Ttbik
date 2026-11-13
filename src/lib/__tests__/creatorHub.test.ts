@@ -78,6 +78,8 @@ describe("app config", () => {
   });
   it("rejects bad templates, empty titles and too many items", () => {
     expect(validateAppConfig({ template: "casino", title: "x1" }).ok).toBe(false);
+    expect(validateAppConfig({ template: "toString", title: "x1" }).ok).toBe(false);
+    expect(validateAppConfig({ template: "constructor", title: "x1" }).ok).toBe(false);
     expect(validateAppConfig({ template: "store", title: "" }).ok).toBe(false);
     expect(validateAppConfig({ template: "store", title: "ab", items: Array(MAX_ITEMS + 1).fill({ title: "a" }) }).ok).toBe(false);
   });

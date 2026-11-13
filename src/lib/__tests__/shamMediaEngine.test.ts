@@ -34,18 +34,28 @@ describe("per-model media engine", () => {
     await expect(appOp({ chatId: 1, tier: "user" }, "media_status", {}, d)).rejects.toThrow(AppError);
   });
   it("status: probes each Studio's own status and reports which Studio makes what", async () => {
+    const urls: string[] = [];
     const f = (async (url: string, init?: any) => {
+      urls.push(String(url));
       if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
-      const down = String(url).includes("sham-v1-server");
-      return new Response(`event: complete\ndata: [${JSON.stringify(JSON.stringify({ phase: down ? "loading models" : "ready" }))}]\n`, { status: 200 });
+      const base = String(url);
+      const down = base.includes("sham-v1-server");
+      const status = { phase: down ? "loading models" : "ready", ...(base.includes("lfm25-media-server") ? { video: { ready: true } } : {}) };
+      return new Response(`event: complete\ndata: [${JSON.stringify(JSON.stringify(status))}]\n`, { status: 200 });
     }) as unknown as typeof fetch;
     process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
+    process.env.LFM_MEDIA_STUDIO_URL = "https://studio-novaai2026-lfm25-media-server.api-inference.modelscope.net";
     const r = await mediaEngineStatus(pgDb() as any, f);
     const by = Object.fromEntries(r.models.map((m) => [m.id, m]));
     expect(by.coder.options).toEqual([]);
     expect(by.coder.studios[0]).toMatchObject({ id: "nova-media-server", ok: true });
     expect(by.coder.lines.find((l) => l.kind === "image")?.studio).toBe("epicrealism-image-test");   // Nova's picture is its own dedicated weight Studio
     expect(by.coder.lines.filter((l) => l.kind !== "image").every((l) => l.studio === "nova-media-server")).toBe(true);
+    expect(by.lfm25.engine).toBe("lfm");
+    expect(by.lfm25.studios[0]).toMatchObject({ id: "lfm25-media-server", ok: true });
+    expect(by.lfm25.lines).toHaveLength(3);
+    expect(r.photoWeights.map((w) => w.modelId)).toEqual(["coder", "sham_v2"]);
+    expect(urls.some((url) => /sham-donor-(qwen35-9b|gemma4-e4b|minicpmo45)-media/.test(url))).toBe(false);
     expect(by.sham_v2.lines.find((l) => l.kind === "video")?.studio).toBe("sham-v2-video-server");
     expect(by.sham_v2.studios.map((s) => s.id)).toEqual(["sham-v2-server", "sham-v2-video-server"]);
     expect(JSON.stringify(by.coder)).not.toMatch(/sham/i);                           // Nova never touches a Sham Studio

@@ -491,11 +491,6 @@ describe("notices of a task started from the chat", () => {
   });
 });
 
-function memDbQuery(db: Db): (sql: string, ...args: any[]) => Promise<any> {
-  const original = (db as any).query.bind(db);
-  return (sql: string, ...args: any[]) => original(sql, args[0]);
-}
-
 describe("a poll the hub refuses for a moment does not end the task", () => {
   it("a 429 on the job poll is waited out and the task finishes", async () => {
     process.env.CODER_POLL_MS = "5";
@@ -518,103 +513,44 @@ describe("a poll the hub refuses for a moment does not end the task", () => {
 
 
 describe("isolated primary candidate route", () => {
-  it("sends owner messages directly to the selected primary candidate even when Nova is disabled, without fallback", async () => {
+  it("normalizes retired selections before routing and never probes their Studio", async () => {
     const db = memDb();
-    const state = {
-      mode: "coder" as const,
-      think: false,
-      messages: [],
-      notes: "",
-      inbox: [],
-      run: null,
-      model: "qwen35-9b",
-    };
+    const state = { mode: "coder" as const, think: false, messages: [], notes: "", inbox: [], run: null, model: "qwen35-9b" };
     await saveState(CHAT, state, db);
     const originalFetch = global.fetch;
-    const originalModelScopeToken = process.env.MODELSCOPE_API_TOKEN;
-    process.env.MODELSCOPE_API_TOKEN = "test-modelscope-token";
     const originalOpenCoder = process.env.OPEN_CODER_STUDIO_URL;
-    const originalConnectorKey = process.env.CODER_TOKEN_KEY;
-    process.env.CODER_TOKEN_KEY = "test-candidate-tool-bridge-key";
-    delete process.env.OPEN_CODER_STUDIO_URL;
-
-    const calls: { url: string; method: string }[] = [];
-    const originalQuery = memDbQuery(db);
-    (db as any).query = async (sql: string, ...args: any[]) => {
-      if (sql.includes("SELECT status FROM coder_tasks")) return [{ status: "running" }];
-      return originalQuery(sql, ...args);
-    };
-    const completed = (payload: object) =>
-      "event: complete\ndata: [" + JSON.stringify(JSON.stringify(payload)) + "]\n\n";
-    global.fetch = jest.fn(async (input: any, init?: any) => {
-      const url = String(input);
-      const method = String(init?.method || "GET").toUpperCase();
-      calls.push({ url, method });
-      if (url.includes("/openapi/v1/studios/novaai2026/sham-donor-qwen35-9b-test")) {
-        return new Response(JSON.stringify({ data: { runtime: { status: "Running" } } }), { status: 200 });
-      }
-      if (url.endsWith("/gradio_api/run/status") && method === "POST") {
-        const weight_manifest = {
-          candidate_id: "qwen35-9b", source_repo_id: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
-          modelscope_repo_id: "novaai2026/sham-donor-qwen35-9b-weights", modelscope_weights_revision: "2026-11-03-r1",
-          filename: "qwen35-9b-Q4_K_M.gguf", mmproj_filename: "qwen35-9b-mmproj-BF16.gguf",
-          files: { "qwen35-9b-Q4_K_M.gguf": { sha256: "a".repeat(64), size_bytes: 6_000_000_000 }, "qwen35-9b-mmproj-BF16.gguf": { sha256: "b".repeat(64), size_bytes: 400_000_000 } },
-        };
-        return new Response(JSON.stringify({
-          data: [JSON.stringify({ phase: "ready", app_revision: "donor-bakeoff-2026-11-04-r19", repo_id: "novaai2026/sham-donor-qwen35-9b-weights", weight_manifest, media_capabilities: { vision: true, audio: false, video: true } })],
-        }), { status: 200 });
-      }
-      if (url.endsWith("/gradio_api/run/chat_start") && method === "POST") {
-        return new Response(JSON.stringify({ data: [JSON.stringify({ job_id: "job-1" })] }), { status: 200 });
-      }
-      if (url.endsWith("/gradio_api/run/chat_poll") && method === "POST") {
-        return new Response(JSON.stringify({ data: [JSON.stringify({ state: "done", result: JSON.stringify({ text: "رد مباشر من Qwen", tool_calls: [], seconds: 0.2, tokens_per_second: 12 }) })] }), { status: 200 });
-      }
-      return new Response("unexpected donor test request", { status: 500 });
-    }) as any;
+    process.env.OPEN_CODER_STUDIO_URL = "off";
+    process.env.OPEN_CODER_STUDIO_URLS = "off";
+    const fetchImpl = jest.fn();
+    global.fetch = fetchImpl as unknown as typeof fetch;
 
     try {
       const { bot, sent } = fakeBot();
-      await handleCoderSections(
-        bot,
-        botRow,
-        { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "اختبر الرد المباشر" } },
-        db,
-      );
-      for (let i = 0; i < 600 && !sent.some((x) => x.text.includes("رد مباشر من Qwen")); i++) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      expect(calls.some((x) => x.url.includes("sham-donor-qwen35-9b-test") && x.url.includes("/gradio_api/run/chat_start"))).toBe(true);
-      expect(calls.every((x) => !x.url.includes("coder.test"))).toBe(true);
-      expect(sent.some((x) => x.text.includes("رد مباشر من Qwen"))).toBe(true);
-      expect(sent.some((x) => /لم يتم تحويل الطلب إلى نموذج آخر/.test(x.text))).toBe(false);
+      await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, from: { id: CHAT }, text: "اختبر المسار" } }, db);
+      expect((await loadState(CHAT, db))).toMatchObject({ model: "coder", mode: "coder" });
+      expect(sent.some((x) => /لم أرسل طلبك إلى شام/.test(x.text))).toBe(true);
+      expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       global.fetch = originalFetch;
-      if (originalModelScopeToken === undefined) delete process.env.MODELSCOPE_API_TOKEN;
-      else process.env.MODELSCOPE_API_TOKEN = originalModelScopeToken;
       if (originalOpenCoder === undefined) delete process.env.OPEN_CODER_STUDIO_URL;
       else process.env.OPEN_CODER_STUDIO_URL = originalOpenCoder;
-      if (originalConnectorKey === undefined) delete process.env.CODER_TOKEN_KEY;
-      else process.env.CODER_TOKEN_KEY = originalConnectorKey;
+      delete process.env.OPEN_CODER_STUDIO_URLS;
     }
-  }, 20000);
+  });
 });
 
-describe("candidate isolation", () => {
-  it("keeps each candidate's history and in-flight task separate, per candidate and per chat", async () => {
+describe("retired candidate deliveries", () => {
+  it("does not accept an asynchronous result from a removed model", async () => {
     const db = memDb();
     const base = { mode: "coder" as const, think: false, messages: [], notes: "", inbox: [], run: null };
     await saveState(CHAT, { ...base, model: "qwen35-9b", donorTestInFlight: { "qwen35-9b": "run-q", "gemma4-e4b": "run-g" }, donorTestHistory: { "gemma4-e4b": [{ role: "user", content: "gemma only" }] } } as any, db);
     await saveState(CHAT + 1, { ...base, model: "gemma4-e4b", donorTestInFlight: { "gemma4-e4b": "run-other-chat" } } as any, db);
 
-    expect(await recordDonorAsyncDelivery(CHAT, "run-q", "qwen35-9b", "سؤال", "جواب qwen", db)).toBe(true);
+    expect(await recordDonorAsyncDelivery(CHAT, "run-q", "qwen35-9b", "سؤال", "جواب", db)).toBe(false);
     const mine = await loadState(CHAT, db);
-    expect(mine.donorTestHistory?.["qwen35-9b"]?.map((m: any) => m.content)).toEqual(["سؤال", "جواب qwen"]);
-    expect(mine.donorTestHistory?.["gemma4-e4b"]?.map((m: any) => m.content)).toEqual(["gemma only"]);   // untouched
-    expect(mine.donorTestInFlight?.["gemma4-e4b"]).toBe("run-g");                                         // another candidate's task is still running
-    expect(mine.donorTestInFlight?.["qwen35-9b"]).toBeUndefined();
+    expect(mine.donorTestHistory?.["gemma4-e4b"]?.map((m: any) => m.content)).toEqual(["gemma only"]);
+    expect(mine.donorTestInFlight?.["qwen35-9b"]).toBe("run-q");
 
-    // a delivery for another chat's run id, or the wrong candidate, changes nothing
     expect(await recordDonorAsyncDelivery(CHAT, "run-other-chat", "gemma4-e4b", "x", "y", db)).toBe(false);
     expect(await recordDonorAsyncDelivery(CHAT + 1, "run-q", "qwen35-9b", "x", "y", db)).toBe(false);
     const other = await loadState(CHAT + 1, db);

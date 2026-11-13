@@ -9,10 +9,10 @@ const CANDIDATES = new Set(["qwen35-9b", "gemma4-e4b", "minicpmo45"]);
 const isCandidate = (id: string) => CANDIDATES.has(id);
 /** The owner always; anyone else only while the owner's admin switch shows this candidate to everyone (and it is ready). */
 export async function candidateOpenTo(chatId: number, model: string, db: Db): Promise<boolean> {
-  if (tierFor(chatId) === "owner") return true;
   const { listModels, modelUsableBy } = await import("@/lib/coderModels");
   const m = (await listModels(db).catch(() => [])).find((x) => x.id === model);
-  return Boolean(m && modelUsableBy(m, false));
+  if (!m) return false;
+  return tierFor(chatId) === "owner" || modelUsableBy(m, false);
 }
 const signingKey = () => (process.env.CODER_TOKEN_KEY || "").trim();
 

@@ -1,5 +1,4 @@
-import { allStudioStatus } from "@/lib/openCoderStudio";
-import { probeDonorTestStudios } from "@/lib/donorTests";
+import { allStudioStatus, withEngineModel } from "@/lib/openCoderStudio";
 import { shamBases, shamVariant } from "@/lib/shamStudio";
 
 // One light, cached status per model for the dot in the model picker: ok (green) = working with room, busy (yellow) = working but under heavy load or still starting,
@@ -31,14 +30,13 @@ async function shamHealth(variant: "v1" | "v2"): Promise<Health> {
 let cache: { t: number; v: Record<string, Health> } | null = null;
 export async function modelHealth(ttlMs = 20000): Promise<Record<string, Health>> {
   if (cache && Date.now() - cache.t < ttlMs) return cache.v;
-  const [nova, v1, v2, donors] = await Promise.all([
+  const [nova, v1, v2, lfm] = await Promise.all([
     allStudioStatus(6000).then(classifyStudios).catch((): Health => "down"),
     shamHealth("v1").catch((): Health => "down"),
     shamHealth("v2").catch((): Health => "down"),
-    probeDonorTestStudios().catch(() => []),
+    withEngineModel("lfm25", () => allStudioStatus(6000)).then(classifyStudios).catch((): Health => "down"),
   ]);
-  const out: Record<string, Health> = { coder: nova, sham: v1, sham_v2: v2 };
-  for (const d of donors) out[d.id] = d.phase === "ready" ? "ok" : d.phase === "loading" || d.phase === "deploying" ? "busy" : "down";
+  const out: Record<string, Health> = { coder: nova, sham: v1, sham_v2: v2, lfm25: lfm };
   cache = { t: Date.now(), v: out };
   return out;
 }

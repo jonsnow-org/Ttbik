@@ -83,9 +83,14 @@ describe("LFM2.5 media is its own", () => {
     expect(r?.type).toBe("error");
     expect(hits).toEqual([]);
   });
-  it("candidates' speech and video stay on their own media Studios", () => {
-    expect(ownMediaBase("qwen35-9b")).toContain("sham-donor-qwen35-9b-media");
-    expect(ownMediaBase("gemma4-e4b")).not.toContain("lfm25");
+  it("retired candidates have no generator and cannot trigger an external request", async () => {
+    for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+      expect(ownMediaBase(id)).toBe("");
+      expect(modelMediaConfigured(id, "image")).toBe(false);
+      hits = [];
+      expect(await makeModelMedia(id, "video", "waves", { timeoutMs: 5000 })).toMatchObject({ type: "error", reason: "no_own_generator" });
+      expect(hits).toEqual([]);
+    }
   });
 });
 

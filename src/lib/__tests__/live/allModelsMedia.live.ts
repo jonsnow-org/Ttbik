@@ -2,7 +2,7 @@
 // .github/workflows/all-models-media-live.yml). Prints one line per model: what was sent (photo / video bytes), the seconds it took, or the exact text the user would have seen.
 import fs from "fs";
 import path from "path";
-import { handleCoderSections, saveState, startDonorTestTelegramTask } from "@/lib/coderSections";
+import { handleCoderSections, saveState } from "@/lib/coderSections";
 import { shamMediaFastLane } from "@/lib/novaBotLogic";
 import { shamVariant } from "@/lib/shamStudio";
 import { fakeBot } from "../coderFakes";
@@ -12,7 +12,8 @@ const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, t
 jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
-const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2,qwen35-9b,gemma4-e4b,minicpmo45").split(",");
+const MODELS = (process.env.PROBE_MODELS || "coder,sham,sham_v2,lfm25").split(",");
+const SUPPORTED_MODELS = new Set(["coder", "sham", "sham_v2", "lfm25"]);
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
 const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
 const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";
@@ -45,7 +46,7 @@ async function once(model: string, kind: "image" | "video" | "audio" | "chat", t
   try {
     if (model === "coder" || model === "lfm25") await handleCoderSections(bot, botRow, { message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }, db);
     else if (model === "sham" || model === "sham_v2") await shamVariant.run(model === "sham" ? "v1" : "v2", () => shamMediaFastLane(bot, chat, text, "bot1"));
-    else await startDonorTestTelegramTask(bot, chat, text, "bot1", undefined, db, globalThis.fetch, "telegram", model as any);
+    else throw new Error("unsupported model: " + model);
   } catch (e) { return `${model} ${kind}: EXCEPTION ${String((e as Error)?.message || e).slice(0, 200)}`; }
   const limit = LIMIT[kind];
   if (kind === "chat") {
@@ -70,6 +71,8 @@ async function once(model: string, kind: "image" | "video" | "audio" | "chat", t
 }
 
 test("every model: a picture and a video request", async () => {
+  const unsupported = MODELS.filter((model) => !SUPPORTED_MODELS.has(model));
+  if (unsupported.length) throw new Error("retired or unknown model(s): " + unsupported.join(", "));
   const lines: string[] = [];
   // PROBE_VIDEO may hold several requests separated by "||" (one per duration): they run one after another on the model's own Studio (never in parallel: a 2 vCPU Studio runs one clip at a time)
   const videos = VIDEO.split("||").map((x) => x.trim()).filter(Boolean);

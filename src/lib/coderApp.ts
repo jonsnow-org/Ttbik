@@ -11,7 +11,7 @@ import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { normalizePref, normalizeThinkPolicy } from "@/lib/modes";
-import { modelSettings, modelUsableBy, memorySettings, setMemorySettings, canonModelId, listModels } from "@/lib/coderModels";
+import { modelSettings, modelUsableBy, memorySettings, setMemorySettings, canonModelId, listModels, normalizeModelState } from "@/lib/coderModels";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -111,13 +111,15 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   switch (op) {
     case "me": {
       const st = await loadState(chatId, db);
+      const models = await listModels(db);
+      if (normalizeModelState(st, models)) await saveStateStrict(chatId, st, db);
       void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
-        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries(models.filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -128,17 +130,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
+      const knownModels = await listModels(db);
+      if (normalizeModelState(st, knownModels)) await saveStateStrict(chatId, st, db);
       if (typeof body.model === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
-        const donor = await import("@/lib/donorTests");
-        if (donor.isDonorTestId(body.model)) {
-          const live = await donor.probeDonorTestStudio(body.model, deps.fetchImpl || globalThis.fetch);
-          if (live.phase !== "ready") throw new AppError(503, `النموذج ${body.model} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
-        }
-        // Selecting a production model explicitly exits donor test mode; candidate history stays separate.
-        st.donorTestModel = undefined;
         // Model switching changes routing only. Never import or copy the previous model's conversation.
         // Connectors belong to the user account and remain available to every permitted model.
       }
@@ -387,14 +384,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!text) throw new AppError(400, "empty");
       if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
       const stNow = await loadStateStrict(chatId, db);
-      // Migrate a legacy trial selector into the primary model field; never send it through another model's runner.
-      if (stNow.donorTestModel) {
-        if (user.tier !== "owner") throw new AppError(403, "candidate models are owner only");
-        const { isDonorTestId } = await import("@/lib/donorTests");
-        if (isDonorTestId(stNow.donorTestModel)) stNow.model = stNow.donorTestModel;
-        stNow.donorTestModel = undefined;
-        await saveStateStrict(chatId, stNow, db);
-      }
+      if (normalizeModelState(stNow, await listModels(db))) await saveStateStrict(chatId, stNow, db);
       { // The ordinary production model's availability check is unchanged.
         const { listModels, ensureUsableModel } = await import("@/lib/coderModels");
         const verdict = ensureUsableModel(stNow, await listModels(db), user.tier === "owner");
@@ -488,11 +478,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { listModels, publicModels, ownerModels } = await import("@/lib/coderModels");
       const st = await loadState(chatId, db);
       const all = await listModels(db);
+      if (normalizeModelState(st, all)) await saveStateStrict(chatId, st, db);
       return {
         models: publicModels(all, st.model),
         ...(user.tier === "owner" ? {
           owner: ownerModels(all, st.model),
-          // Candidate models are first-class entries in owner.models, not a secondary trial selector.
           donorTests: [],
           trialSelected: null,
         } : {}),
@@ -503,47 +493,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { health: await modelHealth() };
     }
     case "donor_test_select": {
-      // Backward-compatible client op; selection now changes the main model, never a parallel "trial" mode.
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const id = String(body.id || "").trim();
-      const D = await import("@/lib/donorTests");
-      if (id && !D.isDonorTestId(id)) throw new AppError(400, "unknown candidate model");
-      const st = await loadStateStrict(chatId, db);
-      const { listModels, chooseModel } = await import("@/lib/coderModels");
-      const selected = id || "coder";
-      if (id && D.isDonorTestId(id)) {
-        const live = await D.probeDonorTestStudio(id, deps.fetchImpl || globalThis.fetch);
-        if (live.phase !== "ready") throw new AppError(503, `النموذج ${id} غير جاهز للاستخدام الآن: ${live.detail || live.phase}. لم يتم تحويل الطلب إلى نموذج آخر.`);
-      }
-      if (!chooseModel(st, await listModels(db), selected, true)) throw new AppError(503, "candidate model route is not configured");
-      st.donorTestModel = undefined;
-      await saveStateStrict(chatId, st, db);
-      return { ok: true, trialSelected: null, model: st.model };
+      throw new AppError(410, "candidate models are retired");
     }
-    case "donor_test_status": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const D = await import("@/lib/donorTests");
-      return { statuses: await D.probeDonorTestStudios(deps.fetchImpl || globalThis.fetch) };
-    }
-    case "donor_test_history": {
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const st = await loadStateStrict(chatId, db);
-      const id = String(body.id || st.donorTestModel || "");
-      const D = await import("@/lib/donorTests");
-      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
-      return { id, messages: st.donorTestHistory?.[id] || [], inFlight: st.donorTestInFlight?.[id] || null };
-    }
+    case "donor_test_status":
+    case "donor_test_history":
     case "donor_test_reset": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const st = await loadStateStrict(chatId, db);
-      const id = String(body.id || st.donorTestModel || "");
-      const D = await import("@/lib/donorTests");
-      if (!D.isDonorTestId(id)) throw new AppError(400, "unknown donor-test model");
-      const history = { ...(st.donorTestHistory || {}) };
-      delete history[id];
-      st.donorTestHistory = history;
-      await saveStateStrict(chatId, st, db);
-      return { ok: true, id };
+      throw new AppError(410, "candidate models are retired");
     }
     case "pressure": {
       // the owner's load switch (src/lib/pressureMode.ts): read / set; owner only, decided here from the verified id
@@ -671,21 +628,24 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = canonModelId(String(body.model || "coder")) || "coder";
+      if (!(await listModels(db)).some((entry) => entry.id === model)) throw new AppError(400, "model not available");
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = canonModelId(String(body.model || "coder")) || "coder";
+      if (!(await listModels(db)).some((entry) => entry.id === model)) throw new AppError(400, "model not available");
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { desktopDo } = await import("@/lib/desktopComputer");
       return await desktopDo(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = canonModelId(String(body.model || "coder")) || "coder";
+      if (!(await listModels(db)).some((entry) => entry.id === model)) throw new AppError(400, "model not available");
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { browserStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
       const base = browserStudioFor(model);

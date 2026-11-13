@@ -3,18 +3,18 @@
 // Owner-only (the caller checks). The probes are the Studios' own `status` call, a few seconds each, all in parallel.
 import type { Db } from "@/lib/coderAuth";
 import { novaMediaUrl } from "@/lib/novaMedia";
+import { lfmMediaUrl } from "@/lib/modelMedia";
 import { DEFAULT_URL, DEFAULT_V2_URL, DEFAULT_V2_VIDEO_URL } from "@/lib/shamStudio";
 import { overflowConfigured, overflowVerdict } from "@/lib/shamPool";
 import { SHAM_ENGINE_OPTIONS, shamEngine, type ShamEngine, type ShamModelId } from "@/lib/shamMediaEngine";
 import { photoWeightStatus } from "@/lib/photoWeightMedia";
 
 export type StudioProbe = { id: string; role: { ar: string; en: string }; ok: boolean; phase: string; detail: string; media?: { image: boolean; audio: boolean; video: boolean } };
-export type CandidateMediaProbe = { id: string; studio: string; ok: boolean; phase: string; detail: string; media: { image: boolean; audio: boolean; video: boolean } };
 export type MediaLine = { kind: "image" | "audio" | "video"; ar: string; en: string; studio: string };
 export type EngineOption = { id: ShamEngine; ar: string; en: string; hint: { ar: string; en: string } };
 export type ModelMedia = {
-  id: "coder" | ShamModelId;
-  engine: ShamEngine | "nova";
+  id: "coder" | "lfm25" | ShamModelId;
+  engine: ShamEngine | "nova" | "lfm";
   options: EngineOption[];               // empty = nothing to choose (Nova)
   lines: MediaLine[];
   studios: StudioProbe[];
@@ -72,30 +72,23 @@ export async function probeStudio(base: string, token: string, f: typeof fetch =
 const clean = (u: string | undefined, d: string) => (u || d).split(",")[0].trim().replace(/\/+$/, "");
 const ROLE = {
   nova: { ar: "استوديو وسائط نوفا (صورة وصوت وفيديو)", en: "Nova media Studio (image, speech, video)" },
+  lfm: { ar: "استوديو وسائط LFM2.5 (صورة وصوت وفيديو)", en: "LFM2.5 media Studio (image, speech, video)" },
   v2chat: { ar: "استوديو شام v2 (محادثة + صورة + صوت)", en: "Sham v2 Studio (chat + image + speech)" },
   v2video: { ar: "استوديو فيديو شام v2", en: "Sham v2 video Studio" },
   v2over: { ar: "استوديو شام v2 الاحتياطي (للمحادثة وقت الازدحام)", en: "Sham v2 overflow Studio (chat when busy)" },
   v1: { ar: "استوديو شام القديم", en: "Old Sham Studio" },
 };
 
-export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; candidateMedia: CandidateMediaProbe[]; checkedAt: string }> {
+export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promise<{ models: ModelMedia[]; photoWeights: Awaited<ReturnType<typeof photoWeightStatus>>; checkedAt: string }> {
   const msToken = (process.env.MODELSCOPE_API_TOKEN || "").trim();
   const novaToken = (process.env.OPEN_CODER_STUDIO_TOKEN || msToken).trim();
   const novaUrl = novaMediaUrl();
   const v2 = clean(process.env.SHAM_V2_URL, DEFAULT_V2_URL), v2v = clean(process.env.SHAM_V2_VIDEO_URL, DEFAULT_V2_VIDEO_URL), v1 = clean(process.env.SHAM_MODELSCOPE_URL, DEFAULT_URL);
   const over = overflowConfigured();
-  const candidateSpecs = [
-    { id: "qwen35-9b", studio: "sham-donor-qwen35-9b-media" },
-    { id: "gemma4-e4b", studio: "sham-donor-gemma4-e4b-media" },
-    { id: "minicpmo45", studio: "sham-donor-minicpmo45-media" },
-  ];
-  const [pNova, pV2, pV2v, pV1, photoWeights, candidateMedia] = await Promise.all([
-    probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
-    Promise.all(candidateSpecs.map(async (candidate) => {
-      const base = "https://studio-novaai2026-" + candidate.studio + ".api-inference.modelscope.net";
-      const status = await probeStudio(base, msToken, f, 7000, true);
-      return { id: candidate.id, studio: candidate.studio, ...status, media: status.media || { image: false, audio: false, video: false } };
-    })),
+  const lfm = lfmMediaUrl();
+  const [pNova, pLfm, pV2, pV2v, pV1, photoWeights] = await Promise.all([
+    probeStudio(novaUrl, novaToken, f, 7000, true), probeStudio(lfm, msToken, f, 7000, true),
+    probeStudio(v2, msToken, f), probeStudio(v2v, msToken, f), probeStudio(v1, msToken, f), photoWeightStatus(f),
   ]);
   const S = (id: string, role: { ar: string; en: string }, p: Pick<StudioProbe, "ok" | "phase" | "detail" | "media">): StudioProbe => ({ id, role, ...p });
   const ov = overflowVerdict();
@@ -107,10 +100,11 @@ export async function mediaEngineStatus(db?: Db, f: typeof fetch = fetch): Promi
   return {
     checkedAt: new Date().toISOString(),
     photoWeights,
-    candidateMedia,
     models: [
       { id: "coder", engine: "nova", options: [], studios: [S(novaUrl ? hostOf(novaUrl) : "nova-media-server", ROLE.nova, novaUrl ? pNova : { ok: false, phase: "off", detail: "NOVA_MEDIA_STUDIO_URL=off" })],
         lines: [{ kind: "image", ar: "صورة: epiCRealism (وزن Nova المستقل)", en: "Image: epiCRealism dedicated Nova weight", studio: "epicrealism-image-test" }, { kind: "audio", ar: "صوت عربي: Piper على المعالج", en: "Arabic speech: Piper on CPU", studio: "nova-media-server" }, { kind: "video", ar: "فيديو: نموذج فيديو حقيقي على المعالج", en: "Video: a real text-to-video model on CPU", studio: "nova-media-server" }] },
+      { id: "lfm25", engine: "lfm", options: [], studios: [S(lfm ? hostOf(lfm) : "lfm25-media-server", ROLE.lfm, lfm ? pLfm : { ok: false, phase: "off", detail: "LFM_MEDIA_STUDIO_URL=off" })],
+        lines: [{ kind: "image", ar: "صورة: مولّد LFM2.5 الخاص", en: "Image: LFM2.5's own generator", studio: "lfm25-media-server" }, { kind: "audio", ar: "صوت: مولّد LFM2.5 الخاص", en: "Speech: LFM2.5's own generator", studio: "lfm25-media-server" }, { kind: "video", ar: "فيديو: مولّد LFM2.5 الخاص", en: "Video: LFM2.5's own generator", studio: "lfm25-media-server" }] },
       { id: "sham_v2", engine: e2, options: opts("sham_v2"), lines: v2lines(e2), studios: [S(hostOf(v2), ROLE.v2chat, pV2), S(hostOf(v2v), ROLE.v2video, pV2v), ...overflow] },
       { id: "sham", engine: e1, options: opts("sham"), lines: [{ kind: "image", ar: "صورة: مولّد شام القديم الداخلي", en: "Image: old Sham's own generator", studio: hostOf(v1) }, { kind: "audio", ar: "صوت: مولّد شام القديم الداخلي", en: "Speech: old Sham's own generator", studio: hostOf(v1) }, { kind: "video", ar: "فيديو: مولّد شام القديم الداخلي", en: "Video: old Sham's own generator", studio: hostOf(v1) }],
         studios: [S(hostOf(v1), ROLE.v1, pV1)] },

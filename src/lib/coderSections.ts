@@ -23,7 +23,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { stripThinkTags } from "@/lib/thinkTags";
 export { stripThinkTags };
-import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, normalizeModelState, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -330,15 +330,10 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
-  // Resolve the owner-only candidate mode before the normal coder availability gate.
-  // A selected donor remains reachable even when Nova's own coding Studio is disabled.
+  // Normalize retired model selections before the normal availability gate.
   const incomingChatId = update.message?.chat?.id;
   const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
-  const selectedDonor = isDonorTestId(preloadedOwnerState?.model || "")
-    ? preloadedOwnerState!.model as DonorTestId
-    : preloadedOwnerState?.donorTestModel && isDonorTestId(preloadedOwnerState.donorTestModel)
-      ? preloadedOwnerState.donorTestModel
-      : null;
+  if (preloadedOwnerState && normalizeModelState(preloadedOwnerState, await listModels(db))) await saveStateStrict(incomingChatId!, preloadedOwnerState, db);
   const donorPickerAction = Boolean(
     update.callback_query && (
       String(update.callback_query.data || "").startsWith("donor_model|") ||
@@ -347,7 +342,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   ) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
-  if (!coderEnabled() && !selectedDonor && !donorPickerAction) {
+  if (!coderEnabled() && !donorPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -531,53 +526,6 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
-  if (owner && (isDonorTestId(st.model || "") || (st.donorTestModel && isDonorTestId(st.donorTestModel)))) {
-    const donorId = isDonorTestId(st.model || "") ? st.model as DonorTestId : st.donorTestModel!;
-    if (cmd === "/start" || cmd === "/help") {
-      await send(bot, chatId, "✅ النموذج الحالي: " + (DONOR_TESTS.find((x) => x.id === donorId)?.name.ar || donorId) + ". أرسل رسالتك، أو /models لتبديل النموذج.");
-      return true;
-    }
-    if (cmd === "/stop") {
-      const runId = st.donorTestInFlight?.[donorId];
-      if (!runId) {
-        await send(bot, chatId, "لا يوجد طلب نشط لهذا النموذج.");
-        return true;
-      }
-      const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
-      const actualSlot = await taskSlot(runId, chatId, db);
-      if (actualSlot !== "model:" + donorId || !(await stopTaskRow(chatId, runId, db))) {
-        await send(bot, chatId, "تعذّر إيقاف الطلب؛ ربما اكتمل بالفعل.");
-        return true;
-      }
-      const active = { ...(st.donorTestInFlight || {}) };
-      delete active[donorId];
-      st.donorTestInFlight = active;
-      await saveStateStrict(chatId, st, db);
-      await taskEvent(runId, "info", "أوقف المستخدم الطلب.", db);
-      await send(bot, chatId, "⏹️ تم إيقاف الطلب.");
-      return true;
-    }
-    if (cmd === "/new") {
-      const history = { ...(st.donorTestHistory || {}) };
-      delete history[donorId];
-      st.donorTestHistory = history;
-      await saveStateStrict(chatId, st, db);
-      await send(bot, chatId, "🆕 بدأت محادثة جديدة مع هذا النموذج.");
-      return true;
-    }
-    try {
-      const attachment = await telegramDonorAttachment(bot, botRow, msg);
-      if (!attachment.text && !attachment.media) {
-        await send(bot, chatId, "أرسل نصاً أو أرفق صورة أو ملف صوت أو فيديو.");
-        return true;
-      }
-      await startCandidateTerminal(bot, chatId, donorId, attachment.text, botRow.id, attachment.media, db, "telegram");
-    } catch (error) {
-      const message = String((error as Error)?.message || error).slice(0, 600);
-      await send(bot, chatId, "⚠️ لم يُرسل الطلب إلى أي نموذج بديل. " + message);
-    }
-    return true;
-  }
   if (st.mode === "sham") {
     const selected = st.model === "sham_v2" ? "sham_v2" : "sham";
     onShamRoute?.(selected);                                  // snapshot this message's model before the route reads settings again
@@ -713,7 +661,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   // the request is answered in the history right away (replaced by the real result when it ends): a message sent while the picture is still being made
   // must not see an unanswered picture request and "answer" it with "here is the picture" (owner's live test 2026-11-04: «مرحبا» got the media failure note)
   st.messages.push({ role: "user", content }, { role: "assistant", content: mediaPendingNote(intent.kind) });
-  await taskStart(chatId, { runId, slot: "", source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
+  await taskStart(chatId, { runId, slot: "", modelId: selectedModel, source: "interactive", title: content.slice(0, 200), botId: botRow.id, threadId: st.threadId || null }, db);
   await saveState(chatId, st, db);
   const card = await openMsgCard(realBot(bot) as never, chatId, content, { understand: understandAsk(content) ?? undefined });
   later(() => fastMedia(bot, chatId, runId, intent, content, selectedModel, db, card).catch(async (e) => {
@@ -924,12 +872,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   const content = String(text || "").trim();
   if (!content) throw new Error("empty task");
   const st = await loadStateStrict(chatId, db);
-
-  // Each ModelScope candidate has its own terminal adapter and private Studio session.
-  if (isDonorTestId(st.model || "")) {
-    if (tierFor(chatId) !== "owner") throw new Error("candidate models are owner-only");
-    return startCandidateTerminal(bot, chatId, st.model as DonorTestId, content, botRow.id, undefined, db, "app");
-  }
+  if (normalizeModelState(st, await listModels(db))) await saveStateStrict(chatId, st, db);
 
   // The Mini App terminal is shared by all models, but Sham must never enter Nova's startChain/coderChat runner.
   if (st.model === "sham" || st.model === "sham_v2" || st.model === "sham_loop") {
@@ -942,7 +885,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
     if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
     await addUsage(chatId, "tasks", 1, db);
     const runId = `sham-${chatId}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
-    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), source: "interactive", title: content.slice(0, 200), botId: botRow.id });
+    await taskStart(chatId, { runId, slot: shamTaskSlot(sham.variant), modelId: sham.variant === "v2" ? "sham_v2" : "sham", source: "interactive", title: content.slice(0, 200), botId: botRow.id });
     await taskEvent(runId, "info", `بدأت المهمة باستخدام ${st.model === "sham_v2" ? "شام v2" : "شام"}.`, db).catch(() => null);
     later(() => import("@/lib/novaBotLogic").then((m) => m.runShamMiniAppTask(bot, chatId, content, botRow.id, runId, sham.variant, sham.mode)).catch(async (e) => {
       await taskEvent(runId, "failed", String((e as Error)?.message || e).slice(0, 300), db).catch(() => null);
@@ -979,43 +922,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   return { runId, queued: false };
 }
 
-/**
- * One shared mini-app terminal with a model-specific adapter. Each adapter validates the
- * selected model id before opening that candidate's own Studio endpoint and state slot.
- */
-async function startCandidateTerminal(
-  bot: TelegramBot,
-  chatId: number,
-  id: DonorTestId,
-  text: string,
-  botId: string,
-  media: DonorTestMedia | undefined,
-  db: Db,
-  surface: "telegram" | "app",
-): Promise<{ runId: string; queued: boolean }> {
-  switch (id) {
-    case "qwen35-9b": return startQwen35Terminal(bot, chatId, text, botId, media, db, surface);
-    case "gemma4-e4b": return startGemma4Terminal(bot, chatId, text, botId, media, db, surface);
-    case "minicpmo45": return startMiniCPMO45Terminal(bot, chatId, text, botId, media, db, surface);
-  }
-}
-
-export const startQwen35Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "qwen35-9b");
-
-export const startGemma4Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "gemma4-e4b");
-
-export const startMiniCPMO45Terminal = (
-  bot: TelegramBot, chatId: number, text: string, botId: string,
-  media: DonorTestMedia | undefined, db: Db, surface: "telegram" | "app" = "telegram",
-) => startDonorTestTelegramTask(bot, chatId, text, botId, media, db, globalThis.fetch, surface, "minicpmo45");
-
-/** Telegram chat path: the selected candidate receives the message directly; no production runner is invoked. */
+/** Legacy candidate entry point retained for old callers; retired model ids are rejected before any Studio request. */
 export async function startDonorTestTelegramTask(
   bot: TelegramBot,
   chatId: number,
@@ -1029,8 +936,10 @@ export async function startDonorTestTelegramTask(
 ): Promise<{ runId: string; queued: boolean }> {
   if (tierFor(chatId) !== "owner") throw new Error("هذا النموذج غير متاح لهذا الحساب.");
   const st = await loadStateStrict(chatId, db);
+  const models = await listModels(db);
+  if (normalizeModelState(st, models)) await saveStateStrict(chatId, st, db);
   const id = isDonorTestId(st.model || "") ? st.model : st.donorTestModel;
-  if (!id || !isDonorTestId(id)) throw new Error("لم يتم اختيار النموذج.");
+  if (!id || !isDonorTestId(id) || !models.some((model) => model.id === id)) throw new Error("candidate models are retired");
   if (expectedModel && id !== expectedModel) throw new Error("مسار النموذج المحدد لا يطابق النموذج النشط.");
   const readiness = await probeDonorTestStudio(id, fetchImpl);
   if (readiness.phase !== "ready") {
@@ -1052,6 +961,7 @@ export async function startDonorTestTelegramTask(
   await taskStart(chatId, {
     runId,
     slot: "model:" + id,
+    modelId: id,
     source: "interactive",
     title: "🧪 " + label + ": " + text.slice(0, 150),
     botId,
@@ -1075,6 +985,7 @@ export async function recordDonorAsyncDelivery(
   db: Db = prismaDb,
 ): Promise<boolean> {
   if (!isDonorTestId(id)) return false;
+  if (!(await listModels(db)).some((model) => model.id === id)) return false;
   const st = await loadStateStrict(chatId, db);
   if (st.donorTestInFlight?.[id] !== runId) return false;
   const current: DonorHistoryMessage[] = [
@@ -1105,6 +1016,18 @@ async function donorHandOff(botRow: BotRow, chatId: number, state: DonorChain): 
 export type DonorChain = { runId: string; id: DonorTestId; jobId: string; prompt: string; surface: "telegram" | "app"; started: number; botId: string; hadMedia?: boolean; retried?: boolean };
 
 export async function continueDonorRun(botRow: BotRow, chatId: number, chain: DonorChain, db: Db = prismaDb, fetchImpl: typeof fetch = globalThis.fetch): Promise<void> {
+  if (!(await listModels(db)).some((model) => model.id === chain.id)) {
+    const st = await loadStateStrict(chatId, db);
+    if (st.donorTestInFlight?.[chain.id] === chain.runId) {
+      const active = { ...st.donorTestInFlight };
+      delete active[chain.id];
+      st.donorTestInFlight = active;
+      await saveStateStrict(chatId, st, db);
+    }
+    await taskEvent(chain.runId, "failed", "candidate models are retired", db);
+    await taskStatus(chain.runId, "failed", 0, db);
+    return;
+  }
   const st = await loadState(chatId, db);
   const prior = (st.donorTestHistory?.[chain.id] || []).slice(-12);
   // A Bot instance only to send messages: the token never leaves this process.
@@ -1540,7 +1463,7 @@ async function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: 
     const last = [...st.messages].reverse().find((m) => m.role === "user");
     const title = st.run.title || String(last?.content || "").slice(0, 200);
     st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
-    await taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, botId: _botRow.id, threadId: st.run.slot ? null : st.threadId || null }, db);
+    await taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", modelId: st.model || "coder", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, botId: _botRow.id, threadId: st.run.slot ? null : st.threadId || null }, db);
   }
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
@@ -1597,60 +1520,6 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
   } catch {
     return `[could not read file ${doc.file_name || ""}]`;
   }
-}
-
-async function telegramDonorAttachment(
-  bot: TelegramBot,
-  botRow: BotRow,
-  msg: any,
-): Promise<{ text: string; media?: DonorTestMedia }> {
-  const prompt = String(msg.text || msg.caption || "").trim();
-  if (Array.isArray(msg.photo) && msg.photo.length) {
-    const image = await telegramPhoto(bot, botRow, msg.photo);
-    if (!image) throw new Error("تعذّر تحميل الصورة من تيليغرام.");
-    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind: "image", dataUrl: image, format: "jpeg" } };
-  }
-
-  let file: any = null;
-  let kind: "image" | "audio" | "video" | null = null;
-  if (msg.voice) { file = msg.voice; kind = "audio"; }
-  else if (msg.audio) { file = msg.audio; kind = "audio"; }
-  else if (msg.video || msg.video_note || msg.animation) { file = msg.video || msg.video_note || msg.animation; kind = "video"; }
-  else if (msg.document) {
-    file = msg.document;
-    const name = String(file.file_name || "").toLowerCase();
-    const mime = String(file.mime_type || "").toLowerCase();
-    if (mime.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/.test(name)) kind = "image";
-    else if (mime.startsWith("audio/") || /\.(wav|mp3|ogg|oga|opus|m4a|aac|webm)$/.test(name)) kind = "audio";
-    else if (mime.startsWith("video/") || /\.(mp4|mov|m4v)$/.test(name)) kind = "video";
-    else return { text: (prompt + "\n\n" + await readDocument(bot, botRow, file)).trim() };
-  }
-  if (!file || !kind) return { text: prompt };
-
-  const max = kind === "image" ? 20_000_000 : kind === "audio" ? 24_000_000 : 32_000_000;
-  if (Number(file.file_size || 0) > max) throw new Error("حجم المرفق أكبر من الحد المسموح لهذا الطلب.");
-  const telegramFile = await bot.api.getFile(file.file_id);
-  const response = await fetch("https://api.telegram.org/file/bot" + botRow.token + "/" + telegramFile.file_path, {
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!response.ok) throw new Error("تعذّر تنزيل المرفق من تيليغرام (HTTP " + response.status + ").");
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (!bytes.length || bytes.length > max) throw new Error("حجم المرفق غير صالح لهذا الطلب.");
-
-  const suffix = String(file.file_name || telegramFile.file_path || "").toLowerCase().split(".").pop() || "";
-  if (kind === "image") {
-    const image = await toModelImage(bytes, 1024);
-    if (!image) throw new Error("صيغة الصورة غير مدعومة.");
-    return { text: prompt || "حلّل هذه الصورة بدقة.", media: { kind, dataUrl: image, format: "jpeg" } };
-  }
-  const format = kind === "video"
-    ? (["mp4", "mov", "m4v"].includes(suffix) ? suffix : "mp4")
-    : (["wav", "mp3", "ogg", "oga", "opus", "m4a", "aac", "webm"].includes(suffix) ? suffix : "ogg");
-  const mime = kind === "video"
-    ? (format === "mov" ? "video/quicktime" : "video/mp4")
-    : (format === "mp3" ? "audio/mpeg" : format === "wav" ? "audio/wav" : "audio/ogg");
-  const dataUrl = "data:" + mime + ";base64," + bytes.toString("base64");
-  return { text: prompt || (kind === "audio" ? "استمع إلى هذا التسجيل وأجب بالعربية." : "حلّل هذا الفيديو واشرح ما يحدث فيه بالعربية."), media: { kind, dataUrl, format } };
 }
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */

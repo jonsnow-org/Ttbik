@@ -27,19 +27,6 @@ describe("candidate tool groups", () => {
   });
 });
 
-import { candidateMediaStudio } from "@/lib/photoWeightMedia";
-describe("candidate media Studios", () => {
-  test("each candidate has its own Studio and repo; nobody else has one", () => {
-    const a = candidateMediaStudio("qwen35-9b");
-    const b = candidateMediaStudio("gemma4-e4b");
-    const c = candidateMediaStudio("minicpmo45");
-    expect(new Set([a?.base, b?.base, c?.base]).size).toBe(3);
-    expect(new Set([a?.repo, b?.repo, c?.repo]).size).toBe(3);
-    expect(a?.base).toContain("sham-donor-qwen35-9b-media");
-    for (const other of ["coder", "sham_v2", "sham", "", undefined, "../x"]) expect(candidateMediaStudio(other as string | undefined)).toBeNull();
-  });
-});
-
 describe("computer tools under the zero-cost policy (production)", () => {
   const withEnv = (value: string, fn: () => void) => {
     const original = process.env.NODE_ENV;

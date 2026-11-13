@@ -12,9 +12,9 @@ beforeAll(() => {
   process.env.MODELSCOPE_API_TOKEN = "test-token";
 });
 
-test("the owner's switch shows and hides every non-v1 model, candidates and LFM2.5 included", async () => {
+test("the owner's switch applies only to the four supported models", async () => {
   const db: any = pgDb();
-  for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45", "lfm25", "sham_v2", "coder"]) {
+  for (const id of ["lfm25", "sham_v2", "coder"]) {
     await updateModel(id, { visible: true }, db);
     expect(publicModels(await listModels(db), undefined).map((m) => m.id)).toContain(id);
     await updateModel(id, { visible: false }, db);
@@ -23,12 +23,10 @@ test("the owner's switch shows and hides every non-v1 model, candidates and LFM2
   await updateModel("coder", { visible: true }, db);
 });
 
-test("a regular user reaches a candidate only while it is shown; the owner always", async () => {
+test("retired candidates are unavailable even to the owner", async () => {
   const db: any = pgDb();
-  expect(await candidateOpenTo(OWNER, "gemma4-e4b", db)).toBe(true);
-  expect(await candidateOpenTo(USER, "gemma4-e4b", db)).toBe(false);
-  await updateModel("gemma4-e4b", { visible: true }, db);
-  expect(await candidateOpenTo(USER, "gemma4-e4b", db)).toBe(true);
-  await updateModel("gemma4-e4b", { visible: false }, db);
-  expect(await candidateOpenTo(USER, "gemma4-e4b", db)).toBe(false);
+  for (const id of ["qwen35-9b", "gemma4-e4b", "minicpmo45"]) {
+    expect(await candidateOpenTo(OWNER, id, db)).toBe(false);
+    expect(await candidateOpenTo(USER, id, db)).toBe(false);
+  }
 });

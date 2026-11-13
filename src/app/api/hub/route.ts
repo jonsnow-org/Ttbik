@@ -4,7 +4,7 @@ import {
   appsOf, award, createApp, deleteApp, forgetMind, getApp, hubUid, keyMatches, leaderboard, logMood, moodHistory, newWebId, profile,
   redeemBasharCredit, saveApp, setDisplayName, takeQuota,
 } from "@/lib/hub/hubDb";
-import { applyChatEdit, AppTemplate, APP_TEMPLATES, validateAppConfig } from "@/lib/hub/appConfig";
+import { applyChatEdit, isAppTemplate, validateAppConfig } from "@/lib/hub/appConfig";
 import {
   buildAppWithAi, draftLegalDoc, EXERCISES, legalAnalyze, MAX_INPUT, mindReply, PSYCHOED, repurpose, translateDialect,
 } from "@/lib/hub/tools";
@@ -120,10 +120,10 @@ export async function POST(req: NextRequest) {
         out = { result: "تم حذف سجل مزاجك وكل حالة محادثة محفوظة لك." };
         break;
       case "app_create": {
-        const tpl = text(body.template, 20) as AppTemplate;
+        const tpl = text(body.template, 20);
         const desc = text(body.text, 1500);
         if (desc.length < 5) return err("صف تطبيقك بجملة على الأقل");
-        const built = await buildAppWithAi(desc, tpl in APP_TEMPLATES ? tpl : undefined);
+        const built = await buildAppWithAi(desc, isAppTemplate(tpl) ? tpl : undefined);
         if (body.contact) built.config.contact = text(body.contact, 80).replace(/[^\w@+.:/\-]/g, "") || undefined;
         const r = await createApp(uid, built.config);
         if (!r.ok) return err(r.error);

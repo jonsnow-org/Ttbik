@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const runId = String(q.get("runId") || "").slice(0, 64);
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
   const requestedModel = String(q.get("model") || "all");
-  if (!["all", "coder", "sham", "sham_v2"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400 });
+  if (!["all", "coder", "sham", "sham_v2", "lfm25"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400 });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
   let cursor = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
 

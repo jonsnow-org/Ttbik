@@ -183,7 +183,7 @@ describe("sandbox", () => {
     }) as any;
     try {
       const out = await runSandboxTool("sandbox_exec", { command: "echo model-scope" }, {
-        chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "minicpmo45", userId: "42", fetchImpl,
+        chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "lfm25", userId: "42", fetchImpl,
       });
       expect(out).toContain("new sandbox (private ModelScope computer-hub task workspace");
       expect(out).toContain("exit code 0\nModelScope task output");

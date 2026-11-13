@@ -2,6 +2,9 @@
 
 No secrets here: variable names only. Production branch: `claude/free-services-marketplace-h6rwk2`. `main` follows it through sync, and Oracle follows `main`.
 
+## Current app model set (2026-11-13)
+The bot and Mini App expose Nova (`coder`), Sham (`sham`), Sham v2 (`sham_v2`), and LFM2.5 (`lfm25`) only. Qwen3.5-9B, Gemma 4 E4B, and MiniCPM-o 4.5 are retired from app routing, media, health checks, and owner controls. Persisted chats that still select one of them are normalized back to Nova. Historical notes below describe the state at the time and are not a current model list.
+
 ## What changed on Nov 4 (PRs #648–#660)
 - **New independent model LFM2.5-8B-A1B (`lfm25`)**: owner-only and hidden for now.
   - It has its own inference Studio (`lfm25-inference-server`, `LFM_STUDIO_URLS`) and its own media Studio (`lfm25-media-server`, `LFM_MEDIA_STUDIO_URL`).

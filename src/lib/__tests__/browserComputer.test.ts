@@ -5,7 +5,7 @@ describe("the model's own browser", () => {
     const prior = process.env.COMPUTER_STUDIO_URL;
     process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
     try {
-      const bases = ["coder", "lfm25", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].map((m) => browserStudioFor(m));
+      const bases = ["coder", "lfm25", "sham", "sham_v2"].map((m) => browserStudioFor(m));
       expect(new Set(bases).size).toBe(1);
       expect(bases.every((base) => base === "https://computer-hub.example.test")).toBe(true);
       for (const other of ["", undefined, "../x", "nova"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
@@ -50,11 +50,11 @@ describe("the model's own browser", () => {
       if (url.endsWith("/gradio_api/call/browser_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, url: "https://a.test/", title: "A", text: "Hi", elements: "" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await browserDo("gemma4-e4b", "42:gemma4-e4b", { action: "open", url: "a.test" }, fetchImpl);
+    const out = await browserDo("lfm25", "42:lfm25", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
     expect(calls[0].url).toContain("nova-inference-server");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
-    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:gemma4-e4b" });
+    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:lfm25" });
     expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toContain("PAGE TEXT:");
     expect(calls[2].url).toContain("nova-inference-server");
   });

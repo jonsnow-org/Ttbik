@@ -180,9 +180,11 @@ describe("switching model keeps independent conversation histories", () => {
     await taskStart(OWNER, { runId: "isol-sham-v1", slot: "sham_v1", source: "interactive", title: "v1" }, db);
     await taskStart(OWNER, { runId: "isol-sham-v2", slot: "sham_v2", source: "interactive", title: "v2" }, db);
     await taskStart(OWNER, { runId: "isol-nova", slot: "", source: "interactive", title: "Nova" }, db);
+    await taskStart(OWNER, { runId: "isol-lfm25", slot: "", modelId: "lfm25", source: "interactive", title: "LFM" }, db);
     const v1 = await listTasks(OWNER, { model: "sham" }, db);
     const v2 = await listTasks(OWNER, { model: "sham_v2" }, db);
     const nova = await listTasks(OWNER, { model: "coder" }, db);
+    const lfm = await listTasks(OWNER, { model: "lfm25" }, db);
     expect(v1.map((x) => x.run_id)).toContain("isol-sham-v1");
     expect(v1.map((x) => x.run_id)).not.toContain("isol-sham-v2");
     expect(v1.map((x) => x.run_id)).not.toContain("isol-nova");
@@ -192,6 +194,9 @@ describe("switching model keeps independent conversation histories", () => {
     expect(nova.map((x) => x.run_id)).toContain("isol-nova");
     expect(nova.map((x) => x.run_id)).not.toContain("isol-sham-v1");
     expect(nova.map((x) => x.run_id)).not.toContain("isol-sham-v2");
+    expect(nova.map((x) => x.run_id)).not.toContain("isol-lfm25");
+    expect(lfm.map((x) => x.run_id)).toContain("isol-lfm25");
+    expect(lfm.map((x) => x.run_id)).not.toContain("isol-nova");
   });
 
   it("a user who may not use Sham cannot switch to it, and no transcript is imported", async () => {

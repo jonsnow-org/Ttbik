@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const after = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
   const requestedModel = String(q.get("model") || "all");
-  if (!["all", "coder", "sham", "sham_v2", "qwen35-9b", "gemma4-e4b", "minicpmo45"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (!["all", "coder", "sham", "sham_v2", "lfm25"].includes(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
   try {
     if (!runId) {
@@ -45,12 +45,13 @@ export async function GET(req: NextRequest) {
       const shown = tasks as { run_id: string }[];                // ONE terminal for every model: Nova's and Sham's tasks are listed together
       const run = state?.run;
       const p = run?.pending;
-      const pending = (!modelFilter || modelFilter === "coder") && run && p ? [{
+      const currentModelMatches = !modelFilter || (state?.model || "coder") === modelFilter;
+      const pending = currentModelMatches && run && p ? [{
         runId: run.id, nonce: p.nonce, reason: p.reason, summary: p.summary,
         tool: p.calls?.[0]?.function?.name || "", categories: p.categories || [],
         title: run.title || "", slot: run.slot || "", at: p.at || null,
       }] : [];
-      const asking = (!modelFilter || modelFilter === "coder") && run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;   // the agent waits for the user's answer
+      const asking = currentModelMatches && run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;   // the agent waits for the user's answer
       return NextResponse.json({ tasks: shown, pending, asking }, { headers: { "Cache-Control": "no-store" } });
     }
     const events = await taskEvents(user.id, runId, after, prismaDb, modelFilter);
