@@ -53,7 +53,7 @@ describe("Cloudflare media stream Worker origin routing", () => {
     expect(worker).toContain('const DEFAULT_MEDIA_PATH_ORIGIN = "https://ttbik-gate.jonsnowx1r.workers.dev"');
     expect(worker).toContain("mediaPathOrigin(env)");
     expect(worker).toContain("/api/media-path?id=");
-    expect(worker).toContain(String.raw\`vercel\.app\`);
+    expect(worker).toContain("vercel\\.app");
     expect(worker).not.toContain('const SITE = "https://ttbik.vercel.app"');
   });
 
