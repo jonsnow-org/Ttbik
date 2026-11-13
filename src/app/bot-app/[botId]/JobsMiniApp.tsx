@@ -103,23 +103,32 @@ function Shell() {
       }
       setPhoneBusy(true);
       setPhoneNotice("جارٍ التأكد من وصول رقمك إلى البوت…");
-      const verified = await waitForPhoneVerification(async () => {
-        const r = (await api<JobsInit>("init")) as JobsInit;
-        if (r.ok) {
-          setFailed(null);
-          setInit(r);
+      try {
+        const verified = await waitForPhoneVerification(async () => {
+          const r = (await api<JobsInit>("init")) as JobsInit;
+          if (r.ok) {
+            setFailed(null);
+            setInit(r);
+          } else {
+            setFailed(r.error || "تعذّر تحديث حالة التحقق");
+          }
+          return { ok: !!r.ok, phoneVerified: !!r.ok && r.phoneVerified === true };
+        }, { attempts: 25, intervalMs: 1_000 });
+        if (verified) {
+          setPhoneNotice("✅ تم تأكيد رقم هاتفك.");
+          toast("✅ تم التحقق من رقم هاتفك.");
         } else {
-          setFailed(r.error || "تعذّر تحديث حالة التحقق");
+          setPhoneNotice("لم يصل تأكيد المشاركة بعد. افتح محادثة البوت، وشارك رقمك من زر تيليجرام، ثم اضغط «شاركته، تحقّق» هنا.");
         }
-        return { ok: !!r.ok, phoneVerified: !!r.ok && r.phoneVerified === true };
-      }, { attempts: 25, intervalMs: 1_000 });
-      phoneFlowInFlight.current = false;
-      setPhoneBusy(false);
-      if (verified) {
-        setPhoneNotice("✅ تم تأكيد رقم هاتفك.");
-        toast("✅ تم التحقق من رقم هاتفك.");
-      } else {
-        setPhoneNotice("لم يصل تأكيد المشاركة بعد. افتح محادثة البوت، وشارك رقمك من زر تيليجرام، ثم اضغط «شاركته، تحقّق» هنا.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "خطأ اتصال غير معروف";
+        setFailed("تعذّر تحديث حالة التحقق.");
+        setPhoneNotice("تعذّر الاتصال بالبوت أثناء الفحص. لم يُسجل رقمك؛ أعد المحاولة بعد التأكد من مشاركة جهة الاتصال.");
+        toast(`تعذّر التحقق: ${message}`, "err");
+      } finally {
+        // A failed network poll must never leave both controls disabled.
+        phoneFlowInFlight.current = false;
+        setPhoneBusy(false);
       }
     };
     const share = () => {
