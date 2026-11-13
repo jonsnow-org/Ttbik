@@ -217,7 +217,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...DESKTOP_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...DESKTOP_TOOL_DEFS, ...by(["send_file", "request_secret"])],
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
