@@ -49,23 +49,38 @@ async function refreshToken(): Promise<string | null> {
 
 export async function youtubeReady(): Promise<boolean> { return youtubeKeysPresent() && Boolean(await refreshToken().catch(() => null)); }
 
-async function accessToken(): Promise<string | null> {
-  const rt = await refreshToken();
-  if (!rt || !youtubeKeysPresent()) return null;
-  const r = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: process.env.YOUTUBE_CLIENT_ID!, client_secret: process.env.YOUTUBE_CLIENT_SECRET!, refresh_token: rt, grant_type: "refresh_token" }),
-  }).catch(() => null);
-  const j = r ? await r.json().catch(() => null) : null;
-  return j?.access_token ? String(j.access_token) : null;
+/** Exchanges the stored refresh token for an access token. On failure returns Google's own reason (never a credential), so the logs say WHY
+ *  ("invalid_grant" = the refresh token was revoked or expired, "invalid_client" = wrong client id/secret ...) instead of a bare "not authorised". */
+export async function accessTokenOrReason(): Promise<{ token: string } | { why: string }> {
+  const rt = await refreshToken().catch(() => null);
+  if (!rt) return { why: "no-refresh-token" };
+  if (!youtubeKeysPresent()) return { why: "no-client-keys" };
+  let r: Response | null = null;
+  try {
+    r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: process.env.YOUTUBE_CLIENT_ID!, client_secret: process.env.YOUTUBE_CLIENT_SECRET!, refresh_token: rt, grant_type: "refresh_token" }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch { return { why: "network" }; }
+  const j = await r.json().catch(() => null);
+  if (j?.access_token) return { token: String(j.access_token) };
+  return { why: j?.error ? `${String(j.error)}${j.error_description ? `: ${String(j.error_description).slice(0, 80)}` : ""}` : `http-${r.status}` };
+}
+
+/** What the weekly promo upload would hit, without uploading anything (the /api/cron/youtube-check route and its manual workflow). */
+export async function youtubeCheck(): Promise<{ clientKeys: boolean; refreshToken: boolean; google: string }> {
+  const a = await accessTokenOrReason();
+  return { clientKeys: youtubeKeysPresent(), refreshToken: Boolean(await refreshToken().catch(() => null)), google: "token" in a ? "ok" : a.why };
 }
 
 export type UploadResult = { ok: true; id: string } | { ok: false; reason: string };
 
 /** Vertical clips under a minute become Shorts automatically; #Shorts in the title helps. privacy: public | unlisted | private. */
 export async function uploadVideo(bytes: Uint8Array, o: { title: string; description: string; privacy?: "public" | "unlisted" | "private"; lang?: string }): Promise<UploadResult> {
-  const token = await accessToken();
-  if (!token) return { ok: false, reason: "youtube-not-authorised" };
+  const a = await accessTokenOrReason();
+  if (!("token" in a)) return { ok: false, reason: `youtube-not-authorised (${a.why})` };
+  const token = a.token;
   const meta = {
     snippet: { title: o.title.slice(0, 95), description: o.description.slice(0, 4900), categoryId: "28", defaultLanguage: o.lang || "en" },
     status: { privacyStatus: o.privacy || "public", selfDeclaredMadeForKids: false },
