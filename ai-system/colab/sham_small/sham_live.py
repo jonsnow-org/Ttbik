@@ -481,6 +481,31 @@ def make_batches(examples: list, token_budget: int):
 
 # ---------------------------------------------------------------- run
 
+def _start_memory_watch(every: float = 60.0) -> None:
+    """Prints the process memory (RSS), what the machine still has and the container limit once a minute. The cn trainer Studio was killed with code -9 (out of memory) right after the
+    chat data loaded (2026-11-13) and nothing said which step grows: this line tells, and says how close the kill was."""
+    def read(path):
+        try:
+            return Path(path).read_text().strip()
+        except Exception:
+            return ""
+
+    def loop():
+        while True:
+            try:
+                rss = int(next(l for l in read("/proc/self/status").splitlines() if l.startswith("VmRSS")).split()[1]) / 1048576
+                avail = int(next(l for l in read("/proc/meminfo").splitlines() if l.startswith("MemAvailable")).split()[1]) / 1048576
+                lim = read("/sys/fs/cgroup/memory.max") or read("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+                lim_s = f"{int(lim) / 1073741824:.1f} غ.ب" if lim.isdigit() and int(lim) < 1 << 50 else "بلا حد ظاهر"
+                cur = read("/sys/fs/cgroup/memory.current") or read("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+                cur_s = f"، الحاوية {int(cur) / 1073741824:.1f} غ.ب" if cur.isdigit() else ""
+                print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
+            except Exception:
+                return
+            time.sleep(every)
+    threading.Thread(target=loop, daemon=True, name="memory-watch").start()
+
+
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
         mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None, source_set: str = "default") -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
@@ -498,6 +523,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     from train_image_tokenizer import save_tokenizer_checkpoint as save_img
 
     t_start = time.time()
+    _start_memory_watch()
     cuda = torch.cuda.is_available()
     device = "cuda" if cuda else "cpu"
     hours = hours if hours is not None else (7.0 if cuda else 11.0)
