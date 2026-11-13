@@ -32,7 +32,7 @@ export async function GET() {
     if (Number.isFinite(at)) label = ageLabel(at, Date.now());
   } catch { /* serve the plain coin */ }
   const img = (label ? await picture(`zenobia/znbt/age/${label}.webp`) : null) ?? (await picture("zenobia/znbt-coin.webp"));
-  if (!img) return NextResponse.json({ error: "icon unavailable" }, { status: 424 });
+  if (!img) return NextResponse.json({ error: "icon unavailable" }, { status: 502 });
   return new NextResponse(new Uint8Array(img), {
     headers: { "content-type": "image/webp", "cache-control": "public, max-age=1800, s-maxage=1800", "x-znbt-age": label || "none" },
   });
