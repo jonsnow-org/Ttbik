@@ -33,7 +33,7 @@ function ProductCard({ l, onClick }: { l: any; onClick: () => void }) {
         <div className="line-clamp-2 min-h-[2.5rem] text-[13.5px] font-bold leading-5" style={{ color: "var(--app-text)" }}>{l.title}</div>
         <div className="mt-1 text-[15px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
         <div className="mt-1 flex flex-wrap gap-1 text-[10.5px]" style={{ color: "var(--app-hint)" }}>
-          {l.escrow ? <span>🔒 حجز آمن</span> : <span>🤝 يدوي</span>}<span>·</span><span>{l.shipping ? "🚚 شحن" : "📍 استلام"}</span>
+          <span>🔒 حجز آمن</span><span>·</span><span>{l.shipping ? "🚚 شحن" : "📍 استلام"}</span>
         </div>
         {l.seller && <div className="mt-1 truncate text-[11px]" style={{ color: "var(--app-hint)" }}>{l.seller}</div>}
       </div>
@@ -58,7 +58,7 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
   const trader = init.profile?.roleType === "TRADER";
   const [tab, setTab] = useState<"sell" | "buy">(initialTab === "buy" ? "buy" : "sell");
   const [q, setQ] = useState("");
-  const [filters, setFilters] = useState<any>({ min: "", max: "", escrow: false, shipping: false, sort: "new" });
+  const [filters, setFilters] = useState<any>({ min: "", max: "", shipping: false, sort: "new" });
   const [showF, setShowF] = useState(false);
   const [items, setItems] = useState<any[] | null>(null);
   const [more, setMore] = useState(false);
@@ -73,7 +73,7 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
     setMore(r.more);
   }, [api, tab, filters, toast]);
   useEffect(() => { void load(0); }, [load]);
-  const fCount = (filters.min ? 1 : 0) + (filters.max ? 1 : 0) + (filters.escrow ? 1 : 0) + (filters.shipping ? 1 : 0) + (filters.sort !== "new" ? 1 : 0);
+  const fCount = (filters.min ? 1 : 0) + (filters.max ? 1 : 0) + (filters.shipping ? 1 : 0) + (filters.sort !== "new" ? 1 : 0);
   return (
     <>
       <ScreenTitle icon="🛒" title="المتجر" sub="تصفّح المنتجات وطلبات الشراء، وتفاوض على السعر بأمان." />
@@ -89,11 +89,10 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
                 <input className={`${inputCls} rounded-xl px-3 py-2`} style={{ ...inputStyle, background: "var(--app-bg)" }} inputMode="decimal" placeholder="أعلى سعر $" value={filters.max} onChange={(e) => setFilters((f: any) => ({ ...f, max: e.target.value }))} />
               </div>
               <div className="mb-2 flex flex-wrap gap-2">
-                <Btn small kind={filters.escrow ? "primary" : "soft"} onClick={() => setFilters((f: any) => ({ ...f, escrow: !f.escrow }))}>🔒 حجز آمن فقط</Btn>
                 <Btn small kind={filters.shipping ? "primary" : "soft"} onClick={() => setFilters((f: any) => ({ ...f, shipping: !f.shipping }))}>🚚 يوجد شحن</Btn>
               </div>
               <Chips items={[{ id: "new", label: "الأحدث" }, { id: "price_asc", label: "الأرخص" }, { id: "price_desc", label: "الأغلى" }]} value={filters.sort} onChange={(v) => setFilters((f: any) => ({ ...f, sort: v }))} />
-              {fCount > 0 && <button type="button" className="mt-2 text-xs font-bold" style={{ color: "var(--app-danger)" }} onClick={() => setFilters({ min: "", max: "", escrow: false, shipping: false, sort: "new" })}>مسح التصفية</button>}
+              {fCount > 0 && <button type="button" className="mt-2 text-xs font-bold" style={{ color: "var(--app-danger)" }} onClick={() => setFilters({ min: "", max: "", shipping: false, sort: "new" })}>مسح التصفية</button>}
             </div>
           )}
         </div>
@@ -175,7 +174,7 @@ function OfferBox({ kind, id, suggested, cta, onDone }: { kind: "LISTING" | "WAN
     onDone();
   };
   return (
-    <Section title={cta} hint={kind === "LISTING" ? "يمكنك الطلب بالسعر المعروض أو اقتراح سعر آخر. يرد البائع بالقبول أو الرفض أو سعر مقابل." : "اقترح سعرك للمشتري، ويرد بالقبول أو الرفض أو سعر مقابل."}>
+    <Section title={cta} hint={kind === "LISTING" ? "هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول البائع وحجز كامل المبلغ من رصيدك. عمولة المنصة الافتراضية 10% تخصم من حصة البائع، ولا تضاف على المشتري." : "هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول صاحب الطلب وحجز المبلغ من رصيد المشتري. عمولة المنصة الافتراضية 10% تخصم من حصة البائع."}>
       <Field label="السعر بالدولار"><input className={inputCls} style={inputStyle} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="مثال: 25" /></Field>
       <div className="p-3"><Btn className="w-full" disabled={busy || !price} onClick={send}>{busy ? "…" : "📨 إرسال العرض"}</Btn></div>
     </Section>
@@ -212,7 +211,7 @@ export function ProductScreen({ id }: { id: string }) {
       <h1 className="text-[20px] font-black leading-tight" style={{ color: "var(--app-text)" }}>{l.title}</h1>
       <div className="mt-1 text-[24px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
       <Section>
-        <Row icon={l.escrow ? "🔒" : "🤝"} title={l.escrow ? "دفع بحجز آمن" : "دفع يدوي مع البائع"} sub={l.escrow ? "يُحجز المبلغ من رصيدك عند الاتفاق، ويصل للبائع بعد تأكيدك الاستلام." : "تتفق مع البائع مباشرة على الدفع والتسليم."} />
+        <Row icon="🔒" title="الدفع بالحجز الآمن عبر المنصة" sub="يُحجز كامل السعر من رصيد المشتري بعد قبول العرض. بعد الاستلام تُخصم عمولة المنصة الافتراضية 10% من مستحقات البائع فقط، ولا تُضاف رسوم على المشتري." />
         <Row icon={l.shipping ? "🚚" : "📍"} title={l.shipping ? "يوجد شحن" : "استلام يدوي من البائع"} />
         <Row icon="🏪" title={d.seller.name} sub={d.seller.place || undefined} onClick={d.seller.shop ? () => push({ name: "shop", params: { slug: d.seller.shop } }) : undefined} right={d.seller.shop ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>المتجر ‹</span> : undefined} />
       </Section>
@@ -233,7 +232,7 @@ export function ProductScreen({ id }: { id: string }) {
       ) : l.status === "ACTIVE" ? (
         <>
           {d.myPendingOffers > 0 && <p className="mb-2 rounded-xl px-3 py-2 text-xs font-bold" style={{ background: "#fef3c7", color: "#92400e" }}>⏳ لديك عرض قيد الانتظار على هذا المنتج. تابعه من «طلباتي».</p>}
-          {l.escrow && <p className="mb-2 px-1 text-xs" style={{ color: "var(--app-hint)" }}>💰 رصيدك {money(init.balance)}{init.balance < l.price ? " — اشحن رصيدك قبل أن يقبل البائع حتى يُحجز المبلغ." : ""}</p>}
+          <p className="mb-2 px-1 text-xs" style={{ color: "var(--app-hint)" }}>💰 رصيدك {money(init.balance)}{init.balance < l.price ? " — اشحن رصيدك قبل قبول العرض حتى يُحجز المبلغ." : ""}</p>
           <OfferBox kind="LISTING" id={l.id} suggested={l.price} cta="💬 اطلب المنتج أو اقترح سعراً" onDone={() => void load()} />
           {d.share && <ShareRow url={d.share} text={`🛒 ${l.title} — ${money(l.price)}`} />}
           {d.seller.id && <ReportBlock kind="listing" target={d.seller.id} />}
@@ -244,7 +243,7 @@ export function ProductScreen({ id }: { id: string }) {
 }
 
 export function WantedScreen({ id }: { id: string }) {
-  const { api, push, toast, confirm, back, open, replace } = useApp();
+  const { api, push, toast, confirm, back, replace } = useApp();
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => { const r = await api("wanted_get", { id }); if (r.ok) setD(r); else setErr(r.error || ""); }, [api, id]);
@@ -264,7 +263,7 @@ export function WantedScreen({ id }: { id: string }) {
       <div className="mb-2"><StatusPill s={w.status} /></div>
       <Section>
         <Row icon="💵" title={w.budget != null ? `الميزانية: ${money(w.budget)}` : "الميزانية: غير محددة"} />
-        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} onClick={d.buyer.contact ? () => open(d.buyer.contact) : undefined} right={d.buyer.contact ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>تواصل ‹</span> : undefined} />}
+        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} />}
       </Section>
       {w.description && <Section title="التفاصيل"><p className="whitespace-pre-wrap px-4 py-3 text-[14px] leading-6" style={{ color: "var(--app-text)" }}>{w.description}</p></Section>}
       {w.mine ? (w.status === "ACTIVE" || w.status === "PAUSED") && (
@@ -275,6 +274,7 @@ export function WantedScreen({ id }: { id: string }) {
         </div>
       ) : (
         <>
+          <p className="mb-2 rounded-xl px-3 py-2 text-xs font-bold" style={{ background: "var(--app-bg)", color: "var(--app-hint)" }}>🔒 لا يمكن التواصل المباشر قبل قبول العرض وحجز المبلغ من رصيد المشتري.</p>
           <OfferBox kind="WANTED" id={w.id} suggested={w.budget} cta="💬 لدي هذا المنتج — قدّم عرضك" onDone={() => void load()} />
           {d.buyer.id && <ReportBlock kind="wanted" target={d.buyer.id} />}
         </>
@@ -311,7 +311,7 @@ export function ListingForm({ id }: { id?: string }) {
   const { api, toast, back, replace, setDirty } = useApp();
   const { reload } = useInit();
   const upload = useUpload();
-  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "", paymentMethod: "" });
+  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "" });
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -322,7 +322,7 @@ export function ListingForm({ id }: { id?: string }) {
     void api("listing_get", { id }).then((r: any) => {
       if (!r.ok || !r.listing.mine) { toast(r.error || "غير مسموح.", "err"); back(); return; }
       const l = r.listing;
-      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL", paymentMethod: l.escrow ? "ESCROW" : "MANUAL" });
+      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL" });
     });
   }, [api, id, toast, back]);
   if (!f) return <Loading lines={5} />;
@@ -379,8 +379,8 @@ export function ListingForm({ id }: { id?: string }) {
       <Section title="طريقة التسليم">
         <div className="p-3"><Chips items={[{ id: "PICKUP_MANUAL", label: "📍 استلام يدوي" }, { id: "SHIPPING", label: "🚚 يوجد شحن" }]} value={f.deliveryMethod} onChange={(v) => set("deliveryMethod", v)} /></div>
       </Section>
-      <Section title="طريقة الدفع" hint="🔒 الحجز الآمن: يُحجز المبلغ من رصيد المشتري ويصلك بعد تأكيده الاستلام (أو تلقائياً بعد 7 أيام بلا نزاع). 🤝 اليدوي: تتفق مع المشتري مباشرة.">
-        <div className="p-3"><Chips items={[{ id: "ESCROW", label: "🔒 حجز آمن" }, { id: "MANUAL", label: "🤝 يدوي" }]} value={f.paymentMethod} onChange={(v) => set("paymentMethod", v)} /></div>
+      <Section title="الدفع والعمولة">
+        <Row icon="🔒" title="حجز آمن إلزامي لكل المبيعات" sub="يُحجز المبلغ من المشتري داخل المنصة، ثم تُخصم عمولة 10% افتراضياً من مستحقات البائع عند التسوية. لا يستطيع أي طرف تجاوز الحجز أو كشف بيانات التواصل قبل إنشاء الطلب." />
       </Section>
       {err && <p className="mb-2 px-1 text-sm font-bold" style={{ color: "var(--app-danger)" }}>{err}</p>}
       <MainAction text={id ? "💾 حفظ التعديلات" : "📢 نشر المنتج"} onClick={save} busy={busy} disabled={uploading > 0} />
@@ -560,15 +560,19 @@ function OffersList({ offers, reload }: { offers: any[]; reload: () => Promise<v
   const waiting = offers.filter((o) => o.status === "PENDING" && !o.myTurn);
   const closed = offers.filter((o) => o.status !== "PENDING").slice(0, 20);
   const accept = async (o: any) => {
-    const holds = o.escrow && o.role === "buyer";
-    const msg = o.escrow ? (o.role === "buyer" ? `قبول ${money(o.price)}؟ سيُحجز المبلغ من رصيدك (${money(init.balance)}) حتى تؤكد الاستلام.` : `قبول ${money(o.price)}؟ سيُحجز المبلغ من رصيد المشتري، ويصلك بعد تأكيده الاستلام.`) : `قبول ${money(o.price)}؟ ستتفقان على الدفع والتسليم مباشرة.`;
+    const holds = o.role === "buyer";
+    const commission = Number(o.price) * 0.1;
+    const sellerNet = Number(o.price) - commission;
+    const msg = o.role === "buyer"
+      ? `قبول ${money(o.price)}؟ سيُحجز كامل المبلغ من رصيدك (${money(init.balance)}) حتى تؤكد الاستلام. لا تضاف عليك عمولة.`
+      : `قبول ${money(o.price)}؟ سيُحجز المبلغ من رصيد المشتري. عمولة المنصة الافتراضية 10% (${money(commission)}) تخصم من مستحقاتك، وصافي ما يصلك بعد الاستلام ${money(sellerNet)}.`;
     if (!(await confirm(msg))) return;
     setBusy(o.id);
     const r = await api<{ mode: string }>("offer_accept", { id: o.id });
     setBusy(null);
     if (!r.ok) { toast(r.error || "", "err"); if (r.code === "balance" && holds) push({ name: "wallet" }); await reload(); return; }
     haptic("success");
-    toast(r.mode === "escrow" ? "✅ تم الاتفاق وحجز المبلغ. تابع الطلب في «مشترياتي/مبيعاتي»." : "✅ تم قبول العرض. تواصلا لإتمام الدفع والتسليم.");
+    toast("✅ تم قبول العرض وحجز المبلغ. سيظهر التواصل الآن داخل تفاصيل الطلب في «مشترياتي/مبيعاتي».");
     await reload(); void reloadInit();
   };
   const reject = async (o: any) => {
@@ -675,6 +679,7 @@ function OrderCard({ o, reload }: { o: any; reload: () => Promise<void> }) {
           <b className="block truncate text-[14px]" style={{ color: "var(--app-text)" }}>{o.title}</b>
           <span className="block text-xs" style={{ color: "var(--app-hint)" }}>#{o.short} · {ago(o.at)}{o.shipping ? " · 🚚 شحن" : " · 📍 استلام"}</span>
           <span className="block text-[14px] font-black" style={{ color: "var(--app-accent)" }}>{money(o.amount)}</span>
+          {o.role === "seller" && o.status !== "REFUNDED" && <span className="block text-[11px]" style={{ color: "var(--app-hint)" }}>عمولة المنصة {o.commissionPercent ?? 10}%: {money(o.commission ?? o.amount * 0.1)} · صافي مستحقاتك: {money(o.sellerNet ?? o.amount * 0.9)}</span>}
         </div>
         <StatusPill s={o.status} />
       </div>
