@@ -12,3 +12,18 @@
 **How it works.** `GET /api/media-athar?date=YYYY-MM-DD` (default today): public, read-only, 60 requests a minute per IP, answers cached 10 minutes per day; code in `src/lib/atharDay.ts` (shared with the match app). Cards live in `src/components/AtharMediaCard.tsx`. The feed card requests only when it scrolls near the screen. Taps are counted as the `athar` event in `/api/media-stats`. Payment stays inside Athar's own app (TonConnect); the cards carry no price, return or investment wording.
 
 **Switch off:** `MEDIA_ENABLE_ATHAR=0` (Vercel env), redeploy. Everything hides by itself when Athar's public API does not answer.
+
+
+## Media playback stream Worker (2026-11-13)
+
+The media mini-app fetches video/audio bytes directly from Telegram through the Cloudflare Worker `media-stream.jonsnowx1r.workers.dev`. The Worker resolves the post ID to a Telegram `file_path` through the permanent site gate `https://ttbik-gate.jonsnowx1r.workers.dev/api/media-path`; it must not depend on `ttbik.vercel.app`, because Vercel is a standby and can be paused.
+
+The Worker uses `MEDIA_PATH_ORIGIN` (defaults to the permanent site gate). `cloudflare/media-stream.wrangler.jsonc` contains its separate deployment config. The existing `BOT_TOKEN` stays as a Cloudflare secret and is not written into the config or repository.
+
+Deploy the Worker from the repository root with:
+
+```sh
+npx wrangler deploy --config cloudflare/media-stream.wrangler.jsonc
+```
+
+For first-time deployment only, create the secret separately with `npx wrangler secret put BOT_TOKEN --config cloudflare/media-stream.wrangler.jsonc`. Updating an existing Worker keeps its separately stored secret.
