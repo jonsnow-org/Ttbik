@@ -108,8 +108,10 @@ export function unwrapJsonAnswer(text: string): string {
   const keys = Object.keys(o);
   const allowed = new Set(["role", "content", "reflection", "answer", "response", "text", "message"]);
   if (!keys.length || keys.some((k) => !allowed.has(k))) return text;
-  const body = ["content", "answer", "response", "text", "message", "reflection"].map((k) => o[k]).find((v) => typeof v === "string" && v.trim());
-  return typeof body === "string" ? body.trim() : text;
+  // LFM2.5 (live 2026-11-12) also writes {"reflection": ["step one", "step two"]}: an array of strings is the body too (joined line by line)
+  const asText = (v: unknown): string => (typeof v === "string" ? v.trim() : Array.isArray(v) && v.length && v.every((x) => typeof x === "string") ? (v as string[]).map((x) => x.trim()).filter(Boolean).join("\n") : "");
+  const body = ["content", "answer", "response", "text", "message", "reflection"].map((k) => asText(o[k])).find((v) => v);
+  return typeof body === "string" && body ? body : text;
 }
 
 export function recoverTextToolCalls(reply: CoderReply): CoderReply {
