@@ -162,6 +162,7 @@ function ReportBlock({ kind, target }: { kind: string; target: string }) {
 
 function OfferBox({ kind, id, suggested, cta, onDone }: { kind: "LISTING" | "WANTED"; id: string; suggested?: number | null; cta: string; onDone: () => void }) {
   const { api, toast, haptic } = useApp();
+  const { init } = useInit();
   const [price, setPrice] = useState(suggested != null ? String(suggested) : "");
   const [busy, setBusy] = useState(false);
   const send = async () => {
@@ -174,7 +175,7 @@ function OfferBox({ kind, id, suggested, cta, onDone }: { kind: "LISTING" | "WAN
     onDone();
   };
   return (
-    <Section title={cta} hint={kind === "LISTING" ? "هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول البائع وحجز كامل المبلغ من رصيدك. عمولة المنصة الافتراضية 10% تخصم من حصة البائع، ولا تضاف على المشتري." : "هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول صاحب الطلب وحجز المبلغ من رصيد المشتري. عمولة المنصة الافتراضية 10% تخصم من حصة البائع."}>
+    <Section title={cta} hint={kind === "LISTING" ? `هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول البائع وحجز كامل المبلغ من رصيدك. عمولة المنصة ${init.commissionPercent}% تخصم من حصة البائع، ولا تضاف على المشتري.` : `هذا عرض سعر فقط. لا تظهر بيانات التواصل إلا بعد قبول صاحب الطلب وحجز المبلغ من رصيد المشتري. عمولة المنصة ${init.commissionPercent}% تخصم من حصة البائع.`}>
       <Field label="السعر بالدولار"><input className={inputCls} style={inputStyle} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="مثال: 25" /></Field>
       <div className="p-3"><Btn className="w-full" disabled={busy || !price} onClick={send}>{busy ? "…" : "📨 إرسال العرض"}</Btn></div>
     </Section>
@@ -211,7 +212,7 @@ export function ProductScreen({ id }: { id: string }) {
       <h1 className="text-[20px] font-black leading-tight" style={{ color: "var(--app-text)" }}>{l.title}</h1>
       <div className="mt-1 text-[24px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
       <Section>
-        <Row icon="🔒" title="الدفع بالحجز الآمن عبر المنصة" sub="يُحجز كامل السعر من رصيد المشتري بعد قبول العرض. بعد الاستلام تُخصم عمولة المنصة الافتراضية 10% من مستحقات البائع فقط، ولا تُضاف رسوم على المشتري." />
+        <Row icon="🔒" title="الدفع بالحجز الآمن عبر المنصة" sub={`يُحجز كامل السعر من رصيد المشتري بعد قبول العرض. بعد الاستلام تُخصم عمولة المنصة ${init.commissionPercent}% من مستحقات البائع فقط، ولا تُضاف رسوم على المشتري.`} />
         <Row icon={l.shipping ? "🚚" : "📍"} title={l.shipping ? "يوجد شحن" : "استلام يدوي من البائع"} />
         <Row icon="🏪" title={d.seller.name} sub={d.seller.place || undefined} onClick={d.seller.shop ? () => push({ name: "shop", params: { slug: d.seller.shop } }) : undefined} right={d.seller.shop ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>المتجر ‹</span> : undefined} />
       </Section>
@@ -309,7 +310,7 @@ export function useUpload() {
 
 export function ListingForm({ id }: { id?: string }) {
   const { api, toast, back, replace, setDirty } = useApp();
-  const { reload } = useInit();
+  const { init, reload } = useInit();
   const upload = useUpload();
   const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "" });
   const [previews, setPreviews] = useState<Record<string, string>>({});
@@ -380,7 +381,7 @@ export function ListingForm({ id }: { id?: string }) {
         <div className="p-3"><Chips items={[{ id: "PICKUP_MANUAL", label: "📍 استلام يدوي" }, { id: "SHIPPING", label: "🚚 يوجد شحن" }]} value={f.deliveryMethod} onChange={(v) => set("deliveryMethod", v)} /></div>
       </Section>
       <Section title="الدفع والعمولة">
-        <Row icon="🔒" title="حجز آمن إلزامي لكل المبيعات" sub="يُحجز المبلغ من المشتري داخل المنصة، ثم تُخصم عمولة 10% افتراضياً من مستحقات البائع عند التسوية. لا يستطيع أي طرف تجاوز الحجز أو كشف بيانات التواصل قبل إنشاء الطلب." />
+        <Row icon="🔒" title="حجز آمن إلزامي لكل المبيعات" sub={`يُحجز المبلغ من المشتري داخل المنصة، ثم تُخصم عمولة ${init.commissionPercent}% من مستحقات البائع عند التسوية. لا يستطيع أي طرف تجاوز الحجز أو كشف بيانات التواصل قبل إنشاء الطلب.`} />
       </Section>
       {err && <p className="mb-2 px-1 text-sm font-bold" style={{ color: "var(--app-danger)" }}>{err}</p>}
       <MainAction text={id ? "💾 حفظ التعديلات" : "📢 نشر المنتج"} onClick={save} busy={busy} disabled={uploading > 0} />
@@ -561,11 +562,11 @@ function OffersList({ offers, reload }: { offers: any[]; reload: () => Promise<v
   const closed = offers.filter((o) => o.status !== "PENDING").slice(0, 20);
   const accept = async (o: any) => {
     const holds = o.role === "buyer";
-    const commission = Number(o.price) * 0.1;
+    const commission = Number(o.price) * (Number(init.commissionPercent ?? 10) / 100);
     const sellerNet = Number(o.price) - commission;
     const msg = o.role === "buyer"
       ? `قبول ${money(o.price)}؟ سيُحجز كامل المبلغ من رصيدك (${money(init.balance)}) حتى تؤكد الاستلام. لا تضاف عليك عمولة.`
-      : `قبول ${money(o.price)}؟ سيُحجز المبلغ من رصيد المشتري. عمولة المنصة الافتراضية 10% (${money(commission)}) تخصم من مستحقاتك، وصافي ما يصلك بعد الاستلام ${money(sellerNet)}.`;
+      : `قبول ${money(o.price)}؟ سيُحجز المبلغ من رصيد المشتري. عمولة المنصة ${init.commissionPercent}% (${money(commission)}) تخصم من مستحقاتك، وصافي ما يصلك بعد الاستلام ${money(sellerNet)}.`;
     if (!(await confirm(msg))) return;
     setBusy(o.id);
     const r = await api<{ mode: string }>("offer_accept", { id: o.id });
