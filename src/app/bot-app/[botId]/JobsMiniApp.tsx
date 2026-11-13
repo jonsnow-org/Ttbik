@@ -12,7 +12,7 @@ import { WorkScreen, JobScreen, ProScreen, TendersScreen, TenderBidsScreen, Tend
 export type JobsInit = {
   ok: boolean; error?: string; code?: string; gate: { channel: string } | null; phoneVerified: boolean;
   user: { id: string; firstName: string; username: string }; bot: { username: string }; profile: any | null; balance: number;
-  counts: { offersWaiting: number; ordersOpen: number; active: number }; categories: string[]; roles: { id: string; label: string }[];
+  counts: { offersWaiting: number; ordersOpen: number; active: number }; commissionPercent: number; categories: string[]; roles: { id: string; label: string }[];
   durations: { label: string; hours: number }[]; maxOpenTenders: number; feature: { price: number; days: number };
 };
 const InitCtx = createContext<{ init: JobsInit; reload: () => Promise<void> } | null>(null);
