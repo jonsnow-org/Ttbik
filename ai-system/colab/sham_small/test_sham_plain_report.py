@@ -1,7 +1,7 @@
 """The merge notice must say in words what was accepted / refused and by how much (owner's order 2026-11-13)."""
 import unittest
 
-from sham_ci_merge import plain_summary
+from sham_plain_report import plain_summary
 
 BEFORE = {"text": 4.837, "chat": 4.220, "media": 3.751}
 AFTER = {"text": 4.784, "chat": 3.905, "media": 3.793}
