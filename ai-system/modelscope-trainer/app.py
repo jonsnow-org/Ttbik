@@ -137,6 +137,9 @@ RESULT_MARK = "@@CYCLE_RESULT@@ "
 def _resolve_run_fn(cfg: dict):
     for k, v in PROFILES[cfg["job"]].items():          # the job's shares, before sham_live is imported (it reads some of them at import time)
         os.environ.setdefault(k, v)
+    # The search for a "better media tokenizer" downloads and measures every tokenizer dataset of the account: on this Studio's slow link it sat for hours with no output
+    # (cn sham-trainer-1, 2026-11-13). The head adopted the best one once (2026-10-17); a trainer keeps the tokenizer that sits next to its start checkpoint.
+    os.environ.setdefault("SHAM_MEDIA_TOKENIZER", "base")
     if cfg["job"] == "codec":
         return run_codec
     if cfg["job"] == "motion":
