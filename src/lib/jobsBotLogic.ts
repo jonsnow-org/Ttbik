@@ -258,7 +258,7 @@ async function setPending(userId: string, action: PendingAction | null) {
   await prisma.jobsUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
 // Same atomic escrow settle as the bot's buttons and the Mini App (src/lib/jobs/core.ts); the 7-day auto-release cron imports it from here.
-export { settleEscrow };
+export { settleEscrow, escrowFeeBreakdown };
 
 // The bot's own Mini App (/bot-app/<botId>, src/lib/botApp/jobsApp.ts): the chat's main menu button and /app open it, and the
 // Telegram menu button is pointed at it once per process (the same mechanism as the other bots' apps).

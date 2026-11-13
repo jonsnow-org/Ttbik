@@ -96,7 +96,7 @@ export async function sendShopInBot(bot: TelegramBot, chatId: number, slug: stri
   if (!sellerId) { await bot.api.sendMessage(chatId, "هذا المتجر غير موجود."); return true; }
   const [profile, listings, featured] = await Promise.all([
     prisma.jobsProfile.findUnique({ where: { userId: sellerId } }),
-    prisma.storeListing.findMany({ where: { sellerId, status: "ACTIVE" }, orderBy: { created_at: "desc" }, take: 20 }),
+    prisma.storeListing.findMany({ where: { sellerId, status: "ACTIVE", paymentMethod: "ESCROW" }, orderBy: { created_at: "desc" }, take: 20 }),
     featuredListingIds(),
   ]);
   if (!listings.length) { await bot.api.sendMessage(chatId, "لا توجد منتجات نشطة في هذا المتجر الآن."); return true; }
@@ -136,7 +136,7 @@ export async function shopPage(slug: string) {
   if (!sellerId) return null;
   const [profile, listings, featured, username] = await Promise.all([
     prisma.jobsProfile.findUnique({ where: { userId: sellerId } }),
-    prisma.storeListing.findMany({ where: { sellerId, status: "ACTIVE" }, orderBy: { created_at: "desc" }, take: 60 }),
+    prisma.storeListing.findMany({ where: { sellerId, status: "ACTIVE", paymentMethod: "ESCROW" }, orderBy: { created_at: "desc" }, take: 60 }),
     featuredListingIds(),
     jobsBotUsername().catch(() => ""),
   ]);
@@ -163,7 +163,7 @@ export async function listShops(limit = 60): Promise<{ slug: string; name: strin
   await ensureShopTables();
   const rows = await prisma.$queryRaw<{ slug: string; seller_id: string; items: bigint }[]>`
     SELECT s.slug, s.seller_id, count(l.id) AS items FROM jobs_shops s
-    JOIN "StoreListing" l ON l."sellerId" = s.seller_id AND l.status = 'ACTIVE'
+    JOIN "StoreListing" l ON l."sellerId" = s.seller_id AND l.status = 'ACTIVE' AND l."paymentMethod" = 'ESCROW'
     GROUP BY s.slug, s.seller_id ORDER BY count(l.id) DESC, s.slug LIMIT ${limit}`;
   if (!rows.length) return [];
   const profiles = await prisma.jobsProfile.findMany({ where: { userId: { in: rows.map((r) => r.seller_id) } } });
