@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 
 import torch
+from sham_plain_report import plain_summary
 
 OWN = "sham-merged-checkpoint"
 WORK = Path(os.environ.get("SHAM_WORK", "/tmp/sham_ci_merge"))
@@ -104,6 +105,7 @@ def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
 
 
 _FROZEN: dict = {}      # {"text": the exact gate text}: stored in merge_progress.json so EVERY run (and every candidate) is measured on the same words
+
 
 
 def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: bool = True):
@@ -348,7 +350,11 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     elif not changed:
         report.append("لا دمج جديد — لا نسخة جديدة تُنشر")
         # the record of tried sources still has to survive: publish only the progress when something new was tried
-    text = ("🧩 الدمج والتقييم على CPU (GitHub)\n" + f"الأساس: {label} (خطوة {step:,})\n"
+    try:
+        plain = plain_summary(label, step, before, after, report, published) + "\n\n— التفاصيل الرقمية —\n"
+    except Exception as exc:   # the plain summary must never stop the notice
+        plain = f"(تعذّر الملخص بالكلمات: {type(exc).__name__})\n"
+    text = (plain + "🧩 الدمج والتقييم على CPU (GitHub)\n" + f"الأساس: {label} (خطوة {step:,})\n"
             + "قبل: " + ", ".join(f"{k}={v:.3f}" for k, v in before.items())
             + "\nبعد: " + ", ".join(f"{k}={v:.3f}" for k, v in after.items()) + "\n" + "\n".join(report)
             + (f"\nنُشر إلى {published}" if published else "") + f"\n({(time.time() - t0) / 60:.0f} دقيقة)")

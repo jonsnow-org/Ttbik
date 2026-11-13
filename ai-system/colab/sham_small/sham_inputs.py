@@ -111,8 +111,11 @@ def _unzip_nested(root: Path) -> None:
             return
         for z in archives:
             target = z.parent / z.stem
-            with zipfile.ZipFile(z) as zf:
-                zf.extractall(target)
+            try:
+                with zipfile.ZipFile(z) as zf:
+                    zf.extractall(target)
+            except zipfile.BadZipFile:      # a download cut by SHAM_KAGGLE_TIMEOUT leaves a partial archive: drop it (the caller's fallback / next candidate takes over), never crash the trainer
+                print(f"  ⚠ أرشيف ناقص أو تالف تُرك: {z.name}")
             z.unlink()
 
 
@@ -242,8 +245,8 @@ def _kaggle(cmd: list, tries: int = 6):
     r = None
     for attempt in range(tries):
         try:
-            # a download that never ends froze a cn trainer for 35 minutes without a line (2026-11-13): give each Kaggle command a limit (SHAM_KAGGLE_TIMEOUT, 900 s)
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("SHAM_KAGGLE_TIMEOUT") or 900))
+            # a download that never ends froze a cn trainer for 35 minutes without a line (2026-11-13): give each Kaggle command a limit (SHAM_KAGGLE_TIMEOUT, 1800 s)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("SHAM_KAGGLE_TIMEOUT") or 1800))
         except subprocess.TimeoutExpired:
             print(f"  ⏱ Kaggle لم يُنهِ الأمر في المهلة: {' '.join(str(c) for c in cmd[:5])}")
             return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_TIMEOUT)")
