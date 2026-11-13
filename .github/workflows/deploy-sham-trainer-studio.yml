@@ -121,6 +121,7 @@ jobs:
             [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Secret update failed for $1 (HTTP $code)"; exit 1; }
             echo "updated secret key: $1"
           }
+          set_secret MODELSCOPE_API_TOKEN "$T"      # 2026-11-13: lets the trainer read the account's PRIVATE model repo novaai2026/sham-merged (the head, fast on this network) instead of the slow Kaggle download
           set_secret KAGGLE_USERNAME jonsnowjonsnow
           set_secret KAGGLE_API_TOKEN "$KT"
           set_secret SHAM_TRAINER_NAME "$NAME"
