@@ -1,18 +1,16 @@
 import { MAIN_TABS, sectionScreen } from "@/lib/botApp/jobsNav";
 
-describe("jobs & store Mini App navigation", () => {
-  test("five main sections, home first", () => {
-    expect(MAIN_TABS.map((t) => t.name)).toEqual(["home", "store", "work", "orders", "account"]);
+describe("jobs & store Mini App navigation follows the bot's menu", () => {
+  test("the bottom bar: home, work, store, tenders, profile", () => {
+    expect(MAIN_TABS.map((t) => t.name)).toEqual(["home", "work", "store", "tenders", "account"]);
   });
   test("the bot's buttons (?s=) land on the right section", () => {
-    for (const s of ["store", "work", "orders", "account"]) expect(sectionScreen(s)).toEqual({ name: s });
-    expect(sectionScreen("home")).toEqual({ name: "home" });
-    expect(sectionScreen("")).toEqual({ name: "home" });
-    expect(sectionScreen("nonsense")).toEqual({ name: "home" });
+    for (const s of ["store", "work", "tenders", "account"]) expect(sectionScreen(s)).toEqual({ name: s });
+    expect(sectionScreen("shops")).toEqual({ name: "shops" });
+    for (const s of ["home", "", "nonsense"]) expect(sectionScreen(s)).toEqual({ name: "home" });
   });
-  test("links from before the reorganisation open their hub segment", () => {
-    expect(sectionScreen("shops")).toEqual({ name: "store", params: { tab: "shops" } });
-    expect(sectionScreen("myshop")).toEqual({ name: "orders", params: { tab: "myshop" } });
-    expect(sectionScreen("tenders")).toEqual({ name: "work", params: { tab: "tenders" } });
+  test("orders and my shop are inside the store section, as in the bot", () => {
+    expect(sectionScreen("orders")).toEqual({ name: "store", params: { tab: "orders" } });
+    expect(sectionScreen("myshop")).toEqual({ name: "store", params: { tab: "myshop" } });
   });
 });

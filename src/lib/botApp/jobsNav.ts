@@ -1,22 +1,24 @@
-// Navigation map of the jobs & store Mini App (src/app/bot-app/[botId]/JobsMiniApp.tsx). Pure, so it is unit-tested.
+// Navigation map of the jobs & store Mini App (src/app/bot-app/[botId]/JobsMiniApp.tsx). It follows the bot's own main menu (src/lib/jobsBotLogic.ts mainMenu):
+//   💼 قسم العمل · 🛒 قسم المتجر (تصفح، طلباتي، متجري) · 🏷 اطلب وهم يتنافسون · 👤 ملفي الشخصي · 💰 رصيدي وإيداع · 🛍 متاجر البائعين · ℹ️ معلومات.
+// Pure, so it is unit-tested.
 export type NavScreen = { name: string; params?: Record<string, string> };
 
-/** The five main sections shown in the bottom bar. */
+/** The bottom bar: the bot's top-level sections (the bot's wallet, profile and info buttons are grouped under «ملفي»). */
 export const MAIN_TABS = [
   { name: "home", icon: "🏠", label: "الرئيسية" },
-  { name: "store", icon: "🛒", label: "المتجر" },
   { name: "work", icon: "💼", label: "العمل" },
-  { name: "orders", icon: "📂", label: "نشاطي" },
-  { name: "account", icon: "👤", label: "حسابي" },
+  { name: "store", icon: "🛒", label: "المتجر" },
+  { name: "tenders", icon: "🏷", label: "اطلب" },
+  { name: "account", icon: "👤", label: "ملفي" },
 ] as const;
 
-/** Where a deep link / bot button (`?s=<section>`) lands. Links made before the reorganisation keep working: shops, my shop and tenders are now segments of a hub. */
+/** Where a deep link / bot button (`?s=<section>`) lands. «orders» and «myshop» are segments of the store section, as in the bot (📂 طلباتي، 🏪 متجري inside 🛒 قسم المتجر). */
 export function sectionScreen(section: string): NavScreen {
   switch (section) {
-    case "store": case "work": case "orders": case "account": return { name: section };
-    case "shops": return { name: "store", params: { tab: "shops" } };
-    case "myshop": return { name: "orders", params: { tab: "myshop" } };
-    case "tenders": return { name: "work", params: { tab: "tenders" } };
+    case "store": case "work": case "tenders": case "account": return { name: section };
+    case "orders": return { name: "store", params: { tab: "orders" } };
+    case "myshop": return { name: "store", params: { tab: "myshop" } };
+    case "shops": return { name: "shops" };
     default: return { name: "home" };
   }
 }

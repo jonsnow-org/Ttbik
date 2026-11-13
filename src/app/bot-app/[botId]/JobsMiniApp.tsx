@@ -188,7 +188,7 @@ function BottomBar({ current, badge }: { current: string; badge: number }) {
               className="relative flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-bold transition active:scale-95" style={{ color: on ? "var(--app-accent, var(--app-btn))" : "var(--app-hint)" }}>
               <span className="text-[22px] leading-none" style={{ filter: on ? "none" : "grayscale(.6) opacity(.8)" }}>{t.icon}</span>
               <span>{t.label}</span>
-              {t.name === "orders" && badge > 0 && <span className="absolute end-[22%] top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-black" style={{ background: "#ef4444", color: "#fff" }}>{badge}</span>}
+              {t.name === "store" && badge > 0 && <span className="absolute end-[22%] top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-black" style={{ background: "#ef4444", color: "#fff" }}>{badge}</span>}
             </button>
           );
         })}
@@ -201,7 +201,7 @@ function Screens({ cur }: { cur: Screen }) {
   const p = cur.params || {};
   switch (cur.name) {
     case "home": return <Home />;
-    case "store": return <StoreScreen tab={p.tab} />;
+    case "store": return <StoreScreen tab={p.tab} otab={p.otab} />;
     case "product": return <ProductScreen id={p.id} />;
     case "wanted": return <WantedScreen id={p.id} />;
     case "listing_form": return <ListingForm id={p.id} />;
@@ -229,7 +229,6 @@ function Home() {
   const { push, reset } = useApp();
   const p = init.profile;
   const c = init.counts;
-  const trader = p?.roleType === "TRADER";
   return (
     <>
       <div className="mb-3 text-[17px] font-black" style={{ color: "var(--app-text)" }}>أهلاً {p?.name || init.user.firstName} 👋</div>
@@ -239,22 +238,23 @@ function Home() {
         <span className="text-lg opacity-80">‹</span>
       </button>
       {(c.offersWaiting > 0 || c.ordersOpen > 0) && (
-        <button type="button" onClick={() => reset({ name: "orders", params: { tab: c.offersWaiting > 0 ? "offers" : "buy" } })} className="mb-3 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "color-mix(in srgb, #f59e0b 16%, var(--app-card))", color: "var(--app-text)" }}>
+        <button type="button" onClick={() => reset({ name: "store", params: { tab: "orders", otab: c.offersWaiting > 0 ? "offers" : "buy" } })} className="mb-3 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "color-mix(in srgb, #f59e0b 16%, var(--app-card))", color: "var(--app-text)" }}>
           <span className="text-2xl">🔔</span>
           <span className="flex-1 text-sm font-bold">{c.offersWaiting > 0 ? `${c.offersWaiting} عرض سعر ينتظر ردّك` : ""}{c.offersWaiting > 0 && c.ordersOpen > 0 ? " · " : ""}{c.ordersOpen > 0 ? `${c.ordersOpen} طلب قيد التنفيذ` : ""}</span>
           <span>‹</span>
         </button>
       )}
-      <div className="mb-2 mt-4 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>ماذا تريد أن تفعل؟</div>
+      {/* The same buttons, in the same order, as the bot's main menu. */}
+      <div className="mb-2 mt-4 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>القائمة الرئيسية</div>
       <div className="grid grid-cols-2 gap-2.5">
-        <Tile icon="🛒" title="تصفّح المنتجات" sub="اشترِ وتفاوض على السعر" tone="#0ea5e9" onClick={() => reset({ name: "store" })} />
-        {trader
-          ? <Tile icon="➕" title="بيع منتجاً" sub="أضف منتجك بالصور" tone="#059669" onClick={() => push({ name: "listing_form" })} />
-          : <Tile icon="🏪" title="متاجر البائعين" sub="تسوّق من متجر بائع" tone="#d97706" onClick={() => reset({ name: "store", params: { tab: "shops" } })} />}
-        <Tile icon="💼" title="وظائف ومهنيون" sub="ابحث عن عمل أو عن حرفي" tone="#2563eb" onClick={() => reset({ name: "work" })} />
-        <Tile icon="🏷" title="اطلب عروض أسعار" sub="اكتب طلبك وهم يتنافسون" tone="#db2777" badge={0} onClick={() => reset({ name: "work", params: { tab: "tenders" } })} />
+        <Tile icon="💼" title="قسم العمل" sub="نشر وبحث عن وظيفة أو مهني" tone="#2563eb" onClick={() => reset({ name: "work" })} />
+        <Tile icon="🛒" title="قسم المتجر" sub="بيع وشراء وطلباتي ومتجري" tone="#0ea5e9" badge={c.offersWaiting || 0} onClick={() => reset({ name: "store" })} />
+        <Tile icon="🏷" title="اطلب وهم يتنافسون" sub="عروض أسعار سرية" tone="#db2777" onClick={() => reset({ name: "tenders" })} />
+        <Tile icon="👤" title="ملفي الشخصي" sub={p ? `${p.roleLabel} · ${p.city}` : ""} tone="#7c3aed" onClick={() => reset({ name: "account" })} />
+        <Tile icon="💰" title="رصيدي وإيداع" sub="⭐ نجوم أو 🔷 TON" tone="#059669" onClick={() => push({ name: "wallet" })} />
+        <Tile icon="🛍" title="متاجر البائعين" sub="تسوّق من متجر بائع" tone="#d97706" onClick={() => push({ name: "shops" })} />
+        <Tile icon="ℹ️" title="معلومات" sub="اقتراح، مراسلة الإدارة، مشاركة البوت" tone="#64748b" onClick={() => push({ name: "info" })} />
       </div>
-      <p className="mt-4 px-1 text-center text-[11.5px] leading-5" style={{ color: "var(--app-hint)" }}>عروضك ومشترياتك ومتجرك في «نشاطي»، ورصيدك وملفك في «حسابي».</p>
     </>
   );
 }

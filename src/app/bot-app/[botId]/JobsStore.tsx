@@ -52,11 +52,12 @@ function SearchBox({ value, onChange, onSubmit, placeholder }: { value: string; 
 }
 
 // ---------------------------------------------------------------- 🛒 store
-export function StoreScreen({ tab: initialTab }: { tab?: string }) {
+export function StoreScreen({ tab: initialTab, otab }: { tab?: string; otab?: string }) {
   const { api, push, toast } = useApp();
   const { init } = useInit();
   const trader = init.profile?.roleType === "TRADER";
-  const [tab, setTab] = useState<"sell" | "buy" | "shops">(initialTab === "buy" ? "buy" : initialTab === "shops" ? "shops" : "sell");
+  const [tab, setTab] = useState<"sell" | "buy" | "orders" | "myshop">(initialTab === "buy" || initialTab === "orders" || initialTab === "myshop" ? initialTab : "sell");
+  const browse = tab === "sell" || tab === "buy";
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState<any>({ min: "", max: "", escrow: false, shipping: false, sort: "new" });
   const [showF, setShowF] = useState(false);
@@ -65,7 +66,7 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const qRef = useRef(q); qRef.current = q;
   const load = useCallback(async (offset = 0) => {
-    if (tab === "shops") return; // the shops list loads itself (ShopsScreen)
+    if (tab !== "sell" && tab !== "buy") return; // «طلباتي» and «متجري» load themselves
     if (offset) setLoadingMore(true); else setItems(null);
     const r = await api<{ items: any[]; more: boolean }>("store_list", { tab, q: qRef.current, offset, filters: tab === "sell" ? filters : undefined });
     setLoadingMore(false);
@@ -77,10 +78,11 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
   const fCount = (filters.min ? 1 : 0) + (filters.max ? 1 : 0) + (filters.escrow ? 1 : 0) + (filters.shipping ? 1 : 0) + (filters.sort !== "new" ? 1 : 0);
   return (
     <>
-      <ScreenTitle icon="🛒" title="المتجر" sub="تصفّح المنتجات والمتاجر، وتفاوض على السعر بأمان." />
-      <div className="mb-3"><Chips items={[{ id: "sell", label: "💰 منتجات" }, { id: "shops", label: "🏪 المتاجر" }, { id: "buy", label: "🛍 طلبات شراء" }]} value={tab} onChange={(v) => setTab(v)} /></div>
-      {tab === "shops" && <ShopsScreen embedded />}
-      {tab !== "shops" && (<>
+      <ScreenTitle icon="🛒" title="قسم المتجر" sub="تصفّح المنتجات وطلبات الشراء، وتفاوض على السعر بأمان." />
+      <div className="mb-3"><Chips items={[{ id: "sell", label: "🛒 تصفح للبيع" }, { id: "buy", label: "🛍 تصفح للشراء" }, { id: "orders", label: "📂 طلباتي" }, { id: "myshop", label: "🏪 متجري" }]} value={tab} onChange={(v) => setTab(v)} /></div>
+      {tab === "orders" && <OrdersScreen embedded tab={otab} />}
+      {tab === "myshop" && <MyShopScreen embedded />}
+      {browse && (<>
       <SearchBox value={q} onChange={setQ} onSubmit={() => void load(0)} placeholder={tab === "sell" ? "ابحث عن منتج…" : "ابحث في طلبات الشراء…"} />
       {tab === "sell" && (
         <div className="mb-3">
@@ -430,7 +432,7 @@ export function WantedForm({ id }: { id?: string }) {
 }
 
 // ---------------------------------------------------------------- 🛍 seller shops
-export function ShopsScreen({ embedded }: { embedded?: boolean } = {}) {
+export function ShopsScreen() {
   const { api, push, toast } = useApp();
   const [q, setQ] = useState("");
   const [shops, setShops] = useState<any[] | null>(null);
@@ -444,7 +446,7 @@ export function ShopsScreen({ embedded }: { embedded?: boolean } = {}) {
   useEffect(() => { void load(); }, [load]);
   return (
     <>
-      {!embedded && <ScreenTitle icon="🛍" title="متاجر البائعين" sub="كل متجر يعرض منتجات بائع واحد. اطلب مباشرة أو تفاوض على السعر." />}
+      <ScreenTitle icon="🛍" title="متاجر البائعين" sub="كل متجر يعرض منتجات بائع واحد. اطلب مباشرة أو تفاوض على السعر." />
       <SearchBox value={q} onChange={setQ} onSubmit={() => void load()} placeholder="ابحث باسم المتجر أو المدينة…" />
       <button type="button" onClick={() => push({ name: "myshop" })} className="mb-3 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "linear-gradient(135deg,#d97706,#b45309)", color: "#fff" }}>
         <span className="text-2xl">🏪</span><span className="flex-1"><b className="block">متجري</b><span className="text-xs opacity-90">افتح متجرك، أضف منتجاتك بالصور، وشارك رابطه</span></span><span>‹</span>
@@ -533,9 +535,9 @@ export function MyShopScreen({ embedded }: { embedded?: boolean } = {}) {
 }
 
 // ---------------------------------------------------------------- 📂 my orders: offers, purchases, sales
-export function OrdersScreen({ tab: initialTab }: { tab?: string }) {
+export function OrdersScreen({ tab: initialTab, embedded }: { tab?: string; embedded?: boolean }) {
   const { api, toast } = useApp();
-  const [tab, setTab] = useState<"offers" | "buy" | "sell" | "myshop">(initialTab === "buy" || initialTab === "sell" || initialTab === "myshop" ? initialTab : "offers");
+  const [tab, setTab] = useState<"offers" | "buy" | "sell">(initialTab === "buy" || initialTab === "sell" ? initialTab : "offers");
   const [offers, setOffers] = useState<any[] | null>(null);
   const [orders, setOrders] = useState<any[] | null>(null);
   const load = useCallback(async () => {
@@ -548,9 +550,9 @@ export function OrdersScreen({ tab: initialTab }: { tab?: string }) {
   const turn = offers?.filter((o) => o.myTurn).length || 0;
   return (
     <>
-      <ScreenTitle icon="📂" title="نشاطي" sub="عروضك ومشترياتك ومبيعاتك ومتجرك في مكان واحد." />
-      <div className="mb-3"><Chips items={[{ id: "offers", label: `💬 العروض${turn ? ` (${turn})` : ""}` }, { id: "buy", label: "🛍 مشترياتي" }, { id: "sell", label: "💰 مبيعاتي" }, { id: "myshop", label: "🏪 متجري" }]} value={tab} onChange={setTab} /></div>
-      {tab === "myshop" ? <MyShopScreen embedded /> : offers === null || orders === null ? <Loading lines={4} /> : tab === "offers" ? <OffersList offers={offers} reload={load} /> : <OrdersList orders={orders.filter((o) => o.role === (tab === "buy" ? "buyer" : "seller"))} buyer={tab === "buy"} reload={load} />}
+      {!embedded && <ScreenTitle icon="📂" title="طلباتي" sub="عروض الأسعار، مشترياتك ومبيعاتك وحالة كل طلب." />}
+      <div className="mb-3"><Chips items={[{ id: "offers", label: `💬 العروض${turn ? ` (${turn})` : ""}` }, { id: "buy", label: "🛍 مشترياتي" }, { id: "sell", label: "💰 مبيعاتي" }]} value={tab} onChange={setTab} /></div>
+      {offers === null || orders === null ? <Loading lines={4} /> : tab === "offers" ? <OffersList offers={offers} reload={load} /> : <OrdersList orders={orders.filter((o) => o.role === (tab === "buy" ? "buyer" : "seller"))} buyer={tab === "buy"} reload={load} />}
     </>
   );
 }
