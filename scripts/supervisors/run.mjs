@@ -35,7 +35,7 @@ export const SECTIONS = {
     errorWords: /news|article|price|market|ticker|tool|seo|sitemap|ad/i,
   },
   athar: {
-    site: [["Athar health (mirror)", "/api/ops/athar-health", "vercel", json((j) => j.alive === true && Object.values(j.checks || {}).every((c) => c.ok))],
+    site: [["Athar health (mirror)", "/api/ops/athar-health", "vercel", json((j) => j.alive === true && Object.entries(j.checks || {}).every(([k, c]) => c.ok || k === "mirrorImg"))], // mirrorImg probes the Vercel standby: down (HTTP 402) while Vercel is paused, which is not an Athar fault
       ["Athar app (Oracle)", "/", "oracle", ok200, true], ["Athar pictures via the mirror", "/api/athar/img/1.svg", "vercel", (t) => t.includes("<svg")]],
     workflows: [["athar-mints.yml", "Athar mints", 12], ["athar-stars.yml", "Athar Stars", 12]],
     errorWords: /athar/i,
