@@ -49,9 +49,11 @@ export function jobsStoreCommission(grossAmount: number) {
 }
 export async function escrowFeeBreakdown(orderId: string, grossAmount: number) {
   const fee = await prisma.jobsTransaction.findFirst({ where: { txHash: orderId, type: { in: ["PLATFORM_FEE_PENDING", "PLATFORM_FEE"] } } });
+  // No fee row means a legacy order from before commission disclosure: never
+  // apply a new fee retroactively when the buyer accepts delivery.
   const calculated = jobsStoreCommission(grossAmount);
-  const platformFee = fee ? Math.min(grossAmount, Math.max(0, Number(fee.amount) || 0)) : calculated.platformFee;
-  const commissionPercent = fee && grossAmount > 0 ? Math.round(platformFee / grossAmount * 10000) / 100 : calculated.commissionPercent;
+  const platformFee = fee ? Math.min(grossAmount, Math.max(0, Number(fee.amount) || 0)) : 0;
+  const commissionPercent = fee && grossAmount > 0 ? Math.round(platformFee / grossAmount * 10000) / 100 : fee ? calculated.commissionPercent : 0;
   return { commissionPercent, platformFee, sellerNet: Math.round((grossAmount - platformFee) * 100) / 100 };
 }
 export async function chargeJobsUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
@@ -68,19 +70,18 @@ export async function chargeJobsUser(userId: string, amount: number, type: strin
 export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "REFUNDED", payeeId: string, amount: number, ledgerType: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     const feeHold = await tx.jobsTransaction.findFirst({ where: { txHash: orderId, type: "PLATFORM_FEE_PENDING", status: "PENDING" } });
-    const fallbackFee = finalStatus === "RELEASED" ? jobsStoreCommission(amount).platformFee : 0;
-    const platformFee = finalStatus === "RELEASED" ? Math.min(amount, Math.max(0, Number(feeHold?.amount ?? fallbackFee) || 0)) : 0;
+    // A missing fee hold identifies a legacy order created before the seller
+    // commission was disclosed. Preserve its original gross payout.
+    const platformFee = finalStatus === "RELEASED" && feeHold ? Math.min(amount, Math.max(0, Number(feeHold.amount) || 0)) : 0;
     const creditedAmount = finalStatus === "RELEASED" ? Math.round((amount - platformFee) * 100) / 100 : amount;
     const claim = await tx.storeOrder.updateMany({ where: { id: orderId, status: "ESCROWED" }, data: { status: finalStatus, releasedAt: new Date() } });
     if (claim.count !== 1) return false;
     await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: creditedAmount } } });
     await tx.jobsTransaction.create({ data: { userId: payeeId, amount: creditedAmount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
-    if (finalStatus === "RELEASED" && platformFee > 0) {
-      if (feeHold) {
-        await tx.jobsTransaction.updateMany({ where: { id: feeHold.id, type: "PLATFORM_FEE_PENDING", status: "PENDING" }, data: { type: "PLATFORM_FEE", status: "COMPLETED" } });
-      } else {
-        await tx.jobsTransaction.create({ data: { userId: payeeId, amount: platformFee, currency: "internal", type: "PLATFORM_FEE", status: "COMPLETED", txHash: orderId } });
-      }
+    if (finalStatus === "RELEASED" && feeHold) {
+      // Record accepted rate even when it is 0%; this distinguishes a new
+      // zero-fee order from a legacy order with no disclosed commission.
+      await tx.jobsTransaction.updateMany({ where: { id: feeHold.id, type: "PLATFORM_FEE_PENDING", status: "PENDING" }, data: { type: "PLATFORM_FEE", status: "COMPLETED" } });
     } else if (finalStatus === "REFUNDED" && feeHold) {
       await tx.jobsTransaction.updateMany({ where: { id: feeHold.id, type: "PLATFORM_FEE_PENDING", status: "PENDING" }, data: { type: "PLATFORM_FEE_VOID", status: "CANCELLED" } });
     }
@@ -318,7 +319,7 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
         await tx.jobsTransaction.create({ data: { userId: offer.buyerId, amount: offer.price, currency: "internal", type: "ESCROW_HOLD", status: "COMPLETED" } });
         const order = await tx.storeOrder.create({ data: { buyerId: offer.buyerId, sellerId: listing.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: listing.deliveryMethod, status: "ESCROWED", escrowedAt: new Date() } });
         const fee = jobsStoreCommission(offer.price).platformFee;
-        if (fee > 0) await tx.jobsTransaction.create({ data: { userId: listing.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
+        await tx.jobsTransaction.create({ data: { userId: listing.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
         return order.id;
       });
       return { ok: true, mode: "escrow", offer, title: listing.title, orderId, wanted: false };
@@ -339,7 +340,7 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
       const listing = await tx.storeListing.create({ data: { sellerId: offer.sellerId, title: wanted.title, description: wanted.description, price: offer.price, photoFileIds: [], deliveryMethod: "PICKUP_MANUAL", paymentMethod: "ESCROW", status: "SOLD" } });
       const order = await tx.storeOrder.create({ data: { buyerId: offer.buyerId, sellerId: offer.sellerId, listingId: listing.id, amount: offer.price, deliveryMethod: "PICKUP_MANUAL", status: "ESCROWED", escrowedAt: new Date() } });
       const fee = jobsStoreCommission(offer.price).platformFee;
-      if (fee > 0) await tx.jobsTransaction.create({ data: { userId: offer.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
+      await tx.jobsTransaction.create({ data: { userId: offer.sellerId, amount: fee, currency: "internal", type: "PLATFORM_FEE_PENDING", status: "PENDING", txHash: order.id } });
       return order.id;
     });
     return { ok: true, mode: "escrow", offer, title: wanted.title, orderId, wanted: true };
