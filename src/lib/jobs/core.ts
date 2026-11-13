@@ -82,7 +82,7 @@ export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "R
     if (finalStatus === "REFUNDED") {
       await tx.jobsUser.update({ where: { id: order.buyerId }, data: { balance: { increment: gross } } });
       await tx.jobsTransaction.create({
-        data: { userId: order.buyerId, amount: gross, currency: "internal", type: "ESCROW_REFUND", status: "COMPLETED" },
+        data: { userId: order.buyerId, amount: gross, currency: "internal", type: ledgerType, status: "COMPLETED" },
       });
       return true;
     }
@@ -119,7 +119,7 @@ export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "R
         userId: order.sellerId,
         amount: breakdown.sellerNet,
         currency: "internal",
-        type: "ESCROW_RELEASE",
+        type: ledgerType,
         status: "COMPLETED",
       },
     });
