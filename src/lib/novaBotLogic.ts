@@ -20,7 +20,9 @@ import { later } from "@/lib/coderRuntime";
 import { postShamContinuation } from "@/lib/shamContinuation";
 import { shamTaskSlot, taskEvent, taskIsActive, taskStart, taskStatus, taskTouch } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
-import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
+import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant, setShamMediaProbe } from "@/lib/shamStudio";
+import { mediaRouteNeeded as shamMediaProbe } from "@/lib/coderMediaFast";
+setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the cheap "is this a media request?" pre-check (Sham modules never import Nova's)
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
 import { telegramPhoto } from "@/lib/coderSections";
 

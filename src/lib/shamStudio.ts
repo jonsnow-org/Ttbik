@@ -452,8 +452,12 @@ const MEDIA_FAILED = new Set(["blank_image", "noise_image", "invalid_image", "si
 export const failedMediaOnPlainMessage = (reply: ShamReply | null | undefined, userText: string): boolean => {
   if (!reply || (reply.type !== "notice" && reply.type !== "error")) return false;
   if (!MEDIA_FAILED.has(String((reply as { reason?: string }).reason || ""))) return false;
-  try { return !require("@/lib/coderMediaFast").mediaRouteNeeded(String(userText || "").slice(-400)); } catch { return false; }
+  // Sham modules never import Nova's (src/lib/__tests__/novaShamBoundary.test.ts): the cheap "is this a media request?" pre-check is handed in by the control plane (novaBotLogic).
+  // Without it no retry happens (the old behaviour).
+  try { return mediaProbe ? !mediaProbe(String(userText || "").slice(-400)) : false; } catch { return false; }
 };
+let mediaProbe: ((text: string) => boolean) | null = null;
+export const setShamMediaProbe = (fn: ((text: string) => boolean) | null): void => { mediaProbe = fn; };
 export const wordsOnlyPrompt = (prompt: string): string => (/^\s*\[\[sham /.test(prompt) ? prompt.replace(/^(\s*\[\[sham )/, "$1text=1 ") : `[[sham text=1]]\n${prompt}`);
 
 // chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
