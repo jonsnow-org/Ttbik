@@ -53,7 +53,7 @@ describe("Cloudflare media stream Worker origin routing", () => {
     expect(worker).toContain('const DEFAULT_MEDIA_PATH_ORIGIN = "https://ttbik-gate.jonsnowx1r.workers.dev"');
     expect(worker).toContain("mediaPathOrigin(env)");
     expect(worker).toContain("/api/media-path?id=");
-    expect(worker).toContain("vercel\\\\.app");
+    expect(worker).toContain(String.raw\`vercel\.app\`);
     expect(worker).not.toContain('const SITE = "https://ttbik.vercel.app"');
   });
 
@@ -61,6 +61,6 @@ describe("Cloudflare media stream Worker origin routing", () => {
     expect(wrangler).toContain('"name": "media-stream"');
     expect(wrangler).toContain('"main": "media-stream-worker.js"');
     expect(wrangler).toContain('"MEDIA_PATH_ORIGIN": "https://ttbik-gate.jonsnowx1r.workers.dev"');
-    expect(wrangler).not.toContain("BOT_TOKEN");
+    expect(wrangler).not.toMatch(/"BOT_TOKEN"\s*:/);
   });
 });

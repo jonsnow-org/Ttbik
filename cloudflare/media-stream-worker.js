@@ -12,7 +12,7 @@ function mediaPathOrigin(env) {
   const configured = String(env.MEDIA_PATH_ORIGIN || "").trim();
   try {
     const origin = new URL(configured || DEFAULT_MEDIA_PATH_ORIGIN);
-    if (origin.protocol !== "https:" || /(^|\\.)vercel\\.app$/i.test(origin.hostname)) {
+    if (origin.protocol !== "https:" || /(^|\.)vercel\.app$/i.test(origin.hostname)) {
       return DEFAULT_MEDIA_PATH_ORIGIN;
     }
     return origin.origin;
