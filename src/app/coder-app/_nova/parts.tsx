@@ -160,8 +160,9 @@ function SecretBox({ p, lang, onDone }: { p: Pending; lang: Lang; onDone: () => 
     setBusy(true);
     setError("");
     try {
-      await api("secret_answer", { runId: p.runId, slot: p.slot, name: p.secret?.name, ...(cancel ? { cancel: true } : { value }) });
+      const r = await api<{ followup?: string }>("secret_answer", { runId: p.runId, slot: p.slot, name: p.secret?.name, ...(cancel ? { cancel: true } : { value }) });
       setValue("");
+      if (r?.followup) await api("send", { text: r.followup });       // Sham: the round ended with the request, so the box continues the chat with a short message (the name, never the value)
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : ar ? "تعذّر الحفظ" : "Could not save");

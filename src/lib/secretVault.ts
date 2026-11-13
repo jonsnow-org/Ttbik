@@ -131,4 +131,29 @@ export function hasSecretRefs(text: string): boolean {
   return typeof text === "string" && REF_RE.test(text);
 }
 
-export const __testing = { reset: () => store.clear() };
+// ---- requests: a model asked for a secret by name; the app shows the box while the request is open (the Sham agents end their round after asking, so the request lives here, not in a run)
+type Request = { name: string; purpose: string; at: number };
+const requests = new Map<string, Map<string, Request>>();
+const REQUEST_TTL_MS = 30 * 60 * 1000;
+
+export function requestSecret(chatId: number | string, name: string, purpose: string): void {
+  if (!isSecretName(name)) throw new Error("bad secret name");
+  const k = String(chatId);
+  let m = requests.get(k);
+  if (!m) { m = new Map(); requests.set(k, m); }
+  m.set(name, { name, purpose: String(purpose || "").slice(0, 300), at: Date.now() });
+}
+
+export function openSecretRequests(chatId: number | string): Request[] {
+  const m = requests.get(String(chatId));
+  if (!m) return [];
+  const now = Date.now();
+  for (const [n, r] of m) if (now - r.at > REQUEST_TTL_MS) m.delete(n);
+  return [...m.values()];
+}
+
+export function closeSecretRequest(chatId: number | string, name: string): boolean {
+  return requests.get(String(chatId))?.delete(name) ?? false;
+}
+
+export const __testing = { reset: () => { store.clear(); requests.clear(); } };

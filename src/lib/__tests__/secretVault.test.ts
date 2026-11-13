@@ -37,3 +37,16 @@ describe("secret box", () => {
     expect(hasSecretRefs("nothing")).toBe(false);
   });
 });
+
+describe("secret requests (Sham)", () => {
+  const { requestSecret, openSecretRequests, closeSecretRequest } = require("@/lib/secretVault");
+  beforeEach(() => __testing.reset());
+  test("a request is listed for its chat only and closes", () => {
+    requestSecret(5, "gh_token", "to open a PR");
+    expect(openSecretRequests(5)).toEqual([expect.objectContaining({ name: "gh_token", purpose: "to open a PR" })]);
+    expect(openSecretRequests(6)).toEqual([]);
+    expect(closeSecretRequest(5, "gh_token")).toBe(true);
+    expect(openSecretRequests(5)).toEqual([]);
+    expect(() => requestSecret(5, "1bad", "x")).toThrow();
+  });
+});

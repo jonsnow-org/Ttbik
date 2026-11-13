@@ -99,6 +99,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, include the exact requested seconds (6/10/15/30/60/120); optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), seconds: { type: "integer", enum: [6, 10, 15, 30, 60, 120], description: "Optional requested video duration in seconds." }, scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
+  tool("request_secret", "Ask the user for a password, token, API key or login in the secure box of the app (NEVER ask for these in the chat, never repeat one). Give a short name (letters, digits, - and _) and what it is for. Afterwards write {{secret:name}} where the value belongs in a tool argument; the system fills it in and you never see it. The round ends after you ask.", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for") }, ["name", "purpose"])),
   tool("ask_user", "Ask the user a short question when something needed is unclear or missing. The round ends with the question.", obj({ question: s("the question") }, ["question"])),
 ];
 
@@ -310,7 +311,22 @@ const parse = (call: CoderToolCall): Record<string, any> => { try { const v = JS
 /** Runs one of Sham's tools. `approved` must be true for a write (SHAM_NEEDS_OK): the loop never passes it on its own. */
 /** What a later `recall` can find again: the reads (files, scans, CI, pages, searches), not the writes. */
 const BANKED = new Set(["web_search", "fetch_page", "deep_research", "http_request", "github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "sandbox_read_file", "sandbox_search", "sandbox_exec", "sandbox_wait"]);
+/** The secret box around every Sham tool: {{secret:name}} is replaced by the value only here, and the value is put back to its reference in whatever the tool printed. */
 export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
+  const key = ctx?.chatId === undefined || ctx?.chatId === null ? "" : String(ctx.chatId);
+  const raw = call.function?.arguments;
+  if (!key || typeof raw !== "string" || !raw.includes("secret:")) return shamRunToolBanked(call, ctx, approved);
+  const V = await import("@/lib/secretVault");
+  let resolved: CoderToolCall;
+  try {
+    resolved = { ...call, function: { ...call.function, arguments: JSON.stringify(V.resolveSecretsDeep(key, JSON.parse(raw))) } };
+  } catch (e) {
+    return `error: ${String((e as Error)?.message || e).slice(0, 200)}`;
+  }
+  return V.scrubSecrets(key, await shamRunToolBanked(resolved, ctx, approved));
+}
+
+async function shamRunToolBanked(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const out = await shamRunToolInner(call, ctx, approved);
   if (BANKED.has(call.function.name) && !/^error/i.test(out) && ctx.runId && ctx.chatKey) {
     const a = parse(call);

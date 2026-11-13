@@ -101,6 +101,11 @@ CATALOG = [
     ("ما المهام المجدولة عندي؟", "schedule_list", {}, "s1 | مراجعة الطلبات | كل يوم 9:00", "عندك مهمة واحدة: مراجعة الطلبات كل يوم 9:00."),
     ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
     ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
+    ("سجّل دخولي إلى حسابي في GitHub من المتصفح.", "request_secret", {"name": "github_password", "purpose": "كلمة مرور حساب GitHub لتسجيل الدخول"}, "waiting for the user to fill the secure box", "افتح «الخانة الآمنة» في التطبيق وأدخل كلمة المرور هناك (لا تكتبها في المحادثة)، ثم أكمل لك تسجيل الدخول."),
+    ("اقرأ مستودعي الخاص، وسأعطيك رمز الوصول.", "request_secret", {"name": "github_token", "purpose": "رمز وصول لقراءة المستودع الخاص"}, "waiting for the user to fill the secure box", "ضع الرمز في «الخانة الآمنة» بالتطبيق وليس هنا، وسأكمل بعد حفظه."),
+    ("ادخل إلى لوحة الاستضافة بحسابي.", "request_secret", {"name": "hosting_login", "purpose": "كلمة مرور لوحة الاستضافة"}, "waiting for the user to fill the secure box", "أحتاج كلمة المرور؛ أدخلها في «الخانة الآمنة» بالتطبيق لا في المحادثة."),
+    ("حفظتُ github_password في الخانة الآمنة، أكمل تسجيل الدخول.", "desktop", {"action": "type", "text": "{{secret:github_password}}"}, "typed 18 characters", "كتبتُ كلمة المرور في الحقل دون أن أراها؛ اضغط تسجيل الدخول أو أكمل لك."),
+    ("حفظتُ github_token، اقرأ الملف الخاص.", "http_request", {"method": "GET", "url": "https://api.github.com/user", "headers": {"Authorization": "Bearer {{secret:github_token}}"}}, "200 OK login: owner", "الرمز يعمل؛ سجّلتُ دخولك باسم حسابك ويمكنني قراءة المستودع الخاص."),
     ("هل أحذف الفرع؟", "ask_user", {"question": "هل تريد حذف الفرع فعلاً؟"}, "yes", "سأحذف الفرع الآن بعد تأكيدك."),
     ("هل تستطيع تحليل مستودع GitHub {repo}؟ ابدأ بفحص بنيته.", "github_repo_scan", {"repo": "{repo}"}, "default branch main; root files README.md, package.json; folders src, tests", "فحصت المستودع بالأداة. الفرع الافتراضي main، وفيه src وtests وملفات المشروع الأساسية."),
     ("ما حالة CI في {repo} على الفرع main؟", "github_ci", {"repo": "{repo}", "ref": "main"}, "checks: build=success, lint=success, tests=success", "قرأت حالة CI للفرع main؛ البناء والتدقيق والاختبارات ناجحة بحسب نتيجة الأداة."),
@@ -500,6 +505,7 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "memory_search": ("query, repo?", "Search what is remembered"),
     "schedule_create": ("title, prompt, kind?, recurrence?, repo?", "Schedule a task that runs later"),
     "schedule_list": ("", "List scheduled tasks"),
+    "request_secret": ("name, purpose", "Ask the user for a password, token or login in the app's secure box; later write {{secret:name}} in a tool argument (never ask for secrets in the chat)"),
     "ask_user": ("question, options?", "Ask the user one short question when a required detail is missing"),
     # The persistent computer hub and the browser/desktop of this model's own computer session.
     # These were live in src/lib/shamExec.ts but missing here, so Sham was never trained on the
