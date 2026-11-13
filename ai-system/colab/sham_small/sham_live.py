@@ -490,6 +490,19 @@ def _start_memory_watch(every: float = 60.0) -> None:
         except Exception:
             return ""
 
+    marks = [3.0, 4.0, 4.8]      # GB of process memory at which every thread's stack is printed once: it says WHICH code is growing (cn trainer: +0.5 GB/min until the kill, 2026-11-13)
+
+    def dump_threads(rss_gb):
+        import sys as _sys
+        import traceback as _tb
+        names = {t.ident: t.name for t in threading.enumerate()}
+        print(f"🧵 الذاكرة بلغت {rss_gb:.1f} غ.ب — أين يقف كل خيط:", flush=True)
+        for ident, frame in _sys._current_frames().items():
+            if names.get(ident) == "memory-watch":
+                continue
+            last = _tb.extract_stack(frame)[-4:]
+            print(f"  🧵 {names.get(ident, ident)}: " + " ← ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in reversed(last)), flush=True)
+
     def loop():
         while True:
             try:
@@ -499,6 +512,9 @@ def _start_memory_watch(every: float = 60.0) -> None:
                 lim_s = f"{int(lim) / 1073741824:.1f} غ.ب" if lim.isdigit() and int(lim) < 1 << 50 else "بلا حد ظاهر"
                 cur = read("/sys/fs/cgroup/memory.current") or read("/sys/fs/cgroup/memory/memory.usage_in_bytes")
                 cur_s = f"، الحاوية {int(cur) / 1073741824:.1f} غ.ب" if cur.isdigit() else ""
+                while marks and rss >= marks[0]:
+                    dump_threads(rss)
+                    marks.pop(0)
                 print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
             except Exception:
                 return
