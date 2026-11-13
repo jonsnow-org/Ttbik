@@ -329,6 +329,7 @@ export const THEME: React.CSSProperties = {
   ["--app-text" as any]: "var(--tg-theme-text-color, #0f172a)",
   ["--app-hint" as any]: "var(--tg-theme-hint-color, #6b7280)",
   ["--app-link" as any]: "var(--tg-theme-link-color, #2481cc)",
+  ["--app-accent" as any]: "var(--tg-theme-link-color, var(--tg-theme-button-color, #2481cc))",
   ["--app-btn" as any]: "var(--tg-theme-button-color, #2481cc)",
   ["--app-btn-text" as any]: "var(--tg-theme-button-text-color, #ffffff)",
   ["--app-danger" as any]: "var(--tg-theme-destructive-text-color, #e53935)",

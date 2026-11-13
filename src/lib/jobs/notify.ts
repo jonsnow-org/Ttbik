@@ -8,7 +8,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { botAppUrl } from "@/lib/builderOwnerBot";
 import { gateUrl } from "@/lib/hostingOps";
-import { contactUrlOf, otherPartyOf, type AcceptOutcome, type OfferRow } from "@/lib/jobs/core";
+import { jobsStoreCommission, otherPartyOf, type AcceptOutcome, type OfferRow } from "@/lib/jobs/core";
 
 const SUPER_ADMIN_ID = () => process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 const shortId = (id: string) => id.slice(-6);
@@ -48,23 +48,17 @@ export async function notifyOfferRejected(bot: TelegramBot, offer: OfferRow) {
 /** After acceptOfferCore: the same messages both sides got from the chat. */
 export async function notifyAcceptOutcome(bot: TelegramBot, r: AcceptOutcome, botId?: string, homeKb?: unknown) {
   const extra = homeKb ? { reply_markup: homeKb as any } : {};
-  if (r.ok && r.mode === "manual") {
-    const o = r.offer;
-    const [seller, buyer] = await Promise.all([prisma.jobsProfile.findUnique({ where: { userId: o.sellerId } }), prisma.jobsProfile.findUnique({ where: { userId: o.buyerId } })]);
-    const sc = contactUrlOf(seller), bc = contactUrlOf(buyer);
-    await bot.api.sendMessage(Number(o.buyerId), `🤝 تم الاتفاق على السعر $${o.price.toFixed(2)} — هذا المنتج دفعه يدوي، تواصل مع البائع لإتمام الصفقة.${sc ? `\n${sc}` : ""}`, extra).catch(() => null);
-    await bot.api.sendMessage(Number(o.sellerId), `🤝 تم الاتفاق على السعر $${o.price.toFixed(2)} — تواصل مع المشتري لإتمام الصفقة يدوياً.${bc ? `\n${bc}` : ""}`, extra).catch(() => null);
-    return;
-  }
   if (r.ok && r.mode === "escrow") {
     const o = r.offer;
+    const fee = jobsStoreCommission(o.price);
+    const sellerTerms = `عمولة المنصة ${fee.commissionPercent}% (${fee.platformFee.toFixed(2)})؛ صافي البائع ${fee.sellerNet.toFixed(2)}.`;
     const kbS = botId ? new InlineKeyboard().webApp(APP_OPEN_LABEL, appLink(botId, "orders")) : undefined;
     if (r.wanted) {
-      await send(bot, o.buyerId, `✅ تم الاتفاق على تلبية طلبك "${r.title}" بسعر $${o.price.toFixed(2)}. تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`, receivedDisputeKeyboard(r.orderId, botId));
-      await send(bot, o.sellerId, `✅ قُبل عرضك لتلبية طلب "${r.title}" بسعر $${o.price.toFixed(2)} — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`, kbS);
+      await send(bot, o.buyerId, `✅ تم الاتفاق على تلبية طلبك "${r.title}" بسعر $${o.price.toFixed(2)}. تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً. ${sellerTerms}`, receivedDisputeKeyboard(r.orderId, botId));
+      await send(bot, o.sellerId, `✅ قُبل عرضك لتلبية طلب "${r.title}" بسعر $${o.price.toFixed(2)} — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام. ${sellerTerms}`, kbS);
     } else {
-      await send(bot, o.buyerId, `✅ تم قبول عرضك بسعر $${o.price.toFixed(2)} على "${r.title}"! تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`, receivedDisputeKeyboard(r.orderId, botId));
-      await send(bot, o.sellerId, `✅ قبلت عرضاً بسعر $${o.price.toFixed(2)} على "${r.title}" — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`, kbS);
+      await send(bot, o.buyerId, `✅ تم قبول عرضك بسعر $${o.price.toFixed(2)} على "${r.title}"! تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً. ${sellerTerms}`, receivedDisputeKeyboard(r.orderId, botId));
+      await send(bot, o.sellerId, `✅ قبلت عرضاً بسعر $${o.price.toFixed(2)} على "${r.title}" — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام. ${sellerTerms}`, kbS);
     }
     return;
   }
@@ -79,8 +73,11 @@ export async function notifyAcceptOutcome(bot: TelegramBot, r: AcceptOutcome, bo
   }
 }
 
-export async function notifyReceived(bot: TelegramBot, order: { sellerId: string; amount: number }) {
-  await send(bot, order.sellerId, `✅ أكّد المشتري استلام طلبه — تم إضافة $${order.amount.toFixed(2)} لرصيدك.`);
+export async function notifyReceived(bot: TelegramBot, order: { sellerId: string; amount: number; sellerNet?: number; platformFee?: number }) {
+  const calculated = jobsStoreCommission(order.amount);
+  const net = order.sellerNet ?? calculated.sellerNet;
+  const fee = order.platformFee ?? calculated.platformFee;
+  await send(bot, order.sellerId, `✅ أكّد المشتري الاستلام — أُضيف إلى رصيدك الصافي ${net.toFixed(2)} بعد عمولة المنصة ${fee.toFixed(2)}.`);
 }
 export async function notifyDisputeOpened(bot: TelegramBot, orderId: string, otherSide: string, amount: number, botId?: string) {
   const kb = new InlineKeyboard().text("📝 تقديم إفادتي", `jdisputestate|${orderId}`);

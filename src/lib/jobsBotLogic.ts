@@ -13,7 +13,7 @@ import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { FEATURE_CALLBACK, SHOP_BUTTON, parseShopStart, withFeaturedFirst } from "@/lib/jobs/shopRules";
 import { featureButton, featureListing, featuredListingIds, featuredUntil, sendMyShop, sendShopInBot } from "@/lib/jobs/shop";
 import {
-  PROFESSIONAL_CATEGORIES, acceptOfferCore, blockedPeerIds, chargeJobsUser, confirmReceivedCore, counterOfferCore, createOfferCore, deleteListingCore,
+  PROFESSIONAL_CATEGORIES, acceptOfferCore, blockedPeerIds, chargeJobsUser, confirmReceivedCore, counterOfferCore, createOfferCore, deleteListingCore, jobsStoreCommission, jobsStoreCommissionPercent, escrowFeeBreakdown,
   deleteWantedCore, isBlocked, openDisputeCore, rejectOfferCore, saveListingCore, saveWantedCore, settleEscrow, submitDisputeCore, toggleListingCore, toggleWantedCore,
 } from "@/lib/jobs/core";
 import {
@@ -120,7 +120,7 @@ type StoreListingDraft = {
   price?: number;
   photoFileIds: string[];
   deliveryMethod?: "PICKUP_MANUAL" | "SHIPPING";
-  paymentMethod?: "MANUAL" | "ESCROW";
+  paymentMethod?: "ESCROW";
 };
 
 type StoreWantedStep = "title" | "description" | "budget";
@@ -258,7 +258,7 @@ async function setPending(userId: string, action: PendingAction | null) {
   await prisma.jobsUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
 // Same atomic escrow settle as the bot's buttons and the Mini App (src/lib/jobs/core.ts); the 7-day auto-release cron imports it from here.
-export { settleEscrow };
+export { settleEscrow, escrowFeeBreakdown };
 
 // The bot's own Mini App (/bot-app/<botId>, src/lib/botApp/jobsApp.ts): the chat's main menu button and /app open it, and the
 // Telegram menu button is pointed at it once per process (the same mechanism as the other bots' apps).
@@ -627,6 +627,7 @@ async function sendStoreResults(bot: TelegramBot, chatId: number, keyword: strin
   const listings = await prisma.storeListing.findMany({
     where: {
       status: "ACTIVE",
+      paymentMethod: "ESCROW",
       sellerId: { notIn: [...blocked, viewerId] }, // never show a viewer their own listing here — that lives in "📂 طلباتي"
       ...(keyword ? { OR: [{ title: { contains: keyword, mode: "insensitive" } }, { description: { contains: keyword, mode: "insensitive" } }] } : {}),
     },
@@ -641,7 +642,7 @@ async function sendStoreResults(bot: TelegramBot, chatId: number, keyword: strin
     if (ids.length) {
       const rows = await prisma.storeListing.findMany({
         where: {
-          id: { in: ids }, status: "ACTIVE", sellerId: { notIn: [...blocked, viewerId] },
+          id: { in: ids }, status: "ACTIVE", paymentMethod: "ESCROW", sellerId: { notIn: [...blocked, viewerId] },
           ...(keyword ? { OR: [{ title: { contains: keyword, mode: "insensitive" } }, { description: { contains: keyword, mode: "insensitive" } }] } : {}),
         },
       });
@@ -806,13 +807,19 @@ async function sendStoreListingCard(bot: TelegramBot, chatId: number, id: string
     await bot.api.sendMessage(chatId, "🚫 غير متاح.");
     return;
   }
+  if (!isOwner && l.paymentMethod !== "ESCROW") {
+    await bot.api.sendMessage(chatId, "🔒 هذا المنتج قديم ولم يُفعّل الحجز الآمن بعد. على البائع تعديله وإعادة نشره.");
+    return;
+  }
   const seller = await prisma.jobsProfile.findUnique({ where: { userId: l.sellerId } });
+  const fee = jobsStoreCommission(l.price);
   const text =
     `🛒 حساب: تاجر${seller ? ` — ${seller.name}` : ""}\n\n` +
-    `📦 ${l.title}\n💵 السعر المطلوب: $${l.price.toFixed(2)}\n` +
+    `📦 ${l.title}\n💵 السعر المطلوب: ${l.price.toFixed(2)}\n` +
     (l.description ? `📝 ${l.description}\n` : "") +
     `🚚 التسليم: ${l.deliveryMethod === "SHIPPING" ? "شحن (يُتفق عليه بين الطرفين)" : "يدوي (تسليم مباشر)"}\n` +
-    `💳 الدفع: ${l.paymentMethod === "ESCROW" ? "عبر البوت (حجز حتى الاستلام)" : "يدوي"}\n` +
+    `🔒 الدفع: حجز آمن عبر البوت\n` +
+    `🏷 عمولة المنصة: ${fee.commissionPercent}% · صافي البائع عند إتمام الصفقة: ${fee.sellerNet.toFixed(2)}\n` +
     `📌 الحالة: ${orderStatusLabel(l.status)}`;
   const kb = new InlineKeyboard();
   const featuredTill = l.status === "ACTIVE" ? await featuredUntil(l.id).catch(() => null) : null;
@@ -847,7 +854,6 @@ async function sendStoreWantedCard(bot: TelegramBot, chatId: number, id: string,
     return;
   }
   const buyer = await prisma.jobsProfile.findUnique({ where: { userId: w.buyerId } });
-  const contactUrl = buyer ? (buyer.contactMethod === "TELEGRAM" ? `https://t.me/${buyer.contactValue.replace(/^@/, "")}` : `https://wa.me/${buyer.contactValue.replace(/[^0-9]/g, "")}`) : null;
   const text =
     `🛍 طلب شراء${buyer ? ` — ${buyer.name}` : ""}\n\n📦 ${w.title}\n` +
     (w.description ? `📝 ${w.description}\n` : "") +
@@ -862,7 +868,6 @@ async function sendStoreWantedCard(bot: TelegramBot, chatId: number, id: string,
     }
   } else {
     if (w.status === "ACTIVE") kb.text("💰 بيع (تقديم عرض)", `jselloffer|${w.id}`).row();
-    if (contactUrl) kb.url("💬 تواصل", contactUrl).row();
     kb.text("🚩 إبلاغ", `jreport|wanted|${w.buyerId}`).text("⛔ حظر", `jblock|${w.buyerId}`);
   }
   await bot.api.sendMessage(chatId, text, { reply_markup: kb });
@@ -880,7 +885,7 @@ function deliveryMenu(): Keyboard {
   return new Keyboard().text("🚚 تسليم يدوي").text("📦 شحن").row().text(backLabel()).resized();
 }
 function paymentMenu(): Keyboard {
-  return new Keyboard().text("💳 عبر البوت (حجز آمن)").text("🤝 يدوي").row().text(backLabel()).resized();
+  return new Keyboard().text("🔒 متابعة بالحجز الآمن").row().text(backLabel()).resized();
 }
 async function askStoreListingStep(bot: TelegramBot, chatId: number, step: StoreListingStep) {
   switch (step) {
@@ -904,7 +909,7 @@ async function askStoreListingStep(bot: TelegramBot, chatId: number, step: Store
     case "paymentMethod":
       await bot.api.sendMessage(
         chatId,
-        "طريقة الدفع؟ «عبر البوت» يحجز المبلغ حتى يؤكد المشتري الاستلام، «يدوي» يكتفي البوت بربطكما لتتفقا مباشرة.",
+        "الحجز الآمن عبر البوت إلزامي في المتجر: يُحجز مبلغ المشتري عند قبول العرض ويُفرج للبائع بعد تأكيد الاستلام. عمولة المنصة " + jobsStoreCommissionPercent() + "% تُخصم من مستحق البائع فقط.",
         { reply_markup: paymentMenu() }
       );
       break;
@@ -946,11 +951,11 @@ async function consumeStoreListingStep(bot: TelegramBot, chatId: number, userId:
     }
     data.deliveryMethod = text === "📦 شحن" ? "SHIPPING" : "PICKUP_MANUAL";
   } else if (step === "paymentMethod") {
-    if (text !== "💳 عبر البوت (حجز آمن)" && text !== "🤝 يدوي") {
-      await bot.api.sendMessage(chatId, "اختر من القائمة.", { reply_markup: paymentMenu() });
+    if (text !== "🔒 متابعة بالحجز الآمن") {
+      await bot.api.sendMessage(chatId, "الحجز الآمن إلزامي. اضغط متابعة بالحجز الآمن لإكمال نشر المنتج.", { reply_markup: paymentMenu() });
       return;
     }
-    data.paymentMethod = text === "🤝 يدوي" ? "MANUAL" : "ESCROW";
+    data.paymentMethod = "ESCROW";
   }
 
   const next = nextStoreListingStep(step);
@@ -1117,8 +1122,8 @@ async function confirmReceived(bot: TelegramBot, chatId: number, buyerId: string
     await bot.api.sendMessage(chatId, r.error);
     return;
   }
-  await bot.api.sendMessage(chatId, "✅ تم تأكيد الاستلام وتحويل المبلغ للبائع.", { reply_markup: mainMenu() });
-  await notifyReceived(bot, r.order);
+  await bot.api.sendMessage(chatId, "✅ تم تأكيد الاستلام وتحويل صافي المبلغ للبائع بعد خصم عمولة المنصة.", { reply_markup: mainMenu() });
+  await notifyReceived(bot, { ...r.order, sellerNet: r.sellerNet, platformFee: r.platformFee });
 }
 
 // ---------------------------------------------------------------------
@@ -1163,9 +1168,10 @@ async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string,
     return;
   }
   await prisma.jobsDispute.update({ where: { orderId }, data: { status: "RESOLVED", resolution: winner === "seller" ? "RELEASED_TO_SELLER" : "REFUNDED_TO_BUYER", resolvedAt: new Date() } });
+  const settlement = winner === "seller" ? await escrowFeeBreakdown(order.id, order.amount) : null;
   await bot.api.sendMessage(chatId, "✅ تم تنفيذ القرار.");
-  await bot.api.sendMessage(Number(order.buyerId), winner === "buyer" ? "✅ تم استرداد مبلغ طلبك بعد مراجعة النزاع." : "❌ تقرر تحويل مبلغ الطلب للبائع بعد مراجعة النزاع.").catch(() => null);
-  await bot.api.sendMessage(Number(order.sellerId), winner === "seller" ? "✅ تم تحويل مبلغ الطلب لرصيدك بعد مراجعة النزاع." : "❌ تقرر استرداد مبلغ الطلب للمشتري بعد مراجعة النزاع.").catch(() => null);
+  await bot.api.sendMessage(Number(order.buyerId), winner === "buyer" ? "✅ تم استرداد مبلغ طلبك بعد مراجعة النزاع." : "❌ تقرر تحويل المبلغ المحجوز للبائع بعد مراجعة النزاع.").catch(() => null);
+  await bot.api.sendMessage(Number(order.sellerId), winner === "seller" ? `✅ تم إغلاق النزاع. صافي المبلغ المضاف إلى رصيدك: ${settlement!.sellerNet.toFixed(2)} بعد عمولة المنصة ${settlement!.platformFee.toFixed(2)}.` : "❌ تقرر استرداد مبلغ الطلب للمشتري بعد مراجعة النزاع.").catch(() => null);
 }
 
 // ---------------------------------------------------------------------
@@ -1180,17 +1186,18 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     prisma.jobsProfile.count({ where: { roleType: "PROFESSIONAL", user: { botId } } }),
     prisma.jobsProfile.count({ where: { roleType: "TRADER", user: { botId } } }),
     prisma.jobPosting.count({ where: { status: "OPEN", poster: { botId } } }),
-    prisma.storeListing.count({ where: { status: "ACTIVE", seller: { botId } } }),
+    prisma.storeListing.count({ where: { status: "ACTIVE", paymentMethod: "ESCROW", seller: { botId } } }),
     prisma.storeOrder.count({ where: { status: "ESCROWED" } }),
     prisma.jobsDispute.count({ where: { status: { not: "RESOLVED" } } }),
     prisma.jobsReport.count({ where: { status: "PENDING" } }),
     prisma.jobsAdminMessage.count({ where: { status: "PENDING" } }),
   ]);
   const totalUsers = await countBotVisitors(botId, SUPER_ADMIN_ID, ownUsers);
+  const commission = await prisma.jobsTransaction.aggregate({ where: { type: "PLATFORM_FEE", status: "COMPLETED" }, _sum: { amount: true } });
   const text =
     `📊 إحصائيات بوت فرص العمل\n\n👥 إجمالي المستخدمين: ${totalUsers}\n` +
     `👷 باحثون: ${seekers} | 🏢 معلنو وظائف: ${employers} | 🔨 مهنيون: ${professionals} | 🛒 تجار: ${traders}\n\n` +
-    `📢 وظائف شاغرة مفتوحة: ${openPostings}\n🛒 منتجات معروضة: ${activeListings}\n💰 طلبات محجوزة حالياً: ${escrowedOrders}\n\n` +
+    `📢 وظائف شاغرة مفتوحة: ${openPostings}\n🛒 منتجات معروضة: ${activeListings}\n💰 طلبات محجوزة حالياً: ${escrowedOrders}\n🏷 إيراد عمولة المنصة المحصّل: ${Number(commission._sum.amount || 0).toFixed(2)} (نسبة ${jobsStoreCommissionPercent()}%)\n\n` +
     `⚠️ نزاعات مفتوحة: ${openDisputes}\n🚩 بلاغات معلّقة: ${pendingReports}\n📥 رسائل واردة غير مقروءة: ${pendingInbox}` +
     (await tenderStatsLine());
   await bot.api.sendMessage(chatId, text);
@@ -1375,11 +1382,12 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     if (text === "📊 الإحصائيات") return sendAdminStats(bot, botRow.id, chatId);
     if (text === "📥 رسائل واردة") return sendAdminInboxSummary(bot, chatId);
     if (text === "💰 المحفظة") {
-      const [totalBalance, totalEscrowed] = await Promise.all([
+      const [totalBalance, totalEscrowed, platformFees] = await Promise.all([
         prisma.jobsUser.aggregate({ where: { id: { not: SUPER_ADMIN_ID || "__none__" } }, _sum: { balance: true } }),
         prisma.storeOrder.aggregate({ where: { status: "ESCROWED" }, _sum: { amount: true } }),
+        prisma.jobsTransaction.aggregate({ where: { type: "PLATFORM_FEE", status: "COMPLETED" }, _sum: { amount: true } }),
       ]);
-      await bot.api.sendMessage(chatId, `💰 محفظة البوت\n\nإجمالي أرصدة المستخدمين: $${(totalBalance._sum.balance || 0).toFixed(2)}\nمبالغ محجوزة حالياً (Escrow): $${(totalEscrowed._sum.amount || 0).toFixed(2)}`);
+      await bot.api.sendMessage(chatId, `💰 محفظة البوت\n\nإجمالي أرصدة المستخدمين: ${(totalBalance._sum.balance || 0).toFixed(2)}\nمبالغ محجوزة حالياً (Escrow): ${(totalEscrowed._sum.amount || 0).toFixed(2)}\nإيراد عمولات المنصة المحصّل: ${(platformFees._sum.amount || 0).toFixed(2)}`);
       return;
     }
     if (text === "🔎 بحث عن مستخدم") {
