@@ -365,6 +365,12 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
         end = min(size, start + want) if size else start + want
         rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
         got = 0
+        try:        # reading the rows of a STREAMING source goes through hf-mirror too (429 + long retries): bound it like the opening (cn trainer silent for 20+ minutes after self_oss_instruct, 2026-11-13)
+            from sham_data_sources import _bounded
+            rows = _bounded(lambda: list(rows), float(os.environ.get("SHAM_SOURCE_ITER_TIMEOUT") or 240))
+        except Exception as exc:
+            print(f"⚠ تعذّرت قراءة {key} في المهلة: {type(exc).__name__}")
+            continue
         for row in rows:
             q, a = ((row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()) if q_col else _conversation_pair(row)
             norm_q = " ".join(q.split())
