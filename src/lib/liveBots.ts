@@ -13,9 +13,9 @@
 // public card to one account (real bug fixed 2026-09-22).
 export const LIVE_BOTS = [
   {
-    href: "https://t.me/AdsClicsBot",
-    title: "بوت الإعلان والربح",
-    desc: "🚀 روّج لمشروعك لجمهور حقيقي أو نفّذ مهاماً يومية واكسب أرباحاً حقيقية 💰",
+    href: "https://t.me/Sham_test0_bot",
+    title: "بوت الإعلان والمهام",
+    desc: "🚀 روّج لمشروعك أو قناتك لجمهور حقيقي داخل تليجرام، أو نفّذ مهاماً بسيطة يعرضها المعلنون.",
   },
   {
     href: "https://t.me/ArabicAds_bot",
