@@ -10,6 +10,12 @@ import { prisma } from "@/lib/prisma";
 // delivers it, no manual send action required.
 export const maxDuration = 60;
 
+// An announcement that has waited longer than this is stale ("we added X" a month later is noise, and after an outage of the scheduler the
+// whole backlog would otherwise go out in one burst): it is marked sent with sentCount 0 instead of being broadcast. Exported for the test.
+export const ANNOUNCEMENT_MAX_AGE_MS = 72 * 3600 * 1000;
+// At most this many announcements are broadcast per run, oldest first, so one run never exceeds its time budget; the rest go on the next run.
+export const MAX_BROADCASTS_PER_RUN = 3;
+
 async function sendToNovaUsers(text: string): Promise<number> {
   const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT" }, orderBy: { created_at: "asc" } });
   if (!bot) return 0;
@@ -66,7 +72,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const pending = await prisma.botUpdateAnnouncement.findMany({ where: { sentAt: null }, orderBy: { createdAt: "asc" } });
+  const all = await prisma.botUpdateAnnouncement.findMany({ where: { sentAt: null }, orderBy: { createdAt: "asc" } });
+  const now = Date.now();
+  const stale = all.filter((a) => now - new Date(a.createdAt).getTime() > ANNOUNCEMENT_MAX_AGE_MS);
+  const pending = all.filter((a) => !stale.includes(a)).slice(0, MAX_BROADCASTS_PER_RUN);
+  for (const ann of stale) await prisma.botUpdateAnnouncement.update({ where: { id: ann.id }, data: { sentAt: new Date(), sentCount: 0 } });
   const results: { id: string; template: string; sent: number }[] = [];
 
   for (const ann of pending) {
@@ -75,5 +85,5 @@ export async function GET(req: NextRequest) {
     results.push({ id: ann.id, template: ann.template, sent });
   }
 
-  return NextResponse.json({ ok: true, processed: results.length, results });
+  return NextResponse.json({ ok: true, processed: results.length, skippedStale: stale.length, results });
 }
