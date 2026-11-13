@@ -639,15 +639,33 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                 print(f"⚠ نسخة الحوارات المحفوظة تالفة: {exc}")
     if not dialogues:
         print("⚠ لا حوارات للتذكّر هذه الجلسة — المحادثة لن تُقاس ولن تُذكَّر")
+    # The chat yardstick is the MERGE GATE's own (the four Arabic sets, the seed-7 split of sham_ci_merge.default_gate), not a sample of the trainer's own rehearsal set.
+    # 2026-11-13 inventory: the trainers saw chat IMPROVE while the gate saw it get worse (sham-crawl-lightning / ms3 / crawl: "ruler conflict"), because the trainer trained on
+    # (and measured on) a broader mix than the gate's yardstick, so the guard never noticed real forgetting. Those held-out dialogues are never trained on here either.
+    gate_chat: list = []
+    gate_hold: set = set()
+    if os.environ.get("SHAM_TRAINER_GATE_RULER", "1").strip().lower() not in ("0", "off", "false", "no"):
+        try:
+            from sham_chat import _chat_plan, split_holdout
+            gd, _ = load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))
+            _, ghold = split_holdout(gd, seed=7)
+            gate_hold = {(q, a) for q, a in ghold}
+            gate_chat = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in ghold][:24]
+            print(f"📏 مسطرة المحادثة هي مسطرة بوابة الدمج نفسها: {len(gate_chat)} حوارًا ثابتًا لا يُدرَّب عليه")
+        except Exception as exc:
+            print(f"⚠ تعذّر بناء مسطرة بوابة الدمج للمحادثة ({type(exc).__name__}): تُقاس على عيّنة التذكّر كالسابق")
+    if gate_hold:
+        dialogues = [d for d in dialogues if (d[0], d[1]) not in gate_hold]
     rehearsal = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in dialogues]
     random.Random(step).shuffle(rehearsal)
 
     # — held-out yardstick: the first examples of each modality are never trained on
     holdout = {k: [] for k in TARGETS}
-    holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
+    holdout["chat"] = gate_chat or rehearsal[:HOLDOUT_PER_KIND]
     holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
     load_general()
-    rehearsal = rehearsal[HOLDOUT_PER_KIND:]
+    if not gate_chat:
+        rehearsal = rehearsal[HOLDOUT_PER_KIND:]
     # multi-turn conversations (memory, 2026-10-14; off unless SHAM_CHAT_MULTITURN=1): added to the TRAINING rehearsal only — the held-out
     # yardstick above stays the same single-turn examples, so the guard judges a multi-turn round by the very same measure as before.
     try:
