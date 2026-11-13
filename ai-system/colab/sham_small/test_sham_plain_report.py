@@ -24,6 +24,14 @@ class PlainReport(unittest.TestCase):
         self.assertIn("ساءت الوسائط 0.5%", t)
         self.assertIn("sham-crawl-xlive", t)           # far too bad to merge
 
+    def test_left_out_sources_are_named_with_a_reason(self):
+        rep = REPORT + ["⏭ sham-crawl-agent: بنية مختلفة (مُرمِّز آخر)", "⏭ sham-crawl-gh: النقطة نفسها جُرّبت سابقاً (البصمة abcd1234)", "⏭ sham-x: يؤجَّل للتشغيل القادم (الحد 12 مصدراً في التشغيل)"]
+        t = plain_summary("b", 1, BEFORE, AFTER, rep, published="x")
+        self.assertIn("لم تدخل الدمج هذه المرة (3)", t)
+        self.assertIn("sham-crawl-agent: لا يمكن دمجه كما هو", t)
+        self.assertIn("sham-crawl-gh: لم يتغير", t)
+        self.assertIn("sham-x: مؤجَّل", t)
+
     def test_unpublished(self):
         t = plain_summary("b", 1, BEFORE, BEFORE, [], published=None)
         self.assertIn("لا نسخة جديدة", t)
