@@ -142,6 +142,8 @@ def split_modes(prompt: str) -> tuple[str, dict]:
                 out["temp"] = min(1.5, max(0.0, float(v)))
             elif k == "think":
                 out["think"] = max(0, min(2048, int(float(v))))
+            elif k == "text":       # the app asks for words only: a first try came back as a blank picture for a message that was not a media request (2026-11-13)
+                out["text"] = v in ("1", "true", "yes")
         except ValueError:
             pass
     return prompt[m.end():], out

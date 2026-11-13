@@ -444,11 +444,33 @@ export async function shamGenerateMedia(
   return reply;
 }
 
+
+/** 2026-11-13 task suite: the Sham v1 MODEL itself starts a picture for plain messages (a web question, a file read, a memory note); the quality gate then refuses the blank picture
+ *  and the user got "no valid picture" for every task. The model's first choice stays its own; only when that choice FAILED and the message was not a media request at all
+ *  (the same cheap pre-check the fast lane uses) the same message is asked once more in words only ("[[sham text=1]]", read by sham_studio_chat.split_modes). */
+const MEDIA_FAILED = new Set(["blank_image", "noise_image", "invalid_image", "silent_audio", "invalid_audio", "empty_video"]);
+export const failedMediaOnPlainMessage = (reply: ShamReply | null | undefined, userText: string): boolean => {
+  if (!reply || (reply.type !== "notice" && reply.type !== "error")) return false;
+  if (!MEDIA_FAILED.has(String((reply as { reason?: string }).reason || ""))) return false;
+  // Sham modules never import Nova's (src/lib/__tests__/novaShamBoundary.test.ts): the cheap "is this a media request?" pre-check is handed in by the control plane (novaBotLogic).
+  // Without it no retry happens (the old behaviour).
+  try { return mediaProbe ? !mediaProbe(String(userText || "").slice(-400)) : false; } catch { return false; }
+};
+let mediaProbe: ((text: string) => boolean) | null = null;
+export const setShamMediaProbe = (fn: ((text: string) => boolean) | null): void => { mediaProbe = fn; };
+export const wordsOnlyPrompt = (prompt: string): string => (/^\s*\[\[sham /.test(prompt) ? prompt.replace(/^(\s*\[\[sham )/, "$1text=1 ") : `[[sham text=1]]\n${prompt}`);
+
 // chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
 // generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
 export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? vetShamReply(parseShamReply(body), opts) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  if (failedMediaOnPlainMessage(reply, prompt)) {
+    const again = await shamCall("chat_auto", { prompt: wordsOnlyPrompt(prompt), max_new_tokens: maxNewTokens }, timeoutMs);
+    const words = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (words && words.type === "text") return words;
+  }
+  return reply;
 }
 
 // chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
@@ -466,7 +488,17 @@ export async function shamChatMemory(
     { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
     timeoutMs,
   );
-  return body ? vetShamReply(parseShamReply(body), opts) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  if (failedMediaOnPlainMessage(reply, prompt)) {
+    const again = await shamCall(
+      "chat_memory",
+      { prompt: wordsOnlyPrompt(prompt), max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
+      timeoutMs,
+    );
+    const words = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (words && words.type === "text") return words;
+  }
+  return reply;
 }
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {

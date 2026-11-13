@@ -310,6 +310,9 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     from sham_decoding import chat_prompt_ids
     from sham_studio_chat import build_user_text, studio_generate
     stripped = prompt.strip()
+    from sham_studio_chat import split_modes
+    if split_modes(prompt)[1].get("text"):      # words only: the app retries this way after the model's own first choice (a picture) failed the quality gate on a plain message
+        return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
     if stripped.startswith("#pmedia "):      # diagnostic for the owner: how likely is it that the model, by itself, starts a picture / sound / clip for this text?
         return {"type": "text", "text": media_preference(model, tokenizer, stripped[8:], today)}
     if stripped == "#info" or stripped.startswith("#raw "):
@@ -385,6 +388,8 @@ if __name__ == "__main__":
     long_v = make_media(model, Tok(), img_tok, aud_tok, "video", "رحلة طويلة", motion_tokenizer=mot_tok, num_frames=8)
     assert long_v["type"] == "video" and long_v["frames"] == 8, long_v.get("frames")
     assert base64.b64decode(long_v["b64"])[4:8] == b"ftyp"
+    tw = generate_any(model, Tok(), img_tok, aud_tok, "[[sham text=1]]\nاقرأ الملف", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)
+    assert tw["type"] == "text", "the words-only header must skip the model's media choice"
     t = generate_any(model, Tok(), img_tok, aud_tok, "مرحبا", 6, d, choose=lambda *a, **k: 5)
     assert t["type"] == "text" and t["text"]
     assert "صورة" in generate_any(model, Tok(), img_tok, aud_tok, "#pmedia أعطني صورة أرنب", 6, d)["text"]
