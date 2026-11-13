@@ -351,6 +351,20 @@ export async function shamAgentRun(opts: {
       }
       return runMedia(made, [...used, "make_media"], steps + 1);
     }
+    const secret = valid.find((c) => c.function.name === "request_secret");
+    if (secret) {
+      // the secure box: the app shows a masked field; the value never enters the chat, and the model only learns the name. The round ends with the request.
+      let nm = "", why = "";
+      try { const a = JSON.parse(secret.function.arguments || "{}") as { name?: string; purpose?: string }; nm = String(a.name || "").trim(); why = String(a.purpose || "").trim(); } catch { /* the validator already checked it */ }
+      const V = await import("@/lib/secretVault");
+      if (!V.isSecretName(nm)) {
+        messages.push({ role: "assistant", content: p.text, tool_calls: [secret] } as CoderMessage);
+        messages.push({ role: "tool", name: "request_secret", tool_call_id: secret.id, content: "error: name must be letters, digits, - or _ (2-40 characters, starting with a letter)" } as CoderMessage);
+        continue;
+      }
+      V.requestSecret(opts.ctx.chatId, nm, why);
+      return { kind: "ask", question: `🔐 ${why || nm}\n\nافتح «الخانة الآمنة» في التطبيق المصغر وأدخل القيمة هناك (لا تكتبها في المحادثة). اسمها: ${nm}`, used, steps: steps + 1 };
+    }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {
       let q = "";
