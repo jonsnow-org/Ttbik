@@ -254,7 +254,7 @@ export async function searchListings(viewerId: string, keyword: string, offset: 
     sellerId: { notIn: [...blocked, viewerId] },
     ...(kw ? { OR: [{ title: { contains: kw, mode: "insensitive" } }, { description: { contains: kw, mode: "insensitive" } }] } : {}),
     ...(Object.keys(price).length ? { price } : {}),
-    ...(f.escrow ? { paymentMethod: "ESCROW" } : {}),
+    // All active store listings are treated as escrow-only, including legacy MANUAL rows.
     ...(f.shipping ? { deliveryMethod: "SHIPPING" } : {}),
   };
   const orderBy: Prisma.StoreListingOrderByWithRelationInput = f.sort === "price_asc" ? { price: "asc" } : f.sort === "price_desc" ? { price: "desc" } : { created_at: "desc" };
