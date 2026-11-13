@@ -13,7 +13,7 @@ import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
 import { FEATURE_CALLBACK, SHOP_BUTTON, parseShopStart, withFeaturedFirst } from "@/lib/jobs/shopRules";
 import { featureButton, featureListing, featuredListingIds, featuredUntil, sendMyShop, sendShopInBot } from "@/lib/jobs/shop";
 import {
-  PROFESSIONAL_CATEGORIES, acceptOfferCore, blockedPeerIds, chargeJobsUser, confirmReceivedCore, counterOfferCore, createOfferCore, deleteListingCore,
+  jobsStoreCommissionBreakdown, jobsStoreCommissionPercent, PROFESSIONAL_CATEGORIES, acceptOfferCore,
   deleteWantedCore, isBlocked, openDisputeCore, rejectOfferCore, saveListingCore, saveWantedCore, settleEscrow, submitDisputeCore, toggleListingCore, toggleWantedCore,
 } from "@/lib/jobs/core";
 import {
@@ -113,14 +113,14 @@ type JobPostingDraft = {
   contactValue?: string;
 };
 
-type StoreListingStep = "title" | "description" | "price" | "photos" | "deliveryMethod" | "paymentMethod";
+type StoreListingStep = "title" | "description" | "price" | "photos" | "deliveryMethod";
 type StoreListingDraft = {
   title?: string;
   description?: string;
   price?: number;
   photoFileIds: string[];
   deliveryMethod?: "PICKUP_MANUAL" | "SHIPPING";
-  paymentMethod?: "MANUAL" | "ESCROW";
+paymentMethod?: "ESCROW";
 };
 
 type StoreWantedStep = "title" | "description" | "budget";
@@ -812,7 +812,7 @@ async function sendStoreListingCard(bot: TelegramBot, chatId: number, id: string
     `📦 ${l.title}\n💵 السعر المطلوب: $${l.price.toFixed(2)}\n` +
     (l.description ? `📝 ${l.description}\n` : "") +
     `🚚 التسليم: ${l.deliveryMethod === "SHIPPING" ? "شحن (يُتفق عليه بين الطرفين)" : "يدوي (تسليم مباشر)"}\n` +
-    `💳 الدفع: ${l.paymentMethod === "ESCROW" ? "عبر البوت (حجز حتى الاستلام)" : "يدوي"}\n` +
+    `🔒 الدفع: حجز آمن عبر المنصة — لن تظهر بيانات التواصل إلا بعد حجز المبلغ\\n` +
     `📌 الحالة: ${orderStatusLabel(l.status)}`;
   const kb = new InlineKeyboard();
   const featuredTill = l.status === "ACTIVE" ? await featuredUntil(l.id).catch(() => null) : null;
@@ -847,12 +847,12 @@ async function sendStoreWantedCard(bot: TelegramBot, chatId: number, id: string,
     return;
   }
   const buyer = await prisma.jobsProfile.findUnique({ where: { userId: w.buyerId } });
-  const contactUrl = buyer ? (buyer.contactMethod === "TELEGRAM" ? `https://t.me/${buyer.contactValue.replace(/^@/, "")}` : `https://wa.me/${buyer.contactValue.replace(/[^0-9]/g, "")}`) : null;
   const text =
     `🛍 طلب شراء${buyer ? ` — ${buyer.name}` : ""}\n\n📦 ${w.title}\n` +
     (w.description ? `📝 ${w.description}\n` : "") +
     (w.budget ? `💵 الميزانية التقريبية: $${w.budget.toFixed(2)}\n` : "") +
     `📌 الحالة: ${orderStatusLabel(w.status)}\n` +
+    `🔒 لا تظهر بيانات التواصل إلا بعد قبول العرض وحجز المبلغ عبر المنصة\\n` +
     relativeTime(w.created_at);
   const kb = new InlineKeyboard();
   if (isOwner) {
@@ -862,7 +862,6 @@ async function sendStoreWantedCard(bot: TelegramBot, chatId: number, id: string,
     }
   } else {
     if (w.status === "ACTIVE") kb.text("💰 بيع (تقديم عرض)", `jselloffer|${w.id}`).row();
-    if (contactUrl) kb.url("💬 تواصل", contactUrl).row();
     kb.text("🚩 إبلاغ", `jreport|wanted|${w.buyerId}`).text("⛔ حظر", `jblock|${w.buyerId}`);
   }
   await bot.api.sendMessage(chatId, text, { reply_markup: kb });
@@ -871,16 +870,13 @@ async function sendStoreWantedCard(bot: TelegramBot, chatId: number, id: string,
 // ---------------------------------------------------------------------
 // Store section — بيع / شراء
 // ---------------------------------------------------------------------
-const STORE_LISTING_STEP_ORDER: StoreListingStep[] = ["title", "description", "price", "photos", "deliveryMethod", "paymentMethod"];
+const STORE_LISTING_STEP_ORDER: StoreListingStep[] = ["title", "description", "price", "photos", "deliveryMethod"];
 function nextStoreListingStep(step: StoreListingStep): StoreListingStep | null {
   const i = STORE_LISTING_STEP_ORDER.indexOf(step);
   return i >= 0 && i + 1 < STORE_LISTING_STEP_ORDER.length ? STORE_LISTING_STEP_ORDER[i + 1] : null;
 }
 function deliveryMenu(): Keyboard {
   return new Keyboard().text("🚚 تسليم يدوي").text("📦 شحن").row().text(backLabel()).resized();
-}
-function paymentMenu(): Keyboard {
-  return new Keyboard().text("💳 عبر البوت (حجز آمن)").text("🤝 يدوي").row().text(backLabel()).resized();
 }
 async function askStoreListingStep(bot: TelegramBot, chatId: number, step: StoreListingStep) {
   switch (step) {
@@ -900,13 +896,6 @@ async function askStoreListingStep(bot: TelegramBot, chatId: number, step: Store
       break;
     case "deliveryMethod":
       await bot.api.sendMessage(chatId, "طريقة التسليم؟ (الشحن يُتفق عليه بينك وبين المشتري خارج البوت)", { reply_markup: deliveryMenu() });
-      break;
-    case "paymentMethod":
-      await bot.api.sendMessage(
-        chatId,
-        "طريقة الدفع؟ «عبر البوت» يحجز المبلغ حتى يؤكد المشتري الاستلام، «يدوي» يكتفي البوت بربطكما لتتفقا مباشرة.",
-        { reply_markup: paymentMenu() }
-      );
       break;
   }
 }
@@ -945,16 +934,11 @@ async function consumeStoreListingStep(bot: TelegramBot, chatId: number, userId:
       return;
     }
     data.deliveryMethod = text === "📦 شحن" ? "SHIPPING" : "PICKUP_MANUAL";
-  } else if (step === "paymentMethod") {
-    if (text !== "💳 عبر البوت (حجز آمن)" && text !== "🤝 يدوي") {
-      await bot.api.sendMessage(chatId, "اختر من القائمة.", { reply_markup: paymentMenu() });
-      return;
-    }
-    data.paymentMethod = text === "🤝 يدوي" ? "MANUAL" : "ESCROW";
   }
 
   const next = nextStoreListingStep(step);
   if (!next) {
+    data.paymentMethod = "ESCROW";
     // Saved through the shared rule (src/lib/jobs/core.ts): «تاجر» only, and an edit lands only on the owner's ACTIVE/PAUSED listing
     // (a stale edit wizard can no longer rewrite a listing that was sold or removed meanwhile).
     const r = await saveListingCore(userId, data, pending.editingId);
@@ -1164,8 +1148,13 @@ async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string,
   }
   await prisma.jobsDispute.update({ where: { orderId }, data: { status: "RESOLVED", resolution: winner === "seller" ? "RELEASED_TO_SELLER" : "REFUNDED_TO_BUYER", resolvedAt: new Date() } });
   await bot.api.sendMessage(chatId, "✅ تم تنفيذ القرار.");
-  await bot.api.sendMessage(Number(order.buyerId), winner === "buyer" ? "✅ تم استرداد مبلغ طلبك بعد مراجعة النزاع." : "❌ تقرر تحويل مبلغ الطلب للبائع بعد مراجعة النزاع.").catch(() => null);
-  await bot.api.sendMessage(Number(order.sellerId), winner === "seller" ? "✅ تم تحويل مبلغ الطلب لرصيدك بعد مراجعة النزاع." : "❌ تقرر استرداد مبلغ الطلب للمشتري بعد مراجعة النزاع.").catch(() => null);
+  await bot.api.sendMessage(Number(order.buyerId), winner === "buyer" ? "✅ تم استرداد كامل مبلغ طلبك بعد مراجعة النزاع." : "❌ تقرر تحويل مبلغ الطلب للبائع بعد خصم عمولة المنصة من مستحقاته.").catch(() => null);
+  if (winner === "seller") {
+    const fee = jobsStoreCommissionBreakdown(order.amount);
+    await bot.api.sendMessage(Number(order.sellerId), `✅ تم حسم النزاع لصالحك. قيمة الصفقة ${fee.gross.toFixed(2)} — عمولة المنصة ${fee.percent}% (${fee.commission.toFixed(2)}) — صافي المبلغ المضاف لرصيدك ${fee.sellerNet.toFixed(2)}.`).catch(() => null);
+  } else {
+    await bot.api.sendMessage(Number(order.sellerId), "❌ تقرر استرداد كامل المبلغ للمشتري بعد مراجعة النزاع.").catch(() => null);
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1173,7 +1162,7 @@ async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string,
 // ---------------------------------------------------------------------
 async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
   const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
-  const [ownUsers, seekers, employers, professionals, traders, openPostings, activeListings, escrowedOrders, openDisputes, pendingReports, pendingInbox] = await Promise.all([
+  const [ownUsers, seekers, employers, professionals, traders, openPostings, activeListings, escrowedOrders, openDisputes, pendingReports, pendingInbox, platformWallet] = await Promise.all([
     prisma.jobsUser.count({ where: { ...notAdmin, botId } }),
     prisma.jobsProfile.count({ where: { roleType: "SEEKER", user: { botId } } }),
     prisma.jobsProfile.count({ where: { roleType: "EMPLOYER", user: { botId } } }),
@@ -1185,12 +1174,14 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     prisma.jobsDispute.count({ where: { status: { not: "RESOLVED" } } }),
     prisma.jobsReport.count({ where: { status: "PENDING" } }),
     prisma.jobsAdminMessage.count({ where: { status: "PENDING" } }),
+    SUPER_ADMIN_ID ? prisma.jobsUser.findUnique({ where: { id: SUPER_ADMIN_ID }, select: { balance: true } }) : Promise.resolve(null),
   ]);
   const totalUsers = await countBotVisitors(botId, SUPER_ADMIN_ID, ownUsers);
   const text =
     `📊 إحصائيات بوت فرص العمل\n\n👥 إجمالي المستخدمين: ${totalUsers}\n` +
     `👷 باحثون: ${seekers} | 🏢 معلنو وظائف: ${employers} | 🔨 مهنيون: ${professionals} | 🛒 تجار: ${traders}\n\n` +
-    `📢 وظائف شاغرة مفتوحة: ${openPostings}\n🛒 منتجات معروضة: ${activeListings}\n💰 طلبات محجوزة حالياً: ${escrowedOrders}\n\n` +
+    `📢 وظائف شاغرة مفتوحة: ${openPostings}\n🛒 منتجات معروضة: ${activeListings}\n💰 طلبات محجوزة حالياً: ${escrowedOrders}\n` +
+    `🏦 رصيد المنصة (يشمل عمولات المتجر ${jobsStoreCommissionPercent()}%): $${Number(platformWallet?.balance || 0).toFixed(2)}\n\n` +
     `⚠️ نزاعات مفتوحة: ${openDisputes}\n🚩 بلاغات معلّقة: ${pendingReports}\n📥 رسائل واردة غير مقروءة: ${pendingInbox}` +
     (await tenderStatsLine());
   await bot.api.sendMessage(chatId, text);
