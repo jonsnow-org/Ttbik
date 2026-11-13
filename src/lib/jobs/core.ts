@@ -47,12 +47,82 @@ export async function chargeJobsUser(userId: string, amount: number, type: strin
   });
 }
 
+export const DEFAULT_JOBS_STORE_COMMISSION_PERCENT = 10;
+export function jobsStoreCommissionPercent(): number {
+  const configured = Number(process.env.JOBS_STORE_COMMISSION_PERCENT ?? DEFAULT_JOBS_STORE_COMMISSION_PERCENT);
+  return Number.isFinite(configured) && configured >= 0 && configured <= 30
+    ? configured
+    : DEFAULT_JOBS_STORE_COMMISSION_PERCENT;
+}
+const cents = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+export function jobsStoreCommissionBreakdown(grossRaw: number) {
+  const gross = cents(grossRaw);
+  const percent = jobsStoreCommissionPercent();
+  const commission = cents((gross * percent) / 100);
+  return { gross, percent, commission, sellerNet: cents(gross - commission) };
+}
+
 export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "REFUNDED", payeeId: string, amount: number, ledgerType: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
-    const claim = await tx.storeOrder.updateMany({ where: { id: orderId, status: "ESCROWED" }, data: { status: finalStatus, releasedAt: new Date() } });
+    const order = await tx.storeOrder.findUnique({ where: { id: orderId } });
+    if (!order || order.status !== "ESCROWED") return false;
+    const gross = cents(Number(order.amount));
+    if (Math.abs(cents(amount) - gross) > 0.001) throw new Error("Escrow settlement amount mismatch");
+    const expectedPayee = finalStatus === "RELEASED" ? order.sellerId : order.buyerId;
+    if (payeeId !== expectedPayee) throw new Error("Escrow settlement payee mismatch");
+
+    const claim = await tx.storeOrder.updateMany({
+      where: { id: orderId, status: "ESCROWED" },
+      data: { status: finalStatus, releasedAt: new Date() },
+    });
     if (claim.count !== 1) return false;
-    await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: amount } } });
-    await tx.jobsTransaction.create({ data: { userId: payeeId, amount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
+
+    // Refunds return the full held amount. A successful seller payout deducts
+    // the platform fee from the seller's proceeds; the buyer pays no extra fee.
+    if (finalStatus === "REFUNDED") {
+      await tx.jobsUser.update({ where: { id: order.buyerId }, data: { balance: { increment: gross } } });
+      await tx.jobsTransaction.create({
+        data: { userId: order.buyerId, amount: gross, currency: "internal", type: "ESCROW_REFUND", status: "COMPLETED" },
+      });
+      return true;
+    }
+
+    const seller = await tx.jobsUser.findUnique({ where: { id: order.sellerId } });
+    if (!seller) throw new Error("Escrow seller wallet is missing");
+    const adminId = String(process.env.SUPER_ADMIN_TELEGRAM_ID || "").trim();
+    const breakdown = jobsStoreCommissionBreakdown(gross);
+    if (breakdown.commission > 0) {
+      if (!adminId || adminId === order.sellerId || adminId === order.buyerId) {
+        throw new Error("Configure a distinct SUPER_ADMIN_TELEGRAM_ID before releasing escrow with platform commission");
+      }
+      await tx.jobsUser.upsert({
+        where: { id: adminId },
+        update: { balance: { increment: breakdown.commission } },
+        create: { id: adminId, botId: seller.botId, balance: breakdown.commission },
+      });
+      await tx.jobsTransaction.create({
+        data: {
+          userId: adminId,
+          amount: breakdown.commission,
+          currency: "internal",
+          type: "PLATFORM_COMMISSION",
+          status: "COMPLETED",
+        },
+      });
+    }
+    await tx.jobsUser.update({
+      where: { id: order.sellerId },
+      data: { balance: { increment: breakdown.sellerNet } },
+    });
+    await tx.jobsTransaction.create({
+      data: {
+        userId: order.sellerId,
+        amount: breakdown.sellerNet,
+        currency: "internal",
+        type: "ESCROW_RELEASE",
+        status: "COMPLETED",
+      },
+    });
     return true;
   });
 }
@@ -123,10 +193,10 @@ export function validateListing(d: ListingInput) {
   if (price === null) return { ok: false as const, error: "أرسل سعراً صحيحاً." };
   const deliveryMethod = d.deliveryMethod === "SHIPPING" ? "SHIPPING" : d.deliveryMethod === "PICKUP_MANUAL" ? "PICKUP_MANUAL" : null;
   if (!deliveryMethod) return { ok: false as const, error: "اختر طريقة التسليم." };
-  const paymentMethod = d.paymentMethod === "MANUAL" ? "MANUAL" : d.paymentMethod === "ESCROW" ? "ESCROW" : null;
-  if (!paymentMethod) return { ok: false as const, error: "اختر طريقة الدفع." };
+  // All store transactions now use platform escrow. Accept the legacy field
+  // from older clients, but never create another off-platform/manual listing.
   const photos = Array.isArray(d.photoFileIds) ? d.photoFileIds.filter((x) => typeof x === "string" && /^[A-Za-z0-9_-]{20,200}$/.test(x)).slice(0, MAX_PHOTOS) : [];
-  return { ok: true as const, data: { title, description: clean(d.description, 1500) || null, price, photoFileIds: photos as string[], deliveryMethod, paymentMethod } };
+  return { ok: true as const, data: { title, description: clean(d.description, 1500) || null, price, photoFileIds: photos as string[], deliveryMethod, paymentMethod: "ESCROW" as const } };
 }
 /** «💰 أمر بيع» (create) or «✏️ تعديل» (edit). Selling is for «تاجر» profiles; only the owner edits, and only while ACTIVE/PAUSED. */
 export async function saveListingCore(userId: string, d: ListingInput, editingId?: string | null) {
@@ -256,7 +326,6 @@ export async function counterOfferCore(userId: string, offerId: string, rawPrice
 
 class Abort extends Error { constructor(public why: "gone" | "unavailable" | "balance") { super(why); } }
 export type AcceptOutcome =
-  | { ok: true; mode: "manual"; offer: OfferRow; title: string }
   | { ok: true; mode: "escrow"; offer: OfferRow; title: string; orderId: string; wanted: boolean }
   | { ok: false; reason: "gone" | "not_allowed"; error: string }
   | { ok: false; reason: "unavailable"; error: string; offer: OfferRow; wanted: boolean }
@@ -276,11 +345,8 @@ export async function acceptOfferCore(userId: string, offerId: string): Promise<
   if (!isWanted) {
     const listing = await prisma.storeListing.findUnique({ where: { id: offer.listingId! } });
     if (!listing || listing.status !== "ACTIVE") { await rejectOffer(); return { ok: false, reason: "unavailable", error: "❌ لم يعد هذا الاتفاق ممكناً — المنتج لم يعد متاحاً.", offer, wanted: false }; }
-    if (listing.paymentMethod === "MANUAL") {
-      const n = await prisma.storeOffer.updateMany({ where: { id: offer.id, status: "PENDING" }, data: { status: "ACCEPTED" } });
-      if (n.count !== 1) return { ok: false, reason: "gone", error: "هذا العرض لم يعد متاحاً." };
-      return { ok: true, mode: "manual", offer, title: listing.title };
-    }
+    // Legacy MANUAL listings are migrated logically at purchase time: a sale
+    // is never accepted unless the buyer's funds are held in the platform escrow.
     try {
       const orderId = await prisma.$transaction(async (tx) => {
         if ((await tx.storeOffer.updateMany({ where: { id: offer.id, status: "PENDING" }, data: { status: "ACCEPTED" } })).count !== 1) throw new Abort("gone");
