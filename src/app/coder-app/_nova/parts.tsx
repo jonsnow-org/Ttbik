@@ -15,7 +15,7 @@ import { bindBack, bindMain, getLaunch, guard, haptic, openExternal, payInvoice,
 export type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 export type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
 export type Ev = { id: number; run_id: string; kind: string; text: string; created_at: string };
-export type Pending = { runId: string; nonce: string; reason: string; summary: string; tool: string; categories: string[]; title: string; slot: string; at: number | null };
+export type Pending = { runId: string; nonce: string; reason: string; summary: string; tool: string; categories: string[]; title: string; slot: string; at: number | null; secret?: { name: string } };
 export type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 export type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 export type Accuracy = "fast" | "balanced" | "precise";
@@ -149,9 +149,42 @@ export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; li
   );
 }
 
+/** The secure box: the model asked for a password / token. A masked field that goes straight to the server's vault; the chat, the history and the model never see the value. */
+function SecretBox({ p, lang, onDone }: { p: Pending; lang: Lang; onDone: () => void }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const ar = lang === "ar";
+  const send = async (cancel: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("secret_answer", { runId: p.runId, slot: p.slot, name: p.secret?.name, ...(cancel ? { cancel: true } : { value }) });
+      setValue("");
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : ar ? "تعذّر الحفظ" : "Could not save");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Banner type="section" before={<Emoji c="🔐" />} header={ar ? "خانة آمنة" : "Secure box"} subheader={p.summary.slice(0, 200)}
+      description={ar ? "لا تكتب هذا في المحادثة. القيمة تُحفظ مشفّرة في الذاكرة لساعة ولا يراها النموذج." : "Do not type this in the chat. It is kept encrypted in memory for an hour; the model never sees it."}>
+      {error && <Caption>{error}</Caption>}
+      <input type="password" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)}
+        placeholder={p.secret?.name || ""} style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--tg-theme-hint-color, #8884)", background: "var(--tg-theme-bg-color, transparent)", color: "var(--tg-theme-text-color, inherit)", font: "inherit" }} />
+      <Button size="s" loading={busy} disabled={busy || !value} onClick={() => void send(false)}>{ar ? "حفظ" : "Save"}</Button>
+      <Button size="s" mode="plain" disabled={busy} onClick={() => void send(true)}>{ar ? "ليس الآن" : "Not now"}</Button>
+    </Banner>
+  );
+}
+
 export function PendingBanner({ p, t, cats, lang, onDone }: { p: Pending; t: Str; cats: Cat[]; lang: Lang; onDone: () => void }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  if (p.secret) return <SecretBox p={p} lang={lang} onDone={onDone} />;
   const label = (p.categories || []).map((c) => cats.find((x) => x.id === c)?.label[lang]).filter(Boolean).join(" · ") || p.reason;
   const act = async (answer: "yes" | "all" | "no") => {
     if (busy) return;
