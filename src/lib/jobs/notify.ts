@@ -8,7 +8,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { botAppUrl } from "@/lib/builderOwnerBot";
 import { gateUrl } from "@/lib/hostingOps";
-import { contactUrlOf, otherPartyOf, type AcceptOutcome, type OfferRow } from "@/lib/jobs/core";
+import { contactUrlOf, jobsStoreCommissionBreakdown, otherPartyOf, type AcceptOutcome, type OfferRow } from "@/lib/jobs/core";
 
 const SUPER_ADMIN_ID = () => process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 const shortId = (id: string) => id.slice(-6);
@@ -48,24 +48,32 @@ export async function notifyOfferRejected(bot: TelegramBot, offer: OfferRow) {
 /** After acceptOfferCore: the same messages both sides got from the chat. */
 export async function notifyAcceptOutcome(bot: TelegramBot, r: AcceptOutcome, botId?: string, homeKb?: unknown) {
   const extra = homeKb ? { reply_markup: homeKb as any } : {};
-  if (r.ok && r.mode === "manual") {
-    const o = r.offer;
-    const [seller, buyer] = await Promise.all([prisma.jobsProfile.findUnique({ where: { userId: o.sellerId } }), prisma.jobsProfile.findUnique({ where: { userId: o.buyerId } })]);
-    const sc = contactUrlOf(seller), bc = contactUrlOf(buyer);
-    await bot.api.sendMessage(Number(o.buyerId), `🤝 تم الاتفاق على السعر $${o.price.toFixed(2)} — هذا المنتج دفعه يدوي، تواصل مع البائع لإتمام الصفقة.${sc ? `\n${sc}` : ""}`, extra).catch(() => null);
-    await bot.api.sendMessage(Number(o.sellerId), `🤝 تم الاتفاق على السعر $${o.price.toFixed(2)} — تواصل مع المشتري لإتمام الصفقة يدوياً.${bc ? `\n${bc}` : ""}`, extra).catch(() => null);
-    return;
-  }
   if (r.ok && r.mode === "escrow") {
     const o = r.offer;
-    const kbS = botId ? new InlineKeyboard().webApp(APP_OPEN_LABEL, appLink(botId, "orders")) : undefined;
-    if (r.wanted) {
-      await send(bot, o.buyerId, `✅ تم الاتفاق على تلبية طلبك "${r.title}" بسعر $${o.price.toFixed(2)}. تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`, receivedDisputeKeyboard(r.orderId, botId));
-      await send(bot, o.sellerId, `✅ قُبل عرضك لتلبية طلب "${r.title}" بسعر $${o.price.toFixed(2)} — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`, kbS);
-    } else {
-      await send(bot, o.buyerId, `✅ تم قبول عرضك بسعر $${o.price.toFixed(2)} على "${r.title}"! تم حجز المبلغ من رصيدك. تواصل مع البائع لترتيب التسليم، واضغط الزر أدناه فقط بعد استلام المنتج فعلياً.`, receivedDisputeKeyboard(r.orderId, botId));
-      await send(bot, o.sellerId, `✅ قبلت عرضاً بسعر $${o.price.toFixed(2)} على "${r.title}" — تم حجز المبلغ من المشتري. رتّب التسليم معه، وسيتحرر المبلغ عند تأكيده الاستلام.`, kbS);
-    }
+    const fee = jobsStoreCommissionBreakdown(o.price);
+    // These contact URLs are fetched and sent only after acceptOfferCore has
+    // atomically held the buyer's funds and created the StoreOrder.
+    const [seller, buyer] = await Promise.all([
+      prisma.jobsProfile.findUnique({ where: { userId: o.sellerId } }),
+      prisma.jobsProfile.findUnique({ where: { userId: o.buyerId } }),
+    ]);
+    const sellerContact = contactUrlOf(seller);
+    const buyerContact = contactUrlOf(buyer);
+    const kbBuyer = receivedDisputeKeyboard(r.orderId, botId);
+    const kbSeller = botId ? new InlineKeyboard().webApp(APP_OPEN_LABEL, appLink(botId, "orders")) : undefined;
+    const title = r.title;
+    const buyerText =
+      `✅ تم الاتفاق على "${title}" بسعر $${fee.gross.toFixed(2)} وتم حجز المبلغ كاملاً من رصيدك في المنصة. لا توجد رسوم إضافية عليك.\n` +
+      `🔒 لن يتحرر المبلغ للبائع إلا بعد تأكيد الاستلام، أو مراجعة النزاع، أو انتهاء مهلة الحجز دون نزاع.\n` +
+      (sellerContact ? `💬 تواصل مع البائع لترتيب التسليم: ${sellerContact}\n` : "💬 افتح طلبك في التطبيق لترتيب التسليم.\n") +
+      "لا تضغط «لقد استلمت المنتج» إلا بعد الاستلام الفعلي.";
+    const sellerText =
+      `✅ تم حجز صفقة "${title}" بقيمة $${fee.gross.toFixed(2)} من المشتري.\n` +
+      `عمولة المنصة ${fee.percent}%: $${fee.commission.toFixed(2)} — صافي مستحقاتك بعد تأكيد الاستلام: $${fee.sellerNet.toFixed(2)}.\n` +
+      (buyerContact ? `💬 تواصل مع المشتري لترتيب التسليم: ${buyerContact}\n` : "💬 افتح طلبك في التطبيق لترتيب التسليم.\n") +
+      "يُضاف صافي مستحقاتك إلى رصيدك بعد تأكيد الاستلام أو حسم النزاع لصالحك.";
+    await send(bot, o.buyerId, buyerText, kbBuyer);
+    await send(bot, o.sellerId, sellerText, kbSeller);
     return;
   }
   if (!r.ok && r.reason === "unavailable") {
@@ -74,13 +82,18 @@ export async function notifyAcceptOutcome(bot: TelegramBot, r: AcceptOutcome, bo
     return;
   }
   if (!r.ok && r.reason === "balance") {
-    await bot.api.sendMessage(Number(r.offer.sellerId), "❌ لم يكتمل الاتفاق — رصيد المشتري غير كافٍ حالياً.").catch(() => null);
-    await bot.api.sendMessage(Number(r.offer.buyerId), `❌ قُبل عرضك لكن رصيدك $${r.balance.toFixed(2)} لا يكفي (السعر $${r.offer.price.toFixed(2)}). أودِع ثم قدّم عرضاً جديداً:\n${depositLink(r.offer.buyerId)}`, extra).catch(() => null);
+    await bot.api.sendMessage(Number(r.offer.sellerId), "❌ لم يكتمل الاتفاق — رصيد المشتري غير كافٍ، ولم تُكشف بيانات التواصل.").catch(() => null);
+    await bot.api.sendMessage(Number(r.offer.buyerId), `❌ رصيدك $${r.balance.toFixed(2)} لا يكفي لحجز السعر $${r.offer.price.toFixed(2)}. اشحن رصيدك ثم قدّم العرض مجدداً:\n${depositLink(r.offer.buyerId)}`, extra).catch(() => null);
   }
 }
 
 export async function notifyReceived(bot: TelegramBot, order: { sellerId: string; amount: number }) {
-  await send(bot, order.sellerId, `✅ أكّد المشتري استلام طلبه — تم إضافة $${order.amount.toFixed(2)} لرصيدك.`);
+  const fee = jobsStoreCommissionBreakdown(order.amount);
+  await send(
+    bot,
+    order.sellerId,
+    `✅ أكّد المشتري استلام طلبه. القيمة $${fee.gross.toFixed(2)} — عمولة المنصة ${fee.percent}% ($${fee.commission.toFixed(2)}) — صافي المبلغ المضاف إلى رصيدك $${fee.sellerNet.toFixed(2)}.`,
+  );
 }
 export async function notifyDisputeOpened(bot: TelegramBot, orderId: string, otherSide: string, amount: number, botId?: string) {
   const kb = new InlineKeyboard().text("📝 تقديم إفادتي", `jdisputestate|${orderId}`);
