@@ -150,6 +150,8 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
+  // the secret box (src/lib/secretVault.ts): the user types a password / token into a masked field of the app (never into the chat); the model only ever sees the NAME and writes {{secret:name}} in tool arguments
+  tool("request_secret", "Ask the user for a password, token, API key or login in a secure box that is shown in the app (NEVER ask for these in the chat and never repeat one). Give a short name (letters, digits, - and _) and say what it is for. The answer is only 'stored'; afterwards write {{secret:name}} wherever the value belongs in a tool argument (a typed password, a command, an HTTP header) and the system fills it in. If the user cannot use the box, tell them to type it themselves on the computer screen (take over).", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for, in the user's language") }, ["name", "purpose"])),
   // scheduled tasks (src/lib/coderSchedules.ts): the user asks in plain words, the model creates the schedule itself; the dispatcher runs it
   tool("schedule_create", "Schedule a task that runs by itself later and reports back to the user in this chat. kind 'cron' = repeats on a time pattern; kind 'event' = runs when something happens in a GitHub repository. Write the prompt as a complete standalone instruction with the concrete subject (the scheduled run does not see this conversation, so 'a short summary' is useless unless it says a summary OF WHAT). If the subject or the time is unclear, ask the user with ask_user first.", obj({
     title: s("short name"), prompt: s("the full instruction the scheduled run will carry out"), kind: { type: "string", enum: ["cron", "event"] },
@@ -658,7 +660,22 @@ export type ToolCtx = {
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
 };
 
+/** The secret box around every tool: {{secret:name}} in the arguments is replaced by the value only here, at run time, and the value is put back to its reference in whatever the tool printed. */
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
+  const key = ctx.userId === undefined || ctx.userId === null ? "" : String(ctx.userId);   // the chat id: the same key the app uses when the user fills the box
+  const raw = call.function?.arguments;
+  if (!key || typeof raw !== "string" || !raw.includes("secret:")) return runToolInner(call, ctx);
+  const V = await import("@/lib/secretVault");
+  let resolved: CoderToolCall;
+  try {
+    resolved = { ...call, function: { ...call.function, arguments: JSON.stringify(V.resolveSecretsDeep(key, JSON.parse(raw))) } };
+  } catch (e) {
+    return `error: ${String((e as Error)?.message || e).slice(0, 200)}`;
+  }
+  return V.scrubSecrets(key, await runToolInner(resolved, ctx));
+}
+
+async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
   const name = call.function.name;
   try {
