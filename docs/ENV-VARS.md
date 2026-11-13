@@ -1,12 +1,12 @@
 # متغيرات البيئة اللازمة لإعادة بناء كل شيء (الأسماء فقط)
 
-القيم السرية لا تُكتب في المستودع. احفظها عندك في مدير كلمات سر. نسبة عمولة متجر فرص العمل الافتراضية 5%، وتُضبط عبر `JOBS_STORE_COMMISSION_PERCENT` (من 0 إلى 20). تُثبّت قيمة العمولة على الطلب عند قبول العرض، فلا تغيّر هذا المتغير قبل تسوية الطلبات المحجوزة القائمة.
+القيم السرية لا تُكتب في المستودع. احفظها عندك في مدير كلمات سر.
 قيم Vercel يحتفظ بها Vercel وحده: صدّرها من Settings ← Environment Variables ← Export، أو بالأمر `vercel env pull`، واحفظ الملف عندك.
 قيم Oracle في ملفاتها (`media.env` و`backup.env` و`.env` تحت مجلد الإعدادات على الخادم).
 
 ## الموقع الرئيسي (Vercel) وبوتات المنصة
 `NEXT_PUBLIC_SITE_URL` · `NEXT_PUBLIC_SUPABASE_URL` · `NEXT_PUBLIC_SUPABASE_ANON_KEY` · `SUPABASE_SERVICE_ROLE_KEY` · `DATABASE_URL`
-`CRON_SECRET` · `SUPER_ADMIN_TELEGRAM_ID` · `ADMIN_PASSWORD` · `RATE_LIMIT_SALT` · `JOBS_STORE_COMMISSION_PERCENT`
+`CRON_SECRET` · `SUPER_ADMIN_TELEGRAM_ID` · `ADMIN_PASSWORD` · `RATE_LIMIT_SALT`
 `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ADMIN_CHAT_ID` · `TELEGRAM_CHANNEL_ID` · `TELEGRAM_WEBHOOK_SECRET` · `VERCEL_WEBHOOK_SECRET`
 `PROMO_AD_BOT_USERNAME` · `NEXT_PUBLIC_OWNER_ID` · `OWNER_ID`
 `GROQ_API_KEY` · `GOOGLE_SAFE_BROWSING_API_KEY`

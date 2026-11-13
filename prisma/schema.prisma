@@ -847,7 +847,7 @@ model JobsTransaction {
   user       JobsUser @relation(fields: [userId], references: [id])
   amount     Float
   currency   String
-  type       String // DEPOSIT | ESCROW_HOLD | ESCROW_RELEASE | ESCROW_REFUND | PLATFORM_FEE_PENDING | PLATFORM_FEE | PLATFORM_FEE_VOID | WITHDRAWAL
+  type       String // DEPOSIT | ESCROW_HOLD | ESCROW_RELEASE | ESCROW_REFUND | WITHDRAWAL
   status     String   @default("COMPLETED")
   txHash     String?
   created_at DateTime @default(now())
