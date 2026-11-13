@@ -1186,7 +1186,7 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     prisma.jobsProfile.count({ where: { roleType: "PROFESSIONAL", user: { botId } } }),
     prisma.jobsProfile.count({ where: { roleType: "TRADER", user: { botId } } }),
     prisma.jobPosting.count({ where: { status: "OPEN", poster: { botId } } }),
-    prisma.storeListing.count({ where: { status: "ACTIVE", seller: { botId } } }),
+    prisma.storeListing.count({ where: { status: "ACTIVE", paymentMethod: "ESCROW", seller: { botId } } }),
     prisma.storeOrder.count({ where: { status: "ESCROWED" } }),
     prisma.jobsDispute.count({ where: { status: { not: "RESOLVED" } } }),
     prisma.jobsReport.count({ where: { status: "PENDING" } }),

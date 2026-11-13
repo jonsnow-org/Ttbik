@@ -675,7 +675,7 @@ function OrderCard({ o, reload }: { o: any; reload: () => Promise<void> }) {
           <b className="block truncate text-[14px]" style={{ color: "var(--app-text)" }}>{o.title}</b>
           <span className="block text-xs" style={{ color: "var(--app-hint)" }}>#{o.short} · {ago(o.at)}{o.shipping ? " · 🚚 شحن" : " · 📍 استلام"}</span>
           <span className="block text-[14px] font-black" style={{ color: "var(--app-accent)" }}>{money(o.amount)}</span>
-      <span className="block text-[10.5px]" style={{ color: "var(--app-hint)" }}>{o.status === "REFUNDED" ? `المبلغ المسترد للمشتري ${money(o.amount)}` : `عمولة المنصة ${money(o.platformFee)} · صافي البائع ${money(o.sellerNet)}`}</span>
+          <span className="block text-[10.5px]" style={{ color: "var(--app-hint)" }}>{o.status === "REFUNDED" ? `المبلغ المسترد للمشتري ${money(o.amount)}` : `عمولة المنصة ${money(o.platformFee)} · صافي البائع ${money(o.sellerNet)}`}</span>
         </div>
         <StatusPill s={o.status} />
       </div>
