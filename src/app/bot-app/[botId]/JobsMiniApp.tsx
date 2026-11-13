@@ -5,6 +5,7 @@
 // (src/lib/botApp/jobsApp.ts). Nothing here opens the website.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { waitForPhoneVerification } from "@/lib/botApp/phoneVerification";
+import { MAIN_TABS, sectionScreen } from "@/lib/botApp/jobsNav";
 import { AppFrame, AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, useApp, type Screen } from "./ui";
 import { StoreScreen, ProductScreen, WantedScreen, ListingForm, WantedForm, ShopsScreen, ShopScreen, MyShopScreen, OrdersScreen } from "./JobsStore";
 import { WorkScreen, JobScreen, ProScreen, TendersScreen, TenderBidsScreen, TenderBidScreen } from "./JobsWork";
@@ -35,7 +36,7 @@ export default function JobsMiniApp({ botId, section, slug, item }: { botId: str
     try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); } catch { /* old clients */ }
     setReady(true);
   }, []);
-  const initial: Screen = item ? { name: "product", params: { id: item } } : section === "shop" && slug ? { name: "shop", params: { slug } } : section === "home" || section === "shop" ? { name: "home" } : { name: section };
+  const initial: Screen = item ? { name: "product", params: { id: item } } : section === "shop" && slug ? { name: "shop", params: { slug } } : sectionScreen(section);
   return (
     <AppFrame lang="ar">
       {ready && (
@@ -163,12 +164,36 @@ function Shell() {
   }
   const cur = stack[stack.length - 1];
   const needsProfile = !init.profile && cur.name !== "home";
+  // The bottom bar shows on the five main sections only (never inside a product, form or order, which have their own Back).
+  const onRoot = !!init.profile && stack.length <= 2 && MAIN_TABS.some((t) => t.name === cur.name);
   return (
     <InitCtx.Provider value={{ init, reload }}>
-      <main className="mx-auto max-w-md px-4 pb-6 pt-3">
-        {!init.profile ? <ProfileForm first /> : needsProfile ? null : <Screens cur={cur} />}
+      <main className={`mx-auto max-w-md px-4 pt-3 ${onRoot ? "pb-28" : "pb-6"}`}>
+        {!init.profile ? <ProfileForm first /> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} />}
       </main>
+      {onRoot && <BottomBar current={cur.name} badge={init.counts.offersWaiting} />}
     </InitCtx.Provider>
+  );
+}
+
+function BottomBar({ current, badge }: { current: string; badge: number }) {
+  const { reset } = useApp();
+  return (
+    <nav aria-label="الأقسام" className="fixed inset-x-0 bottom-0 z-40 border-t" style={{ background: "var(--app-card)", borderColor: "color-mix(in srgb, var(--app-hint) 22%, transparent)", paddingBottom: "var(--app-safe-bottom, 0px)" }}>
+      <div className="mx-auto grid max-w-md grid-cols-5">
+        {MAIN_TABS.map((t) => {
+          const on = t.name === current;
+          return (
+            <button key={t.name} type="button" aria-current={on ? "page" : undefined} onClick={() => { if (!on) reset(t.name === "home" ? undefined : { name: t.name }); else window.scrollTo(0, 0); }}
+              className="relative flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-bold transition active:scale-95" style={{ color: on ? "var(--app-accent, var(--app-btn))" : "var(--app-hint)" }}>
+              <span className="text-[22px] leading-none" style={{ filter: on ? "none" : "grayscale(.6) opacity(.8)" }}>{t.icon}</span>
+              <span>{t.label}</span>
+              {t.name === "store" && badge > 0 && <span className="absolute end-[22%] top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-black" style={{ background: "#ef4444", color: "#fff" }}>{badge}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -176,7 +201,7 @@ function Screens({ cur }: { cur: Screen }) {
   const p = cur.params || {};
   switch (cur.name) {
     case "home": return <Home />;
-    case "store": return <StoreScreen tab={p.tab} />;
+    case "store": return <StoreScreen tab={p.tab} otab={p.otab} />;
     case "product": return <ProductScreen id={p.id} />;
     case "wanted": return <WantedScreen id={p.id} />;
     case "listing_form": return <ListingForm id={p.id} />;
@@ -201,44 +226,35 @@ function Screens({ cur }: { cur: Screen }) {
 
 function Home() {
   const { init } = useInit();
-  const { push } = useApp();
+  const { push, reset } = useApp();
   const p = init.profile;
   const c = init.counts;
   return (
     <>
-      <div className="mb-3 flex items-center justify-between text-sm font-bold" style={{ color: "var(--app-hint)" }}>
-        <span>أهلاً {p?.name || init.user.firstName} 👋</span>
-        <button type="button" onClick={() => push({ name: "account" })} className="rounded-full px-3 py-1 text-xs" style={{ background: "var(--app-card)", color: "var(--app-text)" }}>{p?.roleLabel}</button>
-      </div>
-      <div className="relative mb-4 overflow-hidden rounded-3xl p-5" style={{ background: "linear-gradient(135deg,var(--app-btn),color-mix(in srgb,var(--app-btn) 68%,#0f172a))", color: "var(--app-btn-text)" }}>
-        <div className="text-[13px] font-bold opacity-85">💼 فرص العمل والمتجر</div>
-        <div className="mt-1 text-[22px] font-black leading-tight">بيع واشترِ بأمان، وابحث عن عمل أو مهني</div>
-        <div className="mt-3 flex flex-wrap gap-2 text-[11.5px] font-bold">
-          <button type="button" onClick={() => push({ name: "wallet" })} className="rounded-full bg-white/20 px-2.5 py-1">💰 رصيدك {money(init.balance)}</button>
-          <span className="rounded-full bg-white/20 px-2.5 py-1">🔒 حجز آمن حتى الاستلام</span>
-        </div>
-      </div>
+      <div className="mb-3 text-[17px] font-black" style={{ color: "var(--app-text)" }}>أهلاً {p?.name || init.user.firstName} 👋</div>
+      <button type="button" onClick={() => push({ name: "wallet" })} className="mb-3 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "linear-gradient(135deg,var(--app-btn),color-mix(in srgb,var(--app-btn) 68%,#0f172a))", color: "var(--app-btn-text)" }}>
+        <span className="text-2xl">💰</span>
+        <span className="flex-1"><b className="block text-[18px] font-black">{money(init.balance)}</b><span className="text-[12px] font-bold opacity-85">رصيدك · 🔒 كل عملية بحجز آمن حتى الاستلام</span></span>
+        <span className="text-lg opacity-80">‹</span>
+      </button>
       {(c.offersWaiting > 0 || c.ordersOpen > 0) && (
-        <button type="button" onClick={() => push({ name: "orders", params: { tab: c.offersWaiting > 0 ? "offers" : "buy" } })} className="mb-4 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "#fef3c7", color: "#92400e" }}>
+        <button type="button" onClick={() => reset({ name: "store", params: { tab: "orders", otab: c.offersWaiting > 0 ? "offers" : "buy" } })} className="mb-3 flex w-full items-center gap-3 rounded-2xl p-4 text-start" style={{ background: "color-mix(in srgb, #f59e0b 16%, var(--app-card))", color: "var(--app-text)" }}>
           <span className="text-2xl">🔔</span>
-          <span className="flex-1 text-sm font-bold">{c.offersWaiting > 0 ? `${c.offersWaiting} عرض سعر ينتظر ردّك` : ""}{c.offersWaiting > 0 && c.ordersOpen > 0 ? " · " : ""}{c.ordersOpen > 0 ? `${c.ordersOpen} طلب محجوز قيد التسليم` : ""}</span>
+          <span className="flex-1 text-sm font-bold">{c.offersWaiting > 0 ? `${c.offersWaiting} عرض سعر ينتظر ردّك` : ""}{c.offersWaiting > 0 && c.ordersOpen > 0 ? " · " : ""}{c.ordersOpen > 0 ? `${c.ordersOpen} طلب قيد التنفيذ` : ""}</span>
           <span>‹</span>
         </button>
       )}
+      {/* The same buttons, in the same order, as the bot's main menu. */}
+      <div className="mb-2 mt-4 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>القائمة الرئيسية</div>
       <div className="grid grid-cols-2 gap-2.5">
-        <Tile icon="🛒" title="المتجر" sub="منتجات للبيع وطلبات شراء" tone="#0ea5e9" onClick={() => push({ name: "store" })} />
-        <Tile icon="🛍" title="متاجر البائعين" sub="تصفّح المتاجر واطلب" tone="#d97706" onClick={() => push({ name: "shops" })} />
-        <Tile icon="📂" title="طلباتي" sub="العروض والمشتريات والمبيعات" tone="#7c3aed" badge={c.offersWaiting || 0} onClick={() => push({ name: "orders" })} />
-        <Tile icon="🏪" title="متجري" sub={c.active ? `${c.active} منتج نشط` : "افتح متجرك وشارك رابطه"} tone="#059669" onClick={() => push({ name: "myshop" })} />
-        <Tile icon="💼" title="العمل" sub="وظائف شاغرة ومهنيون" tone="#2563eb" onClick={() => push({ name: "work" })} />
-        <Tile icon="🏷" title="اطلب وهم يتنافسون" sub="عروض أسعار سرية" tone="#db2777" onClick={() => push({ name: "tenders" })} />
+        <Tile icon="💼" title="قسم العمل" sub="نشر وبحث عن وظيفة أو مهني" tone="#2563eb" onClick={() => reset({ name: "work" })} />
+        <Tile icon="🛒" title="قسم المتجر" sub="بيع وشراء وطلباتي ومتجري" tone="#0ea5e9" badge={c.offersWaiting || 0} onClick={() => reset({ name: "store" })} />
+        <Tile icon="🏷" title="اطلب وهم يتنافسون" sub="عروض أسعار سرية" tone="#db2777" onClick={() => reset({ name: "tenders" })} />
+        <Tile icon="👤" title="ملفي الشخصي" sub={p ? `${p.roleLabel} · ${p.city}` : ""} tone="#7c3aed" onClick={() => reset({ name: "account" })} />
+        <Tile icon="💰" title="رصيدي وإيداع" sub="⭐ نجوم أو 🔷 TON" tone="#059669" onClick={() => push({ name: "wallet" })} />
+        <Tile icon="🛍" title="متاجر البائعين" sub="تسوّق من متجر بائع" tone="#d97706" onClick={() => push({ name: "shops" })} />
+        <Tile icon="ℹ️" title="معلومات" sub="اقتراح، مراسلة الإدارة، مشاركة البوت" tone="#64748b" onClick={() => push({ name: "info" })} />
       </div>
-      <div className="mt-4" />
-      <Section>
-        <Row icon="💰" title="رصيدي وإيداع" sub={`${money(init.balance)} · ⭐ نجوم أو 🔷 TON`} onClick={() => push({ name: "wallet" })} />
-        <Row icon="👤" title="ملفي الشخصي" sub={p ? `${p.roleLabel} · ${p.city}` : ""} onClick={() => push({ name: "account" })} />
-        <Row icon="ℹ️" title="معلومات ومراسلة الإدارة" sub="اقتراح، رسالة للأدمن، مشاركة البوت" onClick={() => push({ name: "info" })} />
-      </Section>
     </>
   );
 }
@@ -271,6 +287,10 @@ function AccountScreen() {
   return (
     <>
       <ScreenTitle icon="👤" title={p.name} sub={`${p.roleLabel} · ${p.age} سنة`} />
+      <Section>
+        <Row icon="💰" title="رصيدي وإيداع" sub={`${money(init.balance)} · ⭐ نجوم أو 🔷 TON`} onClick={() => push({ name: "wallet" })} />
+        <Row icon="ℹ️" title="معلومات ومراسلة الإدارة" sub="اقتراح، رسالة للأدمن، مشاركة البوت" onClick={() => push({ name: "info" })} />
+      </Section>
       <Section title="بياناتي">
         <Row icon="🌍" title={`${p.country}، ${p.governorate}، ${p.city}`} />
         <Row icon={p.contactMethod === "TELEGRAM" ? "✈️" : "💬"} title={p.contactMethod === "TELEGRAM" ? `@${p.contactValue}` : p.contactValue} sub={p.contactMethod === "TELEGRAM" ? "تلجرام" : "واتساب"} />
