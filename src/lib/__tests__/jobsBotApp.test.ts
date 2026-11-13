@@ -340,6 +340,19 @@ describe("listings", () => {
     const result: any = await handleJobsAppAction(bots["bot-j"], tgUser("seller"), "wanted_get", { id });
     expect(result).toMatchObject({ ok: true, buyer: { name: "Pbuyer", contact: null } });
   });
+  it("reveals store partner contact only for a funded escrow order, then hides it after settlement", async () => {
+    user("buyer"); user("seller");
+    profile("buyer"); profile("seller");
+    const lid = listing("seller", 25, { status: "SOLD" });
+    const id = uuid();
+    const order = { id, buyerId: "buyer", sellerId: "seller", listingId: lid, amount: 25, deliveryMethod: "SHIPPING", status: "ESCROWED", escrowedAt: new Date(), created_at: new Date() };
+    T("storeOrder").set(id, order);
+    const active: any = await handleJobsAppAction(bots["bot-j"], tgUser("buyer"), "orders", {});
+    expect(active.orders[0].other.contact).toBe("https://t.me/useller");
+    T("storeOrder").set(id, { ...order, status: "RELEASED" });
+    const settled: any = await handleJobsAppAction(bots["bot-j"], tgUser("buyer"), "orders", {});
+    expect(settled.orders[0].other.contact).toBeNull();
+  });
   it("price and photo ids are validated (no garbage file ids, at most 5 photos)", async () => {
     profile("s");
     expect((await saveListingCore("s", { title: "x", price: "0", deliveryMethod: "SHIPPING", paymentMethod: "ESCROW" })).ok).toBe(false);
