@@ -125,6 +125,19 @@ def main() -> int:
     shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
     ckpt, base_dir, label, progress = pick_base(fetch_dataset, probe=None)
+    if (os.environ.get("SHAM_INV_HEAD") or "merged").lower() != "pick":
+        # 2026-11-13: the first inventory used the name-ordered pick (chat checkpoint, step 85,917) as the head, while the real merge continues from the published head
+        # (sham-merged-checkpoint, step 61,555): every distance and verdict was measured against the wrong model. Default = the published head.
+        own = fetch_dataset(OWN)
+        hits = sorted(own.rglob("final_merged.pt")) if own else []
+        if hits:
+            ckpt, base_dir, label = hits[0], hits[0].parent, OWN
+            progress = {}
+            for q in own.rglob("merge_progress.json"):
+                try:
+                    progress = json.loads(q.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tok_path = sorted(base_dir.rglob("sham_small_tokenizer.json"))[0]
     tokenizer = ShamTextTokenizer.load(str(tok_path))
