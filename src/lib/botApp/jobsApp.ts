@@ -68,7 +68,7 @@ type ListingRow = { id: string; sellerId: string; title: string; description: st
 function listingView(l: ListingRow, uid: string, featured: Set<string>, names?: Map<string, string>) {
   return {
     id: l.id, title: l.title, description: l.description || "", price: l.price, photos: photosOf(l.photoFileIds), shipping: l.deliveryMethod === "SHIPPING",
-    escrow: l.paymentMethod === "ESCROW", status: l.status, featured: featured.has(l.id), mine: l.sellerId === uid, at: l.created_at.toISOString(),
+    escrow: true, status: l.status, featured: featured.has(l.id), mine: l.sellerId === uid, at: l.created_at.toISOString(),
     seller: names?.get(l.sellerId) || null,
   };
 }
@@ -177,7 +177,13 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       if (!isOwner && (await isBlocked(uid, w.buyerId))) return fail("🚫 غير متاح.", "blocked");
       if (!isOwner && w.status !== "ACTIVE") return fail("لم يعد هذا الطلب متاحاً.", "gone");
       const buyer = await prisma.jobsProfile.findUnique({ where: { userId: w.buyerId } });
-      return { ok: true, wanted: { id: w.id, title: w.title, description: w.description || "", budget: w.budget, status: w.status, mine: isOwner, at: w.created_at.toISOString() }, buyer: { id: isOwner ? null : w.buyerId, name: buyer?.name || "", place: [buyer?.city, buyer?.governorate].filter(Boolean).join("، "), contact: isOwner ? null : contactUrlOf(buyer) } };
+      return {
+        ok: true,
+        wanted: { id: w.id, title: w.title, description: w.description || "", budget: w.budget, status: w.status, mine: isOwner, at: w.created_at.toISOString() },
+        // Public requests never expose a buyer's phone or Telegram handle.
+        // Contact is unlocked only from an accepted, funded StoreOrder.
+        buyer: { id: isOwner ? null : w.buyerId, name: buyer?.name || "", place: [buyer?.city, buyer?.governorate].filter(Boolean).join("، "), contact: null },
+      };
     }
     case "listing_save": {
       if (!rateLimit(`japp-ls:${uid}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
@@ -239,7 +245,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
           const w = o.wantedId ? wm.get(o.wantedId) : null;
           return {
             id: o.id, kind: o.kind, price: o.price, status: o.status, role: o.buyerId === uid ? "buyer" : "seller", myTurn: o.status === "PENDING" && otherPartyOf(o) === uid,
-            title: l?.title || w?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null, asked: l?.price ?? w?.budget ?? null, escrow: l ? l.paymentMethod === "ESCROW" : true,
+            title: l?.title || w?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null, asked: l?.price ?? w?.budget ?? null, escrow: true,
             targetId: o.listingId || o.wantedId, other: names.get(o.buyerId === uid ? o.sellerId : o.buyerId) || null, at: o.updated_at.toISOString(),
           };
         }),
@@ -289,7 +295,10 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
           return {
             id: o.id, short: o.id.slice(-6), role, amount: o.amount, status: o.status, shipping: o.deliveryMethod === "SHIPPING", title: l?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null,
             at: o.created_at.toISOString(), escrowedAt: o.escrowedAt?.toISOString() || null, releasedAt: o.releasedAt?.toISOString() || null,
-            other: other ? { name: other.name, city: other.city, contact: o.status === "ESCROWED" ? contactUrlOf(other) : null } : null,
+            commission: o.status === "REFUNDED" ? 0 : jobsStoreCommissionBreakdown(Number(o.amount)).commission,
+            commissionPercent: jobsStoreCommissionBreakdown(Number(o.amount)).percent,
+            sellerNet: o.status === "REFUNDED" ? 0 : jobsStoreCommissionBreakdown(Number(o.amount)).sellerNet,
+            other: other ? { name: other.name, city: other.city, contact: ["ESCROWED", "RELEASED"].includes(o.status) ? contactUrlOf(other) : null } : null,
             dispute: d ? { status: d.status, resolution: d.resolution, mine: !!myStatement, opener: d.openedBy === uid } : null,
           };
         }),
