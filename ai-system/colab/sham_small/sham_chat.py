@@ -339,12 +339,19 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
     pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
     shares = _wants(plan, max_examples) if plan else []
+    import time as _time
+    deadline = _time.time() + float(os.environ.get("SHAM_CHAT_DEADLINE") or 600)   # all sources together: a throttled mirror must not hold a cycle for an hour
     for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
+        if _time.time() > deadline and pairs:
+            print(f"⏱ انتهت مهلة جمع الحوارات ({len(pairs):,} زوجًا): تُترك المصادر المتبقية لهذه الجلسة")
+            break
         want = min(shares[n] if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
         if want <= 0:
             break
         try:
-            ds = loader()
+            # hf-mirror answers 429 and huggingface_hub then waits 200 s x 5 retries per dataset: a trainer sat 174 minutes without a line right here (cn, 2026-11-13)
+            from sham_data_sources import _bounded
+            ds = _bounded(loader, float(os.environ.get("SHAM_SOURCE_OPEN_TIMEOUT") or 150))
             if keep is not None:
                 ds = ds.filter(keep)
         except Exception as exc:  # one source down must not stop the run
