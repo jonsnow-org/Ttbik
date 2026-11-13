@@ -31,13 +31,13 @@ export function WorkScreen({ tab: initialTab }: { tab?: string }) {
   const { init } = useInit();
   const employer = init.profile?.roleType === "EMPLOYER";
   const [tab, setTab] = useState<string>(initialTab || (employer ? "mine" : init.profile?.roleType === "PROFESSIONAL" ? "pros" : "jobs"));
-  const tabs = [{ id: "jobs", label: "🔍 وظائف شاغرة" }, { id: "pros", label: "🔨 ابحث عن مهني" }, ...(employer ? [{ id: "mine", label: "📋 وظائفي" }, { id: "post", label: "➕ انشر وظيفة" }] : [])];
+  const tabs = [{ id: "jobs", label: "🔍 وظائف" }, { id: "pros", label: "🔨 مهنيون" }, { id: "tenders", label: "🏷 مناقصات" }, ...(employer ? [{ id: "mine", label: "📋 وظائفي" }, { id: "post", label: "➕ انشر وظيفة" }] : [])];
   return (
     <>
       <ScreenTitle icon="💼" title="العمل" sub="وظائف شاغرة لمن يبحث عن عمل، ومهنيون لمن يحتاج خدمة." />
       <div className="mb-3"><Chips items={tabs} value={tab} onChange={setTab} /></div>
-      {tab === "jobs" ? <JobsList /> : tab === "pros" ? <ProsList /> : tab === "mine" ? <MyJobs onPost={() => setTab("post")} /> : <JobPostForm onDone={() => setTab("mine")} />}
-      {!employer && <p className="mt-4 px-1 text-[11.5px] leading-5" style={{ color: "var(--app-hint)" }}>نشر الوظائف متاح لملفات «معلن وظيفة».</p>}
+      {tab === "jobs" ? <JobsList /> : tab === "pros" ? <ProsList /> : tab === "tenders" ? <TendersScreen embedded /> : tab === "mine" ? <MyJobs onPost={() => setTab("post")} /> : <JobPostForm onDone={() => setTab("mine")} />}
+      {!employer && tab !== "tenders" && <p className="mt-4 px-1 text-[11.5px] leading-5" style={{ color: "var(--app-hint)" }}>نشر الوظائف متاح لملفات «معلن وظيفة».</p>}
     </>
   );
 }
@@ -198,7 +198,7 @@ const left = (iso: string) => {
   return h >= 24 ? `متبقٍ ${Math.floor(h / 24)} يوم` : h >= 1 ? `متبقٍ ${h} ساعة` : `متبقٍ ${Math.max(1, Math.floor(ms / 60_000))} دقيقة`;
 };
 
-export function TendersScreen() {
+export function TendersScreen({ embedded }: { embedded?: boolean } = {}) {
   const { api, push, toast } = useApp();
   const { init } = useInit();
   const [d, setD] = useState<any>(null);
@@ -209,7 +209,8 @@ export function TendersScreen() {
   const openCount = d.mine.filter((t: any) => t.live).length;
   return (
     <>
-      <ScreenTitle icon="🏷" title="اطلب وهم يتنافسون" sub="اكتب ما تحتاجه مرة واحدة، وتصلك عروض سرية من المختصين ثم تختار الأنسب." />
+      {!embedded && <ScreenTitle icon="🏷" title="اطلب وهم يتنافسون" sub="اكتب ما تحتاجه مرة واحدة، وتصلك عروض سرية من المختصين ثم تختار الأنسب." />}
+      {embedded && <p className="mb-3 px-1 text-[12px] leading-5" style={{ color: "var(--app-hint)" }}>اكتب ما تحتاجه مرة واحدة، وتصلك عروض سرية من المختصين ثم تختار الأنسب.</p>}
       <div className="mb-3"><Chips items={[{ id: "mine", label: `📋 طلباتي (${d.mine.length})` }, ...(d.provider ? [{ id: "inbox", label: `📥 طلبات تناسبني (${d.inbox.length})` }] : []), { id: "new", label: "➕ طلب جديد" }]} value={tab} onChange={setTab} /></div>
       {tab === "new" ? (
         openCount >= init.maxOpenTenders ? <Empty icon="⚠️" title={`لديك ${openCount} طلبات مفتوحة بالفعل`} sub={`الحد الأقصى ${init.maxOpenTenders}. أغلق طلباً أو انتظر انتهاءه.`} /> : <TenderForm onDone={async () => { await load(); setTab("mine"); }} />
