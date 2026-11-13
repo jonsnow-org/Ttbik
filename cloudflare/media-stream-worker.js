@@ -41,7 +41,8 @@ export default {
     const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}`, mediaPathOrigin(env)));
     let pathResp = await cache.match(pathKey);
     if (!pathResp) {
-      pathResp = await fetch(pathKey);
+      // The gate is a Worker of this same account: workers.dev -> workers.dev fetches are refused (404), so use the service binding when there is one.
+      pathResp = env.GATE ? await env.GATE.fetch(pathKey) : await fetch(pathKey);
       if (!pathResp.ok) return new Response("not available", { status: pathResp.status === 404 ? 404 : 502, headers: cors });
       const copy = new Response(pathResp.clone().body, pathResp);
       copy.headers.set("cache-control", "public, max-age=3000");
