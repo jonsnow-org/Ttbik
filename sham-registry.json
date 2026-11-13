@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-13 11:15 UTC",
+  "generated_at": "2026-11-13 19:56 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -66,9 +66,27 @@
       "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service.\nقبل الفشل: 0.00s - to python to disable frozen modules. | 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this"
     },
     {
+      "alias": "المرحلة الأولى 6",
+      "track": "text_stage1",
+      "status": "running",
+      "role": "primary",
+      "last_run": "2026-11-13",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المرحلة الأولى 4",
+      "track": "text_stage1",
+      "status": "error",
+      "role": "duplicate",
+      "last_run": "2026-11-13",
+      "gpu": false,
+      "failure": ""
+    },
+    {
       "alias": "المرحلة الأولى 3",
       "track": "text_stage1",
-      "status": "cancelAcknowledged",
+      "status": "error",
       "role": "duplicate",
       "last_run": "2026-11-12",
       "gpu": false,
@@ -79,24 +97,6 @@
       "track": "text_stage1",
       "status": "error",
       "role": "duplicate",
-      "last_run": "2026-11-13",
-      "gpu": false,
-      "failure": ""
-    },
-    {
-      "alias": "المرحلة الأولى 4",
-      "track": "text_stage1",
-      "status": "error",
-      "role": "duplicate",
-      "last_run": "2026-11-12",
-      "gpu": false,
-      "failure": ""
-    },
-    {
-      "alias": "المرحلة الأولى 6",
-      "track": "text_stage1",
-      "status": "running",
-      "role": "primary",
       "last_run": "2026-11-13",
       "gpu": false,
       "failure": ""
@@ -185,7 +185,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-11-13",
       "gpu": false,
@@ -260,7 +260,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 580.2,
+      "size_mb": 718.4,
       "last_updated": "2026-11-13",
       "progress": {},
       "has_key_files": true
@@ -268,7 +268,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4237.6,
+      "size_mb": 4237.4,
       "last_updated": "2026-11-13",
       "progress": {},
       "has_key_files": true
@@ -276,8 +276,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4239.0,
-      "last_updated": "2026-11-12",
+      "size_mb": 4238.3,
+      "last_updated": "2026-11-13",
       "progress": {},
       "has_key_files": true
     },

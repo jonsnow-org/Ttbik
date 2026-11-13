@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-13 11:15 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-11-13 19:56 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -22,10 +22,10 @@
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
-⛔ أُوقف | المرحلة الأولى 3 | duplicate
-❌ فشل | المرحلة الأولى 5 | duplicate
-❌ فشل | المرحلة الأولى 4 | duplicate
 ⏳ يعمل الآن | المرحلة الأولى 6 | primary
+❌ فشل | المرحلة الأولى 4 | duplicate
+❌ فشل | المرحلة الأولى 3 | duplicate
+❌ فشل | المرحلة الأولى 5 | duplicate
 ❌ فشل | المرحلة الثالثة 5 | duplicate
 ⏳ يعمل الآن | الدفتر الشامل 1 | primary
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate
@@ -35,7 +35,7 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ❌ فشل | مسار ترميز الصوت 3 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-⏳ يعمل الآن | دفتر المسارين A وB 1 | primary
+✅ اكتمل | دفتر المسارين A وB 1 | primary
 ✅ اكتمل | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | duplicate
 ✅ اكتمل | المرحلة الثانية 1 | primary
