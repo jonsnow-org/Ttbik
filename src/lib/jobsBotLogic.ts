@@ -1304,6 +1304,17 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
     const text = String(msg.text || "").trim();
     const adminUser = await ensureJobsUser(botRow.id, tgUserId);
+    // The Mini App asks every user, the owner included, to verify the phone (its «مشاركة رقم الهاتف» button sends this contact message). The admin
+    // panel below used to swallow it ("choose from the control panel"), so the owner could never get past the Mini App's phone screen.
+    if (msg.contact) {
+      if (String(msg.contact.user_id) === tgUserId) {
+        await prisma.jobsUser.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
+        await bot.api.sendMessage(chatId, "✅ تم التحقق من رقم هاتفك.", { reply_markup: adminMenu() });
+      } else {
+        await bot.api.sendMessage(chatId, "⚠️ يجب مشاركة رقم هاتفك أنت.");
+      }
+      return;
+    }
     const adminPending = adminUser.pendingAction as PendingAction | null;
     if (text === "/start") {
       await setPending(tgUserId, null);

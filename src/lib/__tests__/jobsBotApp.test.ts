@@ -1,3 +1,4 @@
+process.env.SUPER_ADMIN_TELEGRAM_ID = "9001"; // read once by the bot logic when it is first imported
 // The jobs & store bot's own Mini App (@Saragptbotbot, JOBS_BOT): auth per bot, the same gates as the chat (ban, phone,
 // profile), and the money/order paths shared by chat and app (src/lib/jobs/core.ts): accepting an offer holds the buyer's
 // balance exactly once, receipt releases it once and closes a pending dispute, a sold listing cannot be rewritten.
@@ -404,6 +405,15 @@ describe("phone verification contact webhook", () => {
     expect(refreshedResponse.status).toBe(200);
     const refreshed = await refreshedResponse.json();
     expect(refreshed).toMatchObject({ ok: true, phoneVerified: true, user: { id: "4242" } });
+  });
+
+  it("lets the owner (super admin) verify the phone too: the admin panel must not swallow the contact", async () => {
+    user("9001", 0, { phoneVerified: false });
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
+      message: { message_id: 903, chat: { id: 9001, type: "private" }, from: { id: 9001, first_name: "Owner" }, contact: { phone_number: "+963922222222", user_id: 9001, first_name: "Owner" } },
+    });
+    expect(T("jobsUser").get("9001")).toMatchObject({ phoneNumber: "+963922222222", phoneVerified: true });
+    expect(api.sendMessage).toHaveBeenCalledWith(9001, expect.stringContaining("تم التحقق"), expect.any(Object));
   });
 
   it("does not verify a different person's contact", async () => {
