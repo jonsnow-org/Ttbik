@@ -259,6 +259,37 @@ def _kaggle(cmd: list, tries: int = 6):
     return r
 
 
+def _head_from_modelscope(dest: Path) -> bool:
+    """The published head also lives in a ModelScope model repo (sham-modelscope.yml copies it there). The cn trainer Studio reaches ModelScope at home speed while Kaggle
+    downloads of its 850 MB took more than 30 minutes (2026-11-13: the trainer never started). Returns True when dest now holds final_merged.pt + its tokenizers."""
+    repo = os.environ.get("SHAM_MS_HEAD_REPO") or "novaai2026/sham-merged"
+    try:
+        from modelscope import snapshot_download
+        tok = os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
+        if tok:
+            try:
+                from modelscope.hub.api import HubApi
+                HubApi().login(tok)
+            except Exception:       # the cached login / public access may still work
+                pass
+        cache = dest.parent / "ms_cache"
+        src = Path(snapshot_download(repo, cache_dir=str(cache)))
+        got = 0
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in src.iterdir():
+            if f.is_file() and (f.name in ("final_merged.pt", "sham_small_tokenizer.json") or f.name.endswith("_tokenizer.pt")):
+                shutil.copy2(f, dest / f.name)
+                got += 1
+        shutil.rmtree(cache, ignore_errors=True)
+        ok = (dest / "final_merged.pt").exists() and (dest / "sham_small_tokenizer.json").exists()
+        print(f"  • sham-merged-checkpoint: من ModelScope ({repo}) — {got} ملفات" if ok else f"  ⚠ مستودع ModelScope {repo} ينقصه الرأس")
+        return ok
+    except Exception as exc:
+        print(f"  ⚠ تعذّر جلب الرأس من ModelScope ({type(exc).__name__}: {str(exc)[:100]}) — يُجرَّب Kaggle")
+        return False
+
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -286,6 +317,10 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
         older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _has(d, need)),
                        key=lambda d: int(d.name.rsplit("__v", 1)[1]))
         return older[-1] if older else (None if name != base else dest)
+    if base == "sham-merged-checkpoint" and not fresh and (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope":
+        if _head_from_modelscope(dest):
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
     user = _ensure_credentials()
     if not user:
         return None
