@@ -177,6 +177,54 @@
     {
       "path": "/api/cron/jobs-escrow-release",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/anti-cheat-retention",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/data-retention",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/medical-reminders",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/nova-knowledge-feed",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/bot-update-announcements",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/fake-chat-cleanup",
+      "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/cron/streak-reminders",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/prayer-reminders",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/time-capsules",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/match-activity",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/athar-birthdays",
+      "schedule": "20 6 * * *"
+    },
+    {
+      "path": "/api/cron/indexnow",
+      "schedule": "30 6 * * *"
     }
   ]
 }
