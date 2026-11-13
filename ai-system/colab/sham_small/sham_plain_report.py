@@ -58,6 +58,17 @@ def plain_summary(label: str, step: int, before: dict, after: dict, report: list
             sc = {k: float(v) for k, v in re.findall(r"(\w+)=([\d.]+)", m.group(2))}
             if sc.get("chat", 0) > before.get("chat", 1) * 3 or sc.get("text", 0) > before.get("text", 1) * 2:
                 broken.append(m.group(1))
+    left_out = []      # owner's order 2026-11-13: no notebook or output may sit unconnected to the merge without being said
+    for l in report:
+        m = re.match(r"⏭ (\S+?): (.*)$", l)
+        if m:
+            name, why = m.group(1), m.group(2)
+            if "جُرّبت سابقاً" in why:
+                left_out.append(f"• {name}: لم يتغير منذ آخر دمج، فلا تُعاد تجربته")
+            elif "يؤجَّل" in why:
+                left_out.append(f"• {name}: مؤجَّل للتشغيل القادم (حدّ المصادر في التشغيل الواحد)")
+            else:
+                left_out.append(f"• {name}: لا يمكن دمجه كما هو — {why[:110]} (يبقى محفوظًا ويحتاج معالجة، لا يُهمَل)")
     lines = ["🧩 الدمج بالكلمات", f"الأساس: {label} (خطوة {step:,})"]
     if published:
         tot = "، ".join(f"{_skill(k)}: {_plain_change(before[k], after[k])}" for k in before if k in after)
@@ -70,5 +81,8 @@ def plain_summary(label: str, step: int, before: dict, after: dict, report: list
     lines.extend(rej)
     if broken:
         lines.append("تالفة أو بعيدة جدًا (لا تصلح للدمج): " + "، ".join(broken))
+    if left_out:
+        lines.append(f"لم تدخل الدمج هذه المرة ({len(left_out)}) ولماذا:")
+        lines.extend(left_out)
     lines.append("(الخسارة: كلما صغر الرقم كان النموذج أفضل؛ التحسّن = نزول الرقم)")
     return "\n".join(lines)
