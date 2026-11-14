@@ -96,6 +96,7 @@ function backLabel(): string {
 function isBack(text: string): boolean {
   return text === backLabel();
 }
+const TODAY_LABEL = "🌙 بطاقة اليوم";
 const BOARD_BUTTON = "🧩 لوحة سلاسلي";
 const ALL_BUTTON = "📊 كل سلاسلي";
 const INFO_BUTTON = "ℹ️ معلومات";
@@ -106,12 +107,9 @@ const isOwnerId = (id: string) => !!SUPER_ADMIN_ID && id === SUPER_ADMIN_ID;
 /** The user panel. Groups of two per row: board and totals, the four chains, the group features, app and info. The owner gets one extra row back to the admin panel. */
 export function mainMenu(owner = false): Keyboard {
   const kb = new Keyboard();
-  kb.text(BOARD_BUTTON).text(ALL_BUTTON).row();
-  STREAK_CATEGORIES.forEach((cat, i) => { kb.text(cat.menuLabel); if (i % 2 === 1) kb.row(); });
-  kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
-  kb.text(CONTEST_BUTTON).text(APP_BUTTON).row();
-  kb.text(INFO_BUTTON);
-  if (owner) kb.text(ADMIN_PANEL_BUTTON);
+  const items = [TODAY_LABEL, BOARD_BUTTON, ...STREAK_CATEGORIES.map((c) => c.menuLabel), ALL_BUTTON, MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, APP_BUTTON, INFO_BUTTON];
+  if (owner) items.push(ADMIN_PANEL_BUTTON);
+  items.forEach((t, i) => { kb.text(t); if (i % 2 === 1) kb.row(); });
   return kb.resized();
 }
 function categoryMenu(): Keyboard {
@@ -134,7 +132,7 @@ export function adminMenu(): Keyboard {
 export function isUserFlowText(text: string, pending: PendingAction | null): boolean {
   return (
     isServicesRequest(text) || isBack(text) ||
-    [APP_BUTTON, "/app", MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, "/khatma", "/contest", BOARD_BUTTON, "/widget", ALL_BUTTON, INFO_BUTTON, "✅ سجلت اليوم", "📤 مشاركة"].includes(text) ||
+    [APP_BUTTON, "/app", MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, "/khatma", "/contest", TODAY_LABEL, "/today", BOARD_BUTTON, "/widget", ALL_BUTTON, INFO_BUTTON, "✅ سجلت اليوم", "📤 مشاركة"].includes(text) ||
     !!findCategoryByLabel(text) ||
     /^\/start (app|k_|khatma|contest|prize)/.test(text) ||
     pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication" || (pending as { mode?: string } | null)?.mode === "category"
@@ -339,6 +337,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     const cq = update.callback_query;
     const uid = String(cq.from?.id || "");
     if (uid) await ensureStreakUser(botRow.id, uid);
+    if (/^(tq|tcc|tcp)(\||$)/.test(String(cq.data || ""))) {
+      const { handleTodayCallback } = await import("@/lib/streakToday");
+      await handleTodayCallback(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
+      return;
+    }
     if (String(cq.data || "").startsWith("sk|")) {
       const { handleBoardTap } = await import("@/lib/streakWidget");
       await handleBoardTap(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
@@ -466,6 +469,13 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
+  if (text === TODAY_LABEL || text === "/today") {
+    await setPending(tgUserId, null);
+    const { sendToday } = await import("@/lib/streakToday");
+    await sendToday(bot, chatId, tgUserId);
+    return;
+  }
+
   if (text === BOARD_BUTTON) {
     await setPending(tgUserId, null);
     const { sendBoard } = await import("@/lib/streakWidget");
@@ -497,7 +507,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     }
     const lines = entries
       .map((e) => {
-        const cat = findCategory(e.category);
+        const cat = findCategory(e.category) || (e.category === "quiz" ? { emoji: "🧠", title: "سؤال اليوم" } : undefined);
         return `${cat?.emoji || ""} ${cat?.title || e.category}: 🔥 ${e.currentStreak} يوم (أطول: ${e.longestStreak})`;
       })
       .join("\n");

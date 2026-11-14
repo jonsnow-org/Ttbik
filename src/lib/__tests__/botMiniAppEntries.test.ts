@@ -24,7 +24,7 @@ describe("Mini App entry points are visible and actionable in their owning bots"
 
   it("daily chains bot: its reply button, app sections and retry-on-failure remain available", () => {
     const src = lib("streakBotLogic.ts");
-    expect(src).toMatch(/kb\.text\(CONTEST_BUTTON\)\.text\(APP_BUTTON\)/);
+    expect(src).toMatch(/CONTEST_BUTTON, APP_BUTTON/);
     expect(src).toContain('appUrlFor(botRow, "khatma")');
     expect(src).toContain('appUrlFor(botRow, "contests")');
     expect(src).toMatch(/const updated = await setBotAppMenu\([\s\S]*?if \(updated\) appMenuDone\.add\(botRow\.id\)/);
