@@ -14,7 +14,7 @@ function contactHref(contact?: string, message?: string): string | null {
   const phone = contact.startsWith("+") ? contact.slice(1) : contact;
   const isPhone = phone.length >= 7 && phone.length <= 15 && [...phone].every((digit) => digit >= "0" && digit <= "9");
   if (isPhone) return "https://wa.me/" + phone + "?text=" + body;
-  if (contact.startsWith("https://")) return contact;
+  if (contact.toLowerCase().startsWith("https://")) return contact;
   return null;
 }
 
