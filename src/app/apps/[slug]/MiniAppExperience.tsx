@@ -11,8 +11,10 @@ function contactHref(contact?: string, message?: string): string | null {
   if (!contact) return null;
   const body = encodeURIComponent(message || "مرحباً");
   if (contact.startsWith("@")) return "https://t.me/" + contact.slice(1);
-  if (/^\\+?\\d{7,15}$/.test(contact)) return "https://wa.me/" + contact.replace(/\\D/g, "") + "?text=" + body;
-  if (/^https:\\/\\//.test(contact)) return contact;
+  const phone = contact.startsWith("+") ? contact.slice(1) : contact;
+  const isPhone = phone.length >= 7 && phone.length <= 15 && [...phone].every((digit) => digit >= "0" && digit <= "9");
+  if (isPhone) return "https://wa.me/" + phone + "?text=" + body;
+  if (contact.startsWith("https://")) return contact;
   return null;
 }
 
