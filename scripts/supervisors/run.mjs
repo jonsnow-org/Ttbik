@@ -24,15 +24,20 @@ export const SECTIONS = {
   },
   "telegram-bots": {
     site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200], ["Vercel standby (home)", "/", "standby", ok200, true]],
-    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
+    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["monitor.yml", "Monitor (this report)", 4]],
     errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i, botsHealth: true,
   },
   "site-content": {
     site: [["home", "/", "vercel", ok200], ["news", "/news", "vercel", ok200], ["articles", "/articles", "vercel", ok200], ["prices", "/prices", "vercel", ok200],
       ["markets", "/markets", "vercel", ok200], ["English desk", "/en", "vercel", ok200], ["markets API", "/api/markets", "vercel", hasDigits], ["markets API (English)", "/api/markets-en", "vercel", hasDigits, true],
       ["sitemap", "/sitemap.xml", "vercel", (t) => t.includes("<urlset") && t.includes("/free-tools/")], ["llms.txt", "/llms.txt", "vercel", ok200, true]],
-    workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["error-triage.yml", "Error triage", 12]],
+    workflows: [["ci.yml", "CI (typecheck + tests)", 72]],
     errorWords: /news|article|price|market|ticker|tool|seo|sitemap|ad/i,
+  },
+  promo: {
+    site: [],
+    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200]],
+    errorWords: /promo|channel|youtube|video|post/i,
   },
   athar: {
     site: [["Athar health (mirror)", "/api/ops/athar-health", "vercel", json((j) => j.alive === true && Object.entries(j.checks || {}).every(([k, c]) => c.ok || k === "mirrorImg"))], // mirrorImg probes the Vercel standby: down (HTTP 402) while Vercel is paused, which is not an Athar fault
@@ -43,7 +48,7 @@ export const SECTIONS = {
 };
 // Tier-1 repair: the ONLY thing a bot may do on its own is rerun the failed jobs of these idempotent workflows (read-only checks / index rebuilds).
 // Never anything that mints, pays, posts or edits code. Rules that keep the bots out of our way are in decideRerun().
-export const RERUN_OK = new Set(["znbt-index.yml", "error-triage.yml", "znbt-guard.yml", "zenobia-watch.yml", "promo-projects.yml"]);
+export const RERUN_OK = new Set(["znbt-index.yml", "znbt-guard.yml", "zenobia-watch.yml", "promo-projects.yml"]);
 export const FAIL_AGE_MIN = 12 * 60;   // owner order 2026-10-25: a failure must stay unfixed for 12 hours before a bot touches it
 export const PUSH_QUIET_MIN = 15;   // and nobody may have pushed to main/production in the last 15 minutes (a person or session is working right now)
 export const PAUSE_LABEL = "bots-pause";   // any OPEN issue with this label pauses every automatic action (we are mid-change)
@@ -127,30 +132,30 @@ export function notifyDecision(prevBody, status, nowMs = Date.now()) {
   return { comment, marker: status === "ok" ? "" : `\n<!-- since:${since} notified:${notified ? 1 : 0} -->\n` };
 }
 
+/** Pure: one report for every section: the overall status first, then each section's checks. Nothing here is per-event. */
+export function renderAll(parts, date) {
+  const icon = { ok: "✅", warn: "⚠️", fail: "❌", info: "ℹ️" };
+  const all = parts.flatMap((p) => p.checks), st = overall(all);
+  const lines = parts.map((p) => `- ${icon[overall(p.checks)]} **${p.section}**: ${p.checks.filter((c) => c.level === "fail" || c.level === "warn").map((c) => `${c.name} — ${c.detail}`).join("; ") || "all good"}`);
+  const detail = parts.map((p) => `<details><summary>${p.section}</summary>\n\n${p.checks.map((c) => `- ${icon[c.level]} ${c.name}: ${c.detail}`).join("\n")}\n</details>`);
+  const acted = parts.flatMap((p) => p.acted || []), skipped = parts.flatMap((p) => p.skipped || []);
+  return `<!-- status:${st} -->\n# Monitoring: all systems · ${date} (UTC)\n\nOverall: ${st === "ok" ? "✅ all good" : st === "warn" ? "⚠️ needs a look" : "❌ something is broken"}\n\n${lines.join("\n")}\n\n${detail.join("\n")}${acted.length ? `\nAutomatic actions: ${acted.join("; ")}\n` : ""}${skipped.length ? `\nNot touched (conflict rules): ${skipped.join("; ")}\n` : ""}\nThis is the ONE monitoring report: edited in place every run, and a comment (an e-mail) is added only for an outage of ${NOTIFY_AFTER_H}+ hours and for its recovery.\n`;
+}
+
 async function main() {
-  const section = process.argv[2], cfg = SECTIONS[section];
-  if (!cfg) { console.error(`unknown section: ${section}`); process.exit(2); }
+  const arg = process.argv[2];
+  const names = arg === "all" ? Object.keys(SECTIONS) : [arg];
+  if (names.some((n) => !SECTIONS[n])) { console.error(`unknown section: ${arg}`); process.exit(2); }
   const repo = process.env.GITHUB_REPOSITORY || "jonsnow-org/Ttbik", token = process.env.GITHUB_TOKEN || "";
   const site = JSON.parse(fs.readFileSync(process.env.SITE_JSON || "deploy/hosting/site.json", "utf8"));
   // "vercel" entries are checked through the GATE (the real public site: Oracle first, Vercel standby behind it). While Vercel answers 402 (free-plan limit) the old
   // direct probes reported a healthy site as broken. "standby" is the direct Vercel address, informational only.
   const base = { gate: site.gateUrl || site.engineUrl, vercel: site.gateUrl || site.engineUrl, standby: site.vercelUrl, oracle: site.oracleUrl };
   const gh = async (path, init = {}) => {
-    const r = await fetch(`https://api.github.com${path}`, { ...init, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28", "content-type": "application/json", ...(init.headers || {}) }, signal: AbortSignal.timeout(30000) });
+    const r = await fetch(`https://api.github.com${path}`, { ...init, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28", "content-type": "application/json" }, signal: AbortSignal.timeout(30000) }).catch(() => ({ status: 0, json: async () => null }));
     return { status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null) };
   };
-  const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
-  for (const [label, path, b, pred, info] of cfg.site) { const r = await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info }); }
-  for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, error: `HTTP ${r.status}` }); }
-  if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
-    try {
-      const r = await fetch(`${base.gate}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
-      data.bots = r.status === 200 ? await r.json() : { error: `HTTP ${r.status}` };
-    } catch (e) { data.bots = { error: "no answer" }; }
-  }
-  const er = await gh(`/repos/${repo}/issues?state=open&labels=auto-error&per_page=50`);
-  if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
-  const acted = [], skipped = [];
+  // shared facts (one read for all sections)
   const pausedRes = await gh(`/repos/${repo}/issues?state=open&labels=${PAUSE_LABEL}&per_page=1`);
   const paused = pausedRes.status === 200 && pausedRes.body.some((i) => !i.pull_request);
   let lastPushAt = "";
@@ -159,27 +164,45 @@ async function main() {
     const t = c.status === 200 && c.body?.[0]?.commit?.committer?.date;
     if (t && (!lastPushAt || Date.parse(t) > Date.parse(lastPushAt))) lastPushAt = t;
   }
-  for (const w of data.workflows) {
-    if (!w.runs?.length || !RERUN_OK.has(w.def[0])) continue;
-    const act = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=in_progress`);
-    const que = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=queued`);
-    const active = [...(act.body?.workflow_runs || []), ...(que.body?.workflow_runs || [])];
-    const d = decideRerun({ file: w.def[0], runs: w.runs, active, lastPushAt, paused });
-    if (d.ok) acted.push(`reran failed jobs of ${w.def[1]} (${d.why}; HTTP ${(await gh(`/repos/${repo}/actions/runs/${w.runs[0].id}/rerun-failed-jobs`, { method: "POST" })).status})`);
-    else if (w.runs[0].conclusion === "failure") skipped.push(`${w.def[1]}: ${d.why}`);
+  const er = await gh(`/repos/${repo}/issues?state=open&labels=auto-error&per_page=50`);
+  const seenReruns = new Set();
+  const parts = [];
+  for (const section of names) {
+    const cfg = SECTIONS[section];
+    const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
+    for (const [label, path, b, pred, info] of cfg.site) { const r = await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info }); }
+    for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
+    if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
+      try {
+        const r = await fetch(`${base.gate}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
+        data.bots = r.status === 200 ? await r.json() : { error: `HTTP ${r.status}` };
+      } catch (e) { data.bots = { error: "no answer" }; }
+    }
+    if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
+    const acted = [], skipped = [];
+    for (const w of data.workflows) {
+      if (!w.runs?.length || !RERUN_OK.has(w.def[0]) || seenReruns.has(w.def[0])) continue;
+      seenReruns.add(w.def[0]);
+      const act = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=in_progress`);
+      const que = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=queued`);
+      const active = [...(act.body?.workflow_runs || []), ...(que.body?.workflow_runs || [])];
+      const d = decideRerun({ file: w.def[0], runs: w.runs, active, lastPushAt, paused });
+      if (d.ok) acted.push(`reran failed jobs of ${w.def[1]} (${d.why}; HTTP ${(await gh(`/repos/${repo}/actions/runs/${w.runs[0].id}/rerun-failed-jobs`, { method: "POST" })).status})`);
+      else if (w.runs[0].conclusion === "failure") skipped.push(`${w.def[1]}: ${d.why}`);
+    }
+    parts.push({ section, checks: evaluate(data), acted, skipped });
   }
-  const checks = evaluate(data), status = overall(checks);
-  let body = render(section, checks, new Date().toISOString().slice(0, 10));
-  if (acted.length) body += `\nAutomatic actions: ${acted.join("; ")}\n`;
-  if (skipped.length) body += `\nNot touched (conflict rules): ${skipped.join("; ")}\n`;
+  const date = new Date().toISOString().slice(0, 10);
+  const checks = parts.flatMap((p) => p.checks), status = overall(checks);
+  const body = arg === "all" ? renderAll(parts, date) : render(arg, parts[0].checks, date) + (parts[0].acted.length ? `\nAutomatic actions: ${parts[0].acted.join("; ")}\n` : "") + (parts[0].skipped.length ? `\nNot touched (conflict rules): ${parts[0].skipped.join("; ")}\n` : "");
   console.log(body);
   if (!token) return;
-  const label = `supervisor-${section}`;
+  const label = arg === "all" ? "supervisor-all" : `supervisor-${arg}`, title = arg === "all" ? "Monitoring: all systems" : `Supervisor report: ${arg}`;
   for (const [name, color] of [[label, "0e8a16"], ["needs-attention", "d93f0b"]]) await gh(`/repos/${repo}/labels`, { method: "POST", body: JSON.stringify({ name, color }) });
   const labels = [label, ...(status === "ok" ? [] : ["needs-attention"])];
   const found = await gh(`/repos/${repo}/issues?state=open&labels=${label}&per_page=5`);
   const issue = found.status === 200 ? found.body.find((i) => !i.pull_request) : null;
-  if (!issue) { await gh(`/repos/${repo}/issues`, { method: "POST", body: JSON.stringify({ title: `Supervisor report: ${section}`, body, labels }) }); return; }
+  if (!issue) { await gh(`/repos/${repo}/issues`, { method: "POST", body: JSON.stringify({ title, body, labels }) }); return; }
   const nd = notifyDecision(issue.body, status);
   await gh(`/repos/${repo}/issues/${issue.number}`, { method: "PATCH", body: JSON.stringify({ body: body + nd.marker, labels }) });
   if (nd.comment) await gh(`/repos/${repo}/issues/${issue.number}/comments`, { method: "POST", body: JSON.stringify({ body: nd.comment }) });

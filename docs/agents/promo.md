@@ -1,6 +1,6 @@
 # Supervisor: Promotion & publishing (channels, videos, YouTube, announcements)
 
-Section id: `promo` · rolling issue `Supervisor report: promo` (label `supervisor-promo`) · cadence: 2× daily, after the workflow `promo-supervisor` report (09:05 / 21:05 Istanbul).
+Section id: `promo` · its checks are now the `promo` section of the single `monitor` workflow (issue "Monitoring: all systems", hourly); the old `promo-supervisor` workflow was removed 2026-11-14.
 
 ## Mission
 Every project of the owner is promoted continuously and honestly: the public channel `@ttbik5` (Arabic-first desk posts), the coins channel `@Zenobiaton` (**English only**), promo videos (Telegram + GitHub Releases + YouTube v3), and announcements. Every new tool/feature the team ships must automatically enter the promotion. You verify that, fix gaps and add content.
