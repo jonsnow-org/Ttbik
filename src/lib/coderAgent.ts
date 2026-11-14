@@ -1153,7 +1153,7 @@ load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "ط
 
 // ---------------------------------------------------------------- research fast path
 const RESEARCH_RX = /(ابحث|بحث عن|تقصّ|قارن|اعثر|ما هي أفضل|research|search for|look up|investigate|compare|find (?:me )?(?:projects|tools|libraries|examples))/i;
-const ACT_RX = /(اكتب (?:لي )?(?:كود|دالة|برنامج|سكربت)|عدّل|عدل |صحّح|صحح |أصلح|اصلح|ادفع|انشر|احذف|أنشئ (?:فرع|ملف|مستودع)|commit|push|merge|deploy|fix |refactor|implement|اختبر|شغّل|شغل |نفّذ|نفذ |جدول|schedule|every (?:day|hour|morning)|كل (?:يوم|ساعة|صباح)|مستودعي|مستودعاتي|my repo|github\.com\/[\w-]+\/[\w.-]+|(?:^|\s)[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]+(?=[\s:,.؟?]|$))/i;
+const ACT_RX = /(اكتب (?:لي )?(?:كود|دالة|برنامج|سكربت)|عدّل|عدل |صحّح|صحح |أصلح|اصلح|ادفع|انشر|احذف|أنشئ (?:فرع|ملف|مستودع)|commit|push|merge|deploy|fix |refactor|implement|اختبر|شغّل|شغل |نفّذ|نفذ |جدول|schedule|every (?:day|hour|morning)|كل (?:يوم|ساعة|صباح)|مستودعي|مستودعاتي|المستودع الخاص بي|مستودع(?:ي| الخاص)|حسابي على|تطوير|طوّر|طور |ادمج|دمج |my (?:private )?repo|github\.com\/[\w-]+\/[\w.-]+|(?:^|\s)[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]+(?=[\s:,.؟?]|$))/i;
 /** The question to hand to deep_research when a message is a plain "go and find out" request (no writing, no scheduling, not about the user's own repo), else "". */
 export function researchQuestion(goal: string): string {
   const t = String(goal || "").trim();
