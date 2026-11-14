@@ -97,7 +97,16 @@ export async function handleHubBotUpdate(bot: TelegramBot, botRow: BotRow, updat
       const mine = await appsOf(uid);
       if (text === "📱 تطبيقاتي") {
         if (!mine.length) return send(bot, chatId, "لا تطبيقات بعد. اضغط «🧱 تطبيق جديد».", template);
-        return send(bot, chatId, mine.map((a) => `• ${a.config.title} — ${site()}/apps/${a.slug} (${a.views} مشاهدة)`).join("\n") + "\n\nللتعديل على تطبيق آخر اكتب اسمه.", template);
+        const listText = mine.map((app) => "• " + app.config.title + " — " + site() + "/apps/" + app.slug + " (" + app.views + " مشاهدة)").join("\n");
+        const inlineKeyboard = mine.map((app) => [{
+          text: "📱 فتح " + app.config.title,
+          web_app: { url: site() + "/apps/" + app.slug },
+        }]);
+        await bot.api.sendMessage(chatId, listText + "\n\nافتح أي تطبيق مباشرة داخل تيليجرام:", {
+          reply_markup: { inline_keyboard: inlineKeyboard },
+          link_preview_options: { is_disabled: true },
+        } as any);
+        return;
       }
       const named = mine.find((a) => a.config.title === text);
       if (named) { await setState(sk, { ...st, slug: named.slug, mode: null }); return send(bot, chatId, `✏️ التعديل الآن على «${named.config.title}».`, template); }
