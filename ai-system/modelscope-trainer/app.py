@@ -208,12 +208,25 @@ def child_publish_leftover() -> None:
     print(f"leftover: {'published as ' + got if got else 'NOT published (kept on disk)'}", flush=True)
 
 
-def publish_leftover_subprocess() -> None:
+def _clean_lines(text: str, limit: int = 1500) -> str:
+    """The last lines of a child's output, without any line that mentions a token or a key (the status page is public to anyone who can call the Studio)."""
+    keep = [ln for ln in str(text or "").splitlines() if ln.strip() and not any(w in ln.lower() for w in ("token", "key", "secret", "password"))]
+    return "\n".join(keep[-15:])[-limit:]
+
+
+def publish_leftover_subprocess() -> str:
+    """Runs the leftover publish in its own process and returns its (cleaned) last lines; the same text goes to STATE["leftover"] so the status shows what happened."""
     import subprocess
     try:
-        subprocess.run([sys.executable, "-u", str(Path(__file__).resolve()), "--publish-leftover"], timeout=40 * 60, check=False)
+        r = subprocess.run([sys.executable, "-u", str(Path(__file__).resolve()), "--publish-leftover"], capture_output=True, text=True, timeout=40 * 60, check=False)
+        out = _clean_lines((r.stdout or "") + "\n" + (r.stderr or ""))
+        if r.returncode != 0:
+            out = f"exit {r.returncode}\n" + out
     except Exception as exc:  # noqa: BLE001 - never stop the trainer for this
-        print(f"leftover publish failed: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+        out = f"leftover publish failed: {type(exc).__name__}: {str(exc)[:120]}"
+    _set(leftover=out[-600:])
+    print("leftover publish:\n" + out, flush=True)
+    return out
 
 
 def run_cycle_subprocess(cfg: dict) -> dict:
@@ -307,6 +320,7 @@ def main() -> None:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)
         gr.Button("refresh").click(status_json, None, out, api_name="status")
+        gr.Button("publish", visible=False).click(lambda: publish_leftover_subprocess(), None, out, api_name="publish_now")   # retry the leftover publish without a redeploy
     demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT") or 7860))
 
 
