@@ -9,11 +9,13 @@ jest.mock("@/lib/streakBotLogic", () => ({
     { id: "fasting", emoji: "🌙", title: "الصيام", menuLabel: "x" },
     { id: "prayer", emoji: "🕌", title: "الصلاة", menuLabel: "y" },
   ],
+  todayKey: () => "2026-11-14",
+  yesterdayKey: () => "2026-11-13",
   checkInCore: (...a: unknown[]) => (checkIn as any)(...a),
   ensureStreakUser: (...a: unknown[]) => (db.streakUser.upsert as any)(...a),
 }));
 import { replyEphemeral } from "@/lib/telegramEphemeral";
-import { handleStreakWidgetQuery, sendStreakWidget, widgetHtml, widgetState } from "@/lib/streakWidget";
+import { boardKeyboard, boardText, handleBoardTap, handleStreakWidgetQuery, sendStreakWidget, shownStreak, widgetHtml, widgetState } from "@/lib/streakWidget";
 import { minePointsText, parseMine, questionKeyboard } from "@/lib/contests/rules";
 import { gzipSync } from "zlib";
 
@@ -66,15 +68,14 @@ describe("streak widget (Bot API 10.4)", () => {
   });
   it("sends the widget in the chat with queries allowed and the state as chat_data", async () => {
     const { bot, calls } = fakeBot();
-    expect(await sendStreakWidget(bot, 55, "7")).toBe(true);
+    expect(await sendStreakWidget(bot, 55, "7")).toBeNull();
     expect(calls[0].method).toBe("sendWidget");
     expect(calls[0].p).toMatchObject({ chat_id: 55, allow_queries: true });
     expect(JSON.parse(calls[0].p.chat_data)).toHaveProperty("fasting");
   });
-  it("falls back to a plain list when sendWidget is refused", async () => {
-    const { bot, api } = fakeBot(async () => { throw new Error("nope"); });
-    expect(await sendStreakWidget(bot, 55, "7")).toBe(false);
-    expect(api.sendMessage).toHaveBeenCalled();
+  it("returns Telegram's own refusal text when sendWidget is refused (shown to the owner only)", async () => {
+    const { bot } = fakeBot(async () => { throw Object.assign(new Error("x"), { description: "Bad Request: method not found" }); });
+    expect(await sendStreakWidget(bot, 55, "7")).toBe("Bad Request: method not found");
   });
   it("a tap records the check-in with the same core as the chat, then answers inside the 15 s window and refreshes the message", async () => {
     checkIn.mockClear();
@@ -95,5 +96,41 @@ describe("streak widget (Bot API 10.4)", () => {
     await handleStreakWidgetQuery(bot, { id: "b" } as any, { id: "q4", from: { id: 8 }, data: "ci:fasting" });
     expect(checkIn).not.toHaveBeenCalled();
     expect(calls.filter((c) => c.method === "answerWidgetQuery").map((c) => c.p.widget_query_id)).toEqual(["q2", "q3", "q4"]);
+  });
+});
+
+describe("streak board (inline buttons, works everywhere)", () => {
+  const E = (category: string, currentStreak: number, lastCheckInDate: string | null) => ({ category, currentStreak, lastCheckInDate });
+  it("a chain that missed yesterday and today shows 0; yesterday or today keeps its number", () => {
+    expect(shownStreak(E("fasting", 5, "2026-11-14"), "2026-11-14", "2026-11-13")).toBe(5);
+    expect(shownStreak(E("fasting", 5, "2026-11-13"), "2026-11-14", "2026-11-13")).toBe(5);
+    expect(shownStreak(E("fasting", 5, "2026-11-10"), "2026-11-14", "2026-11-13")).toBe(0);
+    expect(shownStreak(undefined, "2026-11-14", "2026-11-13")).toBe(0);
+  });
+  it("draws one button per chain with the done state, callbacks within 64 bytes", () => {
+    const entries = [E("fasting", 3, "2026-11-14")];
+    expect(boardText(entries, "2026-11-14", "2026-11-13")).toContain("🌙 الصيام — 🔥 3 يوم  ✅ سجّلت اليوم");
+    const btns = boardKeyboard(entries, "2026-11-14").inline_keyboard.flat();
+    expect(btns).toHaveLength(2);
+    expect((btns[0] as any).text).toContain("✅");
+    expect((btns[1] as any).text).toContain("سجّل");
+    for (const b of btns) expect(Buffer.byteLength((b as any).callback_data)).toBeLessThanOrEqual(64);
+  });
+  it("a tap checks in, toasts the new streak and redraws the board in place", async () => {
+    checkIn.mockClear();
+    checkIn.mockResolvedValueOnce({ already: false, continued: true, entry: { currentStreak: 4 } } as any);
+    const api = { answerCallbackQuery: jest.fn(async () => true), editMessageText: jest.fn(async () => true) };
+    const ok = await handleBoardTap({ api } as any, { id: "bot1" } as any, { id: "c1", data: "sk|fasting", from: { id: 7 }, message: { chat: { id: 55 }, message_id: 9 } });
+    expect(ok).toBe(true);
+    expect(checkIn).toHaveBeenCalledWith("bot1", "7", "fasting");
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("c1", { text: expect.stringContaining("4") });
+    expect(api.editMessageText).toHaveBeenCalledWith(55, 9, expect.stringContaining("لوحة سلاسلك"), expect.anything());
+  });
+  it("unknown categories and other callbacks never check in", async () => {
+    checkIn.mockClear();
+    const api = { answerCallbackQuery: jest.fn(async () => true), editMessageText: jest.fn() };
+    expect(await handleBoardTap({ api } as any, { id: "b" } as any, { id: "c", data: "sk|zzz", from: { id: 7 } })).toBe(true);
+    expect(await handleBoardTap({ api } as any, { id: "b" } as any, { id: "c", data: "cq|1|1|1", from: { id: 7 } })).toBe(false);
+    expect(checkIn).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * «🧩 لوحة سلاسلي» — a Bot API 10.4 widget (2026-11-09) for the chains bot (STREAK_BOT, @Slaselbot): the four daily chains with a
+ * «🧩 لوحة سلاسلي» — the inline board that always works (boardText/handleBoardTap), plus an experimental Bot API 10.4 widget (2026-11-09) for the chains bot (STREAK_BOT, @Slaselbot): the four daily chains with a
  * «سجّلت اليوم» button right inside the chat bubble. Private chats only (production restriction of widgets).
  *
  * Flow: sendWidget(html, chat_data = the chains state) → the tap calls TelegramWidget.request("ci:<category>") → the bot receives
@@ -11,10 +11,12 @@ import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { rawCall } from "@/lib/telegramRaw";
-import { STREAK_CATEGORIES, checkInCore, ensureStreakUser } from "@/lib/streakBotLogic";
+import { STREAK_CATEGORIES, checkInCore, ensureStreakUser, todayKey, yesterdayKey } from "@/lib/streakBotLogic";
+import { InlineKeyboard } from "grammy";
 
 export const WIDGET_BUTTON = "🧩 لوحة سلاسلي";
-export const WIDGET_CAPTION = "🧩 لوحة سلاسلك: سجّل يومك بضغطة واحدة.\nإن لم تظهر اللوحة حدّث تيليجرام، أو استخدم «📊 كل سلاسلي».";
+export const WIDGET_CAPTION = "🧩 لوحة سلاسلك التفاعلية: سجّل يومك بضغطة واحدة.\nإن لم تظهر اللوحة حدّث تيليجرام، أو استخدم «🧩 لوحة سلاسلي» من القائمة.";
+export const BOARD_PREFIX = "sk|";
 const REQUEST_RE = /^ci:([a-z]{2,12})$/;
 
 type EntryLike = { category: string; currentStreak: number; lastCheckInDate: string | null };
@@ -80,18 +82,69 @@ async function stateFor(userId: string): Promise<string> {
   return widgetState(entries);
 }
 
-/** Sends the widget in a private chat. Returns false (and sends the plain list instead) when Telegram refuses it. */
-export async function sendStreakWidget(bot: TelegramBot, chatId: number, userId: string): Promise<boolean> {
+/** Sends the widget in a private chat. Returns null on success, or Telegram's own refusal text (never throws). */
+export async function sendStreakWidget(bot: TelegramBot, chatId: number, userId: string): Promise<string | null> {
   const state = await stateFor(userId);
   try {
     await rawCall(bot, "sendWidget", { chat_id: chatId, html: widgetHtml(), width: 360, height: 232, chat_data: state, caption: WIDGET_CAPTION, allow_queries: true });
-    return true;
-  } catch {
-    const entries = await prisma.streakEntry.findMany({ where: { userId } });
-    const lines = STREAK_CATEGORIES.map((c) => `${c.emoji} ${c.title}: 🔥 ${entries.find((e) => e.category === c.id)?.currentStreak || 0} يوم`).join("\n");
-    await bot.api.sendMessage(chatId, `📊 سلاسلك:\n\n${lines}\n\nاختر تصنيفاً من القائمة ثم «✅ سجلت اليوم».`).catch(() => null);
-    return false;
+    return null;
+  } catch (e) {
+    return String((e as { description?: string; message?: string })?.description || (e as Error)?.message || "unknown error").slice(0, 300);
   }
+}
+
+// ---------------------------------------------------------------------
+// «🧩 لوحة سلاسلي» — the board that always works: one message, one button per chain (inline callbacks, no widget needed).
+// ---------------------------------------------------------------------
+/** Streak shown to the user: a chain that missed yesterday and today is broken (0), even though the row keeps its old number until the next check-in. Pure. */
+export function shownStreak(e: { currentStreak: number; lastCheckInDate: string | null } | undefined, today = todayKey(), yesterday = yesterdayKey()): number {
+  if (!e || (e.lastCheckInDate !== today && e.lastCheckInDate !== yesterday)) return 0;
+  return e.currentStreak;
+}
+
+export function boardText(entries: EntryLike[], today = todayKey(), yesterday = yesterdayKey()): string {
+  const lines = STREAK_CATEGORIES.map((c) => {
+    const e = entries.find((x) => x.category === c.id);
+    const done = e?.lastCheckInDate === today;
+    return `${c.emoji} ${c.title} — 🔥 ${shownStreak(e, today, yesterday)} يوم${done ? "  ✅ سجّلت اليوم" : ""}`;
+  });
+  return `🧩 لوحة سلاسلك\n\n${lines.join("\n")}\n\nاضغط على التصنيف لتسجيل يومك.`;
+}
+
+export function boardKeyboard(entries: EntryLike[], today = todayKey()): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  STREAK_CATEGORIES.forEach((c, i) => {
+    const done = entries.find((x) => x.category === c.id)?.lastCheckInDate === today;
+    kb.text(done ? `✅ ${c.emoji} ${c.title}` : `${c.emoji} سجّل ${c.title}`, `${BOARD_PREFIX}${c.id}`);
+    if (i % 2 === 1) kb.row();
+  });
+  return kb;
+}
+
+async function entriesFor(userId: string): Promise<EntryLike[]> {
+  return prisma.streakEntry.findMany({ where: { userId }, select: { category: true, currentStreak: true, lastCheckInDate: true } });
+}
+
+export async function sendBoard(bot: TelegramBot, chatId: number, userId: string): Promise<void> {
+  const entries = await entriesFor(userId);
+  await bot.api.sendMessage(chatId, boardText(entries), { reply_markup: boardKeyboard(entries) });
+}
+
+/** A tap on a board button (`sk|<category>`): the same checkInCore as the chat and the Mini App, then the board is redrawn in place. */
+export async function handleBoardTap(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
+  const id = String(cq?.data || "").startsWith(BOARD_PREFIX) ? String(cq.data).slice(BOARD_PREFIX.length) : "";
+  if (!id) return false;
+  const toast = (text: string) => bot.api.answerCallbackQuery(cq.id, { text }).catch(() => null);
+  const userId = String(cq.from?.id || "");
+  if (!userId || !STREAK_CATEGORIES.some((c) => c.id === id)) { await toast("خيار غير معروف."); return true; }
+  const user = await ensureStreakUser(botRow.id, userId);
+  if (user.isBanned || (user.mutedUntil && user.mutedUntil > new Date())) { await toast("غير متاح لك الآن."); return true; }
+  const r = await checkInCore(botRow.id, userId, id);
+  await toast(r.already ? "✅ سجّلت اليوم بالفعل، عد غداً" : `${r.continued ? "🔥" : "🌱"} تم التسجيل! سلسلتك ${r.entry.currentStreak} يوم`);
+  const entries = await entriesFor(userId);
+  const chat = cq.message?.chat?.id, mid = cq.message?.message_id;
+  if (chat && mid) await bot.api.editMessageText(chat, mid, boardText(entries), { reply_markup: boardKeyboard(entries) }).catch(() => null); // "message is not modified" on a repeat tap is fine
+  return true;
 }
 
 /** A `widget_query` update of this bot. Always answers (the widget waits 15 s), never throws. */
