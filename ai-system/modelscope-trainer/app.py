@@ -254,6 +254,8 @@ def run_cycle_subprocess(cfg: dict) -> dict:
                 result = json.loads(line[len(RESULT_MARK):])
             except ValueError:
                 pass
+        if any(k in line for k in ("نقطة الانطلاق", "⚓", "🎯", "الرأس المنشور", "تعذّر اختيار", "تعذّر فحص")):     # where this cycle started from: kept in the status (the log tail loses it within minutes)
+            STATE["start"] = (str(STATE.get("start", "")) + " | " + line.strip())[-700:].lstrip(" |")
         tee.write(line)
         try:
             sys.__stdout__.write(line)               # the Studio's own log keeps everything
@@ -291,6 +293,7 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     cycle = 0
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
+        STATE["start"] = ""
         _set(phase="training", cycle=cycle, error="")
         try:
             res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
