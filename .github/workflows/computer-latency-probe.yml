@@ -1,0 +1,33 @@
+name: Computer hub latency probe (read-only, throw-away session)
+
+# Times each kind of call on the live computer hub on its own, to tell a slow persistent mount from a wall-clock limit from throttling.
+# Publishes nothing. Manual, or on a push of the probe itself.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "hub Studio name under novaai2026"
+        default: "nova-inference-server"
+  push:
+    branches:
+      - claude/computer-latency-probe
+    paths:
+      - "scripts/ops/computer_latency_probe.py"
+      - ".github/workflows/computer-latency-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the probe
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIO: ${{ inputs.studio || 'nova-inference-server' }}
+        run: |
+          case "$STUDIO" in *[!a-z0-9-]*) echo "bad name"; exit 1;; esac
+          python3 scripts/ops/computer_latency_probe.py --api "https://studio-novaai2026-${STUDIO}.api-inference.modelscope.net"
