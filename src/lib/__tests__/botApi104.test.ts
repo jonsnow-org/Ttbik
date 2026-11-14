@@ -15,7 +15,7 @@ jest.mock("@/lib/streakBotLogic", () => ({
   ensureStreakUser: (...a: unknown[]) => (db.streakUser.upsert as any)(...a),
 }));
 import { replyEphemeral } from "@/lib/telegramEphemeral";
-import { boardKeyboard, boardText, handleBoardTap, handleStreakWidgetQuery, sendStreakWidget, shownStreak, widgetHtml, widgetState } from "@/lib/streakWidget";
+import { boardKeyboard, boardText, handleBoardTap, handleStreakWidgetQuery, probeWidgets, sendStreakWidget, shownStreak, widgetHtml, widgetState } from "@/lib/streakWidget";
 import { minePointsText, parseMine, questionKeyboard } from "@/lib/contests/rules";
 import { gzipSync } from "zlib";
 
@@ -132,5 +132,16 @@ describe("streak board (inline buttons, works everywhere)", () => {
     expect(await handleBoardTap({ api } as any, { id: "b" } as any, { id: "c", data: "sk|zzz", from: { id: 7 } })).toBe(true);
     expect(await handleBoardTap({ api } as any, { id: "b" } as any, { id: "c", data: "cq|1|1|1", from: { id: 7 } })).toBe(false);
     expect(checkIn).not.toHaveBeenCalled();
+  });
+});
+
+describe("widget probe (owner diagnosis)", () => {
+  it("reports which of the four increasing widgets Telegram refuses, with its reason", async () => {
+    const { bot, calls } = fakeBot(async (_m, p) => { if (p.allow_queries) throw Object.assign(new Error("x"), { description: "INPUT_MEDIA_WIDGET_NOT_ALLOWED" }); return true; });
+    const lines = await probeWidgets(bot, 55, "7");
+    expect(calls).toHaveLength(4);
+    expect(lines.slice(0, 3).every((l) => l.startsWith("✅"))).toBe(true);
+    expect(lines[3]).toContain("❌");
+    expect(lines[3]).toContain("INPUT_MEDIA_WIDGET_NOT_ALLOWED");
   });
 });
