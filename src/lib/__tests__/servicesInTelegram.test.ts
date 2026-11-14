@@ -79,7 +79,7 @@ describe("entry points in the existing bots and the media Mini App", () => {
   const lib = (f: string) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
   it("chains bot (@Slaselbot): its own Mini App button + menu button, khatma/contests open its app sections", () => {
     const src = lib("streakBotLogic.ts");
-    expect(src).toMatch(/\.text\(CONTEST_BUTTON\)\.text\(APP_BUTTON\)/);
+    expect(src).toMatch(/CONTEST_BUTTON, APP_BUTTON/);
     expect(src).not.toContain("sendServices(");
     expect(src).toContain("setBotAppMenu(");
     expect(src).toContain('appUrlFor(botRow, "khatma")');
