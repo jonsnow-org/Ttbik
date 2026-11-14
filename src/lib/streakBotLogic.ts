@@ -235,6 +235,14 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
     await bot.api.sendMessage(chatId, startGuide("STREAK"), { reply_markup: mainMenu(true) });
     return true;
   }
+  // «/leave <chat id>»: make the bot leave a group the owner cannot remove it from, after deleting what it posted there (src/lib/groupLeave.ts)
+  const leaveMatch = /^\/leave\s+(-?\d{5,20})\s*$/i.exec(text);
+  if (leaveMatch) {
+    const { leaveGroup } = await import("@/lib/groupLeave");
+    const r = await leaveGroup(bot, botRow, leaveMatch[1], null);
+    await bot.api.sendMessage(chatId, r.left ? `✅ غادر البوت المجموعة وحُذفت ${r.deleted} رسالة منه.` : "⚠️ تعذّرت المغادرة: تأكد من رقم المجموعة وأن البوت ما زال فيها.");
+    return true;
+  }
   if (text === "/admin" || text === ADMIN_PANEL_BUTTON) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت السلاسل اليومية.", { reply_markup: adminMenu() });
