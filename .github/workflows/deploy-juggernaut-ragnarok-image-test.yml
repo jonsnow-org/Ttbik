@@ -20,7 +20,7 @@ jobs:
       REPO: juggernaut-ragnarok-image-test
       API: https://studio-novaai2026-juggernaut-ragnarok-image-test.api-inference.modelscope.net
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Mirror exact Juggernaut FP8 checkpoint and local SDXL configs into ModelScope
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -315,7 +315,7 @@ jobs:
           PY
       - name: Upload Juggernaut smoke artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: juggernaut-ragnarok-image-test-cpu8g
           path: juggernaut-smoke/

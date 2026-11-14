@@ -42,7 +42,7 @@ jobs:
     env:
       REPO: lfm25-media-server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # One-time seed: when LFM2.5's private media repo is missing or empty it gets its own copy of the validated media package
       # (SDXS picture model, Arabic Piper voice, video helpers). An existing, non-empty repo is never touched again.
@@ -208,7 +208,7 @@ jobs:
         run: |
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 8000; echo
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ${{ matrix.candidate.id }}-media-video-smoke

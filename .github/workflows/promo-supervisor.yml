@@ -16,7 +16,7 @@ jobs:
   supervise:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             deploy/hosting/site.json
@@ -27,7 +27,7 @@ jobs:
             public/zenobia/*.html
             promo/platform-features.json
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
       - name: report

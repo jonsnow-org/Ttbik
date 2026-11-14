@@ -11,6 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cd scripts/ops && python3 -m unittest test_freshness
       - run: python3 scripts/ops/freshness.py
