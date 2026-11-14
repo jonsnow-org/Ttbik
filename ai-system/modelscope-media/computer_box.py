@@ -709,10 +709,14 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if not command:
         return {"ok": False, "error": "empty command"}
     timeout = max(1, min(MAX_TIMEOUT, int(timeout or DEFAULT_TIMEOUT)))
+    t0 = time.monotonic()
     home = ensure_home(session)
+    t1 = time.monotonic()
     if over_quota(session):
         return {"ok": False, "error": f"your computer's disk is full ({QUOTA_BYTES // 1024 ** 3} GB); delete files first"}
+    t2 = time.monotonic()
     install_egress_rules()
+    t3 = time.monotonic()
     try:
         workdir = safe_path(session, cwd)
     except ValueError as exc:
@@ -772,7 +776,8 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
         with _LOCK:
             _ACTIVE_COMMANDS.discard(reservation)
     out = raw.decode("utf-8", "replace") if raw else ""
-    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else "."}
+    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else ".",
+             "setup_ms": {"home": round((t1 - t0) * 1000), "quota": round((t2 - t1) * 1000), "egress": round((t3 - t2) * 1000)}}
     if timed_out:
         reply["timed_out"] = True
         reply["hint"] = f"stopped after {timeout} s: run long work with computer_job (it keeps running between calls)"
@@ -1522,6 +1527,7 @@ def run_batch(session: str, steps) -> dict:
 
 
 def api_box_do(body: str) -> str:
+    started_at = time.monotonic()
     try:
         job = json.loads(unwrap_body(body) or "{}")
         if not isinstance(job, dict):
@@ -1543,4 +1549,6 @@ def api_box_do(body: str) -> str:
             tips = ""
         if tips:
             out["tips"] = tips
+    if isinstance(out, dict):
+        out["server_ms"] = round((time.monotonic() - started_at) * 1000)     # time INSIDE the handler: the rest of what a client waits is queue/gateway (live probe 2026-11-14: ~10 s per call, unexplained)
     return json.dumps(out, ensure_ascii=False)
