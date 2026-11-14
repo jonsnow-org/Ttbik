@@ -2,6 +2,7 @@
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
+import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 export type DesktopArgs = {
   action?: string;
@@ -9,18 +10,33 @@ export type DesktopArgs = {
   url?: string;
   x?: number;
   y?: number;
+  x2?: number;
+  nopic?: boolean;
+  y2?: number;
   button?: "left" | "middle" | "right";
   text?: string;
   key?: string;
-  direction?: "up" | "down";
+  direction?: "up" | "down" | "left" | "right";
   amount?: number;
   width?: number;
   height?: number;
 };
 
+/** Where a model's graphical desktop runs. Nova and LFM: the shared computer hub. Sham and Sham v2: THEIR OWN Studio, where the desktop is part of the model's code (sham_desktop.py;
+ *  owner's order 2026-11-12) - never Nova's hub, which is Nova's only. The app is only a viewer there. */
+export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
+  if (modelId === "sham" || modelId === "sham_v2") {
+    const url = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
+    return url ? { base: url, own: true } : null;
+  }
+  const hub = browserStudioFor(modelId);
+  return hub ? { base: hub, own: false } : null;
+}
+
 const ACTIONS = new Set([
   "status", "start", "frame", "stop", "launch",
   "click", "move", "type", "key", "scroll",
+  "dblclick", "drag", "mousedown", "mouseup", "clipboard_set", "clipboard_get",
 ]);
 
 export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | null {
@@ -40,20 +56,26 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }
-  if (action === "click" || action === "move") {
+  if (["click", "move", "dblclick", "drag", "mousedown", "mouseup"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
     out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
-    if (action === "click") {
+    if (action === "drag") {
+      if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
+      out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
+      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+    }
+    if (action === "click" || action === "mousedown" || action === "mouseup") {
       const button = String(input.button || "left");
       if (!["left", "middle", "right"].includes(button)) return null;
       out.button = button;
     }
   }
-  if (action === "type") {
+  if (action === "type" || action === "clipboard_set") {
     if (input.text === undefined) return null;
-    out.text = String(input.text).slice(0, 1200);
+    out.text = String(input.text).slice(0, action === "type" ? 1200 : 20000);
   }
+  if (["type", "key", "scroll"].includes(action) && input.nopic === true) out.nopic = true;   // the live stream shows the result: no picture is waited for
   if (action === "key") {
     const key = String(input.key || "");
     if (!/^[A-Za-z0-9_+-]{1,40}$/.test(key)) return null;
@@ -61,8 +83,12 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "scroll") {
     const direction = String(input.direction || "down");
-    if (!["up", "down"].includes(direction)) return null;
+    if (!["up", "down", "left", "right"].includes(direction)) return null;
     out.direction = direction;
+    if (Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y))) {
+      out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
+      out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+    }
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
   return out;
@@ -75,10 +101,12 @@ export async function desktopLive(
   seconds = 20,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
-  const base = browserStudioFor(modelId);
-  if (!base) throw new Error("the dedicated computer hub is unavailable for this model");
+  const target = desktopTargetFor(modelId);
+  if (!target) throw new Error("the graphical desktop is unavailable for this model");
+  const base = target.base;
   if (!session || session.length > 240) throw new Error("invalid desktop session");
   const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
+  if (target.own) return studioStream(base, "desktop_live", { session, seconds: duration }, fetchImpl, (duration + 15) * 1000);
   return studioStream(base, "live", {
     session,
     seconds: duration,
@@ -94,8 +122,9 @@ export async function desktopDo(
   args: DesktopArgs,
   fetchImpl: typeof fetch = globalThis.fetch,
 ): Promise<Record<string, any>> {
-  const base = browserStudioFor(modelId);
-  if (!base) return { ok: false, error: "the dedicated computer hub is unavailable for this model" };
+  const target = desktopTargetFor(modelId);
+  if (!target) return { ok: false, error: "the graphical desktop is unavailable for this model" };
+  const base = target.base;
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
   try {

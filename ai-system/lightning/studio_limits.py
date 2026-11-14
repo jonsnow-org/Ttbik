@@ -36,13 +36,14 @@ def attrs_like(obj, words=("plan", "limit", "quota", "credit", "tier", "max", "f
 
 
 def main() -> int:
-    if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
+    if not ((os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")) or os.environ.get("LIGHTNING_AUTH_TOKEN")):
         say("لا مفاتيح Lightning في البيئة — لا فحص")
         return 0
     from lightning_sdk import Machine, Studio, Teamspace, User
     user = os.environ.get("SHAM_LIGHTNING_USER", "jonsnowx1r-lab")
     space = os.environ.get("SHAM_LIGHTNING_TEAMSPACE", "document-intelligence-upgrade-project")
-    ts = Teamspace(name=space, user=User(name=user))
+    from lightning_access import teamspace
+    ts = teamspace(space)
     say("مساحة الفريق: " + attrs_like(ts))
     studios = list(ts.studios)
     say(f"عدد الاستوديوهات الموجودة: {len(studios)}")

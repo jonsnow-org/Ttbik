@@ -41,7 +41,20 @@ test("match bot setup: own /start command + global web_app menu, once per instan
   expect(MATCH_BOT_COMMANDS.map((c) => c.command)).toEqual(["start"]);
   const menu = (api.setChatMenuButton.mock.calls[0] as any[])[0];
   expect(menu.chat_id).toBeUndefined();
-  expect(menu.menu_button).toMatchObject({ type: "web_app", text: "التطبيق" });
+  expect(menu.menu_button).toMatchObject({ type: "web_app", text: "📱 التطبيق" });
   expect(menu.menu_button.web_app.url).toContain("bot-1");
   expect(api.deleteMyCommands).toHaveBeenCalled();
+});
+
+
+test("match bot setup retries a failed Telegram menu-button registration", async () => {
+  const api = {
+    deleteMyCommands: jest.fn(async () => true),
+    setMyCommands: jest.fn(async () => true),
+    setChatMenuButton: jest.fn().mockRejectedValueOnce(new Error("Telegram temporarily unavailable")).mockResolvedValue(true),
+  };
+  await ensureMatchBotSetup({ api } as any, "bot-retry-menu");
+  await ensureMatchBotSetup({ api } as any, "bot-retry-menu");
+  expect(api.setChatMenuButton).toHaveBeenCalledTimes(2);
+  expect(api.setChatMenuButton.mock.calls[1][0].menu_button.text).toBe("📱 التطبيق");
 });

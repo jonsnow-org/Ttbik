@@ -8,6 +8,7 @@
   --n-grad-primary: linear-gradient(135deg, #0d9488, #2dd4bf);
   --tgui--font_family: var(--n-font);
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--n-bg);
   color: var(--n-ink);
   font-family: var(--n-font);
@@ -15,6 +16,35 @@
   transition: background-color .2s ease, color .2s ease;
 }
 .nova, .nova .tgui-root, .nova input, .nova textarea, .nova select, .nova button { font-family: var(--n-font); }
+
+.nova-loading {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  background: var(--tg-theme-secondary-bg-color, #f3f5f9);
+}
+
+.nova-loading::after {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(13, 148, 136, .2);
+  border-top-color: #0d9488;
+  border-radius: 50%;
+  animation: nova-loading-spin .8s linear infinite;
+  content: "";
+}
+
+@keyframes nova-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nova-loading::after {
+    animation: none;
+    border-color: #0d9488;
+  }
+}
 /* button reset per class (a ".nova button" reset would out-rank the classes below) */
 .n-row, .n-opt, .n-link, .n-pill-model, .n-pill-pro, .n-btn, .n-plus, .n-fab, .n-nav button { font: inherit; border: 0; cursor: pointer; margin: 0; }
 .n-row, .n-opt, .n-link, .n-nav button { background: transparent; }
@@ -105,7 +135,7 @@ button.n-row:active, .n-row.n-tap:active { background: var(--n-surface-2); }
 
 /* ------------------------------------------------------------------ popover (model picker) + option sheets */
 .n-scrim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 40; background: rgba(2,6,23,.32); animation: n-fade .15s ease; }
-.n-pop { position: fixed; z-index: 41; left: 16px; right: auto; width: calc(100vw - 32px); max-width: 360px; max-height: 60vh; overflow: auto; border-radius: 20px;
+.n-pop { position: fixed; z-index: 41; left: 16px; right: auto; width: calc(100vw - 32px); max-width: 360px; max-height: 60vh; max-height: 60dvh; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; border-radius: 20px;
   background: var(--n-surface); border: 1px solid var(--n-border); box-shadow: var(--n-shadow-lg); padding: 6px 0; animation: n-in .16s ease; }
 .nova[dir="rtl"] .n-pop { left: auto; right: 16px; }
 .n-opt { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 12px 18px; text-align: start; color: var(--n-ink); }
@@ -113,7 +143,7 @@ button.n-row:active, .n-row.n-tap:active { background: var(--n-surface-2); }
 .n-opt .n-t { font-weight: 600; font-size: 16px; }
 .n-check { flex: 0 0 auto; color: var(--n-primary); font-weight: 800; }
 .n-pro { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--n-accent); color: #fff; font-size: 10.5px; font-weight: 800; }
-.n-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-height: 80vh; overflow: auto; background: var(--n-surface); border-radius: 22px 22px 0 0;
+.n-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-height: 80vh; max-height: 80dvh; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--n-surface); border-radius: 22px 22px 0 0;
   padding: 8px 0 calc(16px + var(--safe-bottom, 0px)); box-shadow: var(--n-shadow-lg); animation: n-up .2s ease; }
 .n-sheet .n-grip { width: 38px; height: 4px; border-radius: 4px; background: var(--n-border-strong); margin: 4px auto 8px; }
 .n-sheet h3 { margin: 0; padding: 6px 18px 8px; font-size: 18px; font-weight: 700; }

@@ -100,6 +100,15 @@ def identity_grounding_pairs() -> list[tuple[str, str]]:
         ("ما الفرق بينك وبين نوفا؟", "نحن نموذجان مختلفان في التطبيق؛ لكل واحد مسار واستدعاء مستقل. اسمي شام v2."),
         ("هل أنت شام القديم؟", "أنا إصدار شام v2، أما شام القديم فهو مسار آخر منفصل."),
         ("ما اسم النموذج الذي تتحدث من خلاله؟", "أنا أعمل بصفتي شام v2، ولا أتحدث باسم نوفا."),
+        # what Sham v2 is (a general assistant, not an image tool): the app's real abilities, said plainly
+        ("هل أنت أداة لإنشاء الصور فقط؟", "لا. أنا شام v2، مساعد ذكاء اصطناعي عام: أحادثك بالعربية وأجيب عن الأسئلة وأكتب وأراجع الكود، وأستطيع أيضاً صنع الصور والفيديو والصوت عندما تطلب ذلك."),
+        ("ماذا تستطيع أن تفعل؟", "أنا شام v2. أتحدث معك وأشرح وأكتب وأبرمج وأبحث في الويب، وأعمل على مستودعات GitHub وعلى حاسوبي الخاص في التطبيق، وأصنع الصور والفيديو والصوت إذا طلبت."),
+        ("ما هي أدواتك؟", "أدواتي في التطبيق: البحث في الويب، قراءة الملفات والمستودعات وتعديلها على GitHub، تشغيل الأوامر في حاسوبي الخاص، والموصلات التي تربطها أنت، وصنع الصور والفيديو والصوت. لا أستخدم أداة إلا إذا احتاجها طلبك."),
+        ("هل تستطيع العمل على GitHub؟", "نعم، أنا شام v2 وأستطيع قراءة المستودع وتحليله وتعديل الملفات واقتراح التغييرات، وأطلب موافقتك قبل أي تغيير يكتب أو ينشر."),
+        ("هل لديك حاسوب؟", "نعم، لي حاسوب خاص داخل التطبيق أشغّل عليه الأوامر وأقرأ الملفات وأجرّب الكود، وجلستي عليه منفصلة عن جلسات النماذج الأخرى."),
+        ("من صنعك؟", "أنا شام v2، نموذج ذكاء اصطناعي ضمن تطبيق شام الذي يملكه مالك المشروع."),
+        ("مرحبا من أنت وماذا تفعل؟", "أهلاً بك. أنا شام v2، مساعد ذكاء اصطناعي عام أتحدث معك وأساعدك في الكتابة والبرمجة والبحث، وأصنع الصور والفيديو والصوت عند الطلب."),
+        ("هل أنت LFM؟", "لا، أنا شام v2. LFM2.5 نموذج آخر في التطبيق بمساره المنفصل."),
     ]
 
 
@@ -324,7 +333,15 @@ def arabic_replay_pairs(seed: int, n: int = 600) -> list[tuple[str, str]]:
                     break
     except Exception as exc:  # noqa: BLE001
         print(f"Arabic replay: skipped ({type(exc).__name__})", flush=True)
-    return out[:n]
+    # a sixth of the replay: verified evidence-grounding / error-repair / logic pairs of the owner's Intelligence Lab (sham_sil_bridge; SHAM_SIL=0 turns it off; the lab's fixed
+    # held-out set is never in it)
+    sil: list[tuple[str, str]] = []
+    try:
+        import sham_sil_bridge as _sil
+        sil = [(q[:600], a[:900]) for q, a in _sil.train_pairs(max(20, n // 6), seed)]
+    except Exception as exc:  # noqa: BLE001
+        print(f"SIL pairs: skipped ({type(exc).__name__})", flush=True)
+    return out[: max(0, n - len(sil))] + sil
 
 
 def published_step(fetch_dataset, dataset: str) -> int:
@@ -456,7 +473,7 @@ if __name__ == "__main__":
     # default straight through produced zero tool batches here and the loss assertions below failed; 1600
     # keeps the padded toy sequences under the 2048 context too.
     batches = media_batch + tool_batches(Tok(), 12, 2, seed=1, max_len=1600)
-    assert len(identity_grounding_pairs()) >= 6 and all(q and a for q, a in identity_grounding_pairs())
+    assert len(identity_grounding_pairs()) >= 12 and all(q and a for q, a in identity_grounding_pairs())
     assert batches and all(isinstance(b, tuple) and len(b) == 2 for b in batches)
     with tempfile.TemporaryDirectory() as d:
         losses, final = run_session(model, 0, batches[:4], "cpu", 0.05, ckpt_dir=d)

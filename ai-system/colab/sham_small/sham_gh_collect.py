@@ -37,6 +37,27 @@ def squash(text: str) -> str:
     return re.sub(r"\n\s*\n+", "\n", text.replace("\r", "")).strip()
 
 
+def collect_sources(gh_sources) -> list:
+    """The web sources this collector reads: every text source EXCEPT crawl_corpus (that one reads this collector's own published corpus back)."""
+    return [x for x in gh_sources(text_only=True) if x.name != "crawl_corpus"]
+
+
+def _selftest() -> None:
+    import tempfile
+    from types import SimpleNamespace
+    assert squash("a\r\n\n\n b\nc") == "a\n b\nc"
+    fake = lambda text_only=True: [SimpleNamespace(name=n) for n in ("wiki", "crawl_corpus", "arxiv")]
+    assert [x.name for x in collect_sources(fake)] == ["wiki", "arxiv"]
+    st = [SimpleNamespace(name="a", rest_until=0.0), SimpleNamespace(name="b", rest_until=0.0)]
+    assert balance(st, {"a": 90, "b": 10}, 100) == ["a"] and st[0].rest_until > time.time() and st[1].rest_until == 0.0
+    with tempfile.TemporaryDirectory() as d:
+        for i in range(3):
+            Path(d, f"s{i}.txt").write_bytes(b"x" * 600_000)
+            os.utime(Path(d, f"s{i}.txt"), (i + 1, i + 1))
+        assert trim_to_cap(Path(d), 1) == 2 and [p.name for p in Path(d).glob("*.txt")] == ["s2.txt"]
+    print("sham_gh_collect self-test OK")
+
+
 def balance(states, chars_by: dict, total: int, max_share: float = MAX_SHARE, pause: float = 20.0) -> list[str]:
     """Sources that already supplied more than max_share of everything collected rest for a while, so the fast, chatty
     ones (abstract APIs return 25 items a call) cannot crowd out books, code, discussions and the rest."""
@@ -89,7 +110,7 @@ def run(hours: float = 5.3, publish_every_hours: float = 1.5, workers: int = 14,
         print(f"استئناف الجمع: {carried} ملف نص سابق، {len(sham_spider.URL_SEEN):,} عنوان مقروء")
     seen = Seen()
     raw_q: queue.Queue = queue.Queue(maxsize=512)
-    spider = Spider(sources if sources is not None else gh_sources(text_only=True), seen, raw_q, {"text": 1.0},
+    spider = Spider(sources if sources is not None else collect_sources(gh_sources), seen, raw_q, {"text": 1.0},
                     workers=workers, seed=int(t0) % 100000).start()
 
     shard_path = text_dir / f"gh_{int(t0)}.txt"
@@ -166,4 +187,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    # no Kaggle credentials (the PR checker runs every changed module with a scrubbed environment) = nothing to publish: self-test only
+    if "--selftest" in sys.argv or not (os.environ.get("KAGGLE_USERNAME") or os.environ.get("KAGGLE_API_TOKEN")):
+        _selftest()
+    else:
+        main()

@@ -109,6 +109,7 @@ def publish() -> None:
         signature, manifest = stage_runtime_code(stage, remote)
         if remote.get("code_sig") == signature:
             print(f"Signed Sham v2 runtime code is already current ({signature[:12]}); weights were not touched.")
+            print(sync.prune_remote_code(stage, MODEL_ID))      # an extra file left over from a deleted source fails the signature check
             return
         api.push_model(
             model_id=MODEL_ID,
@@ -117,6 +118,7 @@ def publish() -> None:
             license="apache-2.0",
             commit_message=f"Sham v2 signed runtime code {signature[:12]}",
         )
+        print(sync.prune_remote_code(stage, MODEL_ID))
         print(
             f"Published signed runtime code only ({signature[:12]}); "
             f"preserved model fingerprint {manifest['sha'][:12]} and checkpoint metadata."

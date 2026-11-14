@@ -230,10 +230,12 @@ def guarded_merge(model, sources, score_fn, ratios=(0.01, 0.02, 0.03, 0.05, 0.1,
         other_sd = dict(other.named_parameters())
         best = None
         nearest = None      # the attempt closest to passing (lowest mean relative loss): says WHICH skill blocked the merge
+        curve = []          # every ratio's per-skill change, so a refusal can be read (does ANY ratio net out, or does one skill fall faster than another gains?)
         for lam in ratios:
             _interpolate(model, base, other_sd, lam, rows)
             s = score_fn(model)
             rel_mean = sum(s[k] / base_score[k] for k in base_score) / len(base_score)
+            curve.append((lam, {k: (s[k] / base_score[k] - 1) * 100 for k in base_score}))
             if nearest is None or rel_mean < nearest[0]:
                 nearest = (rel_mean, lam, s)
             if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + skill_tolerance(k, tolerance)) for k in anchor)
@@ -249,6 +251,7 @@ def guarded_merge(model, sources, score_fn, ratios=(0.01, 0.02, 0.03, 0.05, 0.1,
                 why = (f" — أقرب محاولة (نسبة {lam_n:.2f}): "
                        + ", ".join(f"{k} {base_score[k]:.3f}→{s_n[k]:.3f} ({(s_n[k] / base_score[k] - 1) * 100:+.1f}%)" for k in base_score))
             report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً){why}")
+            report[-1] += " — المنحنى (نسبة: تغيّر كل مهارة %): " + " | ".join(f"{lam:g}: " + " ".join(f"{k[:1]}{d:+.1f}" for k, d in ch.items()) for lam, ch in curve)
             _record("دمج المعرفة", f"❌ {name}: رُفض (لم يحسّن كل المهارات معاً)")
         else:
             _interpolate(model, base, other_sd, best[0], rows)
@@ -280,7 +283,7 @@ def research_corpus_files(root: Path | None, crawl: bool = True) -> list[str]:
     if crawl:
         try:
             from sham_inputs import crawl_dataset_names, fetch_dataset
-            corpora = sorted(set(crawl_dataset_names()["corpora"]) | {"sham-crawl-corpus"})
+            corpora = sorted(set(crawl_dataset_names()["corpora"]) | {"sham-crawl-corpus", "sham-curated-ar-books"})   # + the curated Arabic books (2026-11-12): Sham v2 reads them through the same pool
         except Exception:
             corpora = []
         for name in corpora:

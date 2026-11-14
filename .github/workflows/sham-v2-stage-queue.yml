@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: claude/free-services-marketplace-h6rwk2
+          fetch-depth: 0      # the queue compares each stage's last source commit with its last Kaggle run
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -30,6 +31,7 @@ jobs:
           python3 ai-system/colab/sham_small/kaggle_notebooks/sham_v2/make_stage_notebooks.py
       - name: Start the next stage when it is time
         env:
+          SHAM_V2_QUEUE_RETRY: ${{ vars.SHAM_V2_QUEUE_RETRY }}      # owner-requested one-time retries of errored stages, e.g. tools@<unix time>
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: python3 ai-system/supervision/sham_v2_stage_queue.py

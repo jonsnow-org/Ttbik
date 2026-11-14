@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><script src="/zenobia/znbt/lang.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><script src="/zenobia/znbt/lang.js"></script>
 <title>Silk Road Passport · From Palmyra</title>
 <meta name="description" content="A limited, tradable passport for ZNB holders. Locked for 30 days, then free to trade. Not a promise of any return.">
 <style>
   :root { --bg:#fffaf0; --fg:#2a1b0b; --card:#ffffff; --gold:#b8862b; --line:#ead9b4; --ok:#1a7f37; --err:#b42318; }
   :root[data-theme="dark"] { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; padding:16px; box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; min-height:100dvh; padding:max(16px, env(safe-area-inset-top, 0px), var(--tg-viewport-safe-area-inset-top, 0px), var(--tg-viewport-content-safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px)); box-sizing:border-box; }
   main { box-sizing:border-box; max-width:520px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
   h1 { font-size:21px; margin:0 0 4px; color:var(--gold); }
   h2 { font-size:15px; margin:0 0 12px; font-weight:500; opacity:.8; }
@@ -22,6 +22,8 @@
   .ok { color:var(--ok); } .err { color:var(--err); }
   small { opacity:.75; display:block; margin-top:12px; }
   .ar { direction:rtl; text-align:right; border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 </style>
 </head>
 <body>

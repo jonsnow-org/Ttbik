@@ -65,8 +65,34 @@ def dataset_names(name: str | None) -> tuple[str, str]:
     slug = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
     return f"sham-crawl-{slug}", f"sham-crawl-{slug}-corpus"
 TARGETS = {"text": 0.45, "image": 0.30, "audio": 0.15, "video": 0.10}
+
+
+def collection_plan(env=None) -> tuple[dict, set | None]:
+    """What the spiders collect: (kind -> share, kinds to keep or None). SHAM_LIVE_KINDS="image" (or "image,text") narrows collection to those kinds; SHAM_LIVE_TARGETS="image:0.8,text:0.2"
+    sets their shares (normalised). Both unset = exactly the shares above. Used by the ModelScope Studio trainers (a Studio that only trains pictures collects only pictures);
+    the held-out sets and everything else keep using TARGETS, so the merge gate's measures do not change."""
+    env = os.environ if env is None else env
+    kinds = {k.strip() for k in (env.get("SHAM_LIVE_KINDS") or "").split(",") if k.strip() in TARGETS} or None
+    shares = dict(TARGETS)
+    raw = (env.get("SHAM_LIVE_TARGETS") or "").strip()
+    if raw:
+        parsed = {}
+        for part in raw.split(","):
+            k, _, v = part.partition(":")
+            try:
+                if k.strip() in TARGETS and float(v) > 0:
+                    parsed[k.strip()] = float(v)
+            except ValueError:
+                pass
+        if parsed:
+            total = sum(parsed.values())
+            shares = {k: v / total for k, v in parsed.items()}
+    elif kinds:
+        total = sum(TARGETS[k] for k in kinds)
+        shares = {k: TARGETS[k] / total for k in kinds}
+    return shares, kinds
 HOLDOUT_PER_KIND = 12
-REHEARSAL_SHARE = 0.15
+REHEARSAL_SHARE = min(0.6, max(0.0, float(os.environ.get("SHAM_REHEARSAL_SHARE") or 0.15)))   # dialogue rehearsal share (the Studio trainers raise it for chat-heavy jobs)
 LR, MIN_LR_RATIO, WARMUP = 5e-5, 0.1, 200
 EMA_DECAY = 0.999
 SAVE_EVERY_GPU, SAVE_EVERY_CPU = 20 * 60, 60 * 60   # a check = two held-out evaluations: rarer on a slow CPU
@@ -142,13 +168,31 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     from sham_inputs import fetch_dataset
 
     mains = []
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
-                          ("sham-grown-checkpoint", "final_grown.pt"),
-                          ("sham-merged-checkpoint", "final_merged.pt")):   # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    anchor_on = (os.environ.get("SHAM_START_ANCHOR") or "merged").lower() != "off"
+    fast = anchor_on and (os.environ.get("SHAM_START_FAST") or "1").strip().lower() not in ("0", "off", "false", "no")
+    lines = [("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-grown-checkpoint", "final_grown.pt"),
+             ("sham-merged-checkpoint", "final_merged.pt")]    # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    if fast:       # 2026-11-13: four checkpoints (3 GB) were downloaded on every cycle start over a slow link (and every redeploy got Kaggle to rate-limit us) only to end up on the head anyway
+        lines = lines[::-1][:1] + lines[:-1]
+    head_ok = False
+    for name, pattern in lines:
+        if head_ok:
+            print(f"⚡ الرأس المنشور سليم: لا حاجة لتنزيل {name} (SHAM_START_FAST=0 يعيد القياس الكامل)")
+            continue
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
             mains.append((name, hits[0], hits[0].parent))
+            if fast and name == "sham-merged-checkpoint":
+                try:
+                    toks = sorted(hits[0].parent.rglob("sham_small_tokenizer.json"))
+                    probe = make_probe("cuda" if torch.cuda.is_available() else "cpu")
+                    loss = probe(hits[0], toks[0]) if toks else None
+                    head_ok = bool(loss is not None and probe.last_chance and loss <= 0.9 * probe.last_chance)
+                    if head_ok:
+                        print(f"⚓ الرأس المنشور سليم (الخسارة النصية {loss:.2f} أقل بكثير من التخمين العشوائي {probe.last_chance:.1f}): نقطة الانطلاق مباشرة بلا تنزيل بقية الخطوط")
+                except Exception as exc:
+                    print(f"⚠ تعذّر فحص الرأس سريعًا ({type(exc).__name__}): يُنزَّل بقية الخطوط ويُقاس الجميع")
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -166,10 +210,13 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
     best = cands[0][0]
-    if len(cands) > 1:
+    if head_ok:
+        best = "sham-merged-checkpoint"
+    elif len(cands) > 1:
         try:
             best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
-                                prefer=("sham-merged-checkpoint", "sham-grown-checkpoint"))   # the head first: it IS the grown lineage plus every merged gain
+                                prefer=("sham-merged-checkpoint", "sham-grown-checkpoint"),   # the head first: it IS the grown lineage plus every merged gain
+                                anchor=None if (os.environ.get("SHAM_START_ANCHOR") or "merged").lower() == "off" else "sham-merged-checkpoint")
         except Exception as exc:
             print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
             best = "own" if own_ok else cands[0][0]
@@ -434,6 +481,51 @@ def make_batches(examples: list, token_budget: int):
 
 # ---------------------------------------------------------------- run
 
+def _start_memory_watch(every: float = 60.0) -> None:
+    """Prints the process memory (RSS), what the machine still has and the container limit once a minute. The cn trainer Studio was killed with code -9 (out of memory) right after the
+    chat data loaded (2026-11-13) and nothing said which step grows: this line tells, and says how close the kill was."""
+    def read(path):
+        try:
+            return Path(path).read_text().strip()
+        except Exception:
+            return ""
+
+    marks = [3.0, 4.0, 4.8]      # GB of process memory at which every thread's stack is printed once: it says WHICH code is growing (cn trainer: +0.5 GB/min until the kill, 2026-11-13)
+
+    def dump_threads(rss_gb):
+        import sys as _sys
+        import traceback as _tb
+        names = {t.ident: t.name for t in threading.enumerate()}
+        print(f"🧵 الذاكرة بلغت {rss_gb:.1f} غ.ب — أين يقف كل خيط:", flush=True)
+        for ident, frame in _sys._current_frames().items():
+            if names.get(ident) == "memory-watch":
+                continue
+            last = _tb.extract_stack(frame)[-4:]
+            print(f"  🧵 {names.get(ident, ident)}: " + " ← ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in reversed(last)), flush=True)
+
+    shown = {"rss": -9.0, "at": 0.0}      # the Studio keeps only a short tail of the log: a line every minute pushed the training lines out of it (2026-11-13), so a line is printed only on a change of 0.4 GB or every 15 minutes
+
+    def loop():
+        while True:
+            try:
+                rss = int(next(l for l in read("/proc/self/status").splitlines() if l.startswith("VmRSS")).split()[1]) / 1048576
+                avail = int(next(l for l in read("/proc/meminfo").splitlines() if l.startswith("MemAvailable")).split()[1]) / 1048576
+                lim = read("/sys/fs/cgroup/memory.max") or read("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+                lim_s = f"{int(lim) / 1073741824:.1f} غ.ب" if lim.isdigit() and int(lim) < 1 << 50 else "بلا حد ظاهر"
+                cur = read("/sys/fs/cgroup/memory.current") or read("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+                cur_s = f"، الحاوية {int(cur) / 1073741824:.1f} غ.ب" if cur.isdigit() else ""
+                while marks and rss >= marks[0]:
+                    dump_threads(rss)
+                    marks.pop(0)
+                if abs(rss - shown["rss"]) >= 0.4 or time.time() - shown["at"] >= 900:
+                    shown.update(rss=rss, at=time.time())
+                    print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
+            except Exception:
+                return
+            time.sleep(every)
+    threading.Thread(target=loop, daemon=True, name="memory-watch").start()
+
+
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
         mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None, source_set: str = "default") -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
@@ -451,6 +543,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     from train_image_tokenizer import save_tokenizer_checkpoint as save_img
 
     t_start = time.time()
+    _start_memory_watch()
     cuda = torch.cuda.is_available()
     device = "cuda" if cuda else "cpu"
     hours = hours if hours is not None else (7.0 if cuda else 11.0)
@@ -510,15 +603,20 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     print(f"عناوين سبقت زيارتها (لا تُحمَّل ثانيةً): {len(sham_spider.URL_SEEN):,}")
 
     # — the spider network and the encoders
-    raw_q, enc_q = queue.Queue(maxsize=256), queue.Queue(maxsize=512)
+    # CPU trainer on a small machine: 256 raw items (images / audio bytes, up to MBs each) + 512 encoded examples were part of the memory that got the cn Studio killed (8 GB limit)
+    raw_q, enc_q = (queue.Queue(maxsize=256), queue.Queue(maxsize=512)) if cuda else (queue.Queue(maxsize=int(os.environ.get("SHAM_RAW_Q") or 32)), queue.Queue(maxsize=int(os.environ.get("SHAM_ENC_Q") or 128)))
     ledgers = {}
     if source_set == "gh":   # the GitHub-hosted trainer reads different sources than the Kaggle one (sham_sources_gh.py)
         from sham_sources_gh import gh_sources
         _sources = [x for x in gh_sources() if video or x.kind != "video"]
     else:
         _sources = default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video)
+    _shares, _kinds = collection_plan()
+    if _kinds:
+        _sources = [x for x in _sources if x.kind in _kinds]
+        print(f"جمع {', '.join(sorted(_kinds))} فقط (SHAM_LIVE_KINDS)")
     spider = Spider(_sources,
-                    seen, raw_q, TARGETS if video else {k: v for k, v in TARGETS.items() if k != "video"},
+                    seen, raw_q, _shares if video else {k: v for k, v in _shares.items() if k != "video"},
                     workers=workers, seed=step).start()
     encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device, motion_tok)
     stop = threading.Event()
@@ -608,15 +706,33 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                 print(f"⚠ نسخة الحوارات المحفوظة تالفة: {exc}")
     if not dialogues:
         print("⚠ لا حوارات للتذكّر هذه الجلسة — المحادثة لن تُقاس ولن تُذكَّر")
+    # The chat yardstick is the MERGE GATE's own (the four Arabic sets, the seed-7 split of sham_ci_merge.default_gate), not a sample of the trainer's own rehearsal set.
+    # 2026-11-13 inventory: the trainers saw chat IMPROVE while the gate saw it get worse (sham-crawl-lightning / ms3 / crawl: "ruler conflict"), because the trainer trained on
+    # (and measured on) a broader mix than the gate's yardstick, so the guard never noticed real forgetting. Those held-out dialogues are never trained on here either.
+    gate_chat: list = []
+    gate_hold: set = set()
+    if os.environ.get("SHAM_TRAINER_GATE_RULER", "1").strip().lower() not in ("0", "off", "false", "no"):
+        try:
+            from sham_chat import _chat_plan, split_holdout
+            gd, _ = load_arabic_dialogues({}, 800, plan=_chat_plan(extra=False))
+            _, ghold = split_holdout(gd, seed=7)
+            gate_hold = {(q, a) for q, a in ghold}
+            gate_chat = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in ghold][:24]
+            print(f"📏 مسطرة المحادثة هي مسطرة بوابة الدمج نفسها: {len(gate_chat)} حوارًا ثابتًا لا يُدرَّب عليه")
+        except Exception as exc:
+            print(f"⚠ تعذّر بناء مسطرة بوابة الدمج للمحادثة ({type(exc).__name__}): تُقاس على عيّنة التذكّر كالسابق")
+    if gate_hold:
+        dialogues = [d for d in dialogues if (d[0], d[1]) not in gate_hold]
     rehearsal = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in dialogues]
     random.Random(step).shuffle(rehearsal)
 
     # — held-out yardstick: the first examples of each modality are never trained on
     holdout = {k: [] for k in TARGETS}
-    holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
+    holdout["chat"] = gate_chat or rehearsal[:HOLDOUT_PER_KIND]
     holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
     load_general()
-    rehearsal = rehearsal[HOLDOUT_PER_KIND:]
+    if not gate_chat:
+        rehearsal = rehearsal[HOLDOUT_PER_KIND:]
     # multi-turn conversations (memory, 2026-10-14; off unless SHAM_CHAT_MULTITURN=1): added to the TRAINING rehearsal only — the held-out
     # yardstick above stays the same single-turn examples, so the guard judges a multi-turn round by the very same measure as before.
     try:

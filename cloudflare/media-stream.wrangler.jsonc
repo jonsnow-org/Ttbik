@@ -1,0 +1,14 @@
+{
+  // Dedicated config for media-stream.jonsnowx1r.workers.dev.
+  // BOT_TOKEN is a Cloudflare secret; never store it in this file.
+  "name": "media-stream",
+  "main": "media-stream-worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // A Worker may not fetch another Worker on workers.dev of the same account (Cloudflare answers 404): the path lookup goes to the site gate
+  // through this service binding instead.
+  "services": [{ "binding": "GATE", "service": "ttbik-gate" }],
+  "vars": {
+    "MEDIA_PATH_ORIGIN": "https://ttbik-gate.jonsnowx1r.workers.dev"
+  }
+}

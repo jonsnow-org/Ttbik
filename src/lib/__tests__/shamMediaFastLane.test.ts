@@ -10,9 +10,8 @@ let routeReply: any = null;
 let mockLastMemory: any = null;
 let continuation: { ok: true } | { ok: false; uncertain: boolean; reason: string } = { ok: true };
 const runs = new Map<string, any>();
-const videoStarts: string[] = [];
 jest.mock("@/lib/shamMediaRoutes", () => ({ generateShamMediaThroughRoute: jest.fn(async (...a: any[]) => { routeCalls.push(a); return routeReply; }) }));
-jest.mock("@/lib/shamStudio", () => ({ ...jest.requireActual("@/lib/shamStudio"), shamChatAuto: jest.fn(async () => ({ type: "text", text: "white horse" })), vetShamReply: jest.fn(async (r: any) => r), shamVideoStart: jest.fn(async (_b: string, body: string) => { videoStarts.push(body); return { job: "j1" }; }), shamVideoJob: jest.fn(async () => ({ reply: JSON.stringify({ type: "video", mime: "video/mp4", b64: Buffer.from("mp4").toString("base64") }) })) }));
+jest.mock("@/lib/shamStudio", () => ({ ...jest.requireActual("@/lib/shamStudio"), shamChatAuto: jest.fn(async () => ({ type: "text", text: "white horse" })), vetShamReply: jest.fn(async (r: any) => r) }));
 jest.mock("@/lib/shamThreads", () => ({ loadChatMemory: jest.fn(async () => mockLastMemory), saveChatTurn: jest.fn(async () => undefined) }));
 jest.mock("@/lib/shamContinuation", () => ({ postShamContinuation: jest.fn(async () => continuation) }));
 jest.mock("@/lib/shamExec", () => ({ ...jest.requireActual("@/lib/shamExec"), shamSaveRun: jest.fn(async (run: any) => { runs.set(run.runId, run); }), shamTakeRun: jest.fn(async (_chat: number, runId: string) => runs.get(runId) ?? null) }));
@@ -70,19 +69,6 @@ describe("Sham media fast lane", () => {
     await shamVariant.run("v2", () => continueShamRun(b, 77, "bot1", "run-vid"));
     expect(routeCalls[0][0]).toBe("video");                                     // Sham v2's own internal generator (no separate video Studio any more)
     expect(routeCalls[0][2]).toMatchObject({ seconds: 30 });
-    expect(videoStarts).toHaveLength(0);
-  });
-
-  it("a video Studio without the background-job API still makes the clip through the single call", async () => {
-    const { shamVideoStart } = await import("@/lib/shamStudio");
-    (shamVideoStart as jest.Mock).mockResolvedValueOnce(null);              // an older Studio app answers nothing to generate_video_start
-    await seed("run-vid-old", { kind: "video", request: "قم بتوليد فيديو فرس أبيض", subject: "فرس أبيض", model: "v2", rawTest: false, phase: "generate", prompt: "a white horse" });
-    routeReply = { type: "video", b64: tiny, route: "sham_v2_ready" };
-    const { continueShamRun } = await import("@/lib/novaBotLogic");
-    const { bot: b, calls } = bot();
-    await shamVariant.run("v2", () => continueShamRun(b, 77, "bot1", "run-vid-old"));
-    expect(routeCalls.some((c) => c[0] === "video")).toBe(true);            // fell back to the single route call
-    expect(calls.some((c) => c.m === "sendVideo")).toBe(true);
   });
 
   it("resumes image generation when the user replies with only 'حصان أبيض' after a description question", async () => {

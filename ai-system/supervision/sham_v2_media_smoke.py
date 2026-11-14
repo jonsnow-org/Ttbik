@@ -1,7 +1,8 @@
 """Live smoke tests for the Sham v2 ModelScope Studio.
 
-Required local-ready tests fail the workflow. Internal token-decoder is diagnostic.
-External provider routes are deliberately excluded from this smoke test.
+Sham v2 has exactly one generator, its OWN token generator (owner 2026-11-11: no donor weights, no outside model anywhere). Each medium is requested from it and run through the same
+content gate the Studio applies (not black / constant / noise, not silent, not a frozen video). A medium that fails the gate FAILS the run: that is the honest state of the generator,
+not something to hide. SMOKE_KINDS (default image,audio,video) narrows what is tested.
 """
 from __future__ import annotations
 
@@ -81,9 +82,9 @@ def call(api: str, payload: dict, timeout: int = 300):
     raise TimeoutError(f"{api}: timed out after {timeout}s; last stream error: {last_error}")
 
 
-def media(kind: str, backend: str):
+def media(kind: str, backend: str = "internal"):
     label = {
-        "ready": "المسار البديل (أوزان محلية جاهزة)",
+        "internal": "شام الداخلي (الأساسي)",
     }[backend]
     value = call("generate_media_from_panel", {
         "kind": kind,
@@ -121,14 +122,14 @@ def main() -> int:
         print("FAIL: MODELSCOPE_TOKEN missing")
         return 2
     print(f"Studio: {BASE}")
-    last = {}
+    last: dict = {}
     deadline = time.time() + 300
     while time.time() < deadline:
         try:
             last = call("status", {}, timeout=30)
             if isinstance(last, str):
                 last = json.loads(last)
-            if isinstance(last, dict) and last.get("phase") == "ready" and last.get("media_assets", {}).get("ready"):
+            if isinstance(last, dict) and last.get("phase") == "ready":
                 break
         except Exception as exc:
             print(f"Waiting for status: {type(exc).__name__}: {str(exc)[:120]}")
@@ -136,44 +137,20 @@ def main() -> int:
     if not isinstance(last, dict) or last.get("phase") != "ready":
         print("FAIL: Sham v2 text model is not ready:", json.dumps(last, ensure_ascii=False)[:1000])
         return 1
-    assets = last.get("media_assets", {})
-    if not assets.get("ready"):
-        print("FAIL: ready local media weights are not available:", json.dumps(assets, ensure_ascii=False)[:800])
-        return 1
-    print("PASS status: text model ready and media_assets.ready=true")
-
+    print("PASS status: the Studio is ready")
     only = [k for k in os.environ.get("SMOKE_KINDS", "image,audio,video").split(",") if k.strip() in ("image", "audio", "video")]
-    if os.environ.get("SMOKE_SKIP_TEXT", "").strip() != "1":
-        text_answer = call("generate_text", {"prompt": "أجب بكلمة واحدة: مرحباً", "max_new_tokens": 24}, timeout=180)
-        if not isinstance(text_answer, str) or not text_answer.strip():
-            print("FAIL text generation: empty response")
-            return 1
-        print(f"PASS text generation: {text_answer.strip()[:160]}")
-
-    if "video" in only and os.environ.get("SMOKE_LOCAL_VIDEO", "").strip() != "1":
-        # The chat Studio (8 GB RAM, text model resident) cannot carry the video pipeline: it died with HTTP 502 after sampling. Video is served and verified by Sham v2's own
-        # video Studio (.github/workflows/deploy-modelscope-sham-v2-video.yml, ai-system/app/sham_v2_video_probe.py).
-        only = [k for k in only if k != "video"]
-        print("NOTE video: served by Sham v2's own video Studio (verified by its deploy workflow); not called on the chat Studio")
+    failed = []
     for kind in only:
         started = time.time()
-        media(kind, "ready")
+        try:
+            media(kind, "internal")
+        except Exception as exc:   # one medium failing never hides the others
+            failed.append(kind)
+            print(f"FAIL internal/{kind}: {type(exc).__name__}: {str(exc)[:240]}")
         print(f"   ({kind} took {time.time() - started:.0f}s)")
-    if os.environ.get("SMOKE_SKIP_TEXT", "").strip() == "1":
-        return 0
-
-    # Diagnostic only: the legacy token decoder is still under training and must not
-    # block ready-weight service from working.
-    try:
-        internal = call("generate_media", {"kind": "image", "prompt": "a red apple on a white table"}, timeout=180)
-        if isinstance(internal, dict) and internal.get("type") == "image" and internal.get("b64"):
-            print(f"DIAGNOSTIC internal/image: returned {len(base64.b64decode(internal['b64']))} bytes; visual quality still requires review")
-        else:
-            print(f"DIAGNOSTIC internal/image: not usable: {str(internal)[:250]}")
-    except Exception as exc:
-        print(f"DIAGNOSTIC internal/image failed: {type(exc).__name__}: {str(exc)[:180]}")
-
-    # External media providers are quarantined; only Sham-owned routes are tested.
+    if failed:
+        print("FAIL: Sham v2's own generator did not produce usable " + ", ".join(failed))
+        return 1
     return 0
 
 

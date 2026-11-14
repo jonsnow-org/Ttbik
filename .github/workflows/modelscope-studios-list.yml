@@ -1,0 +1,29 @@
+name: ModelScope Studios list (read-only)
+
+# Lists the Studios of one of the owner's two ModelScope accounts (cn = novaai2026 on modelscope.cn, ai = the international account): name, status, hardware. To find idle Studios
+# that can train Sham (owner's order: always use the idle Studios of both accounts). Changes nothing; tokens are never printed.
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "cn | ai"
+        required: false
+        default: "cn"
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: List
+        env:
+          SITE: ${{ inputs.site || 'cn' }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
+        run: python3 scripts/ops/modelscope_studios_list.py

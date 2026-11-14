@@ -17,7 +17,7 @@ import {
   isChannelMember, isOwnPlatformBotChatId, isPrivateBot, launchAdCore, mintAdClick, normalizeChannelHandle, payoutTask, reportAdCore,
   requestUserWithdrawalCore, round2, sendCampaignEndedReport, shortId, topupAdCore, userWithdrawalAdminText, type AdTypeStr, type CreateAdCollected,
 } from "@/lib/adBotLogic";
-import { normalizeTargetUrl } from "@/lib/watchTarget";
+import { timedClickStatus } from "@/lib/watchTarget";
 import { socialStartUrl, hasSocialLink, type SocialPlatform } from "@/lib/socialProof";
 import { hasYoutubeLink, youtubeStartUrl } from "@/lib/youtubeLink";
 import { STAR_DEPOSIT_TIERS, starsPayload, usdForStars } from "@/lib/starsPayment";
@@ -26,9 +26,11 @@ import { isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, MIN_USD, MAX_USD, type Chain } from "@/lib/chainDeposits";
 import { getMasterHotWalletAddress, getOrCreateTonMemo, isNativeTonConfigured } from "@/services/ton-service";
 import { apiKey as remitKey, createTransferRecord, deleteRecipient, fmt as rfmt, FROM_COUNTRIES, parseAmount, quoteAmount, savedRecipients, syncTransferStatus, TO_COUNTRIES, transferByTrack, transfersOf, type Transfer } from "@/lib/remit/office";
-import { coinById, FINAL, PAY_COINS, RECEIVE, STATUS_AR, TRON_ADDRESS } from "@/lib/remit/changenow";
-import { createAdDeal, createBadgeOrder, dealByCode, dealsForChannel, listingByToken, payDeal, publicListings, requestListing, submitPost, verifyListing } from "@/lib/channels/exchange";
+import { coinById, FINAL, PAY_COINS, RECEIVE, STATUS_AR } from "@/lib/remit/changenow";
+import { createAdDeal, createBadgeOrder, dealByCode, dealsForAdvertiser, dealsForChannel, listingByToken, listingTokensForOwner, payDeal, publicListings, requestListing, submitPost, verifyListing } from "@/lib/channels/exchange";
+import { assetIdentityForUser, assetVerifierBotNames, createAssetListing, createAssetSale, publicAssetListings, myAssetListings, myAssetSales, assetSaleDetails, reportAssetTransfer, confirmAssetReceipt, upsertAssetIdentity } from "@/lib/channels/assetMarket";
 import { BADGE_PRICE_USD, COMMISSION_RATE, MAX_DEAL_USD, MIN_DEAL_USD } from "@/lib/channels/auditRules";
+import { isValidTronPayoutAddress } from "@/lib/channels/payoutAddress";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
@@ -72,6 +74,7 @@ async function eligibleAd(tgId: string, botId: string, adId: string) {
   if (!ad || ad.status !== "ACTIVE") return null;
   if (!(ad.scope === "GLOBAL" || (ad.scope === "TARGETED" && ad.botId === botId))) return null;
   if (!String(ad.content || "").trim()) return null;
+  if (Number(ad.cpc) > 0 && (ad.userId === tgId || Number(ad.remaining) < Number(ad.cpc))) return null;
   return ad;
 }
 
@@ -94,6 +97,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
   if (tgId !== SUPER_ADMIN_ID && (await isPrivateBot(botRow.id))) return fail("🔒 هذا البوت خاص بإدارة المنصة.", "private");
   const bot = new TelegramBot(botRow.token);
   const user = await ensureUser(botRow.id, tgId, botRow);
+  await upsertAssetIdentity({ id: tgId, firstName: tg.firstName || "", lastName: tg.lastName || null, username: tg.username || null, phoneNumber: user.phoneNumber || null, phoneVerified: !!user.phoneVerified }).catch(() => null);
   const lang: Lang = user.language === "en" ? "en" : "ar";
 
   if (action === "init" || action === "gate_check") {
@@ -134,11 +138,29 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       if (!ad) return fail(t(lang, "taskGone"), "gone");
       const type = ad.type as AdTypeStr;
       const handle = type === "TELEGRAM" ? normalizeChannelHandle(String(ad.content)) : null;
-      if (handle !== null && !isBotHandle(handle)) return { ok: true, url: `https://t.me/${handle}`, telegram: true, timer: 0 };
-      // The clock starts now (AdClick.issuedAt), exactly like the chat's card: the reward is claimable after the same 15 seconds.
+      if (handle !== null && !isBotHandle(handle)) {
+        return { ok: true, url: `https://t.me/${handle}`, telegram: true, timer: 0 };
+      }
       const click = await mintAdClick(ad.id, tgId, botRow.id);
-      if (handle !== null) return { ok: true, url: `https://t.me/${handle}?start=adv_${click.id}`, telegram: true, timer: WATCH_TIMER_SECONDS };
-      return { ok: true, url: normalizeTargetUrl(ad.type, ad.content), telegram: false, timer: WATCH_TIMER_SECONDS };
+      if (handle !== null) {
+        const target = await bot.api.getChat(`@${handle}`).catch(() => null);
+        const ownPlatformBot = !!target && await isOwnPlatformBotChatId(target.id);
+        if (ownPlatformBot) {
+          return { ok: true, url: `https://t.me/${handle}?start=adv_${click.id}`, telegram: true, timer: 0 };
+        }
+      }
+      // Open the watch page first. Only its explicit POST /open click starts
+      // the authoritative server timer; the miniapp's own clock is cosmetic.
+      return { ok: true, url: `${site()}/watch/${click.id}`, telegram: false, timer: WATCH_TIMER_SECONDS };
+    }
+    case "earn_status": {
+      const ad = await eligibleAd(tgId, botRow.id, String(body?.adId || ""));
+      if (!ad) return fail(t(lang, "taskGone"), "gone");
+      const click = await prisma.adClick.findUnique({
+        where: { adId_userId: { adId: ad.id, userId: tgId } },
+        select: { issuedAt: true, verified: true },
+      });
+      return { ok: true, ...timedClickStatus(click, Date.now(), WATCH_TIMER_SECONDS) };
     }
     case "earn_verify": {
       if (!user.phoneVerified) return fail(t(lang, "phoneRequiredAlert"), "phone");
@@ -149,11 +171,6 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       if (ad.userId === tgId) return fail(t(lang, "taskOwnCampaign"), "own");
       const verified = await isAdVerifiedByUser(bot, ad, tgId);
       if (!verified) {
-        if (SOCIAL[ad.type]) return fail(t(lang, "socialNeedCode"), "social", { platform: SOCIAL[ad.type] });
-        if (ad.type === "YOUTUBE") {
-          const linked = await hasYoutubeLink(tgId);
-          return fail(t(lang, linked ? "youtubeNotSubscribedAlert" : "youtubeNeedLinkAlert"), linked ? "not_done" : "youtube", { platform: "youtube" });
-        }
         return fail(t(lang, "carouselNotDoneAlert"), "not_done");
       }
       const r = await payoutTask(tgId, ad.id, botRow.id);
@@ -174,9 +191,16 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       return r === "already" ? fail(t(lang, "reportAlready"), "already") : { ok: true, message: t(lang, "reportReceived") };
     }
     case "phone_prompt": {
-      // The chat's own «share phone» keyboard: the contact it sends is verified by the bot exactly as before.
-      await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) }).catch(() => null);
-      return { ok: true };
+      // The chat's own «share phone» keyboard: verification is complete only after
+      // the incoming contact message is written to User.phoneVerified.
+      try {
+        await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) });
+        return { ok: true };
+      } catch {
+        return fail(lang === "en"
+          ? "Could not send the phone-sharing button. Open the bot chat and send /start."
+          : "تعذّر إرسال زر مشاركة الرقم. افتح محادثة البوت وأرسل /start.", "phone_prompt_failed");
+      }
     }
     case "accounts": {
       const plats: SocialPlatform[] = ["twitter", "tiktok", "facebook", "instagram", "link"];
@@ -213,7 +237,6 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       const type = body.type as AdTypeStr;
       const c: CreateAdCollected = {
         scope: body.scope === "GLOBAL" ? "GLOBAL" : "TARGETED",
-        subType: type === "TWITTER" ? (body.subType === "retweet" ? "retweet" : "follow") : undefined,
         description: String(body.description || "").trim().slice(0, 600),
         target: String(body.target || "").trim().slice(0, 500),
         budget: num(body.budget), cpc: num(body.cpc),
@@ -225,7 +248,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       const min = MIN_CPC_BY_TYPE[type];
       if (!Number.isFinite(c.cpc) || c.cpc! < min) return fail(t(lang, "adCpcMinError", { platform: TYPE_LABEL[type][lang], min }));
       if (c.cpc! > c.budget!) return fail(t(lang, "adCpcOverBudgetError"));
-      const r = await launchAdCore(tgId, type, c);
+      const r = await launchAdCore(tgId, type, c, botRow.id);
       if (!r.ok && r.reason === "insufficient") return fail(`رصيدك ${r.balance.toFixed(2)}$ لا يكفي ميزانية ${r.budget.toFixed(2)}$. اشحن محفظتك ثم أكّد.`, "insufficient", { balance: r.balance, budget: r.budget });
       if (!r.ok) return fail(t(lang, "adAutoRejected"), "rejected");
       return { ok: true, budget: r.budget };
@@ -368,7 +391,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       const amount = parseAmount(String(body?.amount ?? ""));
       const addr = String(body?.addr || "").trim();
       if (!c || !amount) return fail("أكمل العملة والمبلغ.");
-      if (!TRON_ADDRESS.test(addr)) return fail("⚠️ هذا ليس عنوان TRC20. العنوان يبدأ بحرف T وطوله 34 حرفاً.");
+      if (!isValidTronPayoutAddress(addr)) return fail("⚠️ عنوان TRC20 غير صحيح أو checksum غير صالح. راجع العنوان من محفظتك.");
       const q = await quoteAmount(c, amount, key);
       if (!q.ok) return fail(q.reason === "min" ? `أقل مبلغ لهذه العملة الآن ${rfmt(q.min || 0)} ${c.label}.` : "تعذّر حساب السعر الآن.", q.reason);
       const to = TO_COUNTRIES.some(([id]) => id === body?.to) ? String(body.to) : "xx";
@@ -397,53 +420,111 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       return { ok: true, transfer: transferView(x) };
     }
     case "remit_del_recipient": {
-      const a = String(body?.address || "");
-      if (!TRON_ADDRESS.test(a)) return fail("عنوان غير صحيح.");
+      const a = String(body?.address || "").trim();
+      if (!a) return fail("عنوان المستلم غير موجود.");
+      // Allow removing legacy saved addresses even if they fail the new checksum validation.
       await deleteRecipient(tgId, a);
       return { ok: true };
     }
     case "remit_recv_link": {
       const a = String(body?.address || "").trim();
-      if (!TRON_ADDRESS.test(a)) return fail("⚠️ هذا ليس عنوان TRC20. العنوان يبدأ بحرف T وطوله 34 حرفاً.");
+      if (!isValidTronPayoutAddress(a)) return fail("⚠️ عنوان TRC20 غير صحيح أو checksum غير صالح.");
       const me = await bot.api.getMe().catch(() => null);
       return { ok: true, link: me?.username ? `https://t.me/${me.username}?start=pay_${a}` : "", address: a };
     }
 
+    // ------------------------------------------------------------------ 🛍️ سوق ملكية أصول تيليجرام (ID-first identity + verified handover)
+    case "ex_asset_identity_request": {
+      try {
+        await bot.api.sendMessage(Number(tgId), "لإكمال هوية البائع والمشتري، شارك رقم هاتفك عبر زر تيليجرام الرسمي أدناه. لا ترسل الرقم كتابةً أو في رسالة عادية.", {
+          reply_markup: new Keyboard().requestContact("📱 مشاركة رقم هاتفي").resized(),
+        });
+        const me = await bot.api.getMe().catch(() => null);
+        return { ok: true, sent: true, link: me?.username ? `https://t.me/${me.username}` : null };
+      } catch {
+        return fail("افتح محادثة هذا البوت واضغط Start أولاً، ثم أعد طلب مشاركة رقم الهاتف.");
+      }
+    }
+    case "ex_asset_list": {
+      try {
+        const [listings, myListings, mySales, identity, verifierBots] = await Promise.all([
+          publicAssetListings(), myAssetListings(tgId), myAssetSales(tgId), assetIdentityForUser(tgId), assetVerifierBotNames(),
+        ]);
+        return { ok: true, listings, myListings, mySales, identity, verifierBots,
+          rules: { commissionPct: 0, phoneRequired: true } };
+      } catch {
+        return fail("تعذّر تحميل سوق الأصول حالياً. أعد المحاولة.");
+      }
+    }
+    case "ex_asset_create": {
+      if (!rateLimit(`adapp-asset-create:${tgId}`, 4, 600_000)) return fail("طلبات كثيرة. حاول بعد دقائق.");
+      const r = await createAssetListing({
+        assetType: String(body?.assetType || "").toUpperCase() as any,
+        identifier: String(body?.identifier || ""), title: String(body?.title || ""),
+        description: String(body?.description || ""), price: Number(body?.price),
+        payoutAddress: String(body?.payoutAddress || ""),
+      }, tgId);
+      return r.ok ? { ok: true, id: r.id, status: r.status, verificationMode: r.verificationMode } : fail(r.error);
+    }
+    case "ex_asset_buy": {
+      if (!rateLimit(`adapp-asset-buy:${tgId}`, 5, 600_000)) return fail("طلبات شراء كثيرة. تمهّل قليلاً.");
+      const r = await createAssetSale(String(body?.listingId || ""), tgId);
+      return r.ok ? { ...r } : fail(r.error);
+    }
+    case "ex_asset_sale": {
+      const code = String(body?.code || "").toUpperCase();
+      const sale = await assetSaleDetails(code, tgId);
+      return sale ? { ok: true, sale } : fail("الصفقة غير موجودة لهذا الحساب.");
+    }
+    case "ex_asset_transfer": {
+      const r = await reportAssetTransfer(String(body?.code || "").toUpperCase(), tgId, String(body?.evidence || ""));
+      return r.ok ? { ok: true, status: r.status } : fail(r.error);
+    }
+    case "ex_asset_receive": {
+      const r = await confirmAssetReceipt(String(body?.code || "").toUpperCase(), tgId);
+      return r.ok ? { ok: true, verified: r.verified, manualReview: !!r.manualReview } : fail(r.error);
+    }
     // ------------------------------------------------------------------ 📣 بورصة القنوات والجروبات (15% escrow commission, 100% platform)
     case "ex_list": {
-      const listings = await publicListings().catch(() => []);
-      return { ok: true, listings, rules: { commissionPct: Math.round(COMMISSION_RATE * 100), minPrice: MIN_DEAL_USD, maxPrice: MAX_DEAL_USD, badgePrice: BADGE_PRICE_USD } };
+      try {
+        const [listings, myDeals, myChannels] = await Promise.all([
+          publicListings(), dealsForAdvertiser(tgId), listingTokensForOwner(tgId),
+        ]);
+        return { ok: true, listings, myDeals, myChannels, rules: { commissionPct: Math.round(COMMISSION_RATE * 100), minPrice: MIN_DEAL_USD, maxPrice: MAX_DEAL_USD, badgePrice: BADGE_PRICE_USD } };
+      } catch {
+        return fail("تعذّر تحميل البورصة الآن. احتفظ بطلباتك وحاول التحديث بعد قليل.");
+      }
     }
     case "ex_deal_create": {
       if (!rateLimit(`adapp-exd:${tgId}`, 10, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
-      const r = await createAdDeal({ channel: String(body?.channel || ""), adText: String(body?.adText || ""), targetUrl: String(body?.targetUrl || ""), contact: String(body?.contact || "") });
+      const r = await createAdDeal({ channel: String(body?.channel || ""), adText: String(body?.adText || ""), targetUrl: String(body?.targetUrl || ""), contact: String(body?.contact || ""), advertiserTgId: tgId });
       return r.ok ? { ok: true, code: r.code, price: r.price } : fail(r.error);
     }
     case "ex_pay": {
       const m = ["stars", "nowpayments", "usdt"].includes(body?.method) ? body.method : "usdt";
-      const r: any = await payDeal(String(body?.code || "").toUpperCase(), m);
+      const r: any = await payDeal(String(body?.code || "").toUpperCase(), m, tgId);
       if (!r.ok) return fail(r.error);
       if (r.manual) return { ok: true, manual: true, amount: r.amount, usdt: r.usdt, network: r.network, note: `حوّل المبلغ واكتب الكود ${String(body?.code || "").toUpperCase()} في ملاحظة التحويل. تؤكده المنصة ثم تبدأ الصفقة.` };
       return { ok: true, url: r.invoiceUrl, stars: r.stars ?? null };
     }
     case "ex_deal": {
       const d = await dealByCode(String(body?.code || "").toUpperCase());
-      if (!d) return fail("الكود غير موجود.");
-      return { ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link, createdAt: d.created_at } };
+      if (!d || (d.advertiser_tg_id && d.advertiser_tg_id !== tgId)) return fail("الطلب غير موجود لهذا الحساب.");
+      return { ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link, paymentReference: d.payment_reference || null, settlementReference: d.settlement_reference || null, createdAt: d.created_at } };
     }
     case "ex_list_request": {
       if (!rateLimit(`adapp-exl:${tgId}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
-      const r = await requestListing({ channel: String(body?.channel || ""), ownerContact: String(body?.ownerContact || ""), payoutAddress: String(body?.payoutAddress || ""), price: Number(body?.price) });
+      const r = await requestListing({ channel: String(body?.channel || ""), ownerContact: String(body?.ownerContact || ""), payoutAddress: String(body?.payoutAddress || ""), price: Number(body?.price), ownerTgId: tgId });
       return r.ok ? { ok: true, username: r.username, verifyCode: r.verifyCode, token: r.manageUrl.split("/").pop() } : fail(r.error);
     }
     case "ex_list_verify": {
       if (!rateLimit(`adapp-exv:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
-      const r: any = await verifyListing(String(body?.token || ""));
+      const r: any = await verifyListing(String(body?.token || ""), tgId);
       return r.ok ? { ok: true, already: !!r.already } : fail(r.error);
     }
     case "ex_manage": {
       const l = await listingByToken(String(body?.token || ""));
-      if (!l) return fail("القناة غير موجودة.");
+      if (!l || (l.owner_tg_id && l.owner_tg_id !== tgId)) return fail("القناة غير موجودة لهذا الحساب.");
       const deals = l.viaPending || l.status !== "LISTED" ? [] : await dealsForChannel(l.username).catch(() => []);
       return {
         ok: true,
@@ -453,11 +534,11 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
     }
     case "ex_post": {
       if (!rateLimit(`adapp-exp:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
-      const r: any = await submitPost(String(body?.token || ""), String(body?.code || "").toUpperCase(), String(body?.link || ""));
+      const r: any = await submitPost(String(body?.token || ""), String(body?.code || "").toUpperCase(), String(body?.link || ""), tgId);
       return r.ok ? { ok: true, verified: !!r.verified } : fail(r.error);
     }
     case "ex_badge": {
-      const r: any = await createBadgeOrder(String(body?.token || ""));
+      const r: any = await createBadgeOrder(String(body?.token || ""), tgId);
       return r.ok ? { ok: true, code: r.code, price: r.price } : fail(r.error);
     }
   }

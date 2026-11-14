@@ -5,6 +5,7 @@ only to the staged v2 copy, never to the source used by Sham v1.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import sys
@@ -72,6 +73,8 @@ def patch_staged_sham_v2_download(studio: pathlib.Path) -> None:
 
 def write_sham_v2_wrapper(studio: pathlib.Path) -> None:
     (studio / "app.py").write_text(SHAM_V2_WRAPPER, encoding="utf-8")
+    # status() reports this as "build": the deploy compares it with the commit it pushed (ModelScope's runner can ship a cached old build)
+    (studio / "BUILD_STAMP").write_text(os.environ.get("GITHUB_SHA", "")[:12] + "\n", encoding="utf-8")
 
 
 def stage_sham_v2(studio: pathlib.Path) -> str:

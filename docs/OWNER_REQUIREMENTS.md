@@ -39,7 +39,6 @@
 
 ## معلّق / لاحقًا
 - Sham v2 `sham-v2-server` و`overflow` ما زالا DeployFailed.
-- `umranz-sd15-image-test` يعيد 502/500.
 - إعادة الفلاتر عندما يطلب المالك.
 - وكيل مراقبة المشكلات داخل Nova بعد استقرار النماذج.
 - تحقق حي على Telegram.

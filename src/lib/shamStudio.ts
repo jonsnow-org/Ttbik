@@ -12,8 +12,6 @@ import { orderV2, tracked } from "@/lib/shamPool";
 
 export const DEFAULT_URL = "https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net";
 export const DEFAULT_V2_URL = "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net";
-// Sham v2's own video Studio (ai-system/modelscope-sham-video/app.py): the 8 GB chat Studio cannot carry the video pipeline (it died with HTTP 502 right after sampling).
-export const DEFAULT_V2_VIDEO_URL = "https://studio-novaai2026-sham-v2-video-server.api-inference.modelscope.net";
 
 /** Which Sham a call goes to: "v1" = the current Sham Studio, "v2" = the new body's Studio. Set around a call with shamVariant.run("v2", fn) (the engine does it for the sham_v2 model). */
 export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
@@ -144,6 +142,8 @@ export type ShamReply = {
   /** An embedded-tool step (the computer or browser of the model itself): the model wrote the call, ran it INSIDE its own loop and returns call + result for the app's loop to record. */
   tool_call?: { id?: string; type?: "function"; function: { name: string; arguments: string } };
   result?: string;
+  /** The model chose to show its screen (desktop action=show): the offer rides in its own reply (a picture, its size, the session) for ANY client to display. */
+  desktop?: { session?: string; width?: number; height?: number; screenshot_b64?: string };
   raw?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
@@ -192,44 +192,6 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
     note(base, api, `${(e as { name?: string })?.name || "error"} (limit ${Math.round(timeoutMs / 1000)} s): ${String((e as Error)?.message || "").slice(0, 80)}`);
     return null;
   }
-}
-
-/** Sham v2's video Studio runs a clip as a background job (`generate_video_start`), and `job` is asked back-to-back (each call at most ~20 s): one long read was cut by
- *  the gateway and the idle Studio then stalled the clip (2026-11-04). null = no job API on this Studio (an older app) or the start failed: the caller makes the single call. */
-export async function shamVideoByJob(base: string, videoBody: string, timeoutMs: number): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  const started = await shamCallAt(base, "generate_video_start", { body: videoBody }, Math.min(30000, timeoutMs));
-  const s = started ? (parseShamReply(started) as unknown as { type: string; job?: string } | null) : null;
-  if (!s) return null;
-  if (s.type !== "job" || !s.job) return started;                       // busy / error answered at once
-  const pause = process.env.NODE_ENV === "test" ? 0 : 5000;
-  for (let misses = 0; Date.now() < deadline;) {
-    const wait = Math.max(0, Math.min(20, Math.floor((deadline - Date.now()) / 1000) - 5));
-    const polled = await shamCallAt(base, "job", { body: JSON.stringify({ job: s.job, wait }) }, Math.min(Math.max(1000, deadline - Date.now()), (wait + 25) * 1000));
-    const r = polled ? (parseShamReply(polled) as unknown as { type: string } | null) : null;
-    if (r?.type === "running") { misses = 0; continue; }
-    if (r) return polled;
-    if (++misses >= 8) return JSON.stringify({ type: "error", reason: "studio_unreadable", text: "انقطع استوديو الفيديو أثناء الإنشاء ولم يصل ناتج صالح" });
-    await new Promise((res) => setTimeout(res, pause));
-  }
-  return JSON.stringify({ type: "error", reason: "studio_timeout", text: "لم ينتهِ استوديو الفيديو في الوقت المتاح" });
-}
-
-/** Start a clip as the Studio's OWN background job so it can be polled across short legs (the webhook leg is 60 s; a real CPU clip is minutes).
- *  {job} = running; {reply} = the Studio answered at once (busy / error / an older app with no job API); null = unreadable. */
-export async function shamVideoStart(base: string, videoBody: string, timeoutMs = 30000): Promise<{ job: string } | { reply: string } | null> {
-  const started = await shamCallAt(base, "generate_video_start", { body: videoBody }, timeoutMs);
-  if (!started) return null;
-  const s = parseShamReply(started) as unknown as { type?: string; job?: string } | null;
-  return s?.type === "job" && s.job ? { job: s.job } : { reply: started };
-}
-
-/** ONE poll of a running clip job: {running} while it works, {reply} when it finished / errored, null when the Studio was unreadable this time. */
-export async function shamVideoJob(base: string, job: string, waitS = 5, timeoutMs = 30000): Promise<{ running: true } | { reply: string } | null> {
-  const polled = await shamCallAt(base, "job", { body: JSON.stringify({ job, wait: waitS }) }, timeoutMs);
-  if (!polled) return null;
-  const r = parseShamReply(polled) as unknown as { type?: string } | null;
-  return r?.type === "running" ? { running: true } : { reply: polled };
 }
 
 /** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
@@ -455,7 +417,7 @@ export async function shamGenerateAgentStep(prompt: string, tools: ShamTool[], m
 }
 
 /** The two media paths a Sham Studio really has, by the exact label its panel API validates (ai-system/modelscope-sham/app.py PANEL_BACKENDS). */
-export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)", ready: "المسار البديل (أوزان محلية جاهزة)" } as const;
+export const SHAM_BACKEND_LABELS = { internal: "شام الداخلي (الأساسي)" } as const;
 export type ShamMediaBackend = keyof typeof SHAM_BACKEND_LABELS;
 
 /**
@@ -472,21 +434,6 @@ export async function shamGenerateMedia(
 ): Promise<ShamReply | null> {
   const api = "generate_media_from_panel";
   if (!(backend in SHAM_BACKEND_LABELS)) return { type: "error", reason: "unknown_route", text: `مسار الوسائط «${String(backend)}» غير مدعوم.` };
-  if (kind === "video" && backend === "ready" && shamVariant.getStore() === "v2" && shamStudioEnabled()) {
-    // real video comes from Sham v2's own video Studio (never Nova's); one explicit route, no silent switch
-    const requestedSeconds = opts.seconds ?? pressureMedia().videoSeconds;
-    if (!Number.isInteger(requestedSeconds) || !new Set<number>([6, 10, 15, 30, 60, 120]).has(requestedSeconds)) {
-      return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
-    }
-    const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
-    const clipPrompt = [prompt, ...(Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).trim()) : [])].filter(Boolean)[0]?.slice(0, 300) || "";
-    const videoBody = JSON.stringify({ prompt: clipPrompt, seconds: requestedSeconds, seed: Math.floor(Math.random() * 2 ** 31) });
-    const body = (await shamVideoByJob(base, videoBody, timeoutMs)) ?? await shamCallAt(base, "generate_video", { body: videoBody }, timeoutMs);
-    const reply = body ? await vetShamReply(parseShamReply(body), { bypassContentHeuristics: opts.bypassQuality }) : null;
-    if (body && !reply) setFailure("generate_video: unreadable answer (" + body.slice(0, 120).replace(/\s+/g, " ") + ")");
-    if (!body && !getFailure()) setFailure("generate_video: the Sham v2 video Studio did not answer");
-    return reply;
-  }
   const scenes = Array.isArray(opts.scenes)
     ? opts.scenes.map((x) => String(x).trim().slice(0, 300)).filter(Boolean).slice(0, 6)
     : [];
@@ -497,11 +444,33 @@ export async function shamGenerateMedia(
   return reply;
 }
 
+
+/** 2026-11-13 task suite: the Sham v1 MODEL itself starts a picture for plain messages (a web question, a file read, a memory note); the quality gate then refuses the blank picture
+ *  and the user got "no valid picture" for every task. The model's first choice stays its own; only when that choice FAILED and the message was not a media request at all
+ *  (the same cheap pre-check the fast lane uses) the same message is asked once more in words only ("[[sham text=1]]", read by sham_studio_chat.split_modes). */
+const MEDIA_FAILED = new Set(["blank_image", "noise_image", "invalid_image", "silent_audio", "invalid_audio", "empty_video"]);
+export const failedMediaOnPlainMessage = (reply: ShamReply | null | undefined, userText: string): boolean => {
+  if (!reply || (reply.type !== "notice" && reply.type !== "error")) return false;
+  if (!MEDIA_FAILED.has(String((reply as { reason?: string }).reason || ""))) return false;
+  // Sham modules never import Nova's (src/lib/__tests__/novaShamBoundary.test.ts): the cheap "is this a media request?" pre-check is handed in by the control plane (novaBotLogic).
+  // Without it no retry happens (the old behaviour).
+  try { return mediaProbe ? !mediaProbe(String(userText || "").slice(-400)) : false; } catch { return false; }
+};
+let mediaProbe: ((text: string) => boolean) | null = null;
+export const setShamMediaProbe = (fn: ((text: string) => boolean) | null): void => { mediaProbe = fn; };
+export const wordsOnlyPrompt = (prompt: string): string => (/^\s*\[\[sham /.test(prompt) ? prompt.replace(/^(\s*\[\[sham )/, "$1text=1 ") : `[[sham text=1]]\n${prompt}`);
+
 // chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
 // generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
 export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
-  return body ? vetShamReply(parseShamReply(body), opts) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  if (failedMediaOnPlainMessage(reply, prompt)) {
+    const again = await shamCall("chat_auto", { prompt: wordsOnlyPrompt(prompt), max_new_tokens: maxNewTokens }, timeoutMs);
+    const words = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (words && words.type === "text") return words;
+  }
+  return reply;
 }
 
 // chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
@@ -519,7 +488,17 @@ export async function shamChatMemory(
     { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
     timeoutMs,
   );
-  return body ? vetShamReply(parseShamReply(body), opts) : null;
+  const reply = body ? await vetShamReply(parseShamReply(body), opts) : null;
+  if (failedMediaOnPlainMessage(reply, prompt)) {
+    const again = await shamCall(
+      "chat_memory",
+      { prompt: wordsOnlyPrompt(prompt), max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
+      timeoutMs,
+    );
+    const words = again ? await vetShamReply(parseShamReply(again), opts) : null;
+    if (words && words.type === "text") return words;
+  }
+  return reply;
 }
 
 export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {

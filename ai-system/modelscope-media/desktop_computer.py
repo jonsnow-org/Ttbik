@@ -819,6 +819,8 @@ def api_desktop_do(body: str) -> str:
             raise
         box.finish_activity(entry, {"ok": bool(reply.get("ok", True))})
         wait = SETTLE.get(action)
+        if job.get("nopic") and action in ("type", "key", "scroll"):
+            wait = None          # the live view already streams frames: typing does not wait for a picture (that wait made every keystroke batch feel slow)
         if wait is not None and reply.get("ok", True) and "screenshot_b64" not in reply:
             # one round trip per action: the reply carries the picture after the screen had a moment to react (the gateway costs ~2.5 s a call,
             # so a separate "frame" call doubled every tap; and the model's tool says "inspect the returned screenshot")

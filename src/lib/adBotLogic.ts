@@ -1,4 +1,4 @@
-import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
+import { youtubeStartUrl, hasYoutubeLink } from "./youtubeLink";
 import { isServicesRequest } from "@/lib/servicesInTelegram";
 import { APP_BUTTON, APP_INTRO, EXCHANGE_BUTTON, EXCHANGE_INTRO, isExchangeRequest, remitPayPayload } from "@/lib/botApp/buttons";
 import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
@@ -7,10 +7,12 @@ import { botAppUrl, isOwnerBot, ownerBotGetbotLink, setBotAppMenu } from "@/lib/
 import { gateUrl } from "@/lib/hostingOps";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest } from "@/lib/remit/remit";
 import { SITE_URL, publicSiteUrl } from "@/lib/siteUrl";
-import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
+import { socialStartUrl, type SocialPlatform } from "./socialProof";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
+import { isTimedClickReady, UNOPENED_CLICK_AT } from "@/lib/watchTarget";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { recordAssetPhoneContact } from "@/lib/channels/assetMarket";
 import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
@@ -123,8 +125,8 @@ export const MIN_CPC_BY_TYPE: Record<AdTypeStr, number> = {
 };
 
 export type AdScope = "TARGETED" | "GLOBAL";
-export type CreateAdCollected = { scope?: AdScope; subType?: "retweet" | "follow"; description?: string; target?: string; budget?: number; cpc?: number };
-type CreateAdStep = "scope" | "subtype" | "description" | "target" | "budget" | "cpc";
+export type CreateAdCollected = { scope?: AdScope; description?: string; target?: string; budget?: number; cpc?: number };
+type CreateAdStep = "scope" | "description" | "target" | "budget" | "cpc";
 type PendingAction =
   | { mode: "platform_pick"; intent: "watch" | "create" }
   | { mode: "create_ad"; type: AdTypeStr; step: CreateAdStep; collected: CreateAdCollected }
@@ -165,15 +167,20 @@ export const WATCH_TIMER_SECONDS = 15;
 const CAROUSEL_ACTION_LABEL: Record<AdTypeStr, { ar: string; en: string }> = {
   LINK: { ar: "🔗 زيارة الموقع (15 ثانية)", en: "🔗 Visit site (15s)" },
   TELEGRAM: { ar: "📢 انضمام للقناة / المجموعة", en: "📢 Join channel/group" },
-  YOUTUBE: { ar: "▶️ مشاهدة الفيديو / اشتراك (15 ثانية)", en: "▶️ Watch/Subscribe (15s)" },
-  TWITTER: { ar: "🐤 متابعة الحساب (15 ثانية)", en: "🐤 Follow account (15s)" },
-  TIKTOK: { ar: "🎵 متابعة الحساب (15 ثانية)", en: "🎵 Follow account (15s)" },
-  FACEBOOK: { ar: "📘 متابعة الصفحة (15 ثانية)", en: "📘 Follow page (15s)" },
-  INSTAGRAM: { ar: "📸 متابعة الحساب (15 ثانية)", en: "📸 Follow account (15s)" },
+  YOUTUBE: { ar: "▶️ افتح الفيديو (15 ثانية)", en: "▶️ Open video (15s)" },
+  TWITTER: { ar: "🐤 افتح الصفحة (15 ثانية)", en: "🐤 Open profile (15s)" },
+  TIKTOK: { ar: "🎵 افتح الصفحة (15 ثانية)", en: "🎵 Open profile (15s)" },
+  FACEBOOK: { ar: "📘 افتح الصفحة (15 ثانية)", en: "📘 Open page (15s)" },
+  INSTAGRAM: { ar: "📸 افتح الصفحة (15 ثانية)", en: "📸 Open profile (15s)" },
 };
 
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// Keep fractional-cent CPC accounting exact enough for the $0.003 floor.
+export function round6(n: number): number {
+  return Math.round((n + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 export function fmt(n: number): string {
   return `$${n.toFixed(2)}`;
@@ -249,7 +256,12 @@ export function isBotHandle(handle: string): boolean {
 // (from getChat) against every deployed bot's own id, derived straight
 // from its stored token.
 export async function isOwnPlatformBotChatId(chatId: number): Promise<boolean> {
-  const bots = await prisma.bot.findMany({ select: { token: true } });
+  // Only templates whose /start handlers consume adv_<clickId> can prove
+  // this hand-off. Other platform bots still use the timed visit page.
+  const bots = await prisma.bot.findMany({
+    where: { isActive: true, template: { in: ["AD_BOT", "JOBS_BOT", "NOVA_BOT", "MARRIAGE_BOT", "MEDICAL_BOT"] } },
+    select: { token: true },
+  });
   return bots.some((b) => Number(b.token.split(":")[0]) === chatId);
 }
 
@@ -389,7 +401,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row(); // the bot's own Mini App sections (src/app/bot-app): remittances and the channels & groups exchange, 100% platform revenue
+    .text(REMIT_BUTTON).text(APP_BUTTON).row(); // both shortcuts open this bot's own Mini App
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -521,7 +533,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row()
+    .text(REMIT_BUTTON).text(APP_BUTTON).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -554,6 +566,7 @@ function topLevelTexts(lang: Lang): string[] {
     GETBOT_BUTTON,
     EXCHANGE_BUTTON,
     REMIT_BUTTON,
+    APP_BUTTON,
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
     CHAIN_DEPOSIT_BTN,
@@ -615,9 +628,13 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 const botAppMenuDone = new Set<string>();
 async function ensureBotAppMenu(botRow: BotRow): Promise<void> {
   if (botAppMenuDone.has(botRow.id)) return;
-  botAppMenuDone.add(botRow.id);
   const eligible = botRow.ownerId !== SUPER_ADMIN_ID || (await isOwnerBot(botRow.id).catch(() => false));
-  if (eligible) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (!eligible) {
+    botAppMenuDone.add(botRow.id);
+    return;
+  }
+  const updated = await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (updated) botAppMenuDone.add(botRow.id);
 }
 
 function tgFor(token: string): Tg {
@@ -686,6 +703,10 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const contactLang = asLang(contactUser.language);
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.user.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
+      await recordAssetPhoneContact({
+        telegramId: tgUserId, contactUserId: String(msg.contact.user_id), phoneNumber: String(msg.contact.phone_number || ""),
+        firstName: String(msg.from.first_name || ""), lastName: String(msg.from.last_name || ""), username: String(msg.from.username || ""),
+      }).catch(() => null);
       await bot.api.sendMessage(chatId, t(contactLang, "phoneVerified"), { reply_markup: mainMenu(contactLang) });
     } else {
       await bot.api.sendMessage(chatId, t(contactLang, "phoneMismatch"));
@@ -862,7 +883,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, EXCHANGE_INTRO, { reply_markup: new InlineKeyboard().webApp(EXCHANGE_BUTTON, botAppUrl(gateUrl(), botRow.id, "exchange")) }).catch(() => null);
     return;
   }
-  if (isServicesRequest(text)) {
+  if (text === APP_BUTTON || isServicesRequest(text)) {
     if (pending) await setPending(user.id, null);
     await bot.api.sendMessage(chatId, APP_INTRO, { reply_markup: new InlineKeyboard().webApp(APP_BUTTON, botAppUrl(gateUrl(), botRow.id)) }).catch(() => null);
     return;
@@ -1144,7 +1165,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await bot.api.sendMessage(chatId, t(lang, "myAdTopupInsufficient", { amount: fmt(amount), balance: fmt(balance), link }));
       return;
     }
-    const newRemaining = round2(Number(ad.remaining) + amount);
+    const newRemaining = round6(Number(ad.remaining) + amount);
     const toppedUp = await topupAdCore(user.id, ad, amount);
     if (!toppedUp) {
       const link = `${publicSiteUrl()}/pay?uid=${user.id}`;
@@ -1732,11 +1753,13 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
 
-  if (pending?.mode === "create_ad" && pending.step === "subtype" && (text === t("ar", "btnRetweet") || text === t("en", "btnRetweet") || text === t("ar", "btnFollow") || text === t("en", "btnFollow"))) {
-    const subType: "retweet" | "follow" = text === t("ar", "btnRetweet") || text === t("en", "btnRetweet") ? "retweet" : "follow";
-    const collected = { ...pending.collected, subType };
-    const next = nextCreateAdStep(pending.type, "subtype")!;
-    await setPending(user.id, { mode: "create_ad", type: pending.type, step: next as any, collected });
+  // Complete conversations that were already waiting on the removed
+  // follow/retweet selector before this update. The subtype was never stored
+  // on the Ad row, so safely skip the obsolete choice and continue to details.
+  if (pending?.mode === "create_ad" && String(pending.step) === "subtype" &&
+      [t("ar", "btnRetweet"), t("en", "btnRetweet"), t("ar", "btnFollow"), t("en", "btnFollow")].includes(text)) {
+    const next: CreateAdStep = "description";
+    await setPending(user.id, { mode: "create_ad", type: pending.type, step: next, collected: pending.collected });
     await askCreateAdStep(bot, chatId, pending.type, next, lang);
     return;
   }
@@ -1752,7 +1775,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await bot.api.sendMessage(chatId, t(lang, "adCancelled"), { reply_markup: mainMenu(lang) });
       return;
     }
-    await confirmAd(bot, chatId, user, pending, lang);
+    await confirmAd(bot, chatId, user, pending, lang, botRow.id);
     return;
   }
 
@@ -1921,7 +1944,6 @@ async function advanceCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
 
 function createAdSteps(type: AdTypeStr): CreateAdStep[] {
   const s: CreateAdStep[] = ["scope"];
-  if (type === "TWITTER") s.push("subtype");
   // Description is asked for every ad type, always before the target/link
   // (owner request, 2026-09-06) — previously only YOUTUBE/TIKTOK/FACEBOOK/
   // INSTAGRAM asked for one at all, so TELEGRAM/TWITTER/LINK campaigns
@@ -1941,10 +1963,6 @@ async function askCreateAdStep(bot: TelegramBot, chatId: number, type: AdTypeStr
     await bot.api.sendMessage(chatId, t(lang, "adScopePrompt"), { reply_markup: scopeMenu(lang) });
     return;
   }
-  if (step === "subtype") {
-    await bot.api.sendMessage(chatId, t(lang, "adSubtypePrompt"), { reply_markup: twitterSubtypeMenu(lang) });
-    return;
-  }
   const prompts: Record<string, string> = {
     description: t(lang, "adDescriptionPrompt"),
     target: t(lang, "adTargetPrompt"),
@@ -1959,7 +1977,6 @@ async function sendAdReview(bot: TelegramBot, chatId: number, type: AdTypeStr, c
   const lines = [
     t(lang, "adReviewTitle", { platform: TYPE_LABEL[type][lang] }),
     t(lang, "adReviewScope", { scope: c.scope === "GLOBAL" ? t(lang, "btnScopeGlobal") : t(lang, "btnScopeTargeted") }),
-    c.subType ? t(lang, "adReviewType", { type: c.subType === "retweet" ? t(lang, "btnRetweet") : t(lang, "btnFollow") }) : null,
     c.description ? t(lang, "adReviewDesc", { desc: c.description }) : null,
     t(lang, "adReviewTarget", { target: c.target || "" }),
     t(lang, "adReviewBudget", { budget: fmt(c.budget || 0) }),
@@ -2109,14 +2126,16 @@ export async function buildAdQueue(tgUserId: string, type: AdTypeStr, currentBot
 // Telegram ads open t.me directly since getChatMember is a hard, instant,
 // unspoofable check that doesn't need a timer.
 export async function mintAdClick(adId: string, tgUserId: string, currentBotId: string) {
+  // Future sentinel: the card exists, but the viewer has not clicked through.
+  // The watch/open POST replaces it with the actual outbound-click timestamp.
   return prisma.adClick.upsert({
     where: { adId_userId: { adId, userId: tgUserId } },
-    update: { issuedAt: new Date(), verified: false, botId: currentBotId },
-    create: { adId, userId: tgUserId, botId: currentBotId },
+    update: { issuedAt: UNOPENED_CLICK_AT, verified: false, botId: currentBotId },
+    create: { adId, userId: tgUserId, botId: currentBotId, issuedAt: UNOPENED_CLICK_AT },
   });
 }
 
-async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentBotId: string): Promise<{ text: string; keyboard: InlineKeyboard }> {
+async function buildCarouselCard(bot: TelegramBot, ad: any, lang: Lang, tgUserId: string, currentBotId: string): Promise<{ text: string; keyboard: InlineKeyboard }> {
   const type = ad.type as AdTypeStr;
   const isForced = Number(ad.cpc) === 0;
   const kb = new InlineKeyboard();
@@ -2125,25 +2144,21 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
   const isBotTarget = telegramHandle !== null && isBotHandle(telegramHandle);
 
   let actionUrl: string;
+  let ownPlatformBotTarget = false;
   if (telegramHandle !== null && !isBotTarget) {
+    // Telegram channels/groups have direct membership verification.
     actionUrl = `https://t.me/${telegramHandle}`;
-  } else if (isBotTarget) {
-    // A bot can't be "joined" or membership-checked, so it's handled like
-    // an external link instead: mint an AdClick for a token, and hand out
-    // a deep link with that token as the /start payload. If the target
-    // turns out to be one of OUR OWN platform's bots, its own /start
-    // handler marks this click verified the instant the viewer opens it
-    // (see adVerifyPayload.ts) — fully reliable, no cooperation needed,
-    // same database. For a third-party bot we don't control, the payload
-    // is just a harmless unrecognized argument, and isAdVerifiedByUser()
-    // falls back to the same elapsed-time gate every external link/video
-    // ad already uses.
-    const click = await mintAdClick(ad.id, tgUserId, currentBotId);
-    actionUrl = `https://t.me/${telegramHandle}?start=adv_${click.id}`;
   } else {
     const click = await mintAdClick(ad.id, tgUserId, currentBotId);
-    const site = publicSiteUrl();
-    actionUrl = `${site}/watch/${click.id}`;
+    if (isBotTarget) {
+      const target = await bot.api.getChat(`@${telegramHandle}`).catch(() => null);
+      ownPlatformBotTarget = !!target && await isOwnPlatformBotChatId(target.id);
+      actionUrl = ownPlatformBotTarget
+        ? `https://t.me/${telegramHandle}?start=adv_${click.id}`
+        : `${publicSiteUrl()}/watch/${click.id}`;
+    } else {
+      actionUrl = `${publicSiteUrl()}/watch/${click.id}`;
+    }
   }
   kb.url(CAROUSEL_ACTION_LABEL[type][lang], actionUrl).row();
   if (!isForced) kb.text(t(lang, "carouselVerify"), `wcv|${shortId(ad.id)}`).row();
@@ -2159,7 +2174,7 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
     `${isForced ? t(lang, "watchForcedLabel") : t(lang, "carouselAdTitle", { platform: TYPE_LABEL[type][lang] })} #${shortId(ad.id)}`,
     ad.description ? String(ad.description) : null,
     !isForced ? t(lang, "carouselReward", { reward: fmtCpc(Number(ad.workerCut)) }) : null,
-    type !== "TELEGRAM" || isBotTarget ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
+    type !== "TELEGRAM" || (isBotTarget && !ownPlatformBotTarget) ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
   ].filter((l): l is string => !!l);
   return { text: lines.join("\n"), keyboard: kb };
 }
@@ -2177,7 +2192,7 @@ async function startWatchCarousel(bot: TelegramBot, chatId: number, tgUserId: st
     await bot.api.sendMessage(chatId, t(lang, "watchNoAds"), { reply_markup: mainMenu(lang) });
     return;
   }
-  const { text, keyboard } = await buildCarouselCard(ad, lang, tgUserId, currentBotId);
+  const { text, keyboard } = await buildCarouselCard(bot, ad, lang, tgUserId, currentBotId);
   await bot.api.sendMessage(chatId, text, { reply_markup: keyboard });
   await setPending(userId, { mode: "watch_carousel", type, queue, index: 0 });
 }
@@ -2217,7 +2232,7 @@ export async function payoutTask(tgUserId: string, adId: string, currentBotId: s
   const currentBot = await prisma.bot.findUnique({ where: { id: currentBotId } });
   if (!currentBot) return { ok: false, reason: "gone" };
 
-  const newRemaining = round2(Number(ad.remaining) - Number(ad.cpc));
+  const newRemaining = round6(Number(ad.remaining) - Number(ad.cpc));
   const adExpired = newRemaining < Number(ad.cpc);
   const workerCut = Number(ad.workerCut);
   // A bot activated with a FREE code keeps 10% instead of 20% (src/lib/botSales.ts); the difference is the platform's.
@@ -2230,12 +2245,12 @@ export async function payoutTask(tgUserId: string, adId: string, currentBotId: s
     const referrer = await prisma.user.findUnique({ where: { id: completingUser.referredBy } });
     if (referrer) referrerId = referrer.id;
   }
-  const referralCut = referrerId ? round2(workerCut * 0.05) : 0;
-  const platformAfterUserReferral = round2(ownerCut - referralCut);
+  const referralCut = referrerId ? round6(workerCut * 0.05) : 0;
+  const platformAfterUserReferral = round6(ownerCut - referralCut);
 
   const b2bOwnerId = currentBot.referredByOwnerId && currentBot.referredByOwnerId !== currentBot.ownerId ? currentBot.referredByOwnerId : null;
-  const b2bCut = b2bOwnerId ? round2(platformAfterUserReferral * 0.05) : 0;
-  const platformFinal = round2(platformAfterUserReferral - b2bCut);
+  const b2bCut = b2bOwnerId ? round6(platformAfterUserReferral * 0.05) : 0;
+  const platformFinal = round6(platformAfterUserReferral - b2bCut);
 
   // Atomic — the dedup guard (unique txHash) is the first operation, so a
   // double-claim rolls back every other write in this batch too, not just
@@ -2323,37 +2338,25 @@ export async function sendCampaignEndedReport(bot: TelegramBot, ad: { id: string
     .catch(() => null);
 }
 
-// No longer depends on the /watch page's own JS ever finishing a timer
-// and calling back (owner report, 2026-09-06: mobile browsers/Telegram's
-// in-app browser were silently blocking that page's auto-redirect as a
-// "popup", so its client JS never got a chance to report anything back).
-// True the instant something already marked this click verified (e.g. an
-// own-platform bot target's /start handler, via adVerifyPayload.ts) —
-// otherwise falls back to elapsed time against AdClick.issuedAt (minted
-// the instant this card was shown): the reward becomes claimable once
-// enough real wall-clock time has passed, whether or not the viewer's
-// browser/bot ever reported anything back at all.
+// Timer eligibility is server-authoritative and does not depend on /watch page JS
+// reporting completion (mobile Telegram browsers may block redirects/popups).
+// Own-platform bot targets are verified by their /start handler. Other external
+// targets start their timer only when the viewer explicitly presses Open on
+// the watch page; mintAdClick leaves an unopened sentinel until that server POST.
+// Older in-flight clicks retain their original issuedAt timestamps for compatibility.
 async function isAdClickTimeVerified(adId: string, tgUserId: string): Promise<boolean> {
   const click = await prisma.adClick.findUnique({ where: { adId_userId: { adId, userId: tgUserId } } });
-  if (!click) return false;
-  if (click.verified) return true;
-  const elapsedMs = Date.now() - new Date(click.issuedAt).getTime();
-  return elapsedMs >= WATCH_TIMER_SECONDS * 1000;
+  return isTimedClickReady(click, Date.now(), WATCH_TIMER_SECONDS);
 }
 
 export async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
-  if (ad.type === "YOUTUBE") {
-    return verifyYoutubeSubscription(tgUserId, String(ad.content || ""));
-  }
-  const proofType: Record<string, SocialPlatform> = { TWITTER: "twitter", TIKTOK: "tiktok", FACEBOOK: "facebook", INSTAGRAM: "instagram", LINK: "link" };
-  if (proofType[ad.type]) return verifySocialProof(tgUserId, proofType[ad.type]);
   if (ad.type === "TELEGRAM") {
     const handle = normalizeChannelHandle(String(ad.content));
-    if (isBotHandle(handle)) {
-      return isAdClickTimeVerified(ad.id, tgUserId);
-    }
-    return isChannelMember(bot, ad.content, tgUserId);
+    if (!isBotHandle(handle)) return isChannelMember(bot, ad.content, tgUserId);
   }
+  // Outbound visits are measurable; public profile/video HTML does not prove
+  // a follow or subscription. Pay these tasks only after the tracked visit
+  // timer, and describe them honestly in the UI.
   return isAdClickTimeVerified(ad.id, tgUserId);
 }
 
@@ -2612,7 +2615,7 @@ async function advanceCarousel(
     await advanceCarousel(bot, chatId, messageId, userId, { ...pending, index: nextIndex }, lang, currentBotId, tgUserId);
     return;
   }
-  const { text, keyboard } = await buildCarouselCard(ad, lang, tgUserId, currentBotId);
+  const { text, keyboard } = await buildCarouselCard(bot, ad, lang, tgUserId, currentBotId);
   await setPending(userId, { ...pending, index: nextIndex });
   // Never silently swallow a failed edit here — if Telegram rejects it for
   // any reason (including "message is not modified"), the user must still
@@ -2632,7 +2635,7 @@ export type LaunchAdResult = { ok: true; budget: number } | { ok: false; reason:
  * The money core of «ضع إعلانك» → confirm, shared by the bot (confirmAd) and the Mini App: balance check, auto-moderation (a
  * rejected ad is saved REJECTED and never charged), then the charge and the ad row as one atomic step.
  */
-export async function launchAdCore(userId: string, type: AdTypeStr, collected: CreateAdCollected): Promise<LaunchAdResult> {
+export async function launchAdCore(userId: string, type: AdTypeStr, collected: CreateAdCollected, currentBotId?: string): Promise<LaunchAdResult> {
   const budget = Number(collected.budget || 0);
   const cpc = Number(collected.cpc || 0);
   const fresh = await prisma.user.findUnique({ where: { id: userId } });
@@ -2640,6 +2643,8 @@ export async function launchAdCore(userId: string, type: AdTypeStr, collected: C
   if (budget > balance) return { ok: false, reason: "insufficient", budget, balance };
   const { ownerCut, creatorCut, workerCut } = splitCpc(cpc);
   const scope: AdScope = collected.scope === "GLOBAL" ? "GLOBAL" : "TARGETED";
+  const campaignBotId = currentBotId || fresh?.botId;
+  if (!campaignBotId) return { ok: false, reason: "insufficient", budget, balance };
 
   // Auto-moderation: scanned once at creation, no manual review step when
   // clean (stays ACTIVE, the schema default). A violation gets REJECTED
@@ -2657,7 +2662,7 @@ export async function launchAdCore(userId: string, type: AdTypeStr, collected: C
   // ad is never charged.
   const adData = {
     userId,
-    botId: fresh!.botId,
+    botId: campaignBotId,
     type: type as any,
     content: collected.target || "",
     description: collected.description || null,
@@ -2669,7 +2674,7 @@ export async function launchAdCore(userId: string, type: AdTypeStr, collected: C
     remaining: budget,
     status: rejected ? "REJECTED" : "ACTIVE",
     scope,
-    targetBotId: scope === "TARGETED" ? fresh!.botId : null,
+    targetBotId: scope === "TARGETED" ? campaignBotId : null,
   };
   if (rejected) {
     await prisma.ad.create({ data: adData });
@@ -2685,9 +2690,9 @@ export async function launchAdCore(userId: string, type: AdTypeStr, collected: C
   return { ok: true, budget };
 }
 
-async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: Extract<PendingAction, { mode: "reviewing_ad" }>, lang: Lang) {
+async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: Extract<PendingAction, { mode: "reviewing_ad" }>, lang: Lang, currentBotId: string) {
   const { type, collected } = pending;
-  const r = await launchAdCore(user.id, type, collected);
+  const r = await launchAdCore(user.id, type, collected, currentBotId);
   if (!r.ok && r.reason === "insufficient") {
     const link = `${publicSiteUrl()}/pay?uid=${user.id}`;
     await bot.api.sendMessage(chatId, t(lang, "adInsufficientBalance", { budget: fmt(r.budget), balance: fmt(r.balance), link }), { reply_markup: reviewInsufficientMenu(lang) });

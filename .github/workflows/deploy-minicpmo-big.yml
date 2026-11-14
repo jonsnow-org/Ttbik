@@ -15,6 +15,11 @@ on:
       - scripts/ops/modelscope_computer_smoke.py
       - .github/workflows/deploy-minicpmo-big.yml
   workflow_dispatch:
+    inputs:
+      repo:
+        description: "Studio name (default: vars.COMPUTER_STUDIO_REPO, else nova-inference-server). A missing Studio is created (private, free 16 GB CPU, NO persistent storage)."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -26,8 +31,10 @@ concurrency:
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
-  REPO: nova-inference-server
-  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+  # live 2026-11-11: nova-inference-server hangs in Deploying right after its two persistent-storage (ossfs) mounts, before the app starts
+  # (no API can switch persistent storage off). A fresh Studio has no such mounts: set vars.COMPUTER_STUDIO_REPO (or the dispatch input).
+  REPO: ${{ inputs.repo || vars.COMPUTER_STUDIO_REPO || 'nova-inference-server' }}
+  API: https://studio-novaai2026-${{ inputs.repo || vars.COMPUTER_STUDIO_REPO || 'nova-inference-server' }}.api-inference.modelscope.net
 
 jobs:
   deploy:
@@ -51,11 +58,40 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           app = Path("ai-system/modelscope-media/computer_studio_app.py").read_text()
-          assert 'APP_REVISION = "computer-hub-16gb-2026-11-04-r7-live"' in app
+          assert 'APP_REVISION = "computer-hub-16gb-2026-11-11-r8-fast-start"' in app
           assert "model_loaded" in app and "api_desktop_do" in app and "api_browser_do" in app
           assert "donor-bakeoff/minicpmo45-big/model_cache" in app
           print("computer app syntax and contracts: OK")
           PY
+
+      - name: Create the Studio when it does not exist yet (private, free 16 GB CPU)
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -uo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 25 -o probe.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+          if [ "$code" = "200" ] && python3 -c "import json,sys;d=json.load(open('probe.json'));sys.exit(0 if (d.get('data') or d.get('Data')) else 1)" 2>/dev/null; then
+            echo "Studio $REPO exists"; exit 0
+          fi
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'platform/2v-cpu-16g-mem','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create http $code"; head -c 1500 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above)"; exit 1; }
+          sleep 10
+
+      - name: Make sure the Studio is on the free 16 GB CPU tier
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -uo pipefail
+          # live 2026-11-11 (run 42963822660): a newly created Studio comes up on platform/2v-cpu-8g-mem whatever the create body asks
+          hw=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin);d=d.get('data') or d.get('Data') or {};print(d.get('hardware') or (d.get('runtime') or {}).get('hardware') or '')" 2>/dev/null || true)
+          echo "hardware now: $hw"
+          case "$hw" in *16g*) exit 0;; esac
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o hw.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d '{"hardware":"platform/2v-cpu-16g-mem"}' "$MS/openapi/v1/studios/$OWNER/$REPO/settings" || true)
+          echo "hardware PATCH HTTP $code"; head -c 600 hw.json; echo
+          sleep 5
 
       - name: Verify the target is the private 16 GB Studio
         env:
@@ -81,8 +117,13 @@ jobs:
           visibility=str(d.get("visibility") or "").lower()
           state=str(runtime.get("status") or d.get("status") or "")
           print("Target Studio hardware:", hardware, "visibility:", visibility, "runtime:", state)
+          import os
           if "16g" not in hardware:
-              raise SystemExit("Refusing to repurpose a Studio that is not 16 GB.")
+              # live 2026-11-11: a newly created Studio is 8 GB and settings PATCH answers "studio not found" before its first deploy.
+              # The 16 GB guard protects the ORIGINAL hub from being swapped for a smaller one; a dedicated new hub may run on 8 GB.
+              if os.environ.get("REPO") == "nova-inference-server" or "8g" not in hardware:
+                  raise SystemExit("Refusing to repurpose a Studio that is not 16 GB.")
+              print("::warning::dedicated computer Studio on 8 GB (free tier given to new Studios); desktop slots follow the memory guard")
           if visibility and visibility != "private":
               raise SystemExit("Refusing to place the private computer on a non-private Studio.")
           PY
@@ -156,6 +197,19 @@ jobs:
           if git diff --cached --quiet; then echo "Studio repository already contains the computer app."; else git commit -m "Replace MiniCPM runtime with dedicated computer hub"; fi
           git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
 
+      - name: Move the Studio to the current base image + Gradio SDK
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          # 2026-11-11: since Nov 10 the hub never reached the studio-launcher: its runtime log stops right after the ossfs mounts. It still ran the
+          # old ubuntu22.04-py312-torch2.1 image with Gradio 6.17.3, while every Studio that starts (sham-v2-server …) runs
+          # ubuntu22.04-py311-torch2.9.1-modelscope1.35.0 + Gradio 6.29.1. Align the hub (takes effect on the deploy below).
+          set -uo pipefail
+          code=$(curl -sS --connect-timeout 8 --max-time 30 -o settings.json -w '%{http_code}' -X PATCH \
+            -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+            -d '{"base_image":"ubuntu22.04-py311-torch2.9.1-modelscope1.35.0","sdk_version":"6.29.1"}' \
+            "$MS/openapi/v1/studios/$OWNER/$REPO/settings" || true)
+          echo "settings PATCH HTTP $code"; head -c 400 settings.json; echo
       - name: Deploy and wait for computer-only readiness
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -195,7 +249,7 @@ jobs:
           if isinstance(value,str):
               try: value=json.loads(value)
               except Exception: value={}
-          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-04-r7-live" and value.get("role")=="computer-only" and value.get("model_loaded") is False
+          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-11-r8-fast-start" and value.get("role")=="computer-only" and value.get("model_loaded") is False
           print("Computer app status:",{k:value.get(k) for k in ("phase","app_revision","role","model_loaded","hardware")} if isinstance(value,dict) else value)
           raise SystemExit(0 if ok else 1)
           PY

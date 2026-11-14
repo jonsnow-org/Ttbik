@@ -1,8 +1,8 @@
-// Gives Sham the SAME tools Nova has (GitHub, the private VM / terminal, web, memory, schedules, sub-agents, connectors...), through Nova's engine.
+// Sham's OWN tool bridge: Sham is shown the tools it can use (GitHub, its own embedded computer / terminal, web, memory, schedules, sub-agents, connectors...) and runs them through its own modules (shamExec.ts, shamAgent.ts). Nothing here goes through Nova's engine.
 // Sham has no OpenAI-style tool calling and its vocabulary is fixed (a live model), so the bridge is plain text in both directions:
-//   - the engine shows Sham the tools that are LOADED in the conversation (Nova's own groups: a short list, never all ~80 at once) and the call format;
+//   - Sham's own loop shows Sham the tools that are LOADED in the conversation (a short list, never all of them at once) and the call format;
 //   - Sham writes a call as text:  <tool_call>{"name": "...", "arguments": {...}}</tool_call>  (also accepted: a ```json fence, or a bare JSON object whose "name" is a loaded tool);
-//   - the engine runs it exactly like a Nova call (same permissions, same sandbox, same stall guard) and shows Sham the result next turn.
+//   - Sham's own loop runs it (its own permissions, sandbox and stall guard, no Nova code) and shows Sham the result next turn.
 // Nothing is decided here by rule: if Sham writes no call, its words are the answer. Off until SHAM_TOOLS=on or SHAM_LIMITS=open (an untrained Sham should not be
 // shown a format it cannot follow); SHAM_TOOLS=off always wins. The training side is ai-system/colab/sham_small/sham_tools_data.py (same text format).
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";

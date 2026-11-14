@@ -63,5 +63,13 @@ def test_sham_live_wires_qat_and_tools():
     src = (HERE / "sham_live.py").read_text(encoding="utf-8")
     assert "sham_qat" in src and "quantize_" in src, "sham_live does not enable QAT"
     assert "SHAM_QAT_BITS" in src, "sham_live has no QAT switch"
-    assert "sham_tools_data" in src and "tool_batches" in src, "sham_live does not train on tool calls"
+    # sham_live mixes single tool examples into its pool (tool_examples; make_batches pads them) — tool_batches is the batched form other trainers use
+    assert "sham_tools_data" in src and ("tool_examples" in src or "tool_batches" in src), "sham_live does not train on tool calls"
     assert "SHAM_TOOLS_MIX" in src, "sham_live has no tool-share switch"
+
+
+def test_tool_examples_build_for_the_live_mix():
+    import random
+    import sham_tools_data as tools
+    ex = tools.tool_examples(lambda t: [ord(c) % 1000 for c in t], random.Random(0), 4)
+    assert len(ex) >= 2 and all(len(i) == len(l) and any(x != -100 for x in l) for i, l in ex), ex[:1]

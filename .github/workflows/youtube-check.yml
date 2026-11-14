@@ -1,0 +1,22 @@
+name: youtube-check
+# Manual, read-only: asks the site (through the gate, header auth) whether the stored YouTube refresh token still works, and prints Google's own answer:
+#   google: ok            the weekly promo upload will work
+#   google: invalid_grant the refresh token was revoked or expired (a Google app left in "Testing" expires its tokens after 7 days): redo the consent
+#   google: invalid_client / no-client-keys / no-refresh-token   what is missing on the serving server
+# Nothing is uploaded and no credential is printed.
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: ask the site
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          code=$(curl -sS -m 60 -o yt.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "https://ttbik-gate.jonsnowx1r.workers.dev/api/cron/youtube-check" || echo 000)
+          echo "HTTP ${code}"; cat yt.json; echo
+          [ "${code}" = "200" ]

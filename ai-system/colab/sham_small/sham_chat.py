@@ -299,6 +299,10 @@ def _chat_plan(extra: bool = True):
         ("ultrachat", lambda: load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft", streaming=True), None, None, None, True),
         ("metamath", lambda: load_dataset("meta-math/MetaMathQA", split="train", streaming=True), "query", "response", None, True),
     ]
+    # 2026-11-12 (owner's Intelligence Lab, PR #894): verified evidence-grounding / error-repair / logic pairs through sham_sil_bridge (the lab stays standalone; only pairs cross).
+    # Not part of the merge gate's yardstick (extra=False returned above). SHAM_SIL=0 removes it.
+    if os.environ.get("SHAM_SIL", "1").strip().lower() not in ("0", "off", "false", "no"):
+        plan.append(("sil", lambda: __import__("sham_sil_bridge").chat_source(), "prompt", "target", None, False))
     return plan
 
 
@@ -307,7 +311,7 @@ CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk
 # A source missing here counts 1. Arabic 6.0 of 11.75 (51%), code 3.5 (30%), general + maths 2.25 (19%).
 CHAT_SOURCE_WEIGHTS = {"cidar": 1.5, "aya_ar": 1.5, "alpaca_gpt4_ar": 1.5, "openhermes_ar": 1.5,
                        "magicoder": 1.0, "codefeedback": 1.0, "self_oss_instruct": 0.75, "glaive_code": 0.75,
-                       "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5}
+                       "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5, "sil": 0.5}
 
 
 def _wants(plan, max_examples: int) -> list[int]:
@@ -335,12 +339,19 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
     pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
     shares = _wants(plan, max_examples) if plan else []
+    import time as _time
+    deadline = _time.time() + float(os.environ.get("SHAM_CHAT_DEADLINE") or 600)   # all sources together: a throttled mirror must not hold a cycle for an hour
     for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
+        if _time.time() > deadline and pairs:
+            print(f"⏱ انتهت مهلة جمع الحوارات ({len(pairs):,} زوجًا): تُترك المصادر المتبقية لهذه الجلسة")
+            break
         want = min(shares[n] if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
         if want <= 0:
             break
         try:
-            ds = loader()
+            # hf-mirror answers 429 and huggingface_hub then waits 200 s x 5 retries per dataset: a trainer sat 174 minutes without a line right here (cn, 2026-11-13)
+            from sham_data_sources import _bounded
+            ds = _bounded(loader, float(os.environ.get("SHAM_SOURCE_OPEN_TIMEOUT") or 150))
             if keep is not None:
                 ds = ds.filter(keep)
         except Exception as exc:  # one source down must not stop the run
@@ -354,6 +365,12 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
         end = min(size, start + want) if size else start + want
         rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
         got = 0
+        try:        # reading the rows of a STREAMING source goes through hf-mirror too (429 + long retries): bound it like the opening (cn trainer silent for 20+ minutes after self_oss_instruct, 2026-11-13)
+            from sham_data_sources import _bounded
+            rows = _bounded(lambda: list(rows), float(os.environ.get("SHAM_SOURCE_ITER_TIMEOUT") or 240))
+        except Exception as exc:
+            print(f"⚠ تعذّرت قراءة {key} في المهلة: {type(exc).__name__}")
+            continue
         for row in rows:
             q, a = ((row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()) if q_col else _conversation_pair(row)
             norm_q = " ".join(q.split())
@@ -648,7 +665,8 @@ if __name__ == "__main__":
     for _n in (800, 3000, 4000):
         _w = _wants(_full, _n)
         assert sum(_w) == _n and min(_w) >= 1, _w
-        assert sum(_w[:4]) >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                      # Arabic >= half, code >= a quarter
+        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil"))   # the Intelligence Lab's pairs are Arabic prompts
+        assert _ar >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                              # Arabic >= half, code >= a quarter
         _b = _wants(_base, _n)
         assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before
     assert [p[0] for p in _chat_plan()] == [p[0] for p in _full]

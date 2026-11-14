@@ -65,6 +65,13 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /8452320/,
 ];
 
+/** A claim of earnings or returns. The owner's rule: no public text promises profit or return, in any form. Used on the weekly bot promo, whose
+ *  wording used to say the bot "distributes viewing profits" and whose model-written hook could say anything. */
+const EARNINGS_CLAIM = /(أرباح|ارباح|اربح|ربح|عائد|عوائد|مضاعفة|ضمان|دخل|profit|earn|income|yield|returns?\b|guarantee)/i;
+export function hasEarningsClaim(text: string): boolean {
+  return EARNINGS_CLAIM.test(text);
+}
+
 export function isSafeForChannel(text: string): boolean {
   return !BLOCKED_PATTERNS.some((re) => re.test(text));
 }
@@ -185,14 +192,15 @@ async function weeklyBotPromoPost(): Promise<string | null> {
   const username = process.env.PROMO_AD_BOT_USERNAME;
   if (!username) return null;
   const botLink = `https://t.me/${username}`;
-  const intro = "📢 عندك قناة أو مجموعة على تليجرام؟ فعّل بوت إعلانات ومهام خاصاً بك يوزّع أرباح المشاهدة تلقائياً بين المستخدمين والمنصة.";
+  const intro = "📢 عندك قناة أو مجموعة على تليجرام؟ فعّل بوت إعلانات ومهام خاصاً بك: إعلانات تصل إلى مستخدميك، ومهام بسيطة يؤدّونها داخل البوت.";
   let hook = intro;
   try {
     hook = await callGroq(
-      `اكتب سطراً أو سطرين ترويجيين جذابين بالعربية (بدون رابط، بدون ذكر سعر) عن هذا المنتج، بنفس روح المثال التالي دون نسخه حرفياً: "${intro}"`,
+      `اكتب سطراً أو سطرين ترويجيين جذابين بالعربية (بدون رابط، بدون ذكر سعر، وبدون أي ذكر لأرباح أو عوائد أو دخل) عن هذا المنتج، بنفس روح المثال التالي دون نسخه حرفياً: "${intro}"`,
       "بوت الإعلانات والمهام",
       250
     );
+    if (hasEarningsClaim(hook)) hook = intro; // the model must not promise earnings; fall back to the fixed text
   } catch {
     /* keep default intro */
   }

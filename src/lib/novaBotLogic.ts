@@ -9,7 +9,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
-import { looksLikeToolPlan } from "@/lib/coderMediaFast";
+import { detectMediaIntent, looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { requiresProgressCard } from "@/lib/modes";
 import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
@@ -20,7 +20,9 @@ import { later } from "@/lib/coderRuntime";
 import { postShamContinuation } from "@/lib/shamContinuation";
 import { shamTaskSlot, taskEvent, taskIsActive, taskStart, taskStatus, taskTouch } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
-import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
+import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant, setShamMediaProbe } from "@/lib/shamStudio";
+import { mediaRouteNeeded as shamMediaProbe } from "@/lib/coderMediaFast";
+setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the cheap "is this a media request?" pre-check (Sham modules never import Nova's)
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
 import { telegramPhoto } from "@/lib/coderSections";
 
@@ -960,8 +962,8 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
     ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
     await bot.api.sendChatAction(chatId, "typing").catch(() => null);
     const last = run.leg >= (run.variant === "v2" ? SHAM_V2_LEGS : SHAM_LEGS);
-    const onEvent = run.runId ? (k: "tool" | "info" | "text", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
-    const r = await shamAgentRun({ text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
+    const onEvent = run.runId ? (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
+    const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
     if (run.runId && !(await taskIsActive(run.runId))) return;
     if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
       const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
@@ -1062,6 +1064,9 @@ async function shamMediaJobStep(bot: TelegramBot, chatId: number, botId: string,
         const t = await shamChatAuto(mf.MEDIA_TRANSLATE_SYSTEM + "\n\nRequest: " + job.request.slice(0, 300) + "\nEnglish prompt:", 90, 25000).catch(() => null);
         prompt = t?.type === "text" ? mf.cleanEnglishPrompt(t.text || "") : null;
         await cardStepDone(bot, chatId, card, Boolean(prompt));
+        // the translation is a helper, not a gate: when it fails or times out (a busy Studio, live 2026-11-11: «قم بتوليد فديو فتاة ترقص» was answered with «ما المشهد…؟»)
+        // the user's own words go to the model's own generator exactly as Sham v1 does; only an empty subject is asked about
+        if (!prompt) prompt = job.subject.trim().slice(0, 1800) || null;
       }
       if (!prompt) { await askForDescription(); return; }
       const sp = mf.splitAspect(prompt);
@@ -1080,73 +1085,16 @@ async function shamMediaJobStep(bot: TelegramBot, chatId: number, botId: string,
       const { generateShamMediaThroughRoute } = await import("@/lib/shamMediaRoutes");
       // one Studio call (image / v1 media) is bounded by the leg so it is never killed mid-flight; too little time left -> the next leg runs it
       const single = { timeoutMs: Math.max(30000, left() - 5000), bypassContentHeuristics: job.rawTest, aspect: job.aspect, seconds: job.seconds };
-      if (job.kind === "video" && job.model === "v2") {
-        const { shamVideoStart, shamStudioEnabled, DEFAULT_V2_VIDEO_URL } = await import("@/lib/shamStudio");
-        const { targetOf, shamEngine } = await import("@/lib/shamMediaEngine");
-        const { pressureMedia } = await import("@/lib/pressureMode");
-        const route = targetOf("sham_v2", await shamEngine("sham_v2")).route;
-        if (route === "sham_v2_ready" && shamStudioEnabled()) {
-          const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
-          const seconds = job.seconds ?? pressureMedia().videoSeconds;
-          if (!new Set<number>([6, 10, 15, 30, 60, 120]).has(seconds)) { await fail("اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية."); return; }
-          const body = JSON.stringify({ prompt: (job.prompt || "").slice(0, 300), seconds, seed: Math.floor(Math.random() * 2 ** 31) });
-          const started = await shamVideoStart(base, body, 30000);
-          if (started && "job" in started) {
-            job.job = started.job; job.started = Date.now(); job.phase = "poll"; await save();
-            if (left() < 9000) { await save(); await handoff(); return; }
-          } else if (started && "reply" in started) {
-            const { vetShamReply, parseShamReply } = await import("@/lib/shamStudio");
-            const reply = await vetShamReply(parseShamReply(started.reply), { bypassContentHeuristics: job.rawTest });
-            if (reply?.type === "video" && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); return; }
-            await fail(shamMediaErrorText(job.kind, reply));
-            return;
-          } else {
-            // no job API on this Studio (an older app) or an unreadable answer: the single call still makes the clip
-            if (left() < 45000) { await save(); await handoff(); return; }
-            const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-            if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-            else await fail(shamMediaErrorText(job.kind, reply));
-            return;
-          }
-        } else {
-          // not the ready route (internal training route, or the Studio is off): the single-call path below handles it
-          if (left() < 45000) { await save(); await handoff(); return; }
-          const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-          if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-          else await fail(shamMediaErrorText(job.kind, reply));
-          return;
-        }
-      } else {
-        if (left() < 45000) { await save(); await handoff(); return; }
-        const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
-        await cardStepDone(bot, chatId, card, Boolean(reply.type === job.kind && reply.b64));
-        if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
-        else await fail(shamMediaErrorText(job.kind, reply));
-        return;
-      }
+      if (left() < 45000) { await save(); await handoff(); return; }
+      const reply = await generateShamMediaThroughRoute(job.kind, job.prompt!, single);
+      await cardStepDone(bot, chatId, card, Boolean(reply.type === job.kind && reply.b64));
+      if (reply.type === job.kind && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); }
+      else await fail(shamMediaErrorText(job.kind, reply));
+      return;
     }
 
-    // 3) poll the clip job until it is done, asking again after a cut (the clip keeps running on the Studio). Out of leg time -> hand off.
-    if (job.phase === "poll") {
-      const { shamVideoJob, vetShamReply, parseShamReply, DEFAULT_V2_VIDEO_URL } = await import("@/lib/shamStudio");
-      const base = (process.env.SHAM_V2_VIDEO_URL || DEFAULT_V2_VIDEO_URL).trim().replace(/\/+$/, "");
-      job.started ||= Date.now();
-      for (;;) {
-        if (left() < 9000) { await save(); await handoff(); return; }
-        if (Date.now() - job.started > 2 * 3600_000) { await fail("تجاوز إنشاء المقطع الحد الأقصى للمدة (ساعتان). لم يُرسل شيء."); return; }
-        const r = await shamVideoJob(base, job.job!, 5, 30000);
-        if (r && "reply" in r) {
-          const reply = await vetShamReply(parseShamReply(r.reply), { bypassContentHeuristics: job.rawTest });
-          if (reply?.type === "video" && reply.b64) { await shamDeliverMedia(bot, chatId, card, job, reply); await done(); return; }
-          if (reply?.type === "error" && (reply.reason === "job_lost" || reply.reason === "studio_unreadable") && !job.retried) { job.retried = true; job.phase = "generate"; job.job = undefined; await save(); return; }
-          await fail(shamMediaErrorText(job.kind, reply));
-          return;
-        }
-        await taskTouch(runId).catch(() => null);
-        await save();                                     // keep the job id durable: a leg that dies must not lose the clip
-        await new Promise((res) => setTimeout(res, process.env.NODE_ENV === "test" ? 0 : 4000));
-      }
-    }
+    // a clip job started by the retired external video Studio (phase "poll") can no longer be followed: say so plainly
+    if (job.phase === "poll") { await fail("انتهى مسار الفيديو القديم. أعد طلب الفيديو."); return; }
   } catch (e) {
     await fail("تعذّر إنشاء الوسائط هذه المرة. أعد المحاولة بعد قليل.", String((e as Error)?.message || e).slice(0, 200));
   }
@@ -1179,13 +1127,13 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
   void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
-  const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+  const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
   // Token-by-token: Sham v2's streamed chat appends each piece as it is written, so the chat grows live (owner: all models live).
   let streamed = false;
   const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
-  const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
+  const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
   await progress.flush();
   return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard(), false, streamed);
 }
@@ -1206,12 +1154,12 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
         stage = "load model-specific conversation";
         await taskEvent(runId, "info", "جاري تحميل سياق المحادثة الخاص بالنموذج...").catch(() => null);
         const mem = await loadChatMemory(chatId, text);
-        const onEvent = (k: "tool" | "info" | "text", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
+        const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
         let streamed = false;
         const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
         stage = "generate with selected Sham variant";
         await taskEvent(runId, "info", `جاري التوليد عبر ${variant === "v2" ? "استوديو شام v2" : "استوديو شام v1"} فقط.`).catch(() => null);
-        const r = await shamAgentRun({ text, history: mem?.history, onEvent, onDelta, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
+        const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
         if (!(await taskIsActive(runId))) return;
         stage = "deliver model result";
         await shamDeliver(bot, chatId, r, text, botId, 0, runId, null, true, streamed);

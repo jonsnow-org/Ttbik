@@ -30,9 +30,9 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
     expect(r).toMatchObject({ type: "error", route: "unselected", reason: "model_not_selected" });
     expect(calls).toHaveLength(0);
   });
-  it("internal and ready both go to generate_media_from_panel with the Studio's exact label", async () => {
+  it("internal goes to generate_media_from_panel with the Studio's exact label; the old ready backend is refused client-side", async () => {
     const good = b64(await png("gradient"));
-    for (const backend of ["internal", "ready"] as const) {
+    for (const backend of ["internal"] as const) {
       const calls = studio({ type: "image", b64: good });
       const r = await shamVariant.run("v1", () => shamGenerateMedia("image", "a red apple", 5000, backend));
       expect(r?.type).toBe("image");
@@ -40,6 +40,12 @@ describe("Sham media routing (the removed generate_media endpoint is never calle
       expect(calls[0].body).toMatchObject({ kind: "image", prompt: "a red apple", backend_label: SHAM_BACKEND_LABELS[backend] });
       expect(calls.some((c) => c.url.includes("/generate_media/") || c.url.endsWith("/generate_media"))).toBe(false);
     }
+  });
+  it("the removed ready (donor weights) backend is refused client-side too", async () => {
+    const calls = studio({ type: "image", b64: "x" });
+    const r = await shamGenerateMedia("image", "x", 5000, "ready" as any);
+    expect(r).toMatchObject({ type: "error", reason: "unknown_route" });
+    expect(calls).toHaveLength(0);
   });
   it("the Hugging Face route and any unknown backend are refused client-side with a clear error (no request is sent)", async () => {
     const calls = studio({ type: "image", b64: "x" });

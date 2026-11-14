@@ -1,6 +1,6 @@
 name: "All models: picture and video requests through the bot's production code (real Studios, nothing sent to Telegram)"
 
-# For every model (Nova, Sham, Sham v2, Qwen, Gemma, MiniCPM) sends «قم بتوليد صورة …» and «قم بتوليد فديو …» through the same entry points the bot uses, against the REAL
+# For every model (Nova, LFM2.5, Sham v2) sends «قم بتوليد صورة …» and «قم بتوليد فديو …» through the same entry points the bot uses, against the REAL
 # Studios, and prints what each one would have sent (bytes, seconds) or the exact text the user would have seen. Pictures / clips are uploaded as an artifact.
 on:
   workflow_dispatch:
@@ -29,19 +29,12 @@ on:
         description: "how long to wait for each clip (ms); e.g. 3000000 for 1-2 min clips"
         required: false
         default: "600000"
-  workflow_run:
-    workflows:
-      - "Candidate media Studios: each candidate gets its OWN speech + video Studio and its OWN copy of the media weights"
-    types: [completed]
-    branches:
-      - claude/free-services-marketplace-h6rwk2
 
 permissions:
   contents: read
 
 jobs:
   live:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:

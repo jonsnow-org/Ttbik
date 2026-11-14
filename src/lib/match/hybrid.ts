@@ -203,10 +203,15 @@ const menuSet = new Set<string>();
 export async function ensureMiniAppMenu(bot: TelegramBot, botRow: BotRow, chatId: number) {
   const key = `${botRow.id}:${chatId}`;
   if (menuSet.has(key) || process.env.MATCH_MINIAPP_MENU === "0") return;
-  menuSet.add(key);
-  await bot.api
-    .setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "التطبيق", web_app: { url: miniAppUrl(botRow.id) } } })
-    .catch(() => null);
+  try {
+    await bot.api.setChatMenuButton({
+      chat_id: chatId,
+      menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: miniAppUrl(botRow.id) } },
+    });
+    menuSet.add(key);
+  } catch {
+    // Do not cache a failed Telegram API call; a later update can retry.
+  }
 }
 
 export type { PublicProfile };

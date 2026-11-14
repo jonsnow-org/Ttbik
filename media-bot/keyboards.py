@@ -49,7 +49,7 @@ def mini_app_info() -> WebAppInfo:
 
 
 def menu_button_webapp() -> MenuButtonWebApp:
-    return MenuButtonWebApp(text="Mini-App", web_app=mini_app_info())
+    return MenuButtonWebApp(text="📱 التطبيق", web_app=mini_app_info())
 
 
 def menu_button_default() -> MenuButtonDefault:

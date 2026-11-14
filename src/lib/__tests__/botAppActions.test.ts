@@ -11,7 +11,15 @@ jest.mock("grammy", () => {
   class InlineKeyboard { text() { return this; } row() { return this; } url() { return this; } webApp() { return this; } }
   return { Bot, Keyboard, InlineKeyboard };
 });
-jest.mock("@/lib/prisma", () => ({ prisma: { user: { update: jest.fn(), findUnique: jest.fn(async () => ({ balance: 3 })) } } }));
+jest.mock("@/lib/prisma", () => ({ prisma: { user: {
+  upsert: jest.fn(async ({ where }: any) => ({ id: where.id, balance: 3, language: "ar", phoneVerified: false })),
+  update: jest.fn(async () => ({})),
+  findUnique: jest.fn(async () => ({ balance: 3 })),
+} } }));
+jest.mock("@/lib/channels/assetMarket", () => ({
+  upsertAssetIdentity: jest.fn(async () => ({ ok: true })),
+  recordAssetPhoneContact: jest.fn(async () => ({ ok: true })),
+}));
 jest.mock("@/lib/adBotLogic", () => ({
   ...jest.requireActual("@/lib/adBotLogic"),
   ensureUser: jest.fn(async () => ({ id: "4242", balance: 3, language: "ar", phoneVerified: true })),
@@ -26,10 +34,12 @@ jest.mock("@/lib/remit/office", () => ({
   apiKey: jest.fn(async () => "k"),
   quoteAmount: jest.fn(async () => ({ ok: true, quote: 98.5, min: 2 })),
   createTransferRecord: (...a: any[]) => createTransferRecord(...a),
-  transferByTrack: jest.fn(async () => ({ track: "HW-ABC123", chat_id: "4242", cn_id: "x", coin: "usdtbsc", from_amount: 100, to_amount: 98.5, address: "T" + "a".repeat(33), recipient: null, from_country: "tr", to_country: "sy", status: "waiting", payin: "Tpayin", payin_extra: null, payout_hash: null, created_at: new Date() })),
+  transferByTrack: jest.fn(async () => ({ track: "HW-ABC123", chat_id: "4242", cn_id: "x", coin: "usdtbsc", from_amount: 100, to_amount: 98.5, address: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", recipient: null, from_country: "tr", to_country: "sy", status: "waiting", payin: "Tpayin", payin_extra: null, payout_hash: null, created_at: new Date() })),
 }));
 
 import { handleAdAppAction } from "@/lib/botApp/adApp";
+import { handleAdBotUpdate } from "@/lib/adBotLogic";
+import { prisma } from "@/lib/prisma";
 
 const botRow: any = { id: "af65", token: "111:test", ownerId: "900", requiredChannel: null, template: "AD_BOT", isActive: true };
 const tg: any = { id: "4242", firstName: "Sam", username: "sam" };
@@ -54,7 +64,7 @@ describe("bot-app actions", () => {
     const bad: any = await handleAdAppAction(botRow, tg, "remit_create", { coin: "usdtbsc", amount: "100", addr: "0xabc" });
     expect(bad.ok).toBe(false);
     expect(createTransferRecord).not.toHaveBeenCalled();
-    const addr = "T" + "a".repeat(33);
+    const addr = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
     const ok: any = await handleAdAppAction(botRow, tg, "remit_create", { coin: "usdtbsc", amount: "100", addr, to: "sy", from: "tr", chat_id: "999" });
     expect(ok.ok).toBe(true);
     expect(createTransferRecord.mock.calls[0][0]).toBe("4242");
@@ -64,9 +74,47 @@ describe("bot-app actions", () => {
   it("ex_pay (manual USDT): the user reads «المنصة», never «الأدمن»", async () => {
     payDeal.mockResolvedValue({ ok: true, manual: true, amount: 20, usdt: "Tplatform", network: "TRC20", note: "يؤكده الأدمن يدوياً." });
     const r: any = await handleAdAppAction(botRow, tg, "ex_pay", { code: "chd-abcd1234", method: "usdt" });
-    expect(payDeal).toHaveBeenCalledWith("CHD-ABCD1234", "usdt");
+    expect(payDeal).toHaveBeenCalledWith("CHD-ABCD1234", "usdt", "4242");
     expect(r.note).toContain("المنصة");
     expect(r.note).not.toMatch(/الأدمن|المالك/);
+  });
+  it("phone_prompt sends Telegram's native contact keyboard", async () => {
+    const r: any = await handleAdAppAction(botRow, tg, "phone_prompt", {});
+    expect(r).toMatchObject({ ok: true });
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.any(String), expect.objectContaining({ reply_markup: expect.any(Object) }));
+  });
+  it("phone_prompt reports delivery failure instead of pretending the request was sent", async () => {
+    api.sendMessage.mockRejectedValueOnce(new Error("blocked"));
+    const r: any = await handleAdAppAction(botRow, tg, "phone_prompt", {});
+    expect(r).toMatchObject({ ok: false, code: "phone_prompt_failed" });
+  });
+  it("the AD_BOT contact webhook stores only the sender's own phone as verified", async () => {
+    await handleAdBotUpdate({ api } as any, botRow, {
+      message: {
+        message_id: 411,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam", username: "sam" },
+        contact: { phone_number: "+905551112233", user_id: 4242, first_name: "Sam" },
+      },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "4242" },
+      data: { phoneNumber: "+905551112233", phoneVerified: true },
+    });
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("تم تأكيد رقم هاتفك"), expect.any(Object));
+  });
+  it("the AD_BOT does not verify a contact that belongs to someone else", async () => {
+    (prisma.user.update as jest.Mock).mockClear();
+    await handleAdBotUpdate({ api } as any, botRow, {
+      message: {
+        message_id: 412,
+        chat: { id: 4242, type: "private" },
+        from: { id: 4242, first_name: "Sam" },
+        contact: { phone_number: "+905559999999", user_id: 77, first_name: "Other" },
+      },
+    });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(api.sendMessage).toHaveBeenCalledWith(4242, expect.stringContaining("يجب مشاركة رقم هاتفك الخاص فقط."));
   });
   it("unknown action is refused", async () => {
     expect(((await handleAdAppAction(botRow, tg, "drop_tables", {})) as any).ok).toBe(false);

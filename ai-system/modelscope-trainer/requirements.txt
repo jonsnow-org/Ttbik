@@ -1,0 +1,16 @@
+# Studio platform pin (the Gradio version this Studio's proxy speaks — same as the Sham v1 Studio)
+gradio==6.17.3
+modelscope
+torch
+tokenizers
+numpy
+pillow
+requests
+beautifulsoup4
+kaggle
+six
+datasets
+soundfile
+imageio
+imageio-ffmpeg
+av

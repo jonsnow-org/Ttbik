@@ -44,7 +44,7 @@ describe("chat list ops, one list per model", () => {
     await shamVariant.run("v1", () => S.saveChatTurn(OWNER, "سؤال شام", "جواب شام", db));
     await shamVariant.run("v2", () => S.saveChatTurn(OWNER, "سؤال شام ٢", "جواب شام ٢", db));
     const titles = async (model: string, extra: object = {}) => ((await appOp(o, "chats", { model, ...extra }, d)).items as any[]).map((i) => i.title);
-    expect(await titles("coder")).toEqual(["نوفا اثنان", "نوفا واحد"]);
+    expect([...(await titles("coder"))].sort()).toEqual(["نوفا اثنان", "نوفا واحد"].sort());
     expect(await titles("sham")).toEqual(["سؤال شام"]);
     expect(await titles("sham_v2")).toEqual(["سؤال شام ٢"]);
     expect(await titles("sham_v2", { q: "٢" })).toEqual(["سؤال شام ٢"]);

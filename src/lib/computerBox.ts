@@ -132,10 +132,43 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
   try {
     // a command may take up to 90 s inside the Studio; the read window is a little longer
     const reply = await studioCall(base, "box_do", { ...clean, session }, fetchImpl, 110_000);
+    // Speed: a clone or a running job used to hand the model a job id and the model polled it step after step (8 model steps ~ 4 minutes measured on the repo-reading task).
+    // The wait now happens HERE, in the tool, with no model step in between; a job that outlasts the budget is still reported as running, as before.
+    if (clean.action === "repo" && reply && reply.ok !== false && reply.job) {
+      const done = await waitJob(base, session, String(reply.job), fetchImpl);
+      if (done && !done.running) {
+        return done.exit_code === 0 || done.exit_code === undefined
+          ? `repository ready in ~/${reply.path} (download finished while the tool waited)\nSearch it with computer_search, read files with computer_read.`
+          : renderBoxReply("job_log", done);
+      }
+    }
+    if (clean.action === "job_log" && reply && reply.ok !== false && reply.running) {
+      const done = await waitJob(base, session, String(clean.id || reply.id), fetchImpl, Number(clean.tail) || undefined);
+      if (done) return renderBoxReply("job_log", done);
+    }
     return renderBoxReply(String(clean.action), reply);
   } catch (error) {
     return "error: " + String((error as Error)?.message || error).slice(0, 240);
   }
+}
+
+/** Poll a job inside the tool until it stops or the budget (BOX_JOB_WAIT_MS, default 60 s) runs out. Returns the last job_log reply. */
+async function waitJob(base: string, session: string, id: string, fetchImpl: typeof fetch, tail?: number): Promise<Record<string, any> | null> {
+  const budget = Math.max(0, Number(process.env.BOX_JOB_WAIT_MS ?? 60_000));
+  const gap = budget >= 3000 ? 3000 : 0;
+  const until = Date.now() + budget;
+  let last: Record<string, any> | null = null;
+  while (Date.now() < until || last === null) {
+    if (last !== null && gap) await new Promise((r) => setTimeout(r, gap));
+    try {
+      last = await studioCall(base, "box_do", { action: "job_log", id: id.slice(0, 20), tail: tail || 40, session }, fetchImpl, 30_000);
+    } catch {
+      return last;
+    }
+    if (!last || last.ok === false || !last.running) return last;
+    if (!gap && budget === 0) return last;
+  }
+  return last;
 }
 
 /** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
@@ -143,7 +176,7 @@ export async function boxRaw(modelId: string | undefined, session: string, args:
   if (modelId === "sham" || modelId === "sham_v2") {
     // The owner's Mini App screen of a Sham's computer stays useful WITHOUT any command API: a READ-ONLY view (files, a file, jobs, a job log, what the model just did) served by the
     // model's own app. Commands are run only by the model itself, inside its loop.
-    const map: Record<string, string> = { list: "list", ls: "list", read: "read", job_list: "job_list", job_log: "job_log", activity: "activity" };
+    const map: Record<string, string> = { list: "list", ls: "list", read: "read", job_list: "job_list", job_log: "job_log", activity: "activity", env: "env" };
     const action = map[String((args as { action?: string })?.action || "")];
     if (!action) return { ok: false, error: "the Shams' computer screen is read-only: the model itself runs its commands (you can see its files, jobs and what it just did)" };
     const own = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");

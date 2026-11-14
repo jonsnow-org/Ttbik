@@ -65,6 +65,24 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("search", { ok: true, matches: "src/a.ts:2:const needle = 2;" })).toContain("src/a.ts:2");
   });
 
+  test("a clone that is still downloading is waited for inside the tool (no model polling steps)", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.BOX_JOB_WAIT_MS = "0";
+    const sent: string[] = [];
+    let polls = 0;
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/gradio_api/call/box_do")) { sent.push(unb64(JSON.parse(String(init.body)).data[0])); return new Response(JSON.stringify({ event_id: "e" + sent.length }), { status: 200 }); }
+      const a = JSON.parse(sent[sent.length - 1]);
+      const r = a.action === "repo" ? { ok: true, path: "repos/o-r", job: "j9", message: "still downloading" } : { ok: true, id: "j9", running: ++polls < 1, exit_code: 0, seconds: 5, output: "done" };
+      return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify(r)]) + "\n\n", { status: 200 });
+    }) as any;
+    const out = await boxDo("coder", "1:coder", { action: "repo", url: "https://github.com/o/r" }, fetchImpl);
+    expect(out).toContain("repository ready in ~/repos/o-r");
+    expect(sent.map((x) => JSON.parse(x).action)).toEqual(["repo", "job_log"]);
+    delete process.env.BOX_JOB_WAIT_MS;
+  });
+
   test("a command goes to the model's own Studio with the user+model session", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const calls: { url: string; body?: any }[] = [];

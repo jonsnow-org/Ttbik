@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "Studio under novaai2026 (epicrealism-, realistic-vision-)"
+        description: "Studio under novaai2026 (epicrealism-)"
         required: true
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::add-mask::$T"
-          [[ "$STUDIO" =~ ^(epicrealism|realistic-vision)-[A-Za-z0-9_.-]{2,60}$ ]] || { echo "::error::studio name not allowed"; exit 1; }
+          [[ "$STUDIO" =~ ^(epicrealism)-[A-Za-z0-9_.-]{2,60}$ ]] || { echo "::error::studio name not allowed"; exit 1; }
           state() { curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true; }
           echo "before: $(state)"
           code=$(curl -sS --connect-timeout 8 --max-time 30 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$STUDIO/deploy")

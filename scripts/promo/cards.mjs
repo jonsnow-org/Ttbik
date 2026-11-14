@@ -4,13 +4,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
-import { arg, ARABIC_FONTS, LATIN_FONTS, dataUri, esc, fineLine, loadProjects } from "./common.mjs";
+import { arg, ARABIC_FONTS, LATIN_FONTS, esc, fineLine, loadProjects, logoMarkup, projectLanguage, projectName } from "./common.mjs";
 
 const only = arg("only", ""), out = arg("out", "promo-cards"), EN = arg("lang", "both") === "en"; // --lang en: English only (the coins channel allows no Arabic)
 const SIZES = { square: [1080, 1080], story: [1080, 1920], link: [1200, 630] };
 
 const card = (p, [W, H], kind) => {
   const tall = kind === "story", wide = kind === "link";
+  const onlyEnglish = EN || projectLanguage(p) === "en";
+  const pointIndex = p.id === "athar" || onlyEnglish ? 0 : 1;
   const u = tall ? 1.15 : wide ? 0.72 : 0.8; // type scale
   return `<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box;margin:0}
@@ -21,7 +23,7 @@ body{width:${W}px;height:${H}px;position:relative;overflow:hidden;color:#fff;fon
 .grid{position:absolute;inset:0;background-image:radial-gradient(${p.accent}22 2px,transparent 2px);background-size:52px 52px;mask-image:radial-gradient(75% 60% at 50% 45%,#000,transparent)}
 .frame{position:absolute;inset:${wide ? 24 : 40}px;border-radius:${wide ? 30 : 46}px;border:2px solid ${p.accent}55}
 .box{position:relative;height:100%;padding:${wide ? "62px 78px" : tall ? "150px 84px 110px" : "110px 84px 110px"};display:flex;flex-direction:${wide ? "row" : "column"};align-items:${wide ? "center" : "center"};justify-content:center;gap:${wide ? 56 : 38 * u}px;text-align:center}
-.logo{width:${(wide ? 250 : tall ? 360 : 220)}px;height:${(wide ? 250 : tall ? 360 : 220)}px;flex:none;border-radius:50%;object-fit:cover;box-shadow:0 0 0 8px ${p.accent}55,0 26px 80px #000b}
+.logo{width:${(wide ? 250 : tall ? 360 : 220)}px;height:${(wide ? 250 : tall ? 360 : 220)}px;flex:none;border-radius:50%;object-fit:cover;box-shadow:0 0 0 8px ${p.accent}55,0 26px 80px #000b}\n.logo.monogram{display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 25%,${p.accent},#071321 78%);color:#fff;font-weight:1000;font-size:${wide ? 110 : tall ? 160 : 120}px;letter-spacing:-.06em}
 .txt{display:flex;flex-direction:column;align-items:center;gap:${22 * u}px;${wide ? "flex:1;align-items:flex-start;text-align:left" : ""}}
 .name{font-size:${70 * u}px;font-weight:900;color:${p.accent}}
 .en{font-size:${54 * u}px;font-weight:800;line-height:1.22}
@@ -31,11 +33,11 @@ body{width:${W}px;height:${H}px;position:relative;overflow:hidden;color:#fff;fon
 .handle{margin-top:${10 * u}px;background:${p.accent};color:#111;font-weight:900;font-size:${46 * u}px;padding:20px 56px;border-radius:999px;direction:ltr}
 .fine{position:absolute;bottom:${wide ? 30 : 56}px;left:0;right:0;text-align:center;font-size:24px;opacity:.6}
 </style><body><div class="orb o1"></div><div class="orb o2"></div><div class="grid"></div><div class="frame"></div>
-<div class="box"><img class="logo" src="${dataUri(p.logo)}"><div class="txt">
-<div class="name">${esc(EN ? p.name.split(" · ")[0] : p.name)}</div>
-<div class="en">${esc(p.tagline[0])}</div>${EN ? "" : `<div class="ar">${esc(p.tagline[1])}</div>`}
-${wide ? "" : `<div class="pills">${p.points.map((pt) => `<span class="pill">${esc(pt[0])}</span>`).join("")}</div>`}
-<div class="handle">${esc(p.handle)}</div></div></div><div class="fine">${esc(EN ? fineLine(p).split(" · ")[0] : fineLine(p))}</div></body>`;
+<div class="box">${logoMarkup(p)}<div class="txt">
+<div class="name">${esc(onlyEnglish ? projectName(p, "en") : p.name)}</div>
+<div class="en">${esc(p.tagline[0])}</div>${onlyEnglish ? "" : `<div class="ar">${esc(p.tagline[1])}</div>`}
+${wide ? "" : `<div class="pills">${p.points.map((pt) => `<span class="pill">${esc(pt[pointIndex])}</span>`).join("")}</div>`}
+<div class="handle">${esc(p.handle)}</div></div></div><div class="fine">${esc(fineLine(p, onlyEnglish ? "en" : "both"))}</div></body>`;
 };
 
 fs.mkdirSync(out, { recursive: true });

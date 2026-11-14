@@ -1,0 +1,25 @@
+name: Sham embedded environment probe (read-only)
+
+# Asks each Sham Studio (v1 and v2) what its container can do for an embedded graphical desktop: root, apt, Xvfb, xdotool, free memory, cores.
+# Read-only: it calls the Studio's computer_view with action=env. Needs the Studios to run the current code (deploy first). Tokens are never printed.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Probe both Sham Studios
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+        run: python3 scripts/ops/sham_embedded_env_probe.py

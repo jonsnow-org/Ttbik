@@ -41,10 +41,10 @@ function RemitHome({ home, onSend, onTrack, onReceive, onReload }: { home: Home;
     <>
       <div className="mb-4 overflow-hidden rounded-3xl p-5" style={{ background: "linear-gradient(135deg,#059669,#065f46)", color: "#fff" }}>
         <div className="text-[13px] font-bold opacity-85">💸 حوالات USDT</div>
-        <div className="mt-1 text-[22px] font-black leading-snug">أرسل لأهلك خلال دقائق</div>
-        <p className="mt-1 text-[12.5px] leading-5 opacity-85">ادفع بأي عملة رقمية، ويستلم المستلم {home.receive} على محفظته مباشرة. بلا حساب وبلا وسيط، وتتابع حوالتك برقم تتبّع.</p>
+        <div className="mt-1 text-[22px] font-black leading-snug">أرسل إلى محفظة المستلم بثقة</div>
+        <p className="mt-1 text-[12.5px] leading-5 opacity-85">تُنفَّذ عملية التبديل والإرسال عبر شريك الخدمة؛ لا تستلم المنصة أموالك. اعرض السعر التقديري قبل الإنشاء، وتابع حالة التحويل ورقم تتبّعه من مكان واحد.</p>
         <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
-          <span className="rounded-full bg-white/20 px-2.5 py-1">⚡ 5-30 دقيقة</span><span className="rounded-full bg-white/20 px-2.5 py-1">🔒 دون تسجيل</span><span className="rounded-full bg-white/20 px-2.5 py-1">🧾 إيصال ورقم تتبع</span>
+          <span className="rounded-full bg-white/20 px-2.5 py-1">🔎 سعر مباشر</span><span className="rounded-full bg-white/20 px-2.5 py-1">🧾 رقم تتبّع وإيصال</span><span className="rounded-full bg-white/20 px-2.5 py-1">🔐 إرسال مباشر للمحفظة</span>
         </div>
       </div>
       {!home.configured && <Section><Empty icon="⏳" title="الحوالات تُفعَّل قريباً" sub="تعمل الخدمة فور تفعيلها من المنصة." /></Section>}
@@ -96,15 +96,17 @@ function Send({ home, initAddr, initName, onCreated, onCancel }: { home: Home; i
   useEffect(() => {
     const amt = f.amount.trim();
     if (!amt) { setQ(null); return; }
-    setQ((x) => ({ ...(x || {}), loading: true }));
+    let active = true;
+    setQ({ loading: true });
     const h = window.setTimeout(async () => {
       const r = await api<{ quote: number; min: number | null }>("remit_quote", { coin: f.coin, amount: amt });
+      if (!active) return;
       setQ(r.ok ? { loading: false, quote: r.quote, min: r.min } : { loading: false, err: r.error, min: (r as any).min ?? null });
     }, 550);
-    return () => window.clearTimeout(h);
+    return () => { active = false; window.clearTimeout(h); };
   }, [f.amount, f.coin, api]);
   const addrOk = TRON.test(f.addr.trim());
-  const ready = !!q?.quote && addrOk && agree;
+  const ready = !!q?.quote && !q.loading && addrOk && agree;
   const submit = async () => {
     setBusy(true);
     const r = await api<{ transfer: T | null }>("remit_create", { ...f, addr: f.addr.trim() });
@@ -115,7 +117,7 @@ function Send({ home, initAddr, initName, onCreated, onCancel }: { home: Home; i
   };
   return (
     <>
-      <ScreenTitle icon="📤" title="أرسل حوالة" sub="سعر مباشر من خدمة التبديل، ويُثبَّت عند الإنشاء." />
+      <ScreenTitle icon="📤" title="أرسل حوالة" sub="سعر تقديري مباشر من الشريك؛ يظهر المبلغ النهائي بعد استلام الإيداع وتحديث حالة العملية." />
       <Section title="من أين وإلى أين">
         <div className="space-y-3 p-3">
           <div><div className="mb-1.5 text-xs font-bold" style={{ color: "var(--app-hint)" }}>بلد المستلم</div><Chips wrap={false} items={home.to} value={f.to} onChange={(v) => set("to", v)} /></div>
@@ -201,7 +203,7 @@ function Track({ t: initial, onBack }: { t: T; onBack: () => void }) {
         {!t.final && <div className="mt-3 text-[11px]" style={{ color: "var(--app-hint)" }}>🔄 تتحدث الحالة تلقائياً، ونرسل لك إشعاراً في البوت عند كل تغيير.</div>}
       </div>
       {waiting && (
-        <Section title={`أرسل ${fmt(t.fromAmount)} ${t.coinLabel} إلى`} hint="أرسل المبلغ بالضبط من محفظتك أو من منصة التداول. يصل للمستلم خلال 5-30 دقيقة من تأكيد الشبكة.">
+        <Section title={`أرسل ${fmt(t.fromAmount)} ${t.coinLabel} إلى`} hint="أرسل المبلغ بالضبط إلى عنوان الإيداع. يبدأ التبديل بعد تأكيد الشبكة، والمدة تختلف حسب العملة والازدحام وخدمة التبديل.">
           <Copyable label="المبلغ" value={String(t.fromAmount)} />
           <Copyable label="عنوان الإيداع" value={t.payin} />
           {t.payinExtra && <Copyable label="Memo / Tag — إلزامي" value={t.payinExtra} />}

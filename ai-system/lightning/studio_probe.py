@@ -12,13 +12,15 @@ from __future__ import annotations
 import os
 import sys
 
+from lightning_access import patch_whoami, why
+
 
 def say(msg: str) -> None:
     print(msg, flush=True)
 
 
 def main() -> int:
-    if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
+    if not ((os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")) or os.environ.get("LIGHTNING_AUTH_TOKEN")):
         say("لا مفاتيح Lightning في البيئة — لا فحص")
         return 0
     try:
@@ -27,31 +29,40 @@ def main() -> int:
         say(f"مكتبة lightning_sdk غير متاحة: {type(exc).__name__}")
         return 0
     name = os.environ.get("SHAM_LIGHTNING_STUDIO", "fantastic-bronze-a104f")
-    try:        # the SDK needs the teamspace: ask the account which ones it has (names are not secrets)
-        from lightning_sdk import User
-        spaces, last = [], None
-        for uname in [os.environ.get("SHAM_LIGHTNING_USER"), "jonsnowx1r-lab", "Jonsnowx1r-Lab", None]:
-            try:       # the SDK cannot infer the user name from the key alone: try the account's own name (not a secret)
-                spaces = list(User(name=uname).teamspaces) if uname else list(User().teamspaces)
-                say(f"اسم المستخدم المقبول: {uname or '(مستنتَج)'}")
-                break
-            except Exception as exc:
-                last = exc
-        if not spaces and last is not None:
-            raise last
-        say("مساحات الفريق في الحساب: " + ", ".join(str(getattr(s, "name", s)) for s in spaces))
+    # live 2026-11-11 (fresh `lightning login` token): the SDK's whoami endpoint answers 403 (an HTML page) for this token, so
+    # User().teamspaces / Teamspace.studios die with "Neither name is provided…"; and the account's teamspace belongs to the
+    # ORG (jonsnowx1r-lab-org), not the user. Fall back to LIGHTNING_USER_ID for whoami and find the teamspace by membership.
+    patch_whoami()
+    try:
+        from lightning_sdk import Teamspace
+        from lightning_sdk.api.teamspace_api import TeamspaceApi
+        api = TeamspaceApi()
+        client = api._client
+        mem = client.projects_service_list_memberships().memberships or []
+        say("عضوية مساحات الفريق: " + ", ".join(str(m.name) for m in mem))
         studio = None
-        for sp in spaces:
-            found = [s for s in sp.studios]
-            say(f"  • {getattr(sp, 'name', sp)}: استوديوهات = " + ", ".join(str(getattr(s, 'name', s)) for s in found))
-            for s in found:
-                if str(getattr(s, "name", "")) == name or (studio is None and not os.environ.get("SHAM_LIGHTNING_STUDIO")):
-                    studio = s
+        want_ts = os.environ.get("SHAM_LIGHTNING_TEAMSPACE", "")
+        for m in mem:
+            if want_ts and m.name != want_ts:
+                continue
+            spaces = client.cloud_space_service_list_cloud_spaces(project_id=m.project_id).cloudspaces or []
+            say(f"  • {m.name}: استوديوهات = " + ", ".join(str(c.name) for c in spaces))
+            hit = [c for c in spaces if c.name == name] or ([] if os.environ.get("SHAM_LIGHTNING_STUDIO") else spaces[:1])
+            if hit and studio is None:
+                proj = client.projects_service_get_project(m.project_id)
+                owner = getattr(proj, "owner_type", "")
+                org_name = None
+                for o in (client.organizations_service_list_organizations().organizations or []):
+                    if getattr(o, "id", None) == getattr(proj, "owner_id", None):
+                        org_name = o.name
+                ts = Teamspace(name=f"{org_name}/{m.name}") if org_name else Teamspace(name=m.name)
+                studio = Studio(name=hit[0].name, teamspace=ts)
+                say(f"الاستوديو: {hit[0].name} في {ts.owner.name}/{m.name} ({owner})")
         if studio is None:
             say(f"لا استوديو باسم «{name}» ولا غيره")
             return 0
     except Exception as exc:
-        say(f"تعذّر سرد مساحات الفريق: {type(exc).__name__}: {str(exc)[:200]}")
+        say(f"تعذّر الوصول إلى الاستوديو: {type(exc).__name__}: {why(exc)}")
         return 0
     started_here = False
     try:
@@ -71,7 +82,7 @@ def main() -> int:
             "ls /usr/bin/python3* 2>/dev/null | head -5; python3 -c 'import torch;print(\"torch\",torch.__version__)' 2>&1 | tail -1")
         say("الشبكة والأدوات داخل الاستوديو:\n" + str(net)[:900])
     except Exception as exc:
-        say(f"فشل أثناء التشغيل أو الأمر: {type(exc).__name__}: {str(exc)[:240]}")
+        say(f"فشل أثناء التشغيل أو الأمر: {type(exc).__name__}: {why(exc)}")
     finally:
         if started_here:
             try:

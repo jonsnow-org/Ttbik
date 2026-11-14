@@ -13,7 +13,7 @@ What comes out is whatever the model's tokens decode to — at this stage of tra
 tokenizers' and the model's own training, never dressed up. Video IS made from the model's own tokens: it writes one keyframe image span plus a motion
 span (motion_tokenizer.py's flow tokens) inside <VIDEO_START>...<VIDEO_END>, and the clip is decoded frame by frame through that motion — real temporal
 content, not two stitched stills. NO_VIDEO is returned only when no motion tokenizer is available (an older checkpoint with no motion rows trained), and it
-points to the ready text-to-video path (sham_media_ready.py / cpu_video.py) rather than to a slideshow.
+says plainly that this checkpoint has no motion rows (never a slideshow, never an outside generator).
 
 The result is a dict {"type": "text|image|audio|video|notice", "text": ..., "mime": ..., "b64": ...}. This file lives in sham_small, so it reaches the Studio
 through the signed hot copy (app.py loads it from there).
@@ -23,7 +23,37 @@ from __future__ import annotations
 import base64
 import io
 
+import os
 import torch
+
+
+# modules that hold the Studio's LIVE state (the loaded model, caches, background jobs): never re-imported from the hot copy
+_KEEP_LOADED = frozenset({"serve", "web_access", "sham_general_text", "sham_auto_config", "sham_cell_sync",
+                          "sham_trigger_restarter", "sham_bank", "sham_kb", "sham_gguf", "sham_encoder_np"})
+
+
+def _prefer_own_copies() -> None:
+    """When this file runs as the SIGNED hot copy (Studio _hot/sham_small), its sibling modules (model, sham_stream, …) must come from the
+    same folder. Live 2026-11-11: ModelScope's build runner kept shipping a cached Oct 29 build, whose deployed model.py was already
+    imported by the app, so the hot chat died with "cannot import name 'MOTION_VOCAB_BASE' from 'model'". Drop every already-imported
+    module that has a newer sibling here, and put this folder first, so the deployed (possibly stale) copies never shadow the hot ones."""
+    import sys as _sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if not _sys.path or os.path.abspath(_sys.path[0]) != here:
+        _sys.path.insert(0, here)
+    for name, mod in list(_sys.modules.items()):
+        f = getattr(mod, "__file__", None)
+        if not f or "." in name:
+            continue
+        d = os.path.dirname(os.path.abspath(f))
+        if name in _KEEP_LOADED or hasattr(mod, "_state"):
+            continue     # live 2026-11-11: dropping `serve` emptied serve._state, so chat failed with KeyError 'model'. Runtime state stays.
+        if d != here and os.path.basename(d) == "sham_small" and os.path.isfile(os.path.join(here, name + ".py")):
+            _sys.modules.pop(name, None)
+
+
+_prefer_own_copies()
+
 
 from model import (
     AUDIO_VOCAB_SIZE,
@@ -130,7 +160,7 @@ def _video_frames() -> int:
 # fabricated file, never silent. The model's OWN motion-token video is the
 # normal path above (_video_result), and the separate video Studio is the
 # alternative for a checkpoint with no motion rows.
-NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. استخدم استوديو الفيديو أو أعد التدريب مع motion_tokenizer. لن يُعاد إليك فيديو مُفبرك."}
+NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. شام يصنع فيديوه بمولّده وحده، فيلزم تدريب مُرمِّز الحركة (motion_tokenizer) أولًا. لن يُعاد إليك فيديو مُفبرك."}
 
 
 def _video_chunk_frames() -> int:
@@ -280,6 +310,9 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     from sham_decoding import chat_prompt_ids
     from sham_studio_chat import build_user_text, studio_generate
     stripped = prompt.strip()
+    from sham_studio_chat import split_modes
+    if split_modes(prompt)[1].get("text"):      # words only: the app retries this way after the model's own first choice (a picture) failed the quality gate on a plain message
+        return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
     if stripped.startswith("#pmedia "):      # diagnostic for the owner: how likely is it that the model, by itself, starts a picture / sound / clip for this text?
         return {"type": "text", "text": media_preference(model, tokenizer, stripped[8:], today)}
     if stripped == "#info" or stripped.startswith("#raw "):
@@ -332,6 +365,10 @@ if __name__ == "__main__":
     assert a["type"] == "audio" and base64.b64decode(a["b64"])[:4] == b"RIFF"
     # Without a motion tokenizer the video path is honestly unavailable (notice), never a slideshow.
     assert make_media(model, Tok(), img_tok, aud_tok, "video", "x")["type"] == "notice"
+    import importlib.util
+    if importlib.util.find_spec("imageio") is None:   # the Studio installs imageio(-ffmpeg); a bare CI check job may not: stand in for the encoder only
+        globals()["_mp4"] = lambda frames, fps=8: b"\x00\x00\x00\x18ftypisom" + bytes(256 + int(frames.shape[0]))
+        print("imageio not installed: MP4 encoder replaced by a stub in this self-test (the token/frame path is still exercised)")
     # With the motion tokenizer, the model writes its OWN clip: a real MP4.
     v = make_media(model, Tok(), img_tok, aud_tok, "video", "قطة تجري", motion_tokenizer=mot_tok, num_frames=4)
     assert v["type"] == "video" and v["mime"] == "video/mp4", v["type"]
@@ -351,6 +388,8 @@ if __name__ == "__main__":
     long_v = make_media(model, Tok(), img_tok, aud_tok, "video", "رحلة طويلة", motion_tokenizer=mot_tok, num_frames=8)
     assert long_v["type"] == "video" and long_v["frames"] == 8, long_v.get("frames")
     assert base64.b64decode(long_v["b64"])[4:8] == b"ftyp"
+    tw = generate_any(model, Tok(), img_tok, aud_tok, "[[sham text=1]]\nاقرأ الملف", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)
+    assert tw["type"] == "text", "the words-only header must skip the model's media choice"
     t = generate_any(model, Tok(), img_tok, aud_tok, "مرحبا", 6, d, choose=lambda *a, **k: 5)
     assert t["type"] == "text" and t["text"]
     assert "صورة" in generate_any(model, Tok(), img_tok, aud_tok, "#pmedia أعطني صورة أرنب", 6, d)["text"]

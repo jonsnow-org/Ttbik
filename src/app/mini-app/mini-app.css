@@ -1,0 +1,114 @@
+/* Media Telegram Mini App only.
+   Keep its existing sky-blue visual identity; centralise viewport and safe-area geometry here. */
+.media-mini-app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  --media-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px));
+  padding-bottom: calc(6rem + var(--media-safe-bottom));
+  overflow-x: hidden;
+}
+
+.media-mini-app-nav {
+  padding-bottom: max(var(--media-safe-bottom), 6px);
+}
+
+.media-mini-app-scroll-top {
+  bottom: calc(6rem + var(--media-safe-bottom));
+}
+
+.media-mini-app-toast {
+  bottom: calc(5rem + var(--media-safe-bottom));
+  width: max-content;
+  max-width: min(90vw, 32rem);
+}
+
+.media-mini-app-sheet,
+.media-mini-app-sheet-compact {
+  max-height: 85vh;
+  max-height: 85dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: calc(2rem + var(--media-safe-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+
+.media-mini-app-sheet-compact {
+  max-height: 75vh;
+  max-height: 75dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-mini-app-sheet {
+    scroll-behavior: auto;
+  }
+}
+
+
+/* Floating player: it stays over its feed card, then docks above Telegram navigation. */
+.media-mini-app-player-float {
+  position: fixed;
+  z-index: 35;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 1.25rem;
+  background: #020617;
+  box-shadow: 0 16px 42px rgba(2, 6, 23, .34), 0 0 0 1px rgba(14, 116, 144, .12);
+}
+.media-mini-app-player-float--anchor { border-radius: 1.75rem; }
+.media-mini-app-player-float--dock {
+  left: max(12px, env(safe-area-inset-left, 0px));
+  bottom: calc(6.35rem + max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px)));
+  width: min(42vw, 156px);
+  aspect-ratio: 9 / 16;
+  max-height: 32dvh;
+  animation: media-player-dock-in .18s ease-out;
+}
+.media-mini-app-player-float video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #020617;
+  object-fit: contain;
+}
+.media-mini-app-player-float-tools {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  padding: .35rem .4rem;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(2, 6, 23, .78), transparent);
+  pointer-events: none;
+}
+.media-mini-app-player-float-tools span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .62rem;
+  font-weight: 800;
+  text-shadow: 0 1px 3px #000;
+}
+.media-mini-app-player-float-tools button {
+  flex: 0 0 auto;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  color: white;
+  background: rgba(2, 6, 23, .7);
+  font-size: 1.2rem;
+  line-height: 1;
+  pointer-events: auto;
+}
+.media-mini-app-player-placeholder { min-height: 100%; }
+@keyframes media-player-dock-in {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-mini-app-player-float--dock { animation: none; }
+}

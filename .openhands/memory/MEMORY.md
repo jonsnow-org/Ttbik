@@ -12,12 +12,12 @@ Repo `/workspace/project/Ttbik`. Production branch: `claude/free-services-market
 
 ## Revision pins drift (recurring bug class)
 Every ModelScope app has an `APP_REVISION` string that is asserted in deploy workflows, preflight scripts, docs and TS guards. When the app revision bumps, ALL of these must move together or deploy/status checks fail closed ("deploying" forever):
-- Computer hub: `ai-system/modelscope-media/computer_studio_app.py` `APP_REVISION` (currently `computer-hub-16gb-2026-11-04-r7-live`) ↔ `.github/workflows/deploy-minicpmo-big.yml` (2 asserts) ↔ `scripts/ops/modelscope_computer_hub_preflight.py` ↔ `docs/MODELS_AND_COMPUTER.md`.
+- Computer hub: `ai-system/modelscope-media/computer_studio_app.py` `APP_REVISION` (currently `computer-hub-16gb-2026-11-11-r8-fast-start`) ↔ `.github/workflows/deploy-minicpmo-big.yml` (2 asserts) ↔ `scripts/ops/modelscope_computer_hub_preflight.py` ↔ `docs/MODELS_AND_COMPUTER.md`.
 - Donor bakeoff: `experiments/donor-bakeoff/app.py` `APP_REVISION` (currently `donor-bakeoff-2026-11-05-r21`) ↔ `src/lib/donorTests.ts` `EXPECTED_DONOR_APP_REVISION` / `ACCEPTED_DONOR_APP_REVISIONS`.
 - Other app revisions asserted in workflows: `epicrealism-image-test-2026-10-31-r1`, `juggernaut-ragnarok-cpu8g-2026-10-31-r2`, `umranz-image-test-2026-10-31-r3`.
 
 ## Architecture: models are independent
-`docs/MODELS.md` is the registry. Each model (`coder`=Nova AI, `sham`, `sham_v2`, `lfm25`, `qwen35-9b`, `gemma4-e4b`, `minicpmo45`) has its OWN inference + media Studios and its own computer session (`<userId>:<model>`). No fallback to another model; unconfigured → honest error. Key files: `src/lib/coderModels.ts` (registry/access), `src/lib/openCoderStudio.ts` (`ENGINE_MODELS` = coder+lfm25 only), `src/lib/modelMedia.ts` (media routing), `src/lib/modes.ts` (modes/thinking), `src/lib/novaBotLogic.ts` + `src/lib/shamStudio.ts` (Sham paths).
+`docs/MODELS.md` is the registry. Each model (`coder`=Nova AI, `sham`, `sham_v2`, `lfm25`) has its OWN inference + media Studios and its own computer session (`<userId>:<model>`). No fallback to another model; unconfigured → honest error. Key files: `src/lib/coderModels.ts` (registry/access), `src/lib/openCoderStudio.ts` (`ENGINE_MODELS` = coder+lfm25 only), `src/lib/modelMedia.ts` (media routing), `src/lib/modes.ts` (modes/thinking), `src/lib/novaBotLogic.ts` + `src/lib/shamStudio.ts` (Sham paths).
 - The 16 GB `nova-inference-server` is COMPUTER-ONLY: no model may serve inference/media there (`ownMediaBase` blanks any URL containing `nova-inference-server`).
 - Computer desktop client/server coordinate contract: the Studio `frame` returns `width`/`height` = the REAL screen (1344×840), while the live SSE stream (`desktopLive`) sends a 0.75-scaled picture. Any click mapping MUST use the reported `width`/`height`, never the `<img>` natural size (`GraphicalDesktop.tsx` `screenRef`), or clicks land short while streaming.
 
