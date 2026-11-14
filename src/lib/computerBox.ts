@@ -95,6 +95,7 @@ function renderBody(action: string, r: Record<string, any>): string {
     case "repo":
       return r.job ? String(r.message) : `repository ready in ~/${r.path} (${r.seconds}s)\n${r.summary}\nSearch it with computer_search, read files with computer_read.`;
     case "search":
+      if (r.running) return [`still searching in the background as job ${r.id} · ${r.seconds}s so far`, String(r.matches || "(nothing yet)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
       return String(r.matches || "(no matches)");
     case "run":
       if (r.running) return [`still running in the background as job ${r.id} · ${r.seconds}s so far · in ${r.cwd}`, String(r.output || "(no output yet)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
