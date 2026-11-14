@@ -3,6 +3,7 @@
 // every task event and every message the bot would have sent, with seconds since the request. Nothing is sent to Telegram.
 import { drive, handleCoderSections, later, resumeOrphan, saveState } from "@/lib/coderSections";
 import { claimOrphanTasks } from "@/lib/coderTasks";
+import { saveConnection } from "@/lib/coderAuth";
 import { fakeBot } from "../coderFakes";
 import { pgDb } from "../pgDb";
 
@@ -40,6 +41,8 @@ test("a repository-reading task finishes, with a timeline", async () => {
   }) as any;
   // PROBE_MODEL picks the engine model (coder = Nova, lfm25 = LFM2.5); each runs only on its own Studios
   if (process.env.PROBE_MODEL) await saveState(4242, { mode: "coder", think: false, messages: [], notes: "", inbox: [], run: null, model: process.env.PROBE_MODEL } as any, db);
+  // PROBE_GH_TOKEN: connect GitHub for this throw-away owner chat like the real owner has it (the repository secret CODER_GITHUB_TOKEN, else the workflow's read-only token); never printed
+  if (process.env.PROBE_GH_TOKEN) await saveConnection(4242, "github", process.env.PROBE_GH_TOKEN, "probe", db);
   const t0 = Date.now();
   let seen = 0;
   await handleCoderSections(bot, botRow, { message: { chat: { id: 4242 }, from: { id: 4242, first_name: "Owner" }, text: TEXT } }, db);
