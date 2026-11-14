@@ -30,7 +30,7 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: PART="$([ "$P" = lite ] && echo lite)" python3 nova_bench.py "${{ github.event.inputs.studio || '4' }}"
       - if: ${{ env.P == 'all' || env.P == 'nova' || env.P == 'lite' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with: { name: nova-bench, path: scripts/modes-bench/nova_*.json }
   sham:
     runs-on: ubuntu-latest
@@ -46,7 +46,7 @@ jobs:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
         run: PART="$([ "$P" = lite ] && echo bare)" python3 sham_bench.py
       - if: ${{ env.P == 'all' || env.P == 'sham' || env.P == 'lite' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with: { name: sham-bench, path: scripts/modes-bench/sham_v2*.json }
   image:
     runs-on: ubuntu-latest
@@ -57,12 +57,12 @@ jobs:
           P="${{ github.event.inputs.part }}"; [ -z "$P" ] && P="$(tr -d '[:space:]' < scripts/modes-bench/part.txt)"
           echo "P=$P" >> "$GITHUB_ENV"
       - if: ${{ env.P == 'all' || env.P == 'image' }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - if: ${{ env.P == 'all' || env.P == 'image' }}
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install diffusers transformers accelerate huggingface_hub pillow safetensors
       - if: ${{ env.P == 'all' || env.P == 'image' }}
         run: python scripts/modes-bench/image_bench.py img_out
       - if: ${{ env.P == 'all' || env.P == 'image' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with: { name: image-bench, path: img_out }

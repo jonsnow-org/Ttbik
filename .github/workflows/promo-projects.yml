@@ -26,8 +26,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: validate campaigns and generator syntax
@@ -42,8 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: tools (ffmpeg, Arabic fonts, Chromium)
@@ -61,19 +61,19 @@ jobs:
         run: |
           node scripts/promo/cards.mjs --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
           node scripts/promo/cards.mjs --lang en --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: promo-images
           path: promo-cards/*.png
           retention-days: 30
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: promo-videos
           path: promo-out/*.mp4
           retention-days: 30
       - name: generate platform-ready copy packs
         run: node scripts/promo/copy.mjs --out promo-copy ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: promo-copy
           path: promo-copy/*
