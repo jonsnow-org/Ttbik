@@ -126,6 +126,7 @@ describe("researchQuestion: when a message is a plain research request", () => {
     expect(researchQuestion("مرحبا كيف حالك")).toBe("");
     expect(researchQuestion("اكتب لي دالة بايثون تبحث عن أكبر رقم في قائمة مع شرح مفصل")).toBe("");
     expect(researchQuestion("ابحث في مستودعي عن الملفات الكبيرة وأخبرني بأسمائها")).toBe("");
+    expect(researchQuestion("اذهب للمستودع الخاص بي على جيتهوب وابحث عن هذا البوت @Cerator00bot وقم بتطوير البوت وتطبيقه المصغر وادمج")).toBe("");
     expect(researchQuestion("كل يوم الساعة 9 ابحث عن أخبار الذكاء الاصطناعي ولخصها لي")).toBe("");
     expect(researchQuestion("ابحث عن الخطأ في github.com/acme/site وأصلحه وادفع التعديل")).toBe("");
     expect(researchQuestion("x".repeat(2000))).toBe("");
