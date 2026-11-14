@@ -36,3 +36,9 @@ Templates reviewed · defects found/fixed (PRs) · tests added · SQL pending (b
 
 ## The site bot (بوت الموقع) is NOT a builder bot
 `@Admen10bot` is only the site bot: webhook `src/app/api/ads/telegram/route.ts` (site ads + Stars, balance/wallet/buy, the site Mini App, services, remittance office, activation-code sales). It has no `Bot`-table row, no template and no owner/AD_BOT role. Token: env `SITE_BOT_TOKEN`, else the `site_bot` table (key `main`, RLS on); `src/lib/siteAds.ts` (`findSiteBot`, `siteBotUsername`, `bindSiteBot` — the hourly hosting-gate-sync re-binds its webhook; owner-only manual re-bind: `POST /api/ads/bind-site-bot`). The builder can no longer create `SITE_BANNER_ADMIN` bots.
+
+## Bot API 10.4 (2026-11-09): widgets and ephemeral replies — where they live
+Chosen per section, only where the bot already owns the feature: **STREAK_BOT (@Slaselbot)** hosts the daily chains, the group khatma and the group contests, so both features are there and nowhere else (no PRAYER_BOT is deployed; Athar and the coin bots are untouched).
+- `src/lib/telegramRaw.ts` calls methods grammy does not type yet; `src/lib/telegramEphemeral.ts` (`replyEphemeral`: sendMessage with `ephemeral_message_parameters.callback_query_id`, 15 s, falls back to an alert popup).
+- Group contests: a «🎯 نقاطي (سرّي)» button on every question (`cm|<round>`), answered ephemerally (`handleMine` in `src/lib/contests/contests.ts`).
+- «🧩 لوحة سلاسلي» (`src/lib/streakWidget.ts`): a widget in the private chat with a check-in button per chain; the tap arrives as a `widget_query` update (dispatched in `handleStreakBotUpdate`), runs `checkInCore`, answers with the new state (`answerWidgetQuery`, within 15 s) and refreshes `chat_data`. Production limits: private chats only, html ≤ 32768 B (≤ 4096 compressed), no network in the widget. If a webhook was set with an explicit `allowed_updates` list, `widget_query` must be in it.

@@ -30,6 +30,13 @@ export function parseAnswer(data: string): { roundId: string; step: number; choi
   const m = /^cq\|(\d{1,12})\|(\d)\|([0-3])$/.exec(String(data || ""));
   return m ? { roundId: m[1], step: Number(m[2]), choice: Number(m[3]) } : null;
 }
+/** callback_data cm|<roundId>: «🎯 نقاطي», answered with an ephemeral reply only the presser sees. */
+export const parseMine = (data: string) => /^cm\|(\d{1,12})$/.exec(String(data || ""))?.[1] || null;
+export const MINE_BUTTON = "🎯 نقاطي (سرّي)";
+export function minePointsText(points: number, answered: number, right: number, step: number): string {
+  if (!answered) return "لم تجب على أي سؤال في هذه الجولة بعد.";
+  return `🎯 حسابك في هذه الجولة (يراه أنت فقط)\nالنقاط: ${points}\nأجبت على ${answered} من ${Math.min(step + 1, ROUND_SIZE)} · الصحيح حتى الآن: ${right}`;
+}
 export const parseNext = (data: string) => /^cn\|(\d{1,12})$/.exec(String(data || ""))?.[1] || null;
 
 export function scoreFor(correct: boolean, firstCorrect: boolean): number {
@@ -46,6 +53,7 @@ export function questionKeyboard(roundId: string, step: number, qIndex: number) 
   return [
     [{ text: q.o[0], callback_data: `cq|${roundId}|${step}|0` }, { text: q.o[1], callback_data: `cq|${roundId}|${step}|1` }],
     [{ text: q.o[2], callback_data: `cq|${roundId}|${step}|2` }, { text: q.o[3], callback_data: `cq|${roundId}|${step}|3` }],
+    [{ text: MINE_BUTTON, callback_data: `cm|${roundId}` }],
     [{ text: step + 1 < ROUND_SIZE ? "▶️ السؤال التالي (للمشرف)" : "🏁 النتيجة (للمشرف)", callback_data: `cn|${roundId}` }],
   ];
 }
