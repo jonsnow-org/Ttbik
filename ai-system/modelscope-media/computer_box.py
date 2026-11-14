@@ -429,8 +429,43 @@ def welcome(session: str) -> str:
     return PLAYBOOK
 
 
+# MEASURED 2026-11-14 (server_ms + setup_ms of the live probe): `ensure_home` cost 8-13 s on EVERY call (quota 0 ms, egress 0 ms after the quota cache). It ran
+# mkdir x4, chmod x2 and a full os.walk with a stat per entry over the session folder on the persistent mount (~2 ms per entry), although it says "cheap after the
+# first call". A session's files stay owned by its own user (commands run as that user; server-side writes chown what they write), so the repair walk is done once per
+# session per process (again every HOME_RECHECK seconds), time-boxed, and an unfinished walk continues in the background.
+HOME_RECHECK = 1800.0
+HOME_BUDGET = 2.0
+_HOME_READY: dict[str, float] = {}
+
+
+def _fix_owner(home: Path, uid: int, deadline: float | None = None) -> bool:
+    """Gives everything under home to the session's user. True when the walk finished (False: the deadline came first)."""
+    try:
+        for base, dirs, files in os.walk(home):
+            if deadline is not None and time.monotonic() > deadline:
+                return False
+            if os.stat(base).st_uid != uid:
+                os.chown(base, uid, uid)
+            for name in dirs + files:
+                p = os.path.join(base, name)
+                if os.lstat(p).st_uid != uid:
+                    os.chown(p, uid, uid, follow_symlinks=False)
+            if base == str(home):
+                os.chmod(home, 0o700)
+            if len(files) > 5000:
+                break
+    except OSError:
+        pass
+    return True
+
+
 def ensure_home(session: str) -> Path:
     home = session_home(session)
+    key = str(home)
+    with _LOCK:
+        last = _HOME_READY.get(key)
+    if last is not None and time.time() - last < HOME_RECHECK and home.is_dir():
+        return home
     for sub in ("", ".tmp", ".jobs", "repos"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     if is_root():
@@ -438,19 +473,12 @@ def ensure_home(session: str) -> Path:
         try:
             os.chmod(ROOT, 0o711)
             os.chmod(session_root(session), 0o711)         # others may traverse to their own home, nothing more
-            for base, dirs, files in os.walk(home):        # only what is not already ours (cheap after the first call)
-                if os.stat(base).st_uid != uid:
-                    os.chown(base, uid, uid)
-                for name in dirs + files:
-                    p = os.path.join(base, name)
-                    if os.lstat(p).st_uid != uid:
-                        os.chown(p, uid, uid, follow_symlinks=False)
-                if base == str(home):
-                    os.chmod(home, 0o700)
-                if len(files) > 5000:
-                    break
         except OSError:
             pass
+        if not _fix_owner(home, uid, time.monotonic() + HOME_BUDGET):
+            threading.Thread(target=_fix_owner, args=(home, uid), daemon=True, name="home-owner").start()
+    with _LOCK:
+        _HOME_READY[key] = time.time()
     return home
 
 
