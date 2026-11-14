@@ -171,6 +171,51 @@ def child_cycle() -> None:
     print(RESULT_MARK + json.dumps(_short(res)), flush=True)
 
 
+LEFTOVER_FILES = ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt")
+
+
+def child_publish_leftover() -> None:
+    """Publish the previous cycle's best weights when they never reached the merge (2026-11-14: the cn trainer finished a cycle 11% better than its start point, but
+    uploads to Kaggle from cn failed, so no dataset `sham-crawl-ms1` existed). The private ModelScope model repo is the door that works from here. A marker file
+    remembers what was published, so a restart does not push the same file twice."""
+    ck = WORK / "checkpoints"
+    final = ck / "final.pt"
+    marker = ck / ".published_to_modelscope"
+    if not final.exists():
+        print("leftover: no previous weights on this Studio's disk", flush=True)
+        return
+    if marker.exists() and marker.stat().st_mtime >= final.stat().st_mtime:
+        print("leftover: the previous weights were already published", flush=True)
+        return
+    sys.path.insert(0, str(SHAM))
+    import shutil
+
+    import sham_inputs
+    snap = WORK / "leftover_publish"
+    shutil.rmtree(snap, ignore_errors=True)
+    snap.mkdir(parents=True)
+    for name in LEFTOVER_FILES:
+        if (ck / name).exists():
+            try:
+                os.link(ck / name, snap / name)
+            except OSError:
+                shutil.copy2(ck / name, snap / name)
+    slug = "".join(c if c.isalnum() else "-" for c in settings()["name"].lower()).strip("-")
+    got = sham_inputs.publish_modelscope(snap, f"sham-crawl-{slug}", "leftover of the previous cycle")
+    shutil.rmtree(snap, ignore_errors=True)
+    if got:
+        marker.write_text(got, encoding="utf-8")
+    print(f"leftover: {'published as ' + got if got else 'NOT published (kept on disk)'}", flush=True)
+
+
+def publish_leftover_subprocess() -> None:
+    import subprocess
+    try:
+        subprocess.run([sys.executable, "-u", str(Path(__file__).resolve()), "--publish-leftover"], timeout=40 * 60, check=False)
+    except Exception as exc:  # noqa: BLE001 - never stop the trainer for this
+        print(f"leftover publish failed: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+
+
 def run_cycle_subprocess(cfg: dict) -> dict:
     """Run child_cycle in a subprocess; copy its printed lines into the status tail; kill it when it overruns the wall-clock budget (hours + 40 min)."""
     import subprocess
@@ -227,6 +272,9 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
         return
     if not isinstance(sys.stdout, _Tee):
         sys.stdout = _Tee(sys.stdout)
+    if not in_process:
+        _set(phase="publishing-leftover")
+        publish_leftover_subprocess()
     cycle = 0
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
@@ -234,6 +282,11 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
         try:
             res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
             _set(phase="between-cycles", last=_short(res))
+            if not in_process and isinstance(res, dict) and res.get("published"):
+                try:                                       # the cycle itself published its best weights: a restart must not push them again
+                    (WORK / "checkpoints" / ".published_to_modelscope").write_text(str(res["published"])[:80], encoding="utf-8")
+                except OSError:
+                    pass
         except Exception as exc:   # one failed cycle never stops the next
             _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}")
             traceback.print_exc()
@@ -261,6 +314,9 @@ if __name__ == "__main__":
     if "--cycle" in sys.argv:
         child_cycle()
         sys.exit(0)
+    if "--publish-leftover" in sys.argv:
+        child_publish_leftover()
+        sys.exit(0)
     if "--selftest" in sys.argv:
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
@@ -283,6 +339,23 @@ if __name__ == "__main__":
         t.write("hello\nkaggle token abc\nsecond line\n" + "x" * 500 + "\n")
         assert _TAIL[-3:] == ["hello", "second line", "x" * 220] and "abc" not in "".join(_TAIL), _TAIL
         assert json.loads(status_json())["tail"][-1] == "x" * 220
+        import tempfile
+        import types
+        WORK = Path(tempfile.mkdtemp())
+        (WORK / "checkpoints").mkdir()
+        sent = []
+        fake_inputs = types.ModuleType("sham_inputs")
+        fake_inputs.publish_modelscope = lambda folder, name, message: (sent.append((name, sorted(p.name for p in Path(folder).iterdir()))), "modelscope:acct/" + name)[1]
+        sys.modules["sham_inputs"] = fake_inputs
+        child_publish_leftover()                                         # no weights yet: nothing is sent
+        assert sent == [], sent
+        (WORK / "checkpoints" / "final.pt").write_bytes(b"w")
+        (WORK / "checkpoints" / "sham_small_tokenizer.json").write_text("{}")
+        (WORK / "checkpoints" / "crawl_progress.json").write_text("{}")
+        child_publish_leftover()
+        assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
+        child_publish_leftover()                                         # already published: not twice
+        assert len(sent) == 1, sent
         print("modelscope-trainer app self-test OK")
         sys.exit(0)
     main()
