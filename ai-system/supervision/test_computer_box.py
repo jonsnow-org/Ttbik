@@ -775,7 +775,7 @@ class PrivateRepo(Box):
 
 
 class OwnerCredentials(Box):
-    TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+    TOKEN = "".join(["gh", "p_", "abcdefghij" * 4])      # built at run time: a fake value, never a literal that looks like a key
 
     def test_token_reaches_the_command_for_that_call_only_and_is_hidden_in_every_reply(self):
         got = self.run_box(session="own1", action="run", command='echo "T=$GH_TOKEN"; echo "G=$GIT_CONFIG_VALUE_0"', env={"GH_TOKEN": self.TOKEN, "PATH": "/evil"})
