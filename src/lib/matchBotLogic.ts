@@ -1,4 +1,5 @@
 import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
+import { ownerGate } from "@/lib/ownerPanel";
 import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -2746,7 +2747,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
-  if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
+  let ownerAdminView = !!SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID;
+  if (ownerAdminView) {
+    // owner panel switch (src/lib/ownerPanel.ts): «👤 لوحة المستخدم» / «🛠 لوحة الإدارة»; in the user view he runs the regular flow below
+    const gate = await ownerGate(botRow.id, String(msg.text || "").trim(), (t) => handleMarriageBotUpdate(bot, botRow, { ...update, message: { ...msg, text: t } }));
+    if (gate === "handled") return;
+    ownerAdminView = gate === "admin";
+  }
+  if (ownerAdminView) {
     const text = String(msg.text || "").trim();
     if (!text) return;
     // The admin gets a MatchUser row too, purely to persist their own
