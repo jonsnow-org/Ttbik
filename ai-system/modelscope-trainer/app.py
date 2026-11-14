@@ -208,10 +208,10 @@ def child_publish_leftover() -> None:
     print(f"leftover: {'published as ' + got if got else 'NOT published (kept on disk)'}", flush=True)
 
 
-def _clean_lines(text: str, limit: int = 1500) -> str:
+def _clean_lines(text: str, limit: int = 2600) -> str:
     """The last lines of a child's output, without any line that mentions a token or a key (the status page is public to anyone who can call the Studio)."""
     keep = [ln for ln in str(text or "").splitlines() if ln.strip() and not any(w in ln.lower() for w in ("token", "key", "secret", "password"))]
-    return "\n".join(keep[-15:])[-limit:]
+    return "\n".join(keep[-20:])[-limit:]
 
 
 def publish_leftover_subprocess() -> str:
@@ -224,7 +224,7 @@ def publish_leftover_subprocess() -> str:
             out = f"exit {r.returncode}\n" + out
     except Exception as exc:  # noqa: BLE001 - never stop the trainer for this
         out = f"leftover publish failed: {type(exc).__name__}: {str(exc)[:120]}"
-    _set(leftover=out[-600:])
+    _set(leftover=out[-2000:])
     print("leftover publish:\n" + out, flush=True)
     return out
 

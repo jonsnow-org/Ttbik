@@ -383,14 +383,31 @@ def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str |
                         shutil.copy2(f, stage / f.name)
             (stage / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
             model_id = f"{_ms_owner()}/{name}"
-            api.push_model(model_id=model_id, model_dir=str(stage), visibility=Visibility.PRIVATE, license="apache-2.0",
-                           chinese_name=name, commit_message=str(message)[:200])
+            # 2026-11-14: from the cn trainer Studio the create call answered "400 Bad Request" (body cut off by the log). The variants below differ in what the hub validates when the repo
+            # is CREATED (license spelling, display name): the scripts that create repos elsewhere in this project use "Apache License 2.0" + a short display name.
+            errors: list[str] = []
+            done = False
+            for variant, (license_name, display) in enumerate((("apache-2.0", name), ("Apache License 2.0", "Sham"))):
+                try:
+                    if variant:
+                        try:
+                            api.create_model(model_id, visibility=Visibility.PRIVATE, license=license_name, chinese_name=display)
+                        except Exception as exc2:                         # noqa: BLE001 - it may exist already; the push below decides
+                            errors.append(f"create_model: {type(exc2).__name__}: {str(exc2)[:260]}")
+                    api.push_model(model_id=model_id, model_dir=str(stage), visibility=Visibility.PRIVATE, license=license_name,
+                                   chinese_name=display, commit_message=str(message)[:200])
+                    done = True
+                    break
+                except Exception as exc:                                  # noqa: BLE001
+                    errors.append(f"push_model[{license_name}]: {type(exc).__name__}: {str(exc)[:360]}")
+            if not done:
+                raise RuntimeError(" || ".join(errors))
         finally:
             shutil.rmtree(stage, ignore_errors=True)
         print(f"نُشرت نسخة إلى ModelScope: {model_id} — الدمج يلتقطها تلقائياً.")
         return f"modelscope:{model_id}"
     except Exception as exc:                                      # noqa: BLE001
-        print(f"تنبيه: فشل النشر إلى ModelScope ({type(exc).__name__}: {str(exc)[:160]}) — الملفات آمنة على قرص الاستوديو.")
+        print(f"تنبيه: فشل النشر إلى ModelScope ({type(exc).__name__}: {str(exc)[:900]}) — الملفات آمنة على قرص الاستوديو.")
         return None
 
 
