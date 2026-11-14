@@ -96,14 +96,22 @@ function backLabel(): string {
 function isBack(text: string): boolean {
   return text === backLabel();
 }
-function mainMenu(): Keyboard {
-  // Four groups, two buttons a row: today's board and totals, the four chains, the group features, then app and info.
+const BOARD_BUTTON = "🧩 لوحة سلاسلي";
+const ALL_BUTTON = "📊 كل سلاسلي";
+const INFO_BUTTON = "ℹ️ معلومات";
+const USER_PANEL_BUTTON = "👤 لوحة المستخدم";
+const ADMIN_PANEL_BUTTON = "🛠 لوحة الإدارة";
+const isOwnerId = (id: string) => !!SUPER_ADMIN_ID && id === SUPER_ADMIN_ID;
+
+/** The user panel. Groups of two per row: board and totals, the four chains, the group features, app and info. The owner gets one extra row back to the admin panel. */
+export function mainMenu(owner = false): Keyboard {
   const kb = new Keyboard();
-  kb.text("🧩 لوحة سلاسلي").text("📊 كل سلاسلي").row();
+  kb.text(BOARD_BUTTON).text(ALL_BUTTON).row();
   STREAK_CATEGORIES.forEach((cat, i) => { kb.text(cat.menuLabel); if (i % 2 === 1) kb.row(); });
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
   kb.text(CONTEST_BUTTON).text(APP_BUTTON).row();
-  kb.text("ℹ️ معلومات");
+  kb.text(INFO_BUTTON);
+  if (owner) kb.text(ADMIN_PANEL_BUTTON);
   return kb.resized();
 }
 function categoryMenu(): Keyboard {
@@ -112,13 +120,25 @@ function categoryMenu(): Keyboard {
     .text("📤 مشاركة").text(backLabel())
     .resized();
 }
-function adminMenu(): Keyboard {
+/** The admin panel (owner only): management on top, then shortcuts into the user panel and the Mini App so the owner can see exactly what users see. */
+export function adminMenu(): Keyboard {
   return new Keyboard()
     .text("📊 الإحصائيات").text("🔎 بحث عن مستخدم").row()
-    .text("📡 قناة الاشتراك الإجباري").text("📢 بث جماعي").row()
-    .text(MENU_BUTTON).text(MEMORIAL_BUTTON).row()
+    .text("📢 بث جماعي").text("📡 قناة الاشتراك الإجباري").row()
+    .text(USER_PANEL_BUTTON).text(APP_BUTTON).row()
     .text(SERVICES_BUTTON_ADMIN)
     .resized();
+}
+
+/** Texts of the user panel: the owner's admin panel hands them to the regular flow, so every user feature can be tried from the owner's account. */
+export function isUserFlowText(text: string, pending: PendingAction | null): boolean {
+  return (
+    isServicesRequest(text) || isBack(text) ||
+    [APP_BUTTON, "/app", MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, "/khatma", "/contest", BOARD_BUTTON, "/widget", ALL_BUTTON, INFO_BUTTON, "✅ سجلت اليوم", "📤 مشاركة"].includes(text) ||
+    !!findCategoryByLabel(text) ||
+    /^\/start (app|k_|khatma|contest|prize)/.test(text) ||
+    pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication" || (pending as { mode?: string } | null)?.mode === "category"
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -208,8 +228,18 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const text = String(msg.text || "").trim();
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
-  // The owner can try the khatma flows like any user.
-  if (isServicesRequest(text) || text === APP_BUTTON || text === "/app" || /^\/start app$/.test(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || text === "🧩 لوحة سلاسلي" || text === "/widget" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  // Everything of the user panel goes to the regular flow (the owner can try every feature like any user).
+  if (isUserFlowText(text, pending)) return false;
+  if (text === USER_PANEL_BUTTON) {
+    await setPending(tgUserId, null);
+    await bot.api.sendMessage(chatId, startGuide("STREAK"), { reply_markup: mainMenu(true) });
+    return true;
+  }
+  if (text === "/admin" || text === ADMIN_PANEL_BUTTON) {
+    await setPending(tgUserId, null);
+    await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت السلاسل اليومية.", { reply_markup: adminMenu() });
+    return true;
+  }
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -364,7 +394,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
 
   if (isBack(text)) {
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu(isOwnerId(tgUserId)) });
     return;
   }
 
@@ -384,7 +414,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     await bot.api.sendMessage(
       chatId,
       startGuide("STREAK"),
-      { reply_markup: mainMenu() }
+      { reply_markup: mainMenu(isOwnerId(tgUserId)) }
     );
     return;
   }
@@ -436,7 +466,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
-  if (text === "🧩 لوحة سلاسلي") {
+  if (text === BOARD_BUTTON) {
     await setPending(tgUserId, null);
     const { sendBoard } = await import("@/lib/streakWidget");
     await sendBoard(bot, chatId, tgUserId);
@@ -455,11 +485,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
-  if (text === "📊 كل سلاسلي") {
+  if (text === ALL_BUTTON) {
     await setPending(tgUserId, null);
     const entries = await prisma.streakEntry.findMany({ where: { userId: tgUserId } });
     if (entries.length === 0) {
-      await bot.api.sendMessage(chatId, "😔 لم تبدأ أي سلسلة بعد. اختر تصنيفاً من القائمة للبدء.", { reply_markup: mainMenu() });
+      await bot.api.sendMessage(chatId, "😔 لم تبدأ أي سلسلة بعد. اختر تصنيفاً من القائمة للبدء.", { reply_markup: mainMenu(isOwnerId(tgUserId)) });
       return;
     }
     const lines = entries
@@ -468,11 +498,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
         return `${cat?.emoji || ""} ${cat?.title || e.category}: 🔥 ${e.currentStreak} يوم (أطول: ${e.longestStreak})`;
       })
       .join("\n");
-    await bot.api.sendMessage(chatId, `📊 كل سلاسلك:\n\n${lines}`, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, `📊 كل سلاسلك:\n\n${lines}`, { reply_markup: mainMenu(isOwnerId(tgUserId)) });
     return;
   }
 
-  if (text === "ℹ️ معلومات") {
+  if (text === INFO_BUTTON) {
     const me = await bot.api.getMe();
     const info =
       `ℹ️ بوت السلاسل اليومية\n\n` +
@@ -489,9 +519,9 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
       `📤 المشاركة:\n` +
       `• شارك بطاقة سلسلتك مع أصدقائك لتحفيزهم!\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
-    await bot.api.sendMessage(chatId, info, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, info, { reply_markup: mainMenu(isOwnerId(tgUserId)) });
     return;
   }
 
-  await bot.api.sendMessage(chatId, "لم أفهم طلبك، اختر من القائمة:", { reply_markup: mainMenu() });
+  await bot.api.sendMessage(chatId, "لم أفهم طلبك، اختر من القائمة:", { reply_markup: mainMenu(isOwnerId(tgUserId)) });
 }
