@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-14 10:43 UTC",
+  "generated_at": "2026-11-14 18:21 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -122,9 +122,9 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "queued",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-11-13",
+      "last_run": "2026-11-14",
       "gpu": true,
       "failure": ""
     },
@@ -140,7 +140,7 @@
     {
       "alias": "دفتر المحادثة والمرمزات 1",
       "track": "chat_image_in_one",
-      "status": "queued",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-11-14",
       "gpu": true,
@@ -293,7 +293,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4238.3,
+      "size_mb": 4237.6,
       "last_updated": "2026-11-14",
       "progress": {},
       "has_key_files": true
