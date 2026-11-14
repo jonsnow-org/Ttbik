@@ -1,4 +1,5 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
+import { ownerGate } from "@/lib/ownerPanel";
 import { SERVICES_BUTTON, isServicesRequest, sendServices } from "@/lib/servicesInTelegram";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
@@ -1301,7 +1302,14 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
-  if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
+  let ownerAdminView = !!SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID;
+  if (ownerAdminView) {
+    // owner panel switch (src/lib/ownerPanel.ts): «👤 لوحة المستخدم» / «🛠 لوحة الإدارة»; in the user view he runs the regular flow below
+    const gate = await ownerGate(botRow.id, String(msg.text || "").trim(), (t) => handleJobsBotUpdate(bot, botRow, { ...update, message: { ...msg, text: t } }));
+    if (gate === "handled") return;
+    ownerAdminView = gate === "admin";
+  }
+  if (ownerAdminView) {
     const text = String(msg.text || "").trim();
     const adminUser = await ensureJobsUser(botRow.id, tgUserId);
     // The Mini App asks every user, the owner included, to verify the phone (its «مشاركة رقم الهاتف» button sends this contact message). The admin
