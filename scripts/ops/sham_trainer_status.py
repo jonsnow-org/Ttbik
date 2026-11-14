@@ -39,11 +39,12 @@ def main() -> int:
         try:
             st = call(repo, token)
             keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device", "leftover") if k in st}
-            print(f"{repo}: {json.dumps(keep or st, ensure_ascii=False)[:3500]}")
-            tail = [l for l in (st.get("tail") or []) if "🧠" not in l and "🧵" not in l]      # the memory watch prints every minute and would push the training lines out of the window
+            noise = ("MB/s", "it/s", "Downloading [", "Processing ", "%|", "\x1b[A")                 # download progress bars filled the window and hid everything else (2026-11-14)
+            lines = [l for l in (st.get("tail") or []) if "🧠" not in l and "🧵" not in l and not any(w in l for w in noise)]
             mem = [l for l in (st.get("tail") or []) if "🧠" in l][-1:]
-            for line in tail[-30:] + mem:
+            for line in lines[-20:] + mem:
                 print(f"{repo} | {line}")
+            print(f"{repo}: {json.dumps(keep or st, ensure_ascii=False)[:3500]}")                # the summary LAST: a short log tail always contains it
         except Exception as exc:  # noqa: BLE001
             print(f"{repo}: unreachable {type(exc).__name__}: {str(exc)[:120]}")
     return 0
