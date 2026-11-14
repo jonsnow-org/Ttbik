@@ -65,3 +65,18 @@ test("mail control: blips are silent, 6h outage mails once, recovery mails once"
   assert.match(notifyDecision("<!-- status:fail -->" + c.marker, "ok", t0 + 9 * 3600e3).comment, /Recovered/);
   assert.equal(notifyDecision("<!-- status:ok -->", "warn", t0).comment, null);   // warnings never mail
 });
+
+import { renderAll } from "./run.mjs";
+test("the ONE monitoring report: every section in one body, overall status first, no per-event noise", () => {
+  const good = evaluate({ site: [{ label: "p", status: 200, ok: true }] }, NOW);
+  const bad = evaluate({ site: [{ label: "p", status: 500, ok: false }] }, NOW);
+  const all = renderAll([{ section: "athar", checks: good }, { section: "promo", checks: bad }], "2026-11-14");
+  assert.match(all, /<!-- status:fail -->/);
+  assert.match(all, /# Monitoring: all systems/);
+  assert.match(all, /❌ \*\*promo\*\*/);
+  assert.match(all, /✅ \*\*athar\*\*: all good/);
+  assert.match(renderAll([{ section: "athar", checks: good }], "d"), /<!-- status:ok -->/);
+  for (const k of ["zenobia", "palmyra-launch", "telegram-bots", "site-content", "athar", "promo"]) assert.ok(SECTIONS[k]);
+  // the monitor never lists itself under a section that could wake it for nothing, and the removed bots are gone from the repair list
+  assert.ok(!JSON.stringify(SECTIONS).includes("error-triage"));
+});

@@ -8,7 +8,7 @@ const authorized = (req: NextRequest) => {
   return !!process.env.CRON_SECRET && (a === `Bearer ${process.env.CRON_SECRET}`);
 };
 
-/** GET ?status=open: the grouped errors (read by .github/workflows/error-triage.yml). POST {fp, status: fixed|ignored|open, note}: mark one. */
+/** GET ?status=open: the grouped errors (read by .github/workflows/monitor.yml). POST {fp, status: fixed|ignored|open, note}: mark one. */
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   return NextResponse.json({ ok: true, errors: await listErrors(req.nextUrl.searchParams.get("status") || "open") });

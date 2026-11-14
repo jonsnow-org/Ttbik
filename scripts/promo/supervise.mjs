@@ -11,10 +11,9 @@ export const WORKFLOWS = [
   ["coins-channel-post.yml", "Coins channel posts", 30],   // 3 posts a day, GitHub throttles crons: 16 h gave false alarms
   ["promo-remotion.yml", "Promo videos (Remotion)", 100],
   ["promo-projects.yml", "Project videos", 192],
-  ["error-triage.yml", "Error triage", 12],   // hourly cron, GitHub delays it by hours
   ["referral-sync.yml", "Invite reward sync", 12],
 ];
-export const RERUN_OK = new Set(["promo-projects.yml", "error-triage.yml"]);   // idempotent: re-rendering / re-reading never posts anything
+export const RERUN_OK = new Set(["promo-projects.yml"]);   // idempotent: re-rendering / re-reading never posts anything
 const ARABIC = /[؀-ۿ]/;
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
 
