@@ -90,3 +90,23 @@ describe("queue priority is sent to the Studio", () => {
     expect("priority" in b[1]).toBe(false);
   });
 });
+
+describe("a conversation stays on the Studio that holds its prompt cache", () => {
+  beforeEach(() => { process.env.OPEN_CODER_STUDIO_URL = "https://a.example"; process.env.OPEN_CODER_STUDIO_URLS = "https://b.example"; });
+  afterEach(() => { delete process.env.CODER_STUDIO_STICKY_QUEUE; });
+  const home = async (key: string) => (await import("@/lib/openCoderStudio")).homeStudio(key, ["https://a.example", "https://b.example"]);
+  it("two jobs ahead on its own Studio still beat a cold read on an idle one", async () => {
+    const key = "sticky-conv-1"; const mine = await home(key); const other = mine === "https://a.example" ? "https://b.example" : "https://a.example";
+    const hits: string[] = [];
+    studios({ [mine]: { phase: "ready", queue: 2 }, [other]: { phase: "ready", queue: 0 } }, hits);
+    await coderChat([{ role: "user", content: "hi" }], { waitS: 1, affinity: key });
+    expect(chats(hits)).toEqual([mine]);
+  });
+  it("too many jobs ahead (or the strict setting) moves it to the idle Studio", async () => {
+    const key = "sticky-conv-2"; const mine = await home(key); const other = mine === "https://a.example" ? "https://b.example" : "https://a.example";
+    const hits: string[] = [];
+    studios({ [mine]: { phase: "ready", queue: 5 }, [other]: { phase: "ready", queue: 0 } }, hits);
+    await coderChat([{ role: "user", content: "hi" }], { waitS: 1, affinity: key });
+    expect(chats(hits)).toEqual([other]);
+  });
+});
