@@ -98,6 +98,7 @@ export async function handleHubBotUpdate(bot: TelegramBot, botRow: BotRow, updat
       if (text === "📱 تطبيقاتي") {
         if (!mine.length) return send(bot, chatId, "لا تطبيقات بعد. اضغط «🧱 تطبيق جديد».", template);
         const listText = mine.map((app) => "• " + app.config.title + " — " + site() + "/apps/" + app.slug + " (" + app.views + " مشاهدة)").join("\n");
+        if (msg.chat.type !== "private") return send(bot, chatId, listText, template);
         const inlineKeyboard = mine.map((app) => [{
           text: "📱 فتح " + app.config.title,
           web_app: { url: site() + "/apps/" + app.slug },
