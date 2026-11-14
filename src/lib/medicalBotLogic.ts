@@ -1,4 +1,5 @@
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { ownerGate } from "@/lib/ownerPanel";
 import { generateMedicalActivationCode, redeemMedicalActivationCode } from "@/lib/medicalActivation";
 import { startGuide } from "@/lib/botStartGuide";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
@@ -337,8 +338,13 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
 
   // ---- SUPER_ADMIN gate (checked first, entirely separate menu tree) ----
   if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
-    await handleAdminMessage(bot, botRow, chatId, tgUserId, msg, text);
-    return;
+    // owner panel switch (src/lib/ownerPanel.ts): in the user view he runs the regular flow below
+    const gate = await ownerGate(botRow.id, text, (t) => handleMedicalBotUpdate(bot, botRow, { ...update, message: { ...msg, text: t } }));
+    if (gate === "handled") return;
+    if (gate === "admin") {
+      await handleAdminMessage(bot, botRow, chatId, tgUserId, msg, text);
+      return;
+    }
   }
 
   const user = await ensureMedUser(botRow.id, tgUserId);
