@@ -790,6 +790,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
+      if (mapped && ctx.tier === "owner" && ctx.githubToken) mapped.env = { GH_TOKEN: ctx.githubToken };      // owner order 2026-11-14: full control, git and the GitHub API work from the shell (the hub hides the value in everything it prints)
       if (name === "computer_repo" && mapped && ctx.githubToken) {       // the owner's own (private) repositories: a signed download address, never the token
         const m = /github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(a.url || ""));
         if (m) { const { signedTarball } = await import("@/lib/computerBox"); const u = await signedTarball(ctx.githubToken, `${m[1]}/${m[2]}`, String(a.ref || ""), ctx.fetchImpl); if (u) mapped.signed_url = u; }

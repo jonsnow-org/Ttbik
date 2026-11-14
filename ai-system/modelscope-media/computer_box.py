@@ -279,10 +279,39 @@ def safe_path(session: str, rel: str) -> Path:
     return target
 
 
+_CALL = threading.local()          # per-call extras: the OWNER's GitHub credentials, handed over by the app for the length of one request
+_SECRETS: dict = {}                # session -> values to hide in everything that session's commands print
+
+
+def owner_env(raw) -> dict:
+    """Owner order 2026-11-14 ("full control, no restriction on the token"): the app may hand GH_TOKEN / GITHUB_TOKEN for ONE call; git and gh then work
+    from the shell. Only those two names, token-shaped values; git is wired through an extra header so `git clone/push https://github.com/...` just works."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in ("GH_TOKEN", "GITHUB_TOKEN"):
+        v = str(raw.get(k) or "").strip()
+        if re.fullmatch(r"[A-Za-z0-9_\-]{20,300}", v):
+            out[k] = v
+    if out:
+        tok = next(iter(out.values()))
+        import base64
+        b64 = base64.b64encode(f"x-access-token:{tok}".encode()).decode()
+        out.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}", "GIT_TERMINAL_PROMPT": "0"})
+    return out
+
+
+def mask_secrets(session: str, text: str) -> str:
+    for v in _SECRETS.get(session, ()):
+        if v and v in text:
+            text = text.replace(v, "***")
+    return text
+
+
 def clean_env(session: str) -> dict:
     """Only what a shell needs. The Studio's own environment (tokens, secrets, API keys) never reaches a command."""
     home = str(session_home(session))
-    return {
+    env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": home, "USER": "model", "LOGNAME": "model", "SHELL": "/bin/bash",
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm", "TMPDIR": home + "/.tmp",
@@ -293,6 +322,10 @@ def clean_env(session: str) -> dict:
         "PIP_TRUSTED_HOST": "mirrors.aliyun.com", "PIP_DEFAULT_TIMEOUT": "20",
         "npm_config_registry": os.environ.get("COMPUTER_NPM_REGISTRY", "https://registry.npmmirror.com"),
     }
+    extra = getattr(_CALL, "env", None)
+    if extra:
+        env.update(extra)
+    return env
 
 
 def clip(text: str, limit: int = MAX_OUT) -> str:
@@ -1573,10 +1606,16 @@ def api_box_do(body: str) -> str:
     if not session:
         return json.dumps({"ok": False, "error": "no session"})
     action = str(job.get("action") or "")
+    extra = owner_env(job.get("env"))
+    if extra:
+        _SECRETS[session] = {v for k, v in extra.items() if k in ("GH_TOKEN", "GITHUB_TOKEN")} | {extra["GIT_CONFIG_VALUE_0"].rsplit(" ", 1)[-1]}
+    _CALL.env = extra
     try:
         out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+    finally:
+        _CALL.env = None
     if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
         try:
             tips = welcome(session)                        # once per session, never repeated
@@ -1586,4 +1625,4 @@ def api_box_do(body: str) -> str:
             out["tips"] = tips
     if isinstance(out, dict):
         out["server_ms"] = round((time.monotonic() - started_at) * 1000)     # time INSIDE the handler: the rest of what a client waits is queue/gateway (live probe 2026-11-14: ~10 s per call, unexplained)
-    return json.dumps(out, ensure_ascii=False)
+    return mask_secrets(session, json.dumps(out, ensure_ascii=False))

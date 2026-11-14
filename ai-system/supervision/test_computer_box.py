@@ -774,6 +774,23 @@ class PrivateRepo(Box):
         self.assertFalse(injected["ok"])
 
 
+class OwnerCredentials(Box):
+    TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+
+    def test_token_reaches_the_command_for_that_call_only_and_is_hidden_in_every_reply(self):
+        got = self.run_box(session="own1", action="run", command='echo "T=$GH_TOKEN"; echo "G=$GIT_CONFIG_VALUE_0"', env={"GH_TOKEN": self.TOKEN, "PATH": "/evil"})
+        out = json.dumps(got)
+        self.assertNotIn(self.TOKEN, out)
+        self.assertIn("T=***", got.get("output", ""))
+        self.assertNotIn("basic ey", got.get("output", "").replace("basic ***", ""))   # the encoded header value is hidden too
+        later = self.run_box(session="own1", action="run", command='echo "T=[$GH_TOKEN]"')
+        self.assertIn("T=[]", later.get("output", ""))                                   # not kept in the session's environment
+
+    def test_bad_shaped_values_are_ignored(self):
+        self.assertEqual(cb.owner_env({"GH_TOKEN": "x y; rm -rf /"}), {})
+        self.assertEqual(cb.owner_env({"PATH": "/evil"}), {})
+
+
 if __name__ == "__main__":
     unittest.main()
 

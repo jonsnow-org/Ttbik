@@ -11,7 +11,7 @@ export function boxStudioFor(modelId: string | undefined): string | null {
 }
 
 export type BoxArgs = {
-  action?: string; signed_url?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; signed_url?: string; env?: Record<string, string>; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
 const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
@@ -63,6 +63,7 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.limit !== undefined && Number.isFinite(Number(a.limit))) out.limit = Math.max(1, Math.min(40, Math.trunc(Number(a.limit))));
   if (a.url !== undefined) out.url = String(a.url).slice(0, 300);
   if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
+  if (a.env && typeof a.env === "object" && typeof (a.env as any).GH_TOKEN === "string" && /^[A-Za-z0-9_-]{20,300}$/.test((a.env as any).GH_TOKEN)) out.env = { GH_TOKEN: (a.env as any).GH_TOKEN };
   if (typeof a.signed_url === "string" && /^https:\/\/codeload\.github\.com\//.test(a.signed_url)) out.signed_url = a.signed_url.slice(0, 1500);
   if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);
   if (a.glob !== undefined) out.glob = String(a.glob).slice(0, 100);

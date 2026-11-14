@@ -232,3 +232,11 @@ describe("private repositories reach the computer as a signed address, never the
     expect(_clean({ action: "repo", url: "https://github.com/o/r", signed_url: "https://evil.example/x" })?.signed_url).toBeUndefined();
   });
 });
+
+describe("the owner's GitHub credentials reach the computer only as a token-shaped value for one call", () => {
+  it("keeps a token-shaped GH_TOKEN and drops anything else", () => {
+    expect(_clean({ action: "run", command: "git clone x", env: { GH_TOKEN: "ghp_abcdefghijklmnopqrstuvwxyz0123", PATH: "/evil" } } as any)?.env).toEqual({ GH_TOKEN: "ghp_abcdefghijklmnopqrstuvwxyz0123" });
+    expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "short" } } as any)?.env).toBeUndefined();
+    expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "a b; rm -rf /aaaaaaaaaaaaaaaa" } } as any)?.env).toBeUndefined();
+  });
+});
