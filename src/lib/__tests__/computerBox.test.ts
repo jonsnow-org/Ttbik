@@ -37,7 +37,7 @@ describe("the model's own persistent computer", () => {
   test("fields are bounded before they reach the Studio", () => {
     const clean = cleanBoxArgs({ action: "run", command: "x".repeat(20000), timeout: 9999, cwd: "src" })!;
     expect(String(clean.command).length).toBe(8000);
-    expect(clean.timeout).toBe(90);
+    expect(clean.timeout).toBe(300);
     expect(cleanBoxArgs({ action: "rm" })).toBeNull();
     expect(cleanBoxArgs({ action: "job_log", id: "abcdefgh", tail: 9999 })).toEqual({ action: "job_log", id: "abcdefgh", tail: 400 });
     expect(cleanBoxArgs({ action: "activity", since: -5, limit: 999 })).toEqual({ action: "activity", since: 0, limit: 40 });
@@ -52,6 +52,14 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("read", { ok: true, kind: "folder", path: ".", entries: ["d src", "f a.txt (3 B)"] })).toContain("d src");
     expect(renderBoxReply("job_log", { ok: true, id: "abcd1234", running: false, exit_code: 0, seconds: 3, output: "done" })).toContain("finished with exit 0");
     expect(renderBoxReply("run", { ok: false, error: "disk full" })).toBe("error: disk full");
+  });
+
+  test("a command still running after the foreground wait is shown as a job to poll, not as exit null", () => {
+    const text = renderBoxReply("run", { ok: true, running: true, id: "ab12cd34", job: "ab12cd34", exit_code: null, seconds: 15.2, cwd: ".", output: "installing…", hint: "Read the rest with computer_job action=log id=ab12cd34" });
+    expect(text).toContain("still running in the background as job ab12cd34");
+    expect(text).toContain("installing…");
+    expect(text).toContain("computer_job action=log id=ab12cd34");
+    expect(text).not.toContain("exit null");
   });
 
   test("the playbook rides with the first result and a repository answer says what to do next", () => {

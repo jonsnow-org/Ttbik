@@ -31,7 +31,11 @@ ROOT = Path(os.environ.get("BOX_STORE", "/mnt/workspace/computer"))
 MAX_OUT = 12000                     # characters returned from one command
 HEAD_OUT = 3000
 DEFAULT_TIMEOUT = 60
-MAX_TIMEOUT = 90                    # longer work belongs in a background job: the Studio gateway cuts long answers
+MAX_TIMEOUT = 300                   # total life of one command; only the first FG_SECONDS are waited for in the call (see run_command)
+# MEASURED 2026-11-14 (computer_latency_probe on the live hub): a call whose answer takes longer than ~20 s comes back EMPTY (null) through the Studio gateway
+# (sleep 15 ok, sleep 22/28/40 all failed), whatever the hub's own timeout says. So a command that is still running after FG_SECONDS is not waited for and not
+# killed: it becomes a background job and the call answers at once with `running: true` and the job id.
+FG_SECONDS = max(3, int(os.environ.get("COMPUTER_FG_SECONDS", "15")))
 MAX_READ = 60000
 MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
@@ -598,7 +602,62 @@ def _capacity_reason_locked(session: str) -> str:
     return ""
 
 
-def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT) -> dict:
+def _promote_to_job(session: str, home: Path, proc, chunks: list, reader, command: str, started: float, timeout: int, workdir: Path,
+                    max_output: int) -> dict:
+    """A command that outlived the foreground wait keeps running as a background job (same table as job_start): the call answers now with what it printed so
+    far and the job id; the model reads the rest with computer_job action=log. The process is stopped `timeout` seconds after it started, like before."""
+    job_id = hashlib.sha256(f"{time.time()}{command}".encode()).hexdigest()[:8]
+    jobs_dir = home / ".jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    log = jobs_dir / f"{job_id}.log"
+    done = threading.Event()
+
+    def pump() -> None:
+        index = 0
+        stopped = False
+        try:
+            with open(log, "wb") as fh:
+                while True:
+                    count = len(chunks)
+                    if count > index:
+                        fh.write(b"".join(chunks[index:count]))
+                        fh.flush()
+                        index = count
+                    if proc.poll() is not None and not reader.is_alive():
+                        break
+                    if not stopped and time.time() - started > timeout:
+                        stopped = True
+                        _kill_group(proc.pid)
+                        fh.write(f"\n[stopped after {timeout} s]\n".encode())
+                        fh.flush()
+                    time.sleep(0.2)
+                count = len(chunks)
+                if count > index:
+                    fh.write(b"".join(chunks[index:count]))
+        except Exception:                                      # noqa: BLE001
+            pass
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:                                  # noqa: BLE001
+                pass
+            done.set()
+
+    thread = threading.Thread(target=pump, daemon=True)
+    with _LOCK:
+        _jobs(session)[job_id] = {"proc": proc, "log": log, "command": command[:300], "name": "auto: " + command[:50], "started": started,
+                                  "exit_code": None, "pump": thread, "done": done}
+    thread.start()
+    partial = b"".join(chunks[-64:]).decode("utf-8", "replace")
+    reply = {"ok": True, "running": True, "id": job_id, "job": job_id, "exit_code": None, "output": clip(partial, max_output),
+             "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else ".",
+             "hint": f"still running after {FG_SECONDS} s (an answer that takes longer than ~20 s is lost): it continues in the background and is stopped "
+                     f"{timeout} s after it started. Read the rest with computer_job action=log id={job_id}"}
+    _log_activity(home, command, reply)
+    return reply
+
+
+def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT, promote: bool = True) -> dict:
     command = str(command or "").strip()
     if not command:
         return {"ok": False, "error": "empty command"}
@@ -643,9 +702,13 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
                     pass
             reader = threading.Thread(target=_reader, daemon=True)
             reader.start()
+            foreground = min(timeout, FG_SECONDS)
             try:
-                proc.wait(timeout=timeout)
+                proc.wait(timeout=foreground)
             except subprocess.TimeoutExpired:
+                if promote and timeout > foreground:
+                    # still running after the foreground wait: keep it alive as a background job (answers over ~20 s are lost at the gateway)
+                    return _promote_to_job(session, home, proc, chunks, reader, command, started, timeout, workdir, max_output)
                 timed_out = True
                 _kill_group(proc.pid)
                 try:
@@ -954,6 +1017,8 @@ def job_log(session: str, job_id: str, tail: int = 60) -> dict:
         if not job:
             return {"ok": False, "error": "no such job (a restart of the Studio ends running jobs)"}
         _refresh(job)
+    if job.get("done") is not None and job["exit_code"] is not None:
+        job["done"].wait(timeout=3)                            # a promoted command: let its log writer finish so the last lines are there
     return {"ok": True, "id": job_id, "running": job["exit_code"] is None, "exit_code": job["exit_code"],
             "seconds": round((job.get("ended") or time.time()) - job["started"], 1), "output": clip(_tail(job["log"], tail))}
 
@@ -1076,7 +1141,7 @@ def collect_changes(session: str, repo: str, folder: str = "") -> dict:
         safe_path(session, folder)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
-    out = run_command(session, "python3 -c " + shell_quote(COLLECT_SCRIPT), folder, 60, 6_000_000)
+    out = run_command(session, "python3 -c " + shell_quote(COLLECT_SCRIPT), folder, 60, 6_000_000, promote=False)
     if not out.get("ok") or out.get("exit_code") != 0:
         return {"ok": False, "error": "could not read the changes: " + str(out.get("error") or out.get("output") or "")[:300]}
     try:                                             # stderr is merged into the output: read only what follows the marker
@@ -1190,7 +1255,7 @@ def search_files(session: str, pattern: str, path: str = ".", glob: str = "") ->
         safe_path(session, path)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
-    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 40)
+    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 40, promote=False)
     if not out.get("ok"):
         return out
     return {"ok": True, "matches": out["output"] or "(no matches)", "seconds": out["seconds"]}
@@ -1216,7 +1281,7 @@ def status(session: str = "") -> dict:
                       and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
-             "limits": {"command_seconds": MAX_TIMEOUT, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
+             "limits": {"command_seconds": MAX_TIMEOUT, "foreground_seconds": FG_SECONDS, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
                         "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": round(MEMORY_KILL / 1024 ** 3, 2),
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
@@ -1255,7 +1320,7 @@ def patch_files(session: str, diff: str, cwd: str = ".") -> dict:
            "git apply --check --recount --whitespace=nowarn \"$P\" && git apply --recount --whitespace=nowarn -v \"$P\" 2>&1 && echo PATCH_OK via git; "
            "else for n in 1 0; do if patch -p$n --dry-run --forward -s < \"$P\" >/dev/null 2>&1; then patch -p$n --forward < \"$P\" && echo PATCH_OK via patch -p$n; exit 0; fi; done; "
            "patch -p1 --dry-run --forward < \"$P\"; exit 1; fi")
-    out = run_command(session, cmd, cwd, 60)
+    out = run_command(session, cmd, cwd, 60, promote=False)
     if not out.get("ok"):
         return out
     applied = "PATCH_OK" in str(out.get("output", ""))
@@ -1277,7 +1342,7 @@ def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
     unless `command` is given. Returns a job id to read with job_log."""
     cmd = str(command or "").strip()
     if not cmd:
-        found = run_command(session, TEST_DETECT, cwd, 15)
+        found = run_command(session, TEST_DETECT, cwd, 15, promote=False)
         if not found.get("ok"):
             return found
         lines = str(found.get("output") or "").strip().splitlines()

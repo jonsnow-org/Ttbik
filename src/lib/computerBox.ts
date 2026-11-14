@@ -53,7 +53,7 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   const out: Record<string, unknown> = { action };
   if (a.command !== undefined) out.command = String(a.command).slice(0, 8000);
   if (a.cwd !== undefined) out.cwd = String(a.cwd).slice(0, 300);
-  if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(90, Math.trunc(Number(a.timeout))));
+  if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(300, Math.trunc(Number(a.timeout))));
   if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
   if (a.content !== undefined) out.content = String(a.content).slice(0, 1_000_000);
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
@@ -97,6 +97,7 @@ function renderBody(action: string, r: Record<string, any>): string {
     case "search":
       return String(r.matches || "(no matches)");
     case "run":
+      if (r.running) return [`still running in the background as job ${r.id} · ${r.seconds}s so far · in ${r.cwd}`, String(r.output || "(no output yet)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
       return [`exit ${r.exit_code}${r.timed_out ? " (stopped: too long)" : ""} · ${r.seconds}s · in ${r.cwd}`, String(r.output || "(no output)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
     case "write":
       return `wrote ${r.path} (${r.bytes} bytes)`;

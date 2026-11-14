@@ -226,6 +226,64 @@ class Jobs(Box):
         self.assertFalse(stopped["running"])
         self.assertEqual([j["id"] for j in self.run_box(session="u:m", action="job_list")["jobs"]], [job_id])
 
+    def test_a_command_still_running_after_the_foreground_wait_becomes_a_job(self):
+        # live probe 2026-11-14: an answer that takes longer than ~20 s is lost at the Studio gateway, so the call must answer early and keep the work alive
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            started = time.time()
+            out = self.run_box(session="promo:m", action="run", command="echo first; sleep 3; echo last", timeout=30)
+            self.assertLess(time.time() - started, 2.8)
+            self.assertTrue(out["ok"] and out["running"], out)
+            self.assertIn("first", out["output"])
+            self.assertIn("computer_job", out["hint"])
+            job_id = out["id"]
+            self.assertEqual(out["job"], job_id)
+            for _ in range(40):
+                log = self.run_box(session="promo:m", action="job_log", id=job_id)
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertFalse(log["running"], log)
+            self.assertEqual(log["exit_code"], 0)
+            self.assertIn("first", log["output"])
+            self.assertIn("last", log["output"])
+            self.assertIn(job_id, [j["id"] for j in self.run_box(session="promo:m", action="job_list")["jobs"]])
+        finally:
+            cb.FG_SECONDS = old
+
+    def test_a_promoted_command_is_stopped_at_its_own_timeout_and_can_be_stopped_by_hand(self):
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            out = self.run_box(session="promo:m", action="run", command="sleep 30", timeout=3)
+            self.assertTrue(out["running"], out)
+            for _ in range(40):
+                log = self.run_box(session="promo:m", action="job_log", id=out["id"])
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertFalse(log["running"], log)
+            self.assertIn("stopped after 3 s", log["output"])
+            other = self.run_box(session="promo:m", action="run", command="sleep 30", timeout=60)
+            self.assertTrue(other["running"], other)
+            stopped = self.run_box(session="promo:m", action="job_stop", id=other["id"])
+            self.assertFalse(stopped["running"])
+        finally:
+            cb.FG_SECONDS = old
+
+    def test_a_quick_command_answers_in_the_call_as_before(self):
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            out = self.run_box(session="promo:m", action="run", command="echo quick", timeout=30)
+        finally:
+            cb.FG_SECONDS = old
+        self.assertTrue(out["ok"])
+        self.assertNotIn("running", out)
+        self.assertEqual(out["exit_code"], 0)
+        self.assertIn("quick", out["output"])
+
     def test_another_session_cannot_see_the_job(self):
         job_id = self.run_box(session="a:m", action="job_start", command="sleep 5")["id"]
         self.assertFalse(self.run_box(session="b:m", action="job_log", id=job_id)["ok"])
