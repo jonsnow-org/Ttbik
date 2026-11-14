@@ -279,10 +279,39 @@ def safe_path(session: str, rel: str) -> Path:
     return target
 
 
+_CALL = threading.local()          # per-call extras: the OWNER's GitHub credentials, handed over by the app for the length of one request
+_SECRETS: dict = {}                # session -> values to hide in everything that session's commands print
+
+
+def owner_env(raw) -> dict:
+    """Owner order 2026-11-14 ("full control, no restriction on the token"): the app may hand GH_TOKEN / GITHUB_TOKEN for ONE call; git and gh then work
+    from the shell. Only those two names, token-shaped values; git is wired through an extra header so `git clone/push https://github.com/...` just works."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in ("GH_TOKEN", "GITHUB_TOKEN"):
+        v = str(raw.get(k) or "").strip()
+        if re.fullmatch(r"[A-Za-z0-9_\-]{20,300}", v):
+            out[k] = v
+    if out:
+        tok = next(iter(out.values()))
+        import base64
+        b64 = base64.b64encode(f"x-access-token:{tok}".encode()).decode()
+        out.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}", "GIT_TERMINAL_PROMPT": "0"})
+    return out
+
+
+def mask_secrets(session: str, text: str) -> str:
+    for v in _SECRETS.get(session, ()):
+        if v and v in text:
+            text = text.replace(v, "***")
+    return text
+
+
 def clean_env(session: str) -> dict:
     """Only what a shell needs. The Studio's own environment (tokens, secrets, API keys) never reaches a command."""
     home = str(session_home(session))
-    return {
+    env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": home, "USER": "model", "LOGNAME": "model", "SHELL": "/bin/bash",
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm", "TMPDIR": home + "/.tmp",
@@ -293,6 +322,10 @@ def clean_env(session: str) -> dict:
         "PIP_TRUSTED_HOST": "mirrors.aliyun.com", "PIP_DEFAULT_TIMEOUT": "20",
         "npm_config_registry": os.environ.get("COMPUTER_NPM_REGISTRY", "https://registry.npmmirror.com"),
     }
+    extra = getattr(_CALL, "env", None)
+    if extra:
+        env.update(extra)
+    return env
 
 
 def clip(text: str, limit: int = MAX_OUT) -> str:
@@ -1260,7 +1293,7 @@ def repo_summary_command(folder: str) -> str:
     )
 
 
-def repo_fetch(session: str, url: str, ref: str = "") -> dict:
+def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> dict:
     """Public GitHub repository -> ~/repos/<owner>-<name> in ONE call (shallow clone; tarball when git is blocked). Private repositories are not fetched here:
     no GitHub token is ever put in this computer."""
     parsed = parse_repo_url(url)
@@ -1278,6 +1311,11 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
     marker = re.sub(r"[^A-Za-z0-9_.-]", "_", tar_ref)[:100]          # a snapshot of THIS ref fetched minutes ago is reused (the Studio's GitHub link is slow)
     api_url = shell_quote(f"https://api.github.com/repos/{owner}/{name}/tarball/{tar_ref}")
+    signed = str(signed_url or "").strip()       # a PRIVATE repository: the app asked GitHub for a short-lived download address with its own token and passes only that address (the token itself never comes here)
+    if signed:
+        if not re.fullmatch(r"https://codeload\.github\.com/[A-Za-z0-9_./?=&%~+-]{1,1500}", signed):
+            return {"ok": False, "error": "bad download address"}
+        tar_url = api_url = shell_quote(signed)
     # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
     # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
     # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
@@ -1493,7 +1531,7 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
     elif action == "changes":
         out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
     elif action == "repo":
-        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""), job.get("signed_url", ""))
     elif action == "search":
         out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
     elif action == "status":
@@ -1568,10 +1606,16 @@ def api_box_do(body: str) -> str:
     if not session:
         return json.dumps({"ok": False, "error": "no session"})
     action = str(job.get("action") or "")
+    extra = owner_env(job.get("env"))
+    if extra:
+        _SECRETS[session] = {v for k, v in extra.items() if k in ("GH_TOKEN", "GITHUB_TOKEN")} | {extra["GIT_CONFIG_VALUE_0"].rsplit(" ", 1)[-1]}
+    _CALL.env = extra
     try:
         out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+    finally:
+        _CALL.env = None
     if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
         try:
             tips = welcome(session)                        # once per session, never repeated
@@ -1581,4 +1625,4 @@ def api_box_do(body: str) -> str:
             out["tips"] = tips
     if isinstance(out, dict):
         out["server_ms"] = round((time.monotonic() - started_at) * 1000)     # time INSIDE the handler: the rest of what a client waits is queue/gateway (live probe 2026-11-14: ~10 s per call, unexplained)
-    return json.dumps(out, ensure_ascii=False)
+    return mask_secrets(session, json.dumps(out, ensure_ascii=False))

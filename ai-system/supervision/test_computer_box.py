@@ -765,6 +765,32 @@ class Batch(Box):
         with patch.object(cb, "welcome", side_effect=RuntimeError("boom")):
             self.assertTrue(self.run_box(session=s, action="run", command="echo ok")["ok"])
 
+class PrivateRepo(Box):
+    def test_only_a_codeload_address_is_accepted_for_a_private_repo(self):
+        bad = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://evil.example/x.tar.gz")
+        self.assertFalse(bad["ok"])
+        self.assertIn("bad download address", bad["error"])
+        injected = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://codeload.github.com/o/r/x; rm -rf ~")
+        self.assertFalse(injected["ok"])
+
+
+class OwnerCredentials(Box):
+    TOKEN = "".join(["gh", "p_", "abcdefghij" * 4])      # built at run time: a fake value, never a literal that looks like a key
+
+    def test_token_reaches_the_command_for_that_call_only_and_is_hidden_in_every_reply(self):
+        got = self.run_box(session="own1", action="run", command='echo "T=$GH_TOKEN"; echo "G=$GIT_CONFIG_VALUE_0"', env={"GH_TOKEN": self.TOKEN, "PATH": "/evil"})
+        out = json.dumps(got)
+        self.assertNotIn(self.TOKEN, out)
+        self.assertIn("T=***", got.get("output", ""))
+        self.assertNotIn("basic ey", got.get("output", "").replace("basic ***", ""))   # the encoded header value is hidden too
+        later = self.run_box(session="own1", action="run", command='echo "T=[$GH_TOKEN]"')
+        self.assertIn("T=[]", later.get("output", ""))                                   # not kept in the session's environment
+
+    def test_bad_shaped_values_are_ignored(self):
+        self.assertEqual(cb.owner_env({"GH_TOKEN": "x y; rm -rf /"}), {})
+        self.assertEqual(cb.owner_env({"PATH": "/evil"}), {})
+
+
 if __name__ == "__main__":
     unittest.main()
 

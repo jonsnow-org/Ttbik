@@ -11,7 +11,7 @@ export function boxStudioFor(modelId: string | undefined): string | null {
 }
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; signed_url?: string; env?: Record<string, string>; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
 const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
@@ -23,7 +23,7 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_write") return { action: "write", path: a.path as string, content: a.content as string };
   if (tool === "computer_read") return { action: "read", path: (a.path as string) || "." };
   if (tool === "computer_edit") return { action: "edit", path: a.path as string, old: a.old as string, new: a.new as string, replace_all: Boolean(a.replace_all), edits: Array.isArray(a.edits) ? (a.edits as any[]) : undefined };
-  if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string };
+  if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string, signed_url: a.signed_url as string };
   if (tool === "computer_search") return { action: "search", pattern: a.pattern as string, path: (a.path as string) || ".", glob: a.glob as string };
   if (tool === "computer_patch") return { action: "patch", diff: a.diff as string, cwd: (a.cwd as string) || "." };
   if (tool === "computer_test") return { action: "test", cwd: (a.cwd as string) || ".", command: (a.command as string) || "" };
@@ -63,6 +63,8 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.limit !== undefined && Number.isFinite(Number(a.limit))) out.limit = Math.max(1, Math.min(40, Math.trunc(Number(a.limit))));
   if (a.url !== undefined) out.url = String(a.url).slice(0, 300);
   if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
+  if (a.env && typeof a.env === "object" && typeof (a.env as any).GH_TOKEN === "string" && /^[A-Za-z0-9_-]{20,300}$/.test((a.env as any).GH_TOKEN)) out.env = { GH_TOKEN: (a.env as any).GH_TOKEN };
+  if (typeof a.signed_url === "string" && /^https:\/\/codeload\.github\.com\//.test(a.signed_url)) out.signed_url = a.signed_url.slice(0, 1500);
   if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);
   if (a.glob !== undefined) out.glob = String(a.glob).slice(0, 100);
   if (a.old !== undefined) out.old = String(a.old).slice(0, 200_000);
@@ -223,4 +225,14 @@ export async function boxCollect(modelId: string | undefined, session: string, a
   } catch (error) {
     return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
   }
+}
+
+/** A private (or public) repository for the computer WITHOUT putting the GitHub token there: GitHub answers the tarball request with a redirect to a short-lived codeload address; only that address is handed to the computer. */
+export async function signedTarball(token: string, repo: string, ref: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<string | null> {
+  if (!token || !/^[A-Za-z0-9_-][\w.-]*\/(?!\.\.?$)[\w.-]+$/.test(repo)) return null;
+  try {
+    const r = await fetchImpl(`https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref || "HEAD")}`.replace("%2F", "/"), { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, redirect: "manual", signal: AbortSignal.timeout(8000) });
+    const loc = r.headers.get("location") || "";
+    return r.status >= 300 && r.status < 400 && /^https:\/\/codeload\.github\.com\//.test(loc) ? loc : null;
+  } catch { return null; }
 }
