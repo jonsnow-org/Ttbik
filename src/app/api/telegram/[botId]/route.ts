@@ -19,7 +19,7 @@ import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
 import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
-import { OWNER_PANEL_TEMPLATES, ownerPanelTransformer } from "@/lib/ownerPanel";
+import { OWNER_PANEL_TEMPLATES, ownerId, ownerPanelTransformer } from "@/lib/ownerPanel";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     const bot = new TelegramBot(botRow.token);
-    if (OWNER_PANEL_TEMPLATES.has(botRow.template)) bot.api.config.use(ownerPanelTransformer(botRow.id));
+    if (OWNER_PANEL_TEMPLATES.has(botRow.template) || (botRow.template === "AD_BOT" && !!ownerId() && botRow.ownerId === ownerId())) bot.api.config.use(ownerPanelTransformer(botRow.id));
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
@@ -163,6 +163,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (chatType && chatType !== "private" && botRow.template === "STREAK_BOT") {
         // 📖 Group khatma (the one exception): STREAK_BOT answers in a group only to /khatma and taps on its own board.
         // 🏆 Group contests (src/lib/contests) answer /contest, /top and their own buttons; everything else goes to the khatma handler.
+        const { tryOwnerLeave } = await import("@/lib/groupLeave");
+        if (await tryOwnerLeave(bot, botRow, body).catch(() => false)) return NextResponse.json({ status: "ok" });
         const { handleContestGroupUpdate } = await import("@/lib/contests/contests");
         const { handleKhatmaGroupUpdate } = await import("@/lib/khatma/khatma");
         const contest = await handleContestGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:contest-group", e, { botId: botRow?.id }); return true; });

@@ -225,6 +225,37 @@ class Running(Box):
         finally:
             cb._walk_size, cb.QUOTA_BUDGET = old_walk, old_budget
 
+    def test_the_home_is_repaired_once_not_walked_before_every_call(self):
+        # measured 2026-11-14: ensure_home walked the whole session folder on the slow mount before every call (8-13 s each)
+        old_root, old_fix, old_recheck = cb.is_root, cb._fix_owner, cb.HOME_RECHECK
+        calls = []
+        cb.is_root = lambda: True
+        cb._fix_owner = lambda home, uid, deadline=None: (calls.append(str(home)), True)[1]
+        try:
+            for _ in range(4):
+                self.assertTrue(cb.ensure_home("own:m").exists())
+            self.assertEqual(len(calls), 1, calls)
+            cb.HOME_RECHECK = 0                                                 # after the recheck time it is walked again
+            cb.ensure_home("own:m")
+            self.assertEqual(len(calls), 2, calls)
+        finally:
+            cb.is_root, cb._fix_owner, cb.HOME_RECHECK = old_root, old_fix, old_recheck
+
+    def test_a_home_walk_that_runs_out_of_time_is_finished_in_the_background(self):
+        old_root, old_fix = cb.is_root, cb._fix_owner
+        seen = []
+        cb.is_root = lambda: True
+        cb._fix_owner = lambda home, uid, deadline=None: (seen.append(deadline is None), deadline is None)[1]
+        try:
+            cb.ensure_home("slow:m")
+            for _ in range(40):
+                if len(seen) >= 2:
+                    break
+                time.sleep(0.05)
+        finally:
+            cb.is_root, cb._fix_owner = old_root, old_fix
+        self.assertEqual(seen, [False, True])                                  # first with a deadline (unfinished), then the full walk in a thread
+
     def test_the_disk_quota_stops_new_work(self):
         old = cb.QUOTA_BYTES
         cb.QUOTA_BYTES = 10

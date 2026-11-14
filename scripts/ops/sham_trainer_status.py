@@ -38,7 +38,7 @@ def main() -> int:
     for repo in [r.strip() for r in (os.environ.get("SHAM_TRAINER_REPOS") or DEFAULT).split(",") if r.strip()]:
         try:
             st = call(repo, token)
-            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device") if k in st}
+            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device", "leftover") if k in st}
             print(f"{repo}: {json.dumps(keep or st, ensure_ascii=False)[:900]}")
             tail = [l for l in (st.get("tail") or []) if "🧠" not in l and "🧵" not in l]      # the memory watch prints every minute and would push the training lines out of the window
             mem = [l for l in (st.get("tail") or []) if "🧠" in l][-1:]
