@@ -171,3 +171,12 @@ describe("one context size for every budget", () => {
     expect(ctx.ctxTokens()).toBe(32768);
   });
 });
+
+import { coderSystemPrompt as _prompt } from "@/lib/coderAgent";
+describe("the system prompt never lets Nova invent repository names", () => {
+  it("tells it to look at the connected account first and offer only names tools returned", () => {
+    const p = _prompt({ github: true, notes: "" });
+    expect(p).toMatch(/NEVER invent repository names/);
+    expect(p).toMatch(/FIRST call github_list_repos/);
+  });
+});
