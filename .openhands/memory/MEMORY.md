@@ -12,7 +12,7 @@ Repo `/workspace/project/Ttbik`. Production branch: `claude/free-services-market
 
 ## Revision pins drift (recurring bug class)
 Every ModelScope app has an `APP_REVISION` string that is asserted in deploy workflows, preflight scripts, docs and TS guards. When the app revision bumps, ALL of these must move together or deploy/status checks fail closed ("deploying" forever):
-- Computer hub: `ai-system/modelscope-media/computer_studio_app.py` `APP_REVISION` (currently `computer-hub-16gb-2026-11-11-r8-fast-start`) ↔ `.github/workflows/deploy-minicpmo-big.yml` (2 asserts) ↔ `scripts/ops/modelscope_computer_hub_preflight.py` ↔ `docs/MODELS_AND_COMPUTER.md`.
+- Computer hub: `ai-system/modelscope-media/computer_studio_app.py` `APP_REVISION` (currently `computer-hub-16gb-2026-11-11-r9-mount-probe`) ↔ `.github/workflows/deploy-minicpmo-big.yml` (2 asserts) ↔ `scripts/ops/modelscope_computer_hub_preflight.py` ↔ `docs/MODELS_AND_COMPUTER.md`.
 - Donor bakeoff: `experiments/donor-bakeoff/app.py` `APP_REVISION` (currently `donor-bakeoff-2026-11-05-r21`) ↔ `src/lib/donorTests.ts` `EXPECTED_DONOR_APP_REVISION` / `ACCEPTED_DONOR_APP_REVISIONS`.
 - Other app revisions asserted in workflows: `epicrealism-image-test-2026-10-31-r1`, `juggernaut-ragnarok-cpu8g-2026-10-31-r2`, `umranz-image-test-2026-10-31-r3`.
 
