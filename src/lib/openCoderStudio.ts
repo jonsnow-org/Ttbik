@@ -250,12 +250,14 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
  * wait behind the first on one Studio while the other is idle. Each Studio's `status` is asked at once; the first idle one wins without
  * waiting for the rest; otherwise the shortest queue; a Studio that is loading / down goes last. CODER_STUDIO_BALANCE=off = first healthy.
  */
+/** How many jobs may be queued ahead on the Studio that holds a conversation's prompt cache before the conversation moves to another one. Measured 2026-11-14 (live Nova task): three Studios took turns, so every step re-read 6-15 thousand tokens from scratch at 20-29 tokens/s (minutes per step); two jobs ahead on the cache-holding Studio are seconds. CODER_STUDIO_STICKY_QUEUE=0 restores the strict rule. */
+const stickyQueue = (): number => { const n = Number(process.env.CODER_STUDIO_STICKY_QUEUE); return Number.isFinite(n) && n >= 0 ? Math.min(8, Math.floor(n)) : 2; };
 async function idleFirst(order: { b: string; i: number }[], preferred?: string): Promise<{ b: string; i: number }[]> {
   if ((process.env.CODER_STUDIO_BALANCE || "").toLowerCase() === "off") return order;
   if (preferred && order.some((x) => x.b === preferred)) {
     // the conversation's own Studio first: when it is ready with nothing queued, the other four are not asked at all (five asks at once is the burst the hub refuses)
     const st0 = await studioStatus(preferred, Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900))).catch(() => null);
-    if (st0 && st0.phase === "ready" && !(Number(st0.queue) > 0)) return [...order].sort((x, y) => Number(y.b === preferred) - Number(x.b === preferred));
+    if (st0 && st0.phase === "ready" && !(Number(st0.queue) > stickyQueue())) return [...order].sort((x, y) => Number(y.b === preferred) - Number(x.b === preferred));
   }
   const capMs = Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900));
   const seen = new Map<string, number>();                                  // base -> queue length (Infinity = not ready / no answer)
@@ -264,7 +266,7 @@ async function idleFirst(order: { b: string; i: number }[], preferred?: string):
     let left = order.length;
     let firstIdle: string | null = null;
     let done = false;
-    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && (seen.get(preferred) ?? 9) === 0 ? preferred : firstIdle); };   // one job ahead on the cache-holding Studio is seconds; a cold read elsewhere is minutes
+    const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(preferred && (seen.get(preferred) ?? 9) <= stickyQueue() ? preferred : firstIdle); };   // one job ahead on the cache-holding Studio is seconds; a cold read elsewhere is minutes
     const timer = setTimeout(finish, capMs);
     for (const { b } of order) {
       studioStatus(b, capMs).then((st) => {
