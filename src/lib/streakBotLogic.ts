@@ -97,11 +97,12 @@ function isBack(text: string): boolean {
   return text === backLabel();
 }
 function mainMenu(): Keyboard {
+  // Four groups, two buttons a row: today's board and totals, the four chains, the group features, then app and info.
   const kb = new Keyboard();
+  kb.text("🧩 لوحة سلاسلي").text("📊 كل سلاسلي").row();
+  STREAK_CATEGORIES.forEach((cat, i) => { kb.text(cat.menuLabel); if (i % 2 === 1) kb.row(); });
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
   kb.text(CONTEST_BUTTON).text(APP_BUTTON).row();
-  for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
-  kb.text("📊 كل سلاسلي").text("🧩 لوحة سلاسلي").row();
   kb.text("ℹ️ معلومات");
   return kb.resized();
 }
@@ -308,6 +309,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     const cq = update.callback_query;
     const uid = String(cq.from?.id || "");
     if (uid) await ensureStreakUser(botRow.id, uid);
+    if (String(cq.data || "").startsWith("sk|")) {
+      const { handleBoardTap } = await import("@/lib/streakWidget");
+      await handleBoardTap(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
+      return;
+    }
     const handled = await handleKhatmaPrivateCallback(bot, botRow, cq, (p) => setPending(uid, p));
     if (!handled) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
@@ -430,10 +436,22 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
-  if (text === "🧩 لوحة سلاسلي" || text === "/widget") {
+  if (text === "🧩 لوحة سلاسلي") {
     await setPending(tgUserId, null);
-    const { sendStreakWidget } = await import("@/lib/streakWidget");
-    await sendStreakWidget(bot, chatId, tgUserId);
+    const { sendBoard } = await import("@/lib/streakWidget");
+    await sendBoard(bot, chatId, tgUserId);
+    return;
+  }
+  // Experimental Bot API 10.4 widget (private chat only). Telegram's own refusal reason is shown to the owner, never to users.
+  if (text === "/widget") {
+    await setPending(tgUserId, null);
+    const { sendStreakWidget, sendBoard } = await import("@/lib/streakWidget");
+    const why = await sendStreakWidget(bot, chatId, tgUserId);
+    if (why) {
+      if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) await bot.api.sendMessage(chatId, `⚙️ رفض تيليجرام إرسال الأداة التفاعلية:\n${why}`);
+      else await bot.api.sendMessage(chatId, "الأداة التفاعلية غير متاحة لحسابك بعد؛ هذه لوحتك العادية:");
+      await sendBoard(bot, chatId, tgUserId);
+    }
     return;
   }
 
