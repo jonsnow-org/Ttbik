@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import type { AppConfig, AppItem, AppPalette } from "@/lib/hub/appConfig";
 import QuizApp from "./QuizApp";
 
@@ -133,7 +134,7 @@ export default function MiniAppExperience({
   }
 
   return (
-    <div dir="rtl" className="user-created-app" data-template={config.template} data-page={page}>
+    <div dir="rtl" className="user-created-app" data-template={config.template} data-page={page} style={{ "--user-app-accent": palette.brand, "--user-app-on-accent": palette.onBrand, "--user-app-text-accent": palette.text, "--user-app-accent-soft": palette.soft } as CSSProperties}>
       <header className="user-created-app__hero">
         <div className="user-created-app__hero-inner">
           <div className="user-created-app__topline">
