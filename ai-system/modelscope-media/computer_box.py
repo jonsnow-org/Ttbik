@@ -1323,8 +1323,9 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
     t_dir, g_dir = shell_quote(folder + ".tar.part"), shell_quote(folder + ".git.part")
     script = (
         f"set -e; mkdir -p repos; "
-        f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
-        f"elif [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
+        # (2026-11-14 live check: `git fetch` inside an existing checkout on the persistent mount died with "Failed to checksum .git/objects/pack/tmp_pack" and left no folder;
+        #  an older checkout is therefore replaced by a fresh tarball/clone download, as a missing one is)
+        f"if [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
         f"else rm -rf {q} {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; mkdir -p {t_dir}; set +e; "
         f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
         f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
