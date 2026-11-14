@@ -1,0 +1,53 @@
+name: deploy-media-stream-worker
+# Deploys the media Mini App's streaming Worker (cloudflare/media-stream-worker.js -> media-stream.jonsnowx1r.workers.dev) whenever its code or config
+# changes on the canonical branch. Until 2026-11-13 nothing deployed it: it had been published once by hand, so #926's fix never reached it and every
+# video request answered 502 before falling back to the site.
+# One-time setup (two repository secrets; Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN   an API token made from the "Edit Cloudflare Workers" template  https://dash.cloudflare.com/profile/api-tokens
+#   CLOUDFLARE_ACCOUNT_ID  the account id shown on the right of https://dash.cloudflare.com (Workers & Pages overview)
+# The Worker's own BOT_TOKEN secret stays in Cloudflare and is never touched by a deploy. Without the two secrets this workflow only prints how to add them
+# (it does not fail, so it never e-mails).
+on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - cloudflare/media-stream-worker.js
+      - cloudflare/media-stream.wrangler.jsonc
+      - .github/workflows/deploy-media-stream-worker.yml
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: deploy-media-stream-worker
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: are the Cloudflare secrets set?
+        id: have
+        env:
+          T: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$T" ] && [ -n "$A" ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else
+            echo "go=0" >> "$GITHUB_OUTPUT"
+            echo "::notice::Not deployed: add the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID once (see the header of this workflow), then run this workflow again."
+          fi
+      - name: deploy the Worker (BOT_TOKEN secret is kept)
+        if: steps.have.outputs.go == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 deploy --config cloudflare/media-stream.wrangler.jsonc
+      - name: the Worker answers
+        if: steps.have.outputs.go == '1'
+        run: |
+          sleep 5
+          echo "no id  -> $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://media-stream.jonsnowx1r.workers.dev/) (expect 400)"
+          echo "bad id -> $(curl -s -m 30 -o /dev/null -w '%{http_code}' 'https://media-stream.jonsnowx1r.workers.dev/?id=zzzz') (expect 404)"

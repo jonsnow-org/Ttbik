@@ -1,0 +1,23 @@
+name: ModelScope international account probe (read-only)
+
+# Reads what the owner's SECOND ModelScope account (modelscope.ai) can do: token works?, user name, free Studio hardware, Studios it owns. Changes nothing.
+# Secret: MODELSCOPE_AI_TOKEN (repository secret added by the owner; never printed).
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Probe
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: python3 scripts/ops/modelscope_ai_probe.py

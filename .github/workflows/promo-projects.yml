@@ -1,14 +1,19 @@
 name: promo-projects
-# Professional promo videos for the owner's projects (Athar, Zenobia, Palmyra Launch, Sham AI, Literium).
-# Built from the live pages: Chromium renders each scene (so Arabic shapes properly) and ffmpeg joins them. English first, Arabic under it.
-# Download the mp4 files from the run's "promo-videos" artifact. Add or edit a project in scripts/promo/projects.json.
+# Professional campaign assets for public projects and Telegram bots.
+# Builds live-page screenshots, narrated promo videos, resized cards and platform-ready copy packs.
+# Outputs are review artifacts only; this workflow never publishes to public channels.
 on:
+  pull_request:
+    paths:
+      - "scripts/promo/**"
+      - "promo/projects.json"
+      - ".github/workflows/promo-projects.yml"
   schedule:
     - cron: "40 3 * * 1"
   workflow_dispatch:
     inputs:
       only:
-        description: "one project id (athar, zenobia, palmyra-launch, sham-ai, literium), empty = all"
+        description: "one campaign id (zenobia, palmyra-launch, sham-ai, literium or a public bot), empty = all"
         default: ""
       format:
         description: "vertical (stories, shorts) or wide"
@@ -17,7 +22,23 @@ concurrency:
   group: promo-projects
   cancel-in-progress: false
 jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: validate campaigns and generator syntax
+        run: |
+          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs
+          node --check scripts/promo/make.mjs
+          node --check scripts/promo/cards.mjs
+          node --check scripts/promo/copy.mjs
+          python -m py_compile scripts/promo/tts.py
   make:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -31,8 +52,11 @@ jobs:
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-noto-ui-core
           npm install --no-save --no-package-lock playwright-core@1.56.1
           npx playwright-core install --with-deps chromium
-      - name: make the videos
-        run: node scripts/promo/make.mjs --out promo-out --format "${{ github.event.inputs.format || 'vertical' }}" ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+          pip install -q edge-tts
+      - name: prepare the original music bed
+        run: (cd promo/remotion && sh scripts/music.sh)
+      - name: make the narrated videos
+        run: node scripts/promo/make.mjs --out promo-out --music promo/remotion/public/music.mp3 --format "${{ github.event.inputs.format || 'vertical' }}" ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
       - name: make the promo images (square, story, link preview; plus English-only versions for the coins channel)
         run: |
           node scripts/promo/cards.mjs --out promo-cards ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
@@ -46,4 +70,11 @@ jobs:
         with:
           name: promo-videos
           path: promo-out/*.mp4
+          retention-days: 30
+      - name: generate platform-ready copy packs
+        run: node scripts/promo/copy.mjs --out promo-copy ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-copy
+          path: promo-copy/*
           retention-days: 30

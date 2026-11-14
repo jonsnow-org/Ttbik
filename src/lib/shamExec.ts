@@ -83,7 +83,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from memory_search, or by a query).", obj({ id: n("memory id"), query: s("text to match when no id") })),
   tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
-  tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
+  tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action read the returned window list before assuming it worked; action=show offers the screen to the user.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "dblclick", "move", "type", "key", "scroll", "show"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run commands in the separate temporary task workspace. Use computer_run for normal work on your persistent computer; use this only for isolated tests/builds. Long commands return an id for sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -99,6 +99,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, include the exact requested seconds (6/10/15/30/60/120); optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), seconds: { type: "integer", enum: [6, 10, 15, 30, 60, 120], description: "Optional requested video duration in seconds." }, scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
+  tool("request_secret", "Ask the user for a password, token, API key or login in the secure box of the app (NEVER ask for these in the chat, never repeat one). Give a short name (letters, digits, - and _) and what it is for. Afterwards write {{secret:name}} where the value belongs in a tool argument; the system fills it in and you never see it. The round ends after you ask.", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for") }, ["name", "purpose"])),
   tool("ask_user", "Ask the user a short question when something needed is unclear or missing. The round ends with the question.", obj({ question: s("the question") }, ["question"])),
 ];
 
@@ -310,7 +311,22 @@ const parse = (call: CoderToolCall): Record<string, any> => { try { const v = JS
 /** Runs one of Sham's tools. `approved` must be true for a write (SHAM_NEEDS_OK): the loop never passes it on its own. */
 /** What a later `recall` can find again: the reads (files, scans, CI, pages, searches), not the writes. */
 const BANKED = new Set(["web_search", "fetch_page", "deep_research", "http_request", "github_list_files", "github_read_file", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "sandbox_read_file", "sandbox_search", "sandbox_exec", "sandbox_wait"]);
+/** The secret box around every Sham tool: {{secret:name}} is replaced by the value only here, and the value is put back to its reference in whatever the tool printed. */
 export async function shamRunTool(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
+  const key = ctx?.chatId === undefined || ctx?.chatId === null ? "" : String(ctx.chatId);
+  const raw = call.function?.arguments;
+  if (!key || typeof raw !== "string" || !raw.includes("secret:")) return shamRunToolBanked(call, ctx, approved);
+  const V = await import("@/lib/secretVault");
+  let resolved: CoderToolCall;
+  try {
+    resolved = { ...call, function: { ...call.function, arguments: JSON.stringify(V.resolveSecretsDeep(key, JSON.parse(raw))) } };
+  } catch (e) {
+    return `error: ${String((e as Error)?.message || e).slice(0, 200)}`;
+  }
+  return V.scrubSecrets(key, await shamRunToolBanked(resolved, ctx, approved));
+}
+
+async function shamRunToolBanked(call: CoderToolCall, ctx: ShamCtx, approved = false): Promise<string> {
   const out = await shamRunToolInner(call, ctx, approved);
   if (BANKED.has(call.function.name) && !/^error/i.test(out) && ctx.runId && ctx.chatKey) {
     const a = parse(call);
@@ -434,6 +450,9 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
     if (name === "browser" && (ctx.modelId === "sham" || ctx.modelId === "sham_v2")) {
       return "error: Sham's browser runs inside the model itself; this call was not executed here. Write the call again and the model will run it.";
     }
+    if (name === "desktop" && (ctx.modelId === "sham" || ctx.modelId === "sham_v2")) {
+      return "error: Sham's desktop runs inside the model itself; this call was not executed here. Write the call again and the model will run it.";
+    }
     if (name.startsWith("computer_")) {
       return clip(await H0.computer.run({ chatId: ctx.chatId, modelId: ctx.modelId, db: ctx.db }, name, a));
     }
@@ -546,7 +565,7 @@ export async function shamClaimUpdate(chatId: number, updateId: number | undefin
 }
 
 // ---------------------------------------------------------------- Explicit media route selector. Nova is not a Sham media route.
-export type ShamMediaRoute = "sham_v1" | "sham_v2_internal" | "sham_v2_ready";
+export type ShamMediaRoute = "sham_v1" | "sham_v2_internal";
 export type ShamMediaOrder = "reserve_first" | "own_first";
 let settingsReady = false;
 async function settingsTable(db: Db): Promise<void> {
@@ -554,7 +573,7 @@ async function settingsTable(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS sham_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   if (db === prismaDb) settingsReady = true;
 }
-/** Media routes retained for Sham v1, Sham v2 internal tokens, and local ready donor weights. External HF routes are quarantined. */
+/** Media routes: Sham v1 and Sham v2 internal tokens only. Stored legacy values (ready donor weights, HF, Nova) map to the internal route. */
 export async function shamMediaRoute(db: Db = prismaDb): Promise<ShamMediaRoute> {
   try {
     await settingsTable(db);
@@ -574,7 +593,7 @@ export async function setShamMediaRoute(route: ShamMediaRoute, db: Db = prismaDb
   await db.exec(`INSERT INTO sham_settings (key, value, updated_at) VALUES ('media_route_v4', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, route);
 }
 export type ShamMediaEnabled = Record<ShamMediaRoute, boolean>;
-const MEDIA_ROUTES: ShamMediaRoute[] = ["sham_v1", "sham_v2_internal", "sham_v2_ready"];
+const MEDIA_ROUTES: ShamMediaRoute[] = ["sham_v1", "sham_v2_internal"];
 export async function shamMediaRouteEnabled(route: ShamMediaRoute, db: Db = prismaDb): Promise<boolean> {
   try {
     await settingsTable(db);

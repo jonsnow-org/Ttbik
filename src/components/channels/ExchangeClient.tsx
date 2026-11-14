@@ -36,8 +36,8 @@ export function OrderForm({ listing }: { listing: ListingView }) {
   );
 }
 
-export function JoinForm() {
-  const [channel, setChannel] = useState("");
+export function JoinForm({ initialChannel = "" }: { initialChannel?: string }) {
+  const [channel, setChannel] = useState(initialChannel ? `@${initialChannel.replace(/^@/, "")}` : "");
   const [ownerContact, setOwner] = useState("");
   const [payoutAddress, setPayout] = useState("");
   const [price, setPrice] = useState("20");

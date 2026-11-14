@@ -3,10 +3,10 @@ import { mediaBotToken, mediaDb } from "@/lib/mediaSocial";
 import { isPublicMediaPost } from "@/lib/mediaVisibility";
 
 // Tiny lookup for the Cloudflare media Worker (cloudflare/media-stream-worker.js):
-// post id -> Telegram file_path. Only the path is returned (it's useless
-// without the bot token, which lives only in Vercel and in the Worker's
-// secret), so no video bytes ever pass through Vercel. Edge-cached ~50 min,
-// inside Telegram's ≥1h validity for a file_path.
+// post id -> Telegram file_path. This endpoint runs behind the permanent site gate
+// and reads from the active site's media DB/token. Only this short-lived path is
+// returned; the Worker's BOT_TOKEN remains a Cloudflare secret. Video bytes are
+// fetched directly from Telegram, not proxied through the site.
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {

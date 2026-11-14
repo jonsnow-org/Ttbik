@@ -34,7 +34,7 @@ jobs:
   sync:
     if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,6 +98,18 @@ jobs:
             done
           fi
           ls -la /tmp/ck
+
+      # 2026-11-11: the motion tokenizer (the video codec). It was trained and published on 2026-11-08 INSIDE sham-video-corpus, a dataset no consumer fetches, so the Studio never received it
+      # and answered "no video". Best effort: the discoverable dataset first (motion job), else the corpus that carries it.
+      - name: Motion tokenizer for the Studio (optional)
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          for ds in sham-motion-tokenizer-checkpoint sham-video-corpus; do
+            if kaggle datasets download -d jonsnowjonsnow/$ds -f motion_tokenizer.pt -p /tmp/ck --unzip -q 2>/dev/null && [ -f /tmp/ck/motion_tokenizer.pt ]; then echo "+ motion_tokenizer.pt from $ds"; break; fi
+          done
+          ls -la /tmp/ck/motion_tokenizer.pt 2>/dev/null || echo "- no motion tokenizer found"
 
       # 2026-10-17: the decoder-only refined image / audio tokenizer (sham_decoder_refine.py). Best effort: adopted only if it encodes into the same ids.
       - name: Refined media tokenizers (optional)
@@ -197,7 +209,7 @@ jobs:
             echo "Deploying Sham v1 Studio (attempt $attempt/2)"
             curl -fsS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1000; echo
             retry_build_ref=0
-            for i in $(seq 1 80); do
+            for i in $(seq 1 170); do   # the image build alone takes 40+ min (pip layer ~21 min + registry push): 85 min budget, not 40
               sleep 30
               st=$(curl -fsS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))")
               echo "$(date -u +%H:%M:%S) Sham v1 Studio: $st"

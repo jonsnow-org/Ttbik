@@ -12,6 +12,7 @@ import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { isTimedClickReady, UNOPENED_CLICK_AT } from "@/lib/watchTarget";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { recordAssetPhoneContact } from "@/lib/channels/assetMarket";
 import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
@@ -400,7 +401,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row(); // the bot's own Mini App sections (src/app/bot-app): remittances and the channels & groups exchange, 100% platform revenue
+    .text(REMIT_BUTTON).text(APP_BUTTON).row(); // both shortcuts open this bot's own Mini App
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -532,7 +533,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
     .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).row()
+    .text(REMIT_BUTTON).text(APP_BUTTON).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -565,6 +566,7 @@ function topLevelTexts(lang: Lang): string[] {
     GETBOT_BUTTON,
     EXCHANGE_BUTTON,
     REMIT_BUTTON,
+    APP_BUTTON,
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
     CHAIN_DEPOSIT_BTN,
@@ -626,9 +628,13 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
 const botAppMenuDone = new Set<string>();
 async function ensureBotAppMenu(botRow: BotRow): Promise<void> {
   if (botAppMenuDone.has(botRow.id)) return;
-  botAppMenuDone.add(botRow.id);
   const eligible = botRow.ownerId !== SUPER_ADMIN_ID || (await isOwnerBot(botRow.id).catch(() => false));
-  if (eligible) await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (!eligible) {
+    botAppMenuDone.add(botRow.id);
+    return;
+  }
+  const updated = await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (updated) botAppMenuDone.add(botRow.id);
 }
 
 function tgFor(token: string): Tg {
@@ -697,6 +703,10 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const contactLang = asLang(contactUser.language);
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.user.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
+      await recordAssetPhoneContact({
+        telegramId: tgUserId, contactUserId: String(msg.contact.user_id), phoneNumber: String(msg.contact.phone_number || ""),
+        firstName: String(msg.from.first_name || ""), lastName: String(msg.from.last_name || ""), username: String(msg.from.username || ""),
+      }).catch(() => null);
       await bot.api.sendMessage(chatId, t(contactLang, "phoneVerified"), { reply_markup: mainMenu(contactLang) });
     } else {
       await bot.api.sendMessage(chatId, t(contactLang, "phoneMismatch"));
@@ -873,7 +883,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, EXCHANGE_INTRO, { reply_markup: new InlineKeyboard().webApp(EXCHANGE_BUTTON, botAppUrl(gateUrl(), botRow.id, "exchange")) }).catch(() => null);
     return;
   }
-  if (isServicesRequest(text)) {
+  if (text === APP_BUTTON || isServicesRequest(text)) {
     if (pending) await setPending(user.id, null);
     await bot.api.sendMessage(chatId, APP_INTRO, { reply_markup: new InlineKeyboard().webApp(APP_BUTTON, botAppUrl(gateUrl(), botRow.id)) }).catch(() => null);
     return;

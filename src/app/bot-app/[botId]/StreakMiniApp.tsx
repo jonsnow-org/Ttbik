@@ -34,13 +34,26 @@ function Shell() {
   const { api, stack, open } = useApp();
   const [init, setInit] = useState<Init | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const load = useCallback(async (action = "init") => {
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateNotice, setGateNotice] = useState("");
+  const load = useCallback(async (action = "init"): Promise<Init | null> => {
     const r = (await api<Init>(action)) as Init;
-    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return; }
+    if (!r.ok) { setFailed(r.error || "تعذّر التحميل"); return null; }
     setFailed(null);
     setInit(r);
+    return r;
   }, [api]);
   useEffect(() => { void load(); }, [load]);
+  const checkGate = async () => {
+    if (gateBusy) return;
+    setGateBusy(true);
+    setGateNotice("جارٍ فحص اشتراكك لدى Telegram…");
+    const result = await load("gate_check");
+    setGateNotice(result
+      ? result.gate ? "لم يظهر اشتراكك بعد. تأكد من الانضمام إلى القناة ثم أعد الفحص." : "✅ تم تأكيد الاشتراك."
+      : "تعذّر فحص الاشتراك الآن. تحقق من اتصالك وحاول مجدداً.");
+    setGateBusy(false);
+  };
 
   if (failed && !init) return <div className="mx-auto max-w-md p-4"><Empty icon="⚠️" title={failed} sub="افتح التطبيق من زر «التطبيق» في محادثة البوت." action={<Btn onClick={() => void load()}>إعادة المحاولة</Btn>} /></div>;
   if (!init) return <div className="mx-auto max-w-md p-4"><div className="h-40 animate-pulse rounded-3xl" style={{ background: "var(--app-card)" }} /><div className="mt-4"><Loading lines={4} /></div></div>;
@@ -48,7 +61,11 @@ function Shell() {
     return (
       <main className="mx-auto max-w-md p-4">
         <Empty icon="📡" title="اشترك في القناة أولاً" sub={`هذا البوت يطلب الاشتراك في @${init.gate.channel} قبل الاستخدام.`}
-          action={<div className="flex flex-col gap-2"><Btn onClick={() => open(`https://t.me/${init.gate!.channel}`)}>اشترك في القناة</Btn><Btn kind="soft" onClick={() => void load("gate_check")}>اشتركت، تحقّق</Btn></div>} />
+          action={<div className="flex flex-col gap-2">
+            <Btn disabled={gateBusy} onClick={() => open(`https://t.me/${init.gate!.channel}`)}>اشترك في القناة</Btn>
+            <Btn kind="soft" disabled={gateBusy} onClick={() => void checkGate()}>{gateBusy ? "جارٍ فحص الاشتراك…" : "اشتركت، تحقّق"}</Btn>
+            {gateNotice && <p role="status" aria-live="polite" className="pt-1 text-center text-xs leading-5" style={{ color: "var(--app-hint)" }}>{gateNotice}</p>}
+          </div>} />
       </main>
     );
   }

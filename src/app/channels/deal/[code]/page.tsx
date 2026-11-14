@@ -13,7 +13,7 @@ const STATUS: Record<string, string> = {
 export default async function DealPage({ params }: { params: Promise<{ code: string }> }) {
   const code = decodeURIComponent((await params).code).toUpperCase();
   const d = await dealByCode(code).catch(() => null);
-  if (!d) return <main className="mx-auto max-w-xl px-4 py-8"><h1 className="text-xl font-extrabold">الطلب غير موجود</h1></main>;
+  if (!d || d.kind === "ASSET_SALE") return <main className="mx-auto max-w-xl px-4 py-8"><h1 className="text-xl font-extrabold">الطلب غير موجود</h1></main>;
   return (
     <main className="mx-auto max-w-xl px-4 py-8">
       <p className="text-xs text-slate-500">احفظ هذه الصفحة لمتابعة طلبك</p>

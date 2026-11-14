@@ -103,3 +103,49 @@ describe("the graphical Linux desktop RPC contract", () => {
     expect(cleanDesktopArgs({ action: "launch", app: "notepad" as any })).toBeNull();
   });
 });
+
+describe("richer desktop input actions", () => {
+  test("double click, drag, scroll at a point and the clipboard pass the bounded cleaner", () => {
+    expect(cleanDesktopArgs({ action: "dblclick", x: 10, y: 20 })).toEqual({ action: "dblclick", x: 10, y: 20 });
+    expect(cleanDesktopArgs({ action: "drag", x: 10, y: 20, x2: 300, y2: 400 })).toEqual({ action: "drag", x: 10, y: 20, x2: 300, y2: 400 });
+    expect(cleanDesktopArgs({ action: "drag", x: 10, y: 20 })).toBeNull();
+    expect(cleanDesktopArgs({ action: "scroll", direction: "left", amount: 2, x: 5, y: 6 })).toMatchObject({ direction: "left", amount: 2, x: 5, y: 6 });
+    expect(cleanDesktopArgs({ action: "scroll", direction: "sideways" as any })).toBeNull();
+    expect(cleanDesktopArgs({ action: "clipboard_set", text: "x".repeat(30000) })?.text).toHaveLength(20000);
+    expect(cleanDesktopArgs({ action: "clipboard_get" })).toEqual({ action: "clipboard_get" });
+    expect(cleanDesktopArgs({ action: "type", text: "x".repeat(2000) })?.text).toHaveLength(1200);
+  });
+});
+
+describe("the shared hub's desktop is Nova's only", () => {
+  test("Sham and Sham v2 reach THEIR OWN Studio (desktop_do / desktop_live), never the hub; Nova and LFM reach the hub", async () => {
+    const saved = { hub: process.env.COMPUTER_STUDIO_URL, v1: process.env.SHAM_MODELSCOPE_URL, v2: process.env.SHAM_V2_URL };
+    process.env.COMPUTER_STUDIO_URL = "https://hub.test";
+    process.env.SHAM_MODELSCOPE_URL = "https://sham1.test";
+    process.env.SHAM_V2_URL = "https://sham2.test";
+    try {
+      const { desktopTargetFor, desktopDo } = await import("@/lib/desktopComputer");
+      expect(desktopTargetFor("sham")).toEqual({ base: "https://sham1.test", own: true });
+      expect(desktopTargetFor("sham_v2")).toEqual({ base: "https://sham2.test", own: true });
+      expect(desktopTargetFor("coder")).toEqual({ base: "https://hub.test", own: false });
+      expect(desktopTargetFor("lfm25")).toEqual({ base: "https://hub.test", own: false });
+      expect(desktopTargetFor("nope")).toBeNull();
+      const urls: string[] = [];
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(String(input));
+        if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
+        return new Response('event: complete\ndata: ["{\\"ok\\":true,\\"phase\\":\\"stopped\\"}"]\n\n', { status: 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      await desktopDo("sham_v2", "1:sham_v2", { action: "status" }, fetchMock);
+      expect(urls[0]).toBe("https://sham2.test/gradio_api/call/desktop_do");
+      const live = await desktopLive("sham", "1:sham", 5, fetchMock);
+      expect(live.ok).toBe(true);
+      expect(urls.some((u) => u.includes("sham1.test/gradio_api/call/desktop_live"))).toBe(true);
+      expect(urls.every((u) => !u.includes("hub.test"))).toBe(true);
+    } finally {
+      for (const [k, v] of [["COMPUTER_STUDIO_URL", saved.hub], ["SHAM_MODELSCOPE_URL", saved.v1], ["SHAM_V2_URL", saved.v2]] as const) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+  });
+});

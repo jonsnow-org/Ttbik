@@ -4,6 +4,7 @@ import { activateAd, adStars, bannerBalance, findSiteBot, markSiteAdPaid, SITE_A
 import { adReportUrl } from "@/lib/adStats";
 import { gateUrl } from "@/lib/hostingOps";
 import { CHANNEL_STARS_PREFIX, dealByCode, markDealPaid } from "@/lib/channels/exchange";
+import { assetSalePaymentIsAvailable } from "@/lib/channels/assetMarket";
 import { SPONSOR_STARS_PREFIX, markSponsorPaid, sponsorByCode } from "@/lib/khatma/khatma";
 import { REMIT_STARS_PREFIX, linkCompanyChat, listingByCode, markListingPaid, reviewListing } from "@/lib/remit/listings";
 import { parseRefCommand, runRefCommand } from "@/lib/remit/refLinks";
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
     } else if (payload.startsWith(CHANNEL_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const deal = await dealByCode(payload.slice(CHANNEL_STARS_PREFIX.length)).catch(() => null);
       ok = !!deal && deal.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(deal.price);
+      if (deal && ok && deal.kind === "ASSET_SALE") ok = String(pcq.from?.id || "") === String(deal.advertiser_tg_id || "") && await assetSalePaymentIsAvailable(deal.code);
     } else if (payload.startsWith(SPONSOR_STARS_PREFIX) && siteAdStarsEnabled() && pcq.currency === "XTR") {
       const sp = await sponsorByCode(payload.slice(SPONSOR_STARS_PREFIX.length)).catch(() => null);
       ok = !!sp && sp.status === "PENDING_PAYMENT" && Number(pcq.total_amount) >= adStars(sp.price);
@@ -111,11 +113,18 @@ export async function POST(req: NextRequest) {
     const code = String(sp.invoice_payload).slice(CHANNEL_STARS_PREFIX.length);
     const deal = await dealByCode(code).catch(() => null);
     if (deal && Number(sp.total_amount) >= adStars(deal.price)) {
-      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160));
+      const payerTelegramId = String(update.message.from?.id || "");
+      const r = await markDealPaid(code, `Stars ${sp.total_amount}⭐ ${String(sp.telegram_payment_charge_id || "").slice(0, 24)}`, undefined, String(sp.telegram_payment_charge_id || "").slice(0, 160), deal.kind === "ASSET_SALE" ? payerTelegramId : undefined);
       const msg = deal.kind === "BADGE"
         ? `✅ وصل الدفع (${sp.total_amount} ⭐). شارة ☑️ لقناة @${deal.channel} مفعّلة لسنة.`
-        : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
-      if (r.ok) await send(update.message.chat.id, msg).catch(() => null);
+        : deal.kind === "ASSET_SALE"
+          ? `✅ وصل دفع صفقة الأصل ${code} (${sp.total_amount} ⭐). ابدأوا خطوات نقل الملكية من سوق الأصول داخل التطبيق. لن يُصرف المبلغ قبل التحقق من أن حساب المشتري أصبح المالك.`
+          : `✅ وصل الدفع (${sp.total_amount} ⭐) لطلب ${code}. المبلغ محفوظ لدى المنصة حتى يُنشر إعلانك في @${deal.channel} ونتحقق منه.\nالمتابعة: ${SITE}/channels/deal/${code}`;
+      if (r.ok && r.first) await send(update.message.chat.id,
+        deal.kind === "ASSET_SALE" && r.assetSaleAccepted === false
+          ? `⚠️ وصل دفع مرتبط بالصفقة ${code}، لكنه لا يطابق شروط الحجز أو حساب المشتري المسجل. لم تُعتمد الصفقة ولم يبدأ التسليم؛ تراجع الإدارة الاسترداد. لا تنقلوا الأصل.`
+          : msg
+      ).catch(() => null);
     }
     return NextResponse.json({ ok: true });
   }

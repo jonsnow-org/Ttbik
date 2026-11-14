@@ -207,7 +207,6 @@ def _load(model_dir: Path) -> None:
                 _say(f"extended Qwen3 context from {current} to {target} tokens (RoPE; weights unchanged)")
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="",
                  context_tokens=int(getattr(getattr(serve._state.get("model"), "cfg", None), "max_seq_len", 0)))
-    _refresh_media_assets(model_dir)
     _say("ready: the model is loaded")
     # Sham v2 (1.7B) builds its llama.cpp copy only when SHAM_GGUF_V2=1: on this 2-CPU Studio the export competes with the replies for minutes (owner's "مرحبا" went to the background leg right
     # after the first GGUF-enabled deploy, 2026-11-09), so it stays off until it is measured on the live Studio. Sham v1 keeps its copy as before.
@@ -229,40 +228,6 @@ def _load(model_dir: Path) -> None:
             STATE["revision"] = json.loads(manifest.read_text(encoding="utf-8")).get("sha", "")[:12]
         except Exception:
             pass
-
-
-def _refresh_media_assets(model_dir: Path) -> None:
-    """Refresh media readiness independently from the large text checkpoint."""
-    try:
-        from sham_media_ready import inspect_ready_assets
-        assets = inspect_ready_assets(model_dir)
-        STATE["media_assets"] = assets
-        STATE["media_root"] = assets["root"] if assets["ready"] else ""
-        if os.environ.get("SHAM_LOCAL_VIDEO", "") != "1" and assets.get("root"):
-            # video weights fetched here by the earlier in-process video path (~2.9 GiB of this Studio's ~9.8 GiB disk) are dead weight now: reclaim them
-            import shutil as _shutil
-            _old = Path(assets["root"]) / "video_animatediff"
-            if _old.is_dir():
-                _shutil.rmtree(_old, ignore_errors=True)
-                _say("removed the unused in-Studio video weights (video lives in the video Studio)")
-        image_mb = assets.get("image_bytes", 0) / 2**20
-        audio_mb = assets.get("audio_bytes", 0) / 2**20
-        _say(f"media assets: ready={assets['ready']} image={image_mb:.1f} MiB audio={audio_mb:.1f} MiB reason={assets.get('reason', '')[:100]}")
-    except Exception as exc:                                # noqa: BLE001
-        STATE["media_root"] = ""
-        STATE["media_assets"] = {"ready": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
-        _say(f"media check failed: {type(exc).__name__}")
-
-
-def _media_signature(model_dir: Path) -> tuple:
-    """Cheap metadata-only signature so new media weights are detected without hashing gigabytes."""
-    root = model_dir / "media"
-    if not root.is_dir():
-        return ()
-    return tuple(
-        (str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
-        for p in sorted(root.rglob("*")) if p.is_file()
-    )
 
 
 def _hot_sync(model_dir: Path) -> None:
@@ -308,26 +273,19 @@ def _worker_status() -> dict:
 
 def _worker() -> None:
     last_sha = None
-    last_media_sig = None
     while True:
         try:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
+            # snapshot_download only ADDS files to its local cache: a file deleted from the model repo (sham_media_ready.py, 2026-11-11) stayed in the cached studio_code/ and made the
+            # signature check fail for good on a Studio that was not restarted. The signed code is small, so it is fetched fresh every cycle (the running worker uses its own copy, HOT).
+            for stale in (HERE / "_models").rglob("studio_code") if (HERE / "_models").exists() else []:
+                shutil.rmtree(stale, ignore_errors=True)
             model_dir = _download()
-            # Detect the packaged donor media independently before attempting to load Sham's text checkpoint.
-            # A broken/not-yet-ready text body must not hide usable local image and speech weights.
-            _refresh_media_assets(model_dir)
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
             sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
-            media_sig = _media_signature(model_dir)
             if sha is None or sha != last_sha or STATE["phase"] != "ready":
                 _load(model_dir)
                 last_sha = sha
-                last_media_sig = _media_signature(model_dir)
-            elif media_sig != last_media_sig:
-                # Media weights are published in a separate workflow and intentionally
-                # do not change the text checkpoint manifest. Refresh only media state.
-                _refresh_media_assets(model_dir)
-                last_media_sig = media_sig
             _hot_sync(model_dir)
         except Exception as exc:
             STATE.update(phase="waiting" if STATE["phase"] != "ready" else "ready",
@@ -365,8 +323,6 @@ def status() -> str:
         msg["bank"] = {"passages": len(b) if b is not None else 0, "sha": _BANK["sha"][:12], "built": (b.manifest.get("built") if b is not None else ""), "error": _BANK["error"], "repo": BANK_ID}
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
-    if not msg.get("media_assets", {}).get("ready"):
-        msg["media_hint"] = "لم تُثبت جاهزية الأوزان المحلية للصورة والصوت؛ لن يُستخدم أي مولّد خارجي. افحص media_assets.reason."
     return json.dumps(msg, ensure_ascii=False)
 
 
@@ -586,7 +542,9 @@ def agent_step(prompt: str, tools_json: str = "[]", max_new_tokens: float = 160,
         kind, first, result = embedded.step(lambda p: _studio_chat().studio_generate(model, tok, p, n, search_fn=None), extract_tool_call, str(prompt or ""), active_names,
                                             str(session or "default"))
         if kind == "embedded":
-            return json.dumps({"type": "embedded_step", "text": first.get("text", ""), "tool_call": {"id": "call_" + uuid.uuid4().hex[:16], "type": "function",
+            import sham_desktop
+            offer = sham_desktop.pop_show(str(session or "default")) if first.get("name") == "desktop" else None      # the model chose to show its screen: the offer travels IN its reply
+            return json.dumps({"type": "embedded_step", **({"desktop": offer} if offer else {}), "text": first.get("text", ""), "tool_call": {"id": "call_" + uuid.uuid4().hex[:16], "type": "function",
                                "function": {"name": first["name"], "arguments": json.dumps(first["arguments"], ensure_ascii=False, separators=(",", ":"))}},
                                "result": str(result)[:3500]}, ensure_ascii=False)
         raw, trace = first, []
@@ -655,6 +613,52 @@ def computer_view(body: str = "") -> str:
         return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
 
 
+def _desktop_body(body: str) -> dict:
+    import base64
+    text = str(body or "")
+    if text.startswith("b64:"):
+        text = base64.b64decode(text[4:].encode("ascii"), validate=True).decode("utf-8")
+    return json.loads(text or "{}")
+
+
+def desktop_do(body: str = "") -> str:
+    """The model's OWN embedded desktop (sham_desktop.py), for a client that shows it: start / stop / status / launch and a human's tap, drag, key or paste. The reply carries a JPEG
+    after an input so the viewer redraws at once. Same functions the model's `desktop` tool calls; the ModelScope token is the door here, serve.py has its own."""
+    try:
+        import base64
+        import sham_desktop
+        job = _desktop_body(body)
+        session = str(job.pop("session", "") or "default")
+        reply = sham_desktop.serve_input(session, job)
+        if reply.get("ok") is not False and str(job.get("action") or "status") != "stop":
+            frame = sham_desktop.serve_frame(session)
+            if frame:
+                reply = {**reply, "screenshot_b64": base64.b64encode(frame).decode("ascii")}
+        return json.dumps(reply, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+
+
+def desktop_live(body: str = ""):
+    """About two frames a second for up to 25 s of the model's embedded desktop (the viewer reconnects when it ends)."""
+    import base64
+    import sham_desktop
+    try:
+        job = _desktop_body(body)
+    except Exception as exc:  # noqa: BLE001
+        yield json.dumps({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+        return
+    session = str(job.get("session") or "default")
+    end = time.time() + max(1, min(25, int(job.get("seconds") or 20)))
+    while time.time() < end:
+        frame = sham_desktop.serve_frame(session)
+        if not frame:
+            yield json.dumps({"ok": True, "phase": "stopped"})
+            return
+        yield json.dumps({"ok": True, "phase": "running", "screenshot_b64": base64.b64encode(frame).decode("ascii")})
+        time.sleep(0.5)
+
+
 def _vet(res, raw_test: bool = False):
     """Per-request owner raw-output test; the bot client still checks decoding and model/weight identity."""
     if raw_test:
@@ -678,43 +682,23 @@ def _busy_wait() -> float:
 # Hugging Face generation implementation is preserved in quarantine/huggingface/modelscope-sham-app.py.disabled.
 
 def _generate_media_with_backend(kind: str, prompt: str, backend: str, scenes: list[str] | None = None, narration: str = "", raw_test: bool = False, seconds: float = 0) -> str:
-    """Run exactly the selected Sham-owned path: internal tokens or packaged donor weights. No silent fallback."""
+    """Run Sham's OWN token generator (the only generator: no packaged donor weights, no external model). No silent fallback."""
     selected = (backend or "internal").strip().lower()
-    if selected not in ("internal", "ready"):
-        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف."}, ensure_ascii=False)
-    if selected == "ready" and not _V2:
-        return json.dumps({"type": "error", "reason": "no_donor_generator", "text": "شام يولّد بمولّده الأساسي فقط؛ المسار البديل (أوزان جاهزة) غير موجود في شام."}, ensure_ascii=False)
-
-    # The donor-weight generator is self-contained and must remain usable even
-    # while Sham's separate text checkpoint is loading or unavailable.
-    if selected == "ready":
-        if not STATE.get("media_root"):
-            return json.dumps({
-                "type": "error",
-                "text": "المسار البديل غير جاهز: لم تُعثر أوزان الصورة والصوت المحلية المطلوبة داخل مستودع شام. اختر «شام الداخلي» أو جهّز الأوزان محلياً."
-            }, ensure_ascii=False)
-    elif STATE["phase"] != "ready":
+    if selected != "internal":
+        return json.dumps({"type": "error", "text": "مسار الوسائط المحدد غير معروف: لشام مولّده الداخلي فقط."}, ensure_ascii=False)
+    if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
-
-    if selected == "ready" and kind.strip().lower() == "video" and os.environ.get("SHAM_LOCAL_VIDEO", "") != "1":
-        # The video pipeline needs 4-5.5 GB of RAM: loading it next to the text model killed this Studio (HTTP 502 right after sampling). Real video is Sham v2's own video Studio
-        # (sham-v2-video-server); the bot calls it directly. SHAM_LOCAL_VIDEO=1 brings the old in-process path back (a Studio with the RAM for it).
-        return json.dumps({"type": "error", "reason": "video_elsewhere", "text": "الفيديو يُصنع في استوديو الفيديو الخاص بشام v2، لا في استوديو المحادثة."}, ensure_ascii=False)
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        if selected == "ready":
-            from sham_media_ready import make
-            result = make(Path(STATE["media_root"]), kind, prompt, scenes=scenes, narration=narration)
-        else:
-            import serve
-            result = _studio_media().make_media(
-                serve._state["model"], serve._state["text_tokenizer"],
-                serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
-                kind.strip().lower(), prompt,
-                motion_tokenizer=serve._state.get("motion_tokenizer"),
-                num_frames=(max(48, min(2400, int(round(seconds * 8)))) if seconds and kind.strip().lower() == "video" else None),   # 8 fps: 6 s = 48 frames … 300 s = 2400
-            )
+        import serve
+        result = _studio_media().make_media(
+            serve._state["model"], serve._state["text_tokenizer"],
+            serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
+            kind.strip().lower(), prompt,
+            motion_tokenizer=serve._state.get("motion_tokenizer"),
+            num_frames=(max(48, min(2400, int(round(seconds * 8)))) if seconds and kind.strip().lower() == "video" else None),   # 8 fps: 6 s = 48 frames … 300 s = 2400
+        )
         result = _vet(result, raw_test=raw_test)
         if isinstance(result, dict):
             result.setdefault("backend", selected)
@@ -732,7 +716,7 @@ def generate_media(kind: str, prompt: str) -> str:
     return _generate_media_with_backend(kind, prompt, backend)
 
 
-PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal", **({"المسار البديل (أوزان محلية جاهزة)": "ready"} if _V2 else {})}      # owner 2026-11-08: Sham v1 has NO generator but its own; the donor "ready" route is gone from it     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
+PANEL_BACKENDS = {"شام الداخلي (الأساسي)": "internal"}      # owner 2026-11-08: Sham v1 has NO generator but its own; the donor "ready" route is gone from it     # the labels clients send (src/lib/shamStudio.ts SHAM_BACKEND_LABELS)
 
 
 def generate_media_from_panel(kind: str, prompt: str, backend_label: str, scenes_json: str = "", narration: str = "", raw_test: bool = False, seconds: float = 0) -> str:
@@ -918,9 +902,13 @@ def build_ui():
                                    api_name="computer_changes", flagging_mode="never"))
     labels.append("تغييرات الحاسوب المدمج (قراءة فقط)")
     interfaces.append(gr.Interface(computer_view, gr.Textbox(label="body"), gr.Textbox(label="view"), api_name="computer_view", flagging_mode="never"))
+    interfaces.append(gr.Interface(desktop_do, gr.Textbox(label="body"), gr.Textbox(label="desktop"), api_name="desktop_do", flagging_mode="never"))
+    interfaces.append(gr.Interface(desktop_live, gr.Textbox(label="body"), gr.Textbox(label="live"), api_name="desktop_live", flagging_mode="never"))
     interfaces.append(gr.Interface(bank_search, [gr.Textbox(label="query"), gr.Number(label="k", value=4)], gr.Textbox(label="results"), api_name="bank_search", flagging_mode="never"))
     labels.append("مخزن المعرفة المركزي (قراءة فقط)")
     labels.append("شاشة الحاسوب المدمج (قراءة فقط)")
+    labels.append("سطح المكتب المدمج")
+    labels.append("بث سطح المكتب المدمج")
     return gr.TabbedInterface(interfaces, labels, title="شام — Sham")
 
 

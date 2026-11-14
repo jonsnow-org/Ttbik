@@ -13,7 +13,7 @@ What comes out is whatever the model's tokens decode to — at this stage of tra
 tokenizers' and the model's own training, never dressed up. Video IS made from the model's own tokens: it writes one keyframe image span plus a motion
 span (motion_tokenizer.py's flow tokens) inside <VIDEO_START>...<VIDEO_END>, and the clip is decoded frame by frame through that motion — real temporal
 content, not two stitched stills. NO_VIDEO is returned only when no motion tokenizer is available (an older checkpoint with no motion rows trained), and it
-points to the ready text-to-video path (sham_media_ready.py / cpu_video.py) rather than to a slideshow.
+says plainly that this checkpoint has no motion rows (never a slideshow, never an outside generator).
 
 The result is a dict {"type": "text|image|audio|video|notice", "text": ..., "mime": ..., "b64": ...}. This file lives in sham_small, so it reaches the Studio
 through the signed hot copy (app.py loads it from there).
@@ -28,7 +28,7 @@ import torch
 
 
 # modules that hold the Studio's LIVE state (the loaded model, caches, background jobs): never re-imported from the hot copy
-_KEEP_LOADED = frozenset({"serve", "web_access", "cpu_video", "sham_media_ready", "sham_general_text", "sham_auto_config", "sham_cell_sync",
+_KEEP_LOADED = frozenset({"serve", "web_access", "sham_general_text", "sham_auto_config", "sham_cell_sync",
                           "sham_trigger_restarter", "sham_bank", "sham_kb", "sham_gguf", "sham_encoder_np"})
 
 
@@ -160,7 +160,7 @@ def _video_frames() -> int:
 # fabricated file, never silent. The model's OWN motion-token video is the
 # normal path above (_video_result), and the separate video Studio is the
 # alternative for a checkpoint with no motion rows.
-NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. استخدم استوديو الفيديو أو أعد التدريب مع motion_tokenizer. لن يُعاد إليك فيديو مُفبرك."}
+NO_VIDEO = {"type": "notice", "text": "لا يمكن توليد فيديو من هذه النقطة: لا تحتوي صفوف الحركة (motion) المدرّبة. شام يصنع فيديوه بمولّده وحده، فيلزم تدريب مُرمِّز الحركة (motion_tokenizer) أولًا. لن يُعاد إليك فيديو مُفبرك."}
 
 
 def _video_chunk_frames() -> int:
@@ -310,6 +310,9 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     from sham_decoding import chat_prompt_ids
     from sham_studio_chat import build_user_text, studio_generate
     stripped = prompt.strip()
+    from sham_studio_chat import split_modes
+    if split_modes(prompt)[1].get("text"):      # words only: the app retries this way after the model's own first choice (a picture) failed the quality gate on a plain message
+        return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
     if stripped.startswith("#pmedia "):      # diagnostic for the owner: how likely is it that the model, by itself, starts a picture / sound / clip for this text?
         return {"type": "text", "text": media_preference(model, tokenizer, stripped[8:], today)}
     if stripped == "#info" or stripped.startswith("#raw "):
@@ -385,6 +388,8 @@ if __name__ == "__main__":
     long_v = make_media(model, Tok(), img_tok, aud_tok, "video", "رحلة طويلة", motion_tokenizer=mot_tok, num_frames=8)
     assert long_v["type"] == "video" and long_v["frames"] == 8, long_v.get("frames")
     assert base64.b64decode(long_v["b64"])[4:8] == b"ftyp"
+    tw = generate_any(model, Tok(), img_tok, aud_tok, "[[sham text=1]]\nاقرأ الملف", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)
+    assert tw["type"] == "text", "the words-only header must skip the model's media choice"
     t = generate_any(model, Tok(), img_tok, aud_tok, "مرحبا", 6, d, choose=lambda *a, **k: 5)
     assert t["type"] == "text" and t["text"]
     assert "صورة" in generate_any(model, Tok(), img_tok, aud_tok, "#pmedia أعطني صورة أرنب", 6, d)["text"]

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Bot as TelegramBot } from "grammy";
-import { settleEscrow } from "@/lib/jobsBotLogic";
+import { settleEscrow, escrowFeeBreakdown } from "@/lib/jobsBotLogic";
 
 // Auto-release stale escrowed StoreOrders (owner spec, 2026-09-05): if a
 // buyer never presses "لقد استلمت المنتج" and never opens a dispute
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     if (openDispute && openDispute.status !== "RESOLVED") continue; // left for manual admin resolution
 
     // Same atomic settle as the bot's buttons (see settleEscrow in jobsBotLogic.ts).
+    const breakdown = await escrowFeeBreakdown(order.id, order.amount);
     const settled = await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE");
     if (!settled) continue; // already settled by the buyer/admin in the meantime
     released++;
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
         botCache.set(botRow.id, bot);
       }
       await bot.api
-        .sendMessage(Number(order.sellerId), `✅ تم تحرير مبلغ $${order.amount.toFixed(2)} لرصيدك تلقائياً بعد مرور ${ESCROW_AUTO_RELEASE_DAYS} أيام دون بلاغ أو نزاع.`)
+        .sendMessage(Number(order.sellerId), `✅ تم تحرير صافي ${breakdown.sellerNet.toFixed(2)} لرصيدك تلقائياً بعد خصم عمولة المنصة ${breakdown.platformFee.toFixed(2)} ومرور ${ESCROW_AUTO_RELEASE_DAYS} أيام دون بلاغ أو نزاع.`)
         .catch(() => null);
       await bot.api
         .sendMessage(Number(order.buyerId), `ℹ️ تم تحرير مبلغ طلبك تلقائياً للبائع بعد مرور ${ESCROW_AUTO_RELEASE_DAYS} أيام دون تأكيد استلام أو فتح نزاع.`)

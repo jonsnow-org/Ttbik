@@ -150,6 +150,8 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
+  // the secret box (src/lib/secretVault.ts): the user types a password / token into a masked field of the app (never into the chat); the model only ever sees the NAME and writes {{secret:name}} in tool arguments
+  tool("request_secret", "Ask the user for a password, token, API key or login in a secure box that is shown in the app (NEVER ask for these in the chat and never repeat one). Give a short name (letters, digits, - and _) and say what it is for. The answer is only 'stored'; afterwards write {{secret:name}} wherever the value belongs in a tool argument (a typed password, a command, an HTTP header) and the system fills it in. If the user cannot use the box, tell them to type it themselves on the computer screen (take over).", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for, in the user's language") }, ["name", "purpose"])),
   // scheduled tasks (src/lib/coderSchedules.ts): the user asks in plain words, the model creates the schedule itself; the dispatcher runs it
   tool("schedule_create", "Schedule a task that runs by itself later and reports back to the user in this chat. kind 'cron' = repeats on a time pattern; kind 'event' = runs when something happens in a GitHub repository. Write the prompt as a complete standalone instruction with the concrete subject (the scheduled run does not see this conversation, so 'a short summary' is useless unless it says a summary OF WHAT). If the subject or the time is unclear, ask the user with ask_user first.", obj({
     title: s("short name"), prompt: s("the full instruction the scheduled run will carry out"), kind: { type: "string", enum: ["cron", "event"] },
@@ -159,7 +161,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("schedule_list", "List the user's scheduled tasks (id, title, when, next run, status).", obj({})),
   tool("schedule_delete", "Delete one of the user's scheduled tasks by id (from schedule_list).", obj({ id: s("schedule id") }, ["id"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
-  tool("plan", "Write or UPDATE the task's TODO list (call it first for any non-trivial task, and again when a step is done or the plan changes). Each item: a short step and its status. The list is kept for the whole task and shown back to you.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
+  tool("plan", "Write or UPDATE the TODO list, only for work that changes or builds something in 3+ steps (never for reading, explaining or answering). At most 5 items of at most 6 words; update only when the plan changes.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("knowledge_search", "Search the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions; each passage with its source). Use it BEFORE searching the web for a fact or an explanation, and cite the source.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
@@ -215,7 +217,7 @@ const GROUP_TEXT: Record<ToolGroup, string> = {
 export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
   const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
   const g: Record<string, CoderTool[]> = {
-    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...DESKTOP_TOOL_DEFS, ...by(["send_file"])],
+    computer: [...COMPUTER_BOX_TOOL_DEFS, ...BROWSER_TOOL_DEFS, ...DESKTOP_TOOL_DEFS, ...by(["send_file", "request_secret"])],
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
@@ -308,10 +310,10 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
   if (opts.agent) return AGENT_SYSTEM(now, opts.agent, opts.agentRole, opts.agentDepth) + (opts.github ? "" : "\nGitHub tools are not connected.") + (opts.notes ? `\n${opts.notes}` : "");
   return [
     "You are Nova AI, a coding assistant: an expert software engineer and agent. Reply in the user's language (Arabic or English); code and identifiers stay in English.",
-    "Identity: you are Nova AI, with your own identity. If asked who you are or who made you, answer simply: \"I'm Nova AI\" (in the user's language). Never say you were made, trained or built by the Sham team or by any other company or model, never name a base model or model family, and do not discuss training details.",
+    "Identity: you are Nova AI, with your own identity. If asked who you are or who made you, answer simply: \"I'm Nova AI\" (in the user's language). Never say you were made, trained or built by the Sham team or by any other company or model, never name a base model or model family, and do not discuss training details. Say your name ONLY when the user asks who you are; for every other message (greetings, facts, maths, tasks) answer that message directly, in the user's own language, and never repeat this identity sentence.",
     "Messages marked [new message from the user while you were working] arrive in the middle of a task. Treat them like a colleague interrupting: say in one short line that you got it, answer a question right away if it is one, fold a changed instruction into the plan, and keep going with the task without restarting or stopping.",
     "Work like a senior engineer on a real project, in a loop:",
-    "1. PLAN: for any non-trivial task first write a short numbered plan (write it with the plan tool: a TODO list you update as steps finish).",
+    "1. PLAN: only for work that CHANGES or BUILDS something in 3+ steps, write the plan with the plan tool (at most 5 items of at most 6 words) and update it only when it really changes. For reading, explaining, searching and answering questions do NOT plan: just do it. You write about 5 words a second, so every word you write costs time: be brief in plans, tool arguments and answers, and match the requested length (a \"short paragraph\" is at most 4 sentences).",
     "2. ACT: use the tools one step at a time. Read the relevant files before changing them; never guess file contents or APIs.",
     "READING RULE: never describe a file, folder or project from its name. When asked what files contain or do, read them first (github_read_files takes up to 4 files in one call; github_repo_scan gives a repository's lay in one call) and say only what you read. Answer EVERY part of the request in the form and length asked (\"five lines\" = five lines, \"each file\" = one line per file); before you finish, check each part was answered, and say plainly what you could not check.",
     "ASK FIRST: if the request does not name what to work on (which repository, project, file, site or document), or only asks \"can you ...?\", do NOT search, clone or pick something yourself: say in one or two sentences what you can do and ask ONE question with ask_user (which repository? which file?). Never report on work done on something the user did not name as if it were theirs.",
@@ -658,7 +660,22 @@ export type ToolCtx = {
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
 };
 
+/** The secret box around every tool: {{secret:name}} in the arguments is replaced by the value only here, at run time, and the value is put back to its reference in whatever the tool printed. */
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
+  const key = ctx.userId === undefined || ctx.userId === null ? "" : String(ctx.userId);   // the chat id: the same key the app uses when the user fills the box
+  const raw = call.function?.arguments;
+  if (!key || typeof raw !== "string" || !raw.includes("secret:")) return runToolInner(call, ctx);
+  const V = await import("@/lib/secretVault");
+  let resolved: CoderToolCall;
+  try {
+    resolved = { ...call, function: { ...call.function, arguments: JSON.stringify(V.resolveSecretsDeep(key, JSON.parse(raw))) } };
+  } catch (e) {
+    return `error: ${String((e as Error)?.message || e).slice(0, 200)}`;
+  }
+  return V.scrubSecrets(key, await runToolInner(resolved, ctx));
+}
+
+async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
   const name = call.function.name;
   try {

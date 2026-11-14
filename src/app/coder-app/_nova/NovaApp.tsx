@@ -26,6 +26,7 @@ import {
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
 
+const GraphicalDesktop = dynamic(() => import("./GraphicalDesktop"), { ssr: false, loading: () => <div className="n-card" style={{ minHeight: 220 }} aria-busy="true" /> });
 const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
 type Tab = "home" | "chats" | "computer" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
@@ -1064,6 +1065,24 @@ export default function NovaApp() {
   const resolved = resolveMode(mode, tgDark);
   const onHero = tab === "home" && !page;
   useEffect(() => { paintTelegram(resolved, onHero && !!me); }, [resolved, onHero, me]);
+  // A Sham that chose to show its screen (desktop action=show) leaves a "screen" event; the screen opens by itself here, over whatever page is open (owner only).
+  const [offer, setOffer] = useState<{ id: number; model: string } | null>(null);
+  const seenOffer = useRef(0);
+  const computerOn = Boolean(me?.features?.computer) && me?.tier === "owner";
+  useEffect(() => {
+    if (!computerOn) return;
+    try { seenOffer.current = Number(sessionStorage.getItem("n-screen-seen") || 0); } catch { /* storage blocked */ }
+    const poll = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const r = await api<{ offer: { id: number; model: string } | null }>("screen_offer");
+        if (r.offer && r.offer.id > seenOffer.current) { seenOffer.current = r.offer.id; try { sessionStorage.setItem("n-screen-seen", String(r.offer.id)); } catch { /* ignore */ } haptic("success"); setOffer(r.offer); }
+      } catch { /* the next poll tries again */ }
+    };
+    void poll();
+    const id = setInterval(poll, 12000);
+    return () => clearInterval(id);
+  }, [computerOn]);
   const closePage = useCallback(() => setPage(null), []);
   useEffect(() => (page ? bindBack(true, closePage) : undefined), [page, closePage]);
   useEffect(() => { window.scrollTo(0, 0); }, [tab, page]);
@@ -1120,6 +1139,9 @@ export default function NovaApp() {
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}
       </main>
+      <Sheet open={Boolean(offer)} onClose={() => setOffer(null)} title={lang === "ar" ? "شاشة النموذج" : "The model's screen"}>
+        {offer ? <GraphicalDesktop key={offer.model + offer.id} model={offer.model} ar={lang === "ar"} /> : null}
+      </Sheet>
       {!page && ctx && (
         <nav className="n-nav" aria-label="Nova">
           {TABS.filter((id) => id !== "computer" || ctx.me.features?.computer).map((id) => (

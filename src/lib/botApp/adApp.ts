@@ -28,6 +28,7 @@ import { getMasterHotWalletAddress, getOrCreateTonMemo, isNativeTonConfigured } 
 import { apiKey as remitKey, createTransferRecord, deleteRecipient, fmt as rfmt, FROM_COUNTRIES, parseAmount, quoteAmount, savedRecipients, syncTransferStatus, TO_COUNTRIES, transferByTrack, transfersOf, type Transfer } from "@/lib/remit/office";
 import { coinById, FINAL, PAY_COINS, RECEIVE, STATUS_AR } from "@/lib/remit/changenow";
 import { createAdDeal, createBadgeOrder, dealByCode, dealsForAdvertiser, dealsForChannel, listingByToken, listingTokensForOwner, payDeal, publicListings, requestListing, submitPost, verifyListing } from "@/lib/channels/exchange";
+import { assetIdentityForUser, assetVerifierBotNames, createAssetListing, createAssetSale, publicAssetListings, myAssetListings, myAssetSales, assetSaleDetails, reportAssetTransfer, confirmAssetReceipt, upsertAssetIdentity } from "@/lib/channels/assetMarket";
 import { BADGE_PRICE_USD, COMMISSION_RATE, MAX_DEAL_USD, MIN_DEAL_USD } from "@/lib/channels/auditRules";
 import { isValidTronPayoutAddress } from "@/lib/channels/payoutAddress";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
@@ -96,6 +97,7 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
   if (tgId !== SUPER_ADMIN_ID && (await isPrivateBot(botRow.id))) return fail("🔒 هذا البوت خاص بإدارة المنصة.", "private");
   const bot = new TelegramBot(botRow.token);
   const user = await ensureUser(botRow.id, tgId, botRow);
+  await upsertAssetIdentity({ id: tgId, firstName: tg.firstName || "", lastName: tg.lastName || null, username: tg.username || null, phoneNumber: user.phoneNumber || null, phoneVerified: !!user.phoneVerified }).catch(() => null);
   const lang: Lang = user.language === "en" ? "en" : "ar";
 
   if (action === "init" || action === "gate_check") {
@@ -189,9 +191,16 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       return r === "already" ? fail(t(lang, "reportAlready"), "already") : { ok: true, message: t(lang, "reportReceived") };
     }
     case "phone_prompt": {
-      // The chat's own «share phone» keyboard: the contact it sends is verified by the bot exactly as before.
-      await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) }).catch(() => null);
-      return { ok: true };
+      // The chat's own «share phone» keyboard: verification is complete only after
+      // the incoming contact message is written to User.phoneVerified.
+      try {
+        await bot.api.sendMessage(Number(tgId), t(lang, "phoneVerifyPrompt"), { reply_markup: phoneKeyboard(lang) });
+        return { ok: true };
+      } catch {
+        return fail(lang === "en"
+          ? "Could not send the phone-sharing button. Open the bot chat and send /start."
+          : "تعذّر إرسال زر مشاركة الرقم. افتح محادثة البوت وأرسل /start.", "phone_prompt_failed");
+      }
     }
     case "accounts": {
       const plats: SocialPlatform[] = ["twitter", "tiktok", "facebook", "instagram", "link"];
@@ -424,6 +433,57 @@ export async function handleAdAppAction(botRow: BotRow, tg: TgWebAppUser, action
       return { ok: true, link: me?.username ? `https://t.me/${me.username}?start=pay_${a}` : "", address: a };
     }
 
+    // ------------------------------------------------------------------ 🛍️ سوق ملكية أصول تيليجرام (ID-first identity + verified handover)
+    case "ex_asset_identity_request": {
+      try {
+        await bot.api.sendMessage(Number(tgId), "لإكمال هوية البائع والمشتري، شارك رقم هاتفك عبر زر تيليجرام الرسمي أدناه. لا ترسل الرقم كتابةً أو في رسالة عادية.", {
+          reply_markup: new Keyboard().requestContact("📱 مشاركة رقم هاتفي").resized(),
+        });
+        const me = await bot.api.getMe().catch(() => null);
+        return { ok: true, sent: true, link: me?.username ? `https://t.me/${me.username}` : null };
+      } catch {
+        return fail("افتح محادثة هذا البوت واضغط Start أولاً، ثم أعد طلب مشاركة رقم الهاتف.");
+      }
+    }
+    case "ex_asset_list": {
+      try {
+        const [listings, myListings, mySales, identity, verifierBots] = await Promise.all([
+          publicAssetListings(), myAssetListings(tgId), myAssetSales(tgId), assetIdentityForUser(tgId), assetVerifierBotNames(),
+        ]);
+        return { ok: true, listings, myListings, mySales, identity, verifierBots,
+          rules: { commissionPct: 0, phoneRequired: true } };
+      } catch {
+        return fail("تعذّر تحميل سوق الأصول حالياً. أعد المحاولة.");
+      }
+    }
+    case "ex_asset_create": {
+      if (!rateLimit(`adapp-asset-create:${tgId}`, 4, 600_000)) return fail("طلبات كثيرة. حاول بعد دقائق.");
+      const r = await createAssetListing({
+        assetType: String(body?.assetType || "").toUpperCase() as any,
+        identifier: String(body?.identifier || ""), title: String(body?.title || ""),
+        description: String(body?.description || ""), price: Number(body?.price),
+        payoutAddress: String(body?.payoutAddress || ""),
+      }, tgId);
+      return r.ok ? { ok: true, id: r.id, status: r.status, verificationMode: r.verificationMode } : fail(r.error);
+    }
+    case "ex_asset_buy": {
+      if (!rateLimit(`adapp-asset-buy:${tgId}`, 5, 600_000)) return fail("طلبات شراء كثيرة. تمهّل قليلاً.");
+      const r = await createAssetSale(String(body?.listingId || ""), tgId);
+      return r.ok ? { ...r } : fail(r.error);
+    }
+    case "ex_asset_sale": {
+      const code = String(body?.code || "").toUpperCase();
+      const sale = await assetSaleDetails(code, tgId);
+      return sale ? { ok: true, sale } : fail("الصفقة غير موجودة لهذا الحساب.");
+    }
+    case "ex_asset_transfer": {
+      const r = await reportAssetTransfer(String(body?.code || "").toUpperCase(), tgId, String(body?.evidence || ""));
+      return r.ok ? { ok: true, status: r.status } : fail(r.error);
+    }
+    case "ex_asset_receive": {
+      const r = await confirmAssetReceipt(String(body?.code || "").toUpperCase(), tgId);
+      return r.ok ? { ok: true, verified: r.verified, manualReview: !!r.manualReview } : fail(r.error);
+    }
     // ------------------------------------------------------------------ 📣 بورصة القنوات والجروبات (15% escrow commission, 100% platform)
     case "ex_list": {
       try {

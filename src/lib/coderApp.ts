@@ -77,9 +77,15 @@ async function pendings(chatId: number, db: Db) {
   const { loadState } = await sections();
   const waiting = await listTasks(chatId, { active: true, limit: 30 }, db);
   const out: Json[] = [];
+  const { openSecretRequests } = await import("@/lib/secretVault");
+  for (const r of openSecretRequests(chatId)) out.push({ runId: "", nonce: `secretreq:${r.name}`, reason: "secret", summary: r.purpose || r.name, tool: "request_secret", categories: [], title: "", slot: "", at: r.at, secret: { name: r.name } });
   const slots = new Set<string>(["", ...waiting.map((t) => t.slot)]);
   for (const slot of slots) {
     const st = await loadState(chatId, db, slot);
+    const ask = st.run?.asking;
+    if (st.run && ask?.kind === "secret") {                    // the secure box: shown as a masked field, never as chat text
+      out.push({ runId: st.run.id, nonce: `secret:${ask.id}`, reason: "secret", summary: ask.question, tool: "request_secret", categories: [], title: st.run.title || "", slot, at: ask.at || null, secret: { name: ask.secretName || "" } });
+    }
     const p = st.run?.pending;
     if (st.run && p) {
       const c = p.calls[0];
@@ -199,6 +205,42 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
+    }
+    case "secret_answer": {
+      // the user fills (or cancels) the secure box: the value goes straight to the in-memory vault; the model is told only "stored"
+      const slot = String(body.slot || "");
+      const V = await import("@/lib/secretVault");
+      if (!body.runId) {
+        // Sham v1 / v2 (their round ended with the request): the box answers by a short follow-up message that names the secret and never holds its value
+        const nm = String(body.name || "");
+        if (!V.openSecretRequests(chatId).some((r) => r.name === nm)) throw new AppError(409, "no secret is awaited");
+        if (body.cancel) { V.closeSecretRequest(chatId, nm); return { ok: true, cancelled: true, followup: `[الخانة الآمنة] لن أعطيك ${nm} الآن.` }; }
+        try { V.putSecret(chatId, nm, String(body.value ?? ""), { ttlMs: Number(body.ttlMinutes) > 0 ? Number(body.ttlMinutes) * 60_000 : undefined }); }
+        catch (e) { throw new AppError(400, String((e as Error)?.message || "bad secret").slice(0, 160)); }
+        V.closeSecretRequest(chatId, nm);
+        return { ok: true, stored: nm, followup: `[الخانة الآمنة] حفظتُ ${nm}. استعمله بكتابة {{secret:${nm}}} في وسيط الأداة ثم أكمل مهمتي.` };
+      }
+      const st = await loadStateStrict(chatId, db, slot);
+      const ask = st.run?.asking;
+      if (!st.run || !ask || ask.kind !== "secret" || st.run.id !== String(body.runId || "")) throw new AppError(409, "no secret is awaited");
+      const { answerSecretAsk } = await import("@/lib/coderSections");
+      if (body.cancel) { await answerSecretAsk(deps.bot, deps.botRow, chatId, st, "cancelled", db, slot); return { ok: true, cancelled: true }; }
+      try { V.putSecret(chatId, String(ask.secretName || ""), String(body.value ?? ""), { ttlMs: Number(body.ttlMinutes) > 0 ? Number(body.ttlMinutes) * 60_000 : undefined, label: ask.question }); }
+      catch (e) { throw new AppError(400, String((e as Error)?.message || "bad secret").slice(0, 160)); }
+      await answerSecretAsk(deps.bot, deps.botRow, chatId, st, "stored", db, slot);
+      return { ok: true, stored: ask.secretName };
+    }
+    case "secret_list": {
+      const V = await import("@/lib/secretVault");
+      return { secrets: V.listSecretNames(chatId) };
+    }
+    case "secret_delete": {
+      const V = await import("@/lib/secretVault");
+      return { ok: V.deleteSecret(chatId, String(body.name || "")) };
+    }
+    case "screen_offer": {
+      if (user.tier !== "owner") return { offer: null };
+      return { offer: await (await import("@/lib/coderTasks")).latestScreenOffer(chatId, db) };
     }
     case "task_delete": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");

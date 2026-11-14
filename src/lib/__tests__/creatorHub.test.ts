@@ -1,6 +1,6 @@
 import { crisisMessage, detectCrisis, LEGAL_DISCLAIMER, legalRequestIsHighRisk, mindReplyIsSafe, withLegalDisclaimer } from "@/lib/hub/safety";
 import { badgesFor, canRedeemBashar, DAILY_CAP, levelFor, pointsToAward } from "@/lib/hub/points";
-import { applyChatEdit, buildFromDescription, detectTemplate, makeSlug, MAX_ITEMS, validateAppConfig } from "@/lib/hub/appConfig";
+import { appPalette, applyChatEdit, buildFromDescription, contrastRatio, detectColor, detectTemplate, makeSlug, MAX_ITEMS, validateAppConfig } from "@/lib/hub/appConfig";
 import { draftLegalDoc, repurposeFallback } from "@/lib/hub/tools";
 
 describe("crisis detection", () => {
@@ -104,6 +104,20 @@ describe("app config", () => {
     expect(applyChatEdit(c, "اللون أخضر").config.color).toBe("#16a34a");
     expect(applyChatEdit(c, "غيّر الاسم إلى مسك").config.title).toBe("مسك");
     expect(applyChatEdit(c, "مرحبا").changed).toBeNull();
+  });
+
+  it("supports extended palette names and keeps foreground contrast readable", () => {
+    expect(detectColor("صفحة باللون الكحلي")).toBe("#1e3a8a");
+    expect(detectColor("brand in teal")).toBe("#0f766e");
+    expect(detectColor("one hundred items")).toBeNull();
+
+    const gold = appPalette("#b8860b");
+    expect(contrastRatio(gold.onBrand, gold.brand)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(gold.text, "#ffffff")).toBeGreaterThanOrEqual(4.5);
+
+    const custom = appPalette("#808080");
+    expect(contrastRatio(custom.onBrand, custom.brand)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(custom.text, "#ffffff")).toBeGreaterThanOrEqual(4.5);
   });
 });
 

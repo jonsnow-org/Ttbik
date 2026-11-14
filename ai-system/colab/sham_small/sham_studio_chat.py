@@ -24,7 +24,7 @@ import torch
 
 
 # modules that hold the Studio's LIVE state (the loaded model, caches, background jobs): never re-imported from the hot copy
-_KEEP_LOADED = frozenset({"serve", "web_access", "cpu_video", "sham_media_ready", "sham_general_text", "sham_auto_config", "sham_cell_sync",
+_KEEP_LOADED = frozenset({"serve", "web_access", "sham_general_text", "sham_auto_config", "sham_cell_sync",
                           "sham_trigger_restarter", "sham_bank", "sham_kb", "sham_gguf", "sham_encoder_np"})
 
 
@@ -142,6 +142,8 @@ def split_modes(prompt: str) -> tuple[str, dict]:
                 out["temp"] = min(1.5, max(0.0, float(v)))
             elif k == "think":
                 out["think"] = max(0, min(2048, int(float(v))))
+            elif k == "text":       # the app asks for words only: a first try came back as a blank picture for a message that was not a media request (2026-11-13)
+                out["text"] = v in ("1", "true", "yes")
         except ValueError:
             pass
     return prompt[m.end():], out

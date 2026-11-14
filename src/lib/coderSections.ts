@@ -42,7 +42,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret"; secretName?: string };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
@@ -324,6 +324,16 @@ async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: C
   await taskStatus(run.id, "running", run.step, db);
   await saveState(chatId, st, db, slot);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot));
+}
+
+/** The app's secure box was filled (or cancelled): the value is already in the vault; the model gets only "stored" and the name. */
+export async function answerSecretAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, outcome: "stored" | "cancelled", db: Db, slot = ""): Promise<void> {
+  const ask = st.run?.asking;
+  if (!ask || ask.kind !== "secret") throw new Error("no secret is awaited");
+  const text = outcome === "stored"
+    ? `stored. Use it by writing {{secret:${ask.secretName}}} in tool arguments (the value is hidden from you and from the chat).`
+    : "the user declined to give it. Continue without it or explain what you need.";
+  await answerAsk(bot, botRow, chatId, st, text, db, slot);
 }
 
 /** Sham uses its own Studio; the selected model (and its access switch) decides whether this route may run. */
@@ -615,6 +625,11 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   }
   if (!content) {
     await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
+    return true;
+  }
+  if (st.run?.asking?.kind === "secret") {                 // a secret is awaited: nothing typed in the chat is taken as one
+    if (/^(إلغاء|الغاء|cancel)$/i.test(content.trim())) await answerAsk(bot, botRow, chatId, st, "المستخدم رفض تقديم السرّ. أكمل بدونه أو اشرح للمستخدم ما تحتاجه.", db);
+    else await send(bot, chatId, "🔐 هذه خانة آمنة: أدخل القيمة في التطبيق المصغر وليس هنا، أو اكتب «إلغاء».");
     return true;
   }
   if (st.run?.asking) {                                     // the agent asked a question: this message is the answer
@@ -1045,6 +1060,7 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
   }
 
   if (!coderEnabled() && currentEngineModel() !== "lfm25") throw new Error("coder service is not configured");
+  if (st.run?.asking?.kind === "secret") throw new Error("a secret is awaited: fill the secure box (or cancel it); nothing typed here is taken as a secret");
   if (st.run?.asking) {                                     // a terminal command answers the agent's question
     await answerAsk(bot, botRow, chatId, st, content, db);
     return { runId: st.run.id, queued: true };
@@ -1894,6 +1910,25 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
+      if (call.function.name === "request_secret") {
+        // the secret box: the task waits for the user to fill a masked field in the app (op secret_answer); the value never enters the chat, the history or the log
+        const a = parseArgs(call);
+        const { isSecretName } = await import("@/lib/secretVault");
+        const nm = String(a.name || "").trim();
+        if (!isSecretName(nm)) {
+          st.messages.push({ role: "tool", content: "error: name must be letters, digits, - or _ (2-40 characters, starting with a letter)", tool_call_id: call.id || "rs", name: "request_secret" });
+          continue;
+        }
+        const why = String(a.purpose || "").trim().slice(0, 300);
+        run.queued = rest;
+        run.asking = { id: call.id || "rs", name: "request_secret", question: why || nm, at: Date.now(), kind: "secret", secretName: nm };
+        await closeCard(ioBot, chatId, run, "🔐 بانتظار الخانة الآمنة.");
+        await taskEvent(run.id, "confirm", `🔐 طلب سرّ باسم ${nm}${why ? `: ${why}` : ""} (القيمة لا تُسجَّل)`, db);
+        await taskStatus(run.id, "waiting", run.step, db);
+        await saveState(chatId, st, db, slot);
+        await send(bot, chatId, `🔐 ${why || nm}\n\nافتح التطبيق المصغر وأدخل القيمة في «الخانة الآمنة» (لا تكتبها هنا في المحادثة).`);
+        return;
+      }
       if (call.function.name === "ask_user") {
         // not a tool that runs: the question goes to the chat and the task waits (without a time limit) for the user's answer
         const a = parseArgs(call);
@@ -2494,6 +2529,14 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
       }
     }
+    // A task must always END with a report. Owner 2026-11-12: Nova read a repository for about 5 hours and never gave a clear report. After a wall-clock budget
+    // (CODER_TASK_WRAP_MIN, default 30 min; 0 = off) the next step is the last: tools are withdrawn and the model writes the report from what it has read,
+    // saying what is missing; the user can then ask it to continue. Agents keep their own step budgets.
+    const wrapMs = (Number(process.env.CODER_TASK_WRAP_MIN ?? 30) || 0) * 60000;
+    if (wrapMs > 0 && !run.agent && !run.softSteps && run.step > 0 && Date.now() - (run.startedAt || Date.now()) > wrapMs) {
+      run.softSteps = run.step + 1;
+      await taskEvent(run.id, "info", "⏱️ انتهت ميزانية الوقت للمهمة؛ الخطوة التالية هي كتابة التقرير بما تمّت قراءته.");
+    }
     const softLast = Boolean(run.softSteps && run.step >= run.softSteps - 1);
     if (softLast && !run.softWarned) {
       run.softWarned = true;
@@ -2555,7 +2598,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
       // one fixed example pair (same text every time, so the Studio caches it): a small model answered «من انت» by repeating the question (live LFM2.5, 2026-11-04)
       const who = modelDisplayName(novaModelOf(st.model));
-      const example: CoderMessage[] = prof.klass === "trivial" ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
+      // the one-shot example is ONLY for a greeting / "who are you": a small model (LFM2.5) copied its identity answer to "capital of Egypt" and "capital of Syria" (live task suite 2026-11-12)
+      const askedWho = /(?:من\s+(?:أنت|انت)|مرحب|أهلا|اهلا|السلام|who are you|^\s*(?:hi|hello|hey)\b)/i.test(String([...plain].reverse().find((m) => m.role === "user")?.content || ""));
+      const example: CoderMessage[] = prof.klass === "trivial" && askedWho ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
       // the language rule is explicit: LFM2.5 answered the Arabic «من انت» in English (live 2026-11-04). Two fixed texts (Arabic / other), so the cache still holds.
       const lastUserText = String([...plain].reverse().find((m) => m.role === "user")?.content || "");
       const arabic = /[\u0600-\u06FF]/.test(lastUserText);

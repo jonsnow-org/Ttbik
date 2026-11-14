@@ -1,0 +1,38 @@
+name: Sham Kaggle kernel log (read-only)
+
+# Reads the end of the log of ONE Kaggle notebook (status + the last lines of its own log file), so a failed run can be diagnosed without opening Kaggle.
+# Read-only: nothing on Kaggle is started, stopped or changed. Secrets that look like tokens are masked before printing.
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Kernel slug under the Kaggle account, e.g. sham-v2-tools-train"
+        required: true
+        default: "sham-v2-tools-train"
+      lines:
+        description: "How many lines from the end of the log to print"
+        required: false
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle six
+      - name: Status and end of the log
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          SLUG: ${{ inputs.slug }}
+          LINES: ${{ inputs.lines }}
+        run: python3 ai-system/supervision/sham_kernel_log.py

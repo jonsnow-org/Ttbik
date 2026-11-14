@@ -1,0 +1,38 @@
+name: Nova decode speed bench (free, read-only)
+
+# Nova's wait is dominated by GENERATION (about 5 tokens/s on the 2-core Studio) and by cold prompt reading (about 30 tokens/s). This measures, with the SAME llama.cpp build and
+# model as the Studio, pinned to 2 cores, which free options make a real difference before anything is changed in the Studio: speculative decoding from the prompt (ngram),
+# a small draft model of the same family, flash attention, a quantised KV cache, and the prompt batch size. Two generations are timed: free prose, and copy-heavy output
+# (a file edit: what an agent writes most). Manual only; nothing is changed anywhere.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - name: llama.cpp, the model and a draft model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          curl -sSL --fail -o draft.gguf "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf" || echo "no draft model file (skipping that variant)"
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          "$BIN/llama-server" --help 2>&1 | grep -n -E -- '--spec|--draft|--model-draft|flash-attn|cache-type-k|--ubatch|--batch-size' | head -20
+          nproc; ls -l model.gguf draft.gguf 2>/dev/null
+      - name: bench every variant (2 cores each)
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          python3 .github/scripts/nova_decode_bench.py "$BIN" | tee result.txt
+          { echo "### Nova decode bench (2 cores)"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

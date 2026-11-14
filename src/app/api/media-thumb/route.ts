@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   try {
     const img = await fetch(imageUrl, { cache: "no-store" });
     const type = img.headers.get("content-type") || "";
-    if (!img.ok || !type.startsWith("image/")) return new NextResponse("upstream failed", { status: 502 });
+    if (!img.ok || !type.startsWith("image/")) return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "public, max-age=300, s-maxage=600" } });
     return new NextResponse(img.body, {
       headers: {
         "content-type": type,
@@ -51,6 +51,6 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch {
-    return new NextResponse("upstream failed", { status: 502 });
+    return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "public, max-age=300, s-maxage=600" } });
   }
 }

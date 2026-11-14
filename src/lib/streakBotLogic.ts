@@ -42,8 +42,8 @@ const appButton = (botRow: BotRow, label: string, section?: "khatma" | "contests
 const appMenuDone = new Set<string>();
 async function ensureStreakAppMenu(botRow: BotRow): Promise<void> {
   if (appMenuDone.has(botRow.id)) return;
-  appMenuDone.add(botRow.id);
-  await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  const updated = await setBotAppMenu(botRow.token, gateUrl(), botRow.id).catch(() => false);
+  if (updated) appMenuDone.add(botRow.id);
 }
 
 // ---------------------------------------------------------------------

@@ -50,6 +50,8 @@ export async function shamAgentRun(opts: {
   tools: CoderTool[];
   budgetMs: number;
   maxSteps?: number;
+  /** The host tells whether the user's message asked for a picture / sound / clip (Sham modules never import Nova's media detector); absent = no check. */
+  mediaAsked?: (userText: string) => boolean;
   maxNew?: number;
   mode?: ShamMode;
   ask?: ShamAsk;
@@ -61,7 +63,7 @@ export async function shamAgentRun(opts: {
   exec?: (call: CoderToolCall, ctx: ShamCtx) => Promise<string>;
   now?: () => number;
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
-  onEvent?: (kind: "tool" | "info" | "text", text: string) => void;   // what the terminal shows of this run (the shared task log)
+  onEvent?: (kind: "tool" | "info" | "text" | "screen", text: string) => void;   // what the terminal shows of this run (the shared task log)
   onDelta?: (text: string) => void;         // each streamed piece of the direct-chat answer as the model writes it (live view)
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
@@ -184,6 +186,7 @@ export async function shamAgentRun(opts: {
   const lim = v2 ? { turns: 10, turnChars: 1400, maxChars: 10000 } : { turns: 6, turnChars: 400, maxChars: 3600 };
   const toolClip = v2 ? 5000 : 1800;
   let recoveries = 0;
+  let mediaRefused = false;
   let steps = 0;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
     let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown; seconds?: number } = {};
@@ -273,6 +276,10 @@ export async function shamAgentRun(opts: {
       const result = String(reply.result || "");
       opts.onStep?.({ type: "tool_end", name: c.function.name, ok: !/^error/i.test(result) });
       opts.onEvent?.("info", clip(result, 300));
+      if (reply.desktop) {
+        opts.onEvent?.("info", "🖥 شام يعرض لك شاشته الآن.");
+        opts.onEvent?.("screen", JSON.stringify({ model: opts.ctx.modelId }));      // the Mini App opens the screen by itself when it sees this
+      }
       messages.push({ role: "assistant", content: String(reply.text || ""), tool_calls: [c] } as CoderMessage);
       messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: clip(result, toolClip) } as CoderMessage);
       continue;
@@ -326,12 +333,37 @@ export async function shamAgentRun(opts: {
     }
     const made = valid.find((c) => c.function.name === "make_media");
     if (made) {
+      // Live task suite 2026-11-12: Sham v1 answered "what is the capital of Egypt", a web search and a file read by calling make_media (a blank picture). The model may make a
+      // picture / sound / clip only when the user's own message asks for one (the same detector the fast lane uses); otherwise it is told to answer in words, once.
+      const lastUser = String([...messages].reverse().find((m) => m.role === "user")?.content || "");
+      if (opts.mediaAsked && !opts.mediaAsked(lastUser.slice(0, 300)) && !mediaRefused) {
+        mediaRefused = true;
+        messages.push({ role: "assistant", content: p.text, tool_calls: [made] } as CoderMessage);
+        messages.push({ role: "tool", name: "make_media", tool_call_id: made.id, content: "error: the user did not ask for a picture, sound or video. Answer their message in words." } as CoderMessage);
+        continue;
+      }
+    }
+    if (made) {
       // a picture / sound / clip takes minutes on the CPU Studio (measured: 123 s for a 256x256 picture): inside the webhook it goes to the background leg, which waits long
       if (opts.continuable && left() < 160000) {
         messages.push({ role: "assistant", content: p.text, tool_calls: [made] } as CoderMessage);
         return { kind: "more", messages, used: [...used, "make_media"], steps: steps + 1 };
       }
       return runMedia(made, [...used, "make_media"], steps + 1);
+    }
+    const secret = valid.find((c) => c.function.name === "request_secret");
+    if (secret) {
+      // the secure box: the app shows a masked field; the value never enters the chat, and the model only learns the name. The round ends with the request.
+      let nm = "", why = "";
+      try { const a = JSON.parse(secret.function.arguments || "{}") as { name?: string; purpose?: string }; nm = String(a.name || "").trim(); why = String(a.purpose || "").trim(); } catch { /* the validator already checked it */ }
+      const V = await import("@/lib/secretVault");
+      if (!V.isSecretName(nm)) {
+        messages.push({ role: "assistant", content: p.text, tool_calls: [secret] } as CoderMessage);
+        messages.push({ role: "tool", name: "request_secret", tool_call_id: secret.id, content: "error: name must be letters, digits, - or _ (2-40 characters, starting with a letter)" } as CoderMessage);
+        continue;
+      }
+      V.requestSecret(opts.ctx.chatId, nm, why);
+      return { kind: "ask", question: `🔐 ${why || nm}\n\nافتح «الخانة الآمنة» في التطبيق المصغر وأدخل القيمة هناك (لا تكتبها في المحادثة). اسمها: ${nm}`, used, steps: steps + 1 };
     }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {

@@ -26,7 +26,7 @@ KNOWN = {
     "sham-v1-server": "Sham old: chat + own image/audio tokens",
     "sham-v2-server": "Sham v2 chat + packaged image/audio weights",
     "sham-v2-overflow-server": "Sham v2 text overflow replica",
-    "sham-v2-video-server": "Sham v2 dedicated video generation",
+    "sham-v2-video-server": "Sham trainer 6 (image codec); formerly the external-generator video Studio, removed by the owner 2026-11-11",
     "lfm25-inference-server": "LFM2.5-8B-A1B chat (its own Studio)",
     "lfm25-media-server": "LFM2.5 own media: image + speech + video",
 }

@@ -18,7 +18,7 @@
 كل نموذج مستقل في الاستدلال والوسائط (`docs/STUDIOS.md`). **لا يستعمل نموذج مولّد نموذج آخر أبدًا.**
 
 ## أين يعيش الكود (لا تنقله)
-- الكود والتدريب: `ai-system/colab/sham_small/` و`ai-system/modelscope-sham/` و`ai-system/modelscope-sham-video/`.
+- الكود والتدريب: `ai-system/colab/sham_small/` و`ai-system/modelscope-sham/` و(مسار الفيديو الخارجي أُزيل 2026-11-11).
 - مهام GitHub: `.github/workflows/sham-*.yml`. أربعة ملفات (`sham-collector` و`sham-cpu-trainer` و`sham-merge-eval` و`sham-status`) تسحب الآن كود شام من فرع الإنتاج نفسه (`ref: claude/free-services-marketplace-h6rwk2`، تحقق من 2026-11-08)؛ الفرع `sham-main` قديم لأن `cron` لا يعمل إلا من الفرع الافتراضي (انظر `docs/SHAM-BRANCH-NOTICE.md`).
 - **دفاتر Kaggle تسحب `ai-system/` من فرع الإنتاج `claude/free-services-marketplace-h6rwk2` بـ`git clone`**: حذف ذلك المجلد أو كسره يوقف التدريب.
 - التاريخ الكامل لما حدث: سجل git (`git log -- ai-system/`) و`docs/START_HERE.md` (حالة شام ومشاكله المعروفة).

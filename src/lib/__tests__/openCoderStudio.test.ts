@@ -86,3 +86,16 @@ describe("Nova Studio SSE streaming", () => {
   });
 
 });
+
+describe("unwrapJsonAnswer", () => {
+  const { unwrapJsonAnswer } = require("@/lib/openCoderStudio");
+  test("unwraps a whole-message JSON object, leaves everything else", () => {
+    expect(unwrapJsonAnswer('{\n "role": "system",\n "content": "I can create images."\n}')).toBe("I can create images.");
+    expect(unwrapJsonAnswer('{"reflection":"ok"}')).toBe("ok");
+    expect(unwrapJsonAnswer('{"reflection":["one"," two "]}')).toBe("one\ntwo");
+    expect(unwrapJsonAnswer('{"reflection":[1,2]}')).toBe('{"reflection":[1,2]}');
+    expect(unwrapJsonAnswer('{"name":"web_search","arguments":{}}')).toBe('{"name":"web_search","arguments":{}}');
+    expect(unwrapJsonAnswer("hello {x}")).toBe("hello {x}");
+    expect(unwrapJsonAnswer("{not json}")).toBe("{not json}");
+  });
+});

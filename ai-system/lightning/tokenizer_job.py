@@ -31,7 +31,8 @@ HOURS = float(os.environ.get("SHAM_TOK_HOURS", "3.3"))
 CHUNK_MIN = float(os.environ.get("SHAM_TOK_CHUNK_MIN", "25"))
 N_IMAGES = int(os.environ.get("SHAM_TOK_IMAGES", "24000"))
 N_AUDIO = int(os.environ.get("SHAM_TOK_AUDIO", "6000"))
-IMAGE_DATASET = "sham-image-tokenizer-v2-checkpoint"
+from sham_media_cfg import IMG_SIZE        # 256 unless SHAM_IMG_SIZE asks for a bigger (HD) lineage
+IMAGE_DATASET = "sham-image-tokenizer-v2-checkpoint" if IMG_SIZE == 256 else "sham-image-tokenizer-hd-checkpoint"   # an HD tokenizer never overwrites the serving one
 AUDIO_DATASET = "sham-audio-tokenizer-v2-checkpoint"
 
 
@@ -141,7 +142,7 @@ def main() -> int:
                 ledgers.mkdir(parents=True, exist_ok=True)
                 ledger = Ledger.load(kind, search_root=ledgers, name=f"factory_{kind}")
                 out = WORK / f"batch_{kind}_{time.strftime('%Y%m%d%H%M', time.gmtime())}"
-                manifest, stats = collect(kind, out, n, ledger, image_size=256 if kind == "image" else 64)
+                manifest, stats = collect(kind, out, n, ledger, image_size=IMG_SIZE if kind == "image" else 64)
                 ledger.save(ledgers)
                 print(f"🏭 {kind}: {stats.written:,} new samples ({stats.summary()[:100]})", flush=True)
                 if stats.written:

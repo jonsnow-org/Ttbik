@@ -10,6 +10,6 @@ export default function CoderApp() {
   // Telegram Mini Apps cannot be rendered on the server (the launch data lives in the client): render after mount, like the official template
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
-  if (!ready) return <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }} />;
+  if (!ready) return <div className="nova-loading" role="status" aria-label="جارٍ تحميل التطبيق" />;
   return <NovaApp />;
 }

@@ -2,39 +2,62 @@
 import { useState } from "react";
 import type { AppItem } from "@/lib/hub/appConfig";
 
-export default function QuizApp({ items, color }: { items: AppItem[]; color: string }) {
+export default function QuizApp({
+  items,
+  color,
+  onColor,
+}: {
+  items: AppItem[];
+  color: string;
+  onColor: string;
+}) {
   const [picked, setPicked] = useState<Record<number, number>>({});
   const done = Object.keys(picked).length === items.length && items.length > 0;
   const score = items.reduce((s, it, i) => s + (picked[i] === it.answer ? 1 : 0), 0);
+  const reset = () => setPicked({});
+
   return (
-    <div className="space-y-3">
+    <section className="user-created-app__quiz" aria-label="أسئلة الاختبار">
       {items.map((it, i) => (
-        <div key={i} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-          <div className="font-bold text-slate-900">{i + 1}. {it.title}</div>
+        <article key={i} className="user-created-app__quiz-question" aria-labelledby={`user-quiz-question-${i}`}>
+          <h2 id={`user-quiz-question-${i}`} className="font-bold leading-7 text-slate-900">
+            {i + 1}. {it.title}
+          </h2>
           <div className="mt-3 grid gap-2">
-            {(it.options || []).map((o, k) => {
+            {(it.options || []).map((option, k) => {
               const chosen = picked[i] === k;
-              const show = picked[i] !== undefined;
-              const right = k === it.answer;
+              const answered = picked[i] !== undefined;
+              const correct = k === it.answer;
+              const className = [
+                "user-created-app__quiz-option",
+                answered && correct ? "is-correct" : "",
+                chosen && !correct ? "is-wrong" : "",
+              ].filter(Boolean).join(" ");
               return (
                 <button
                   key={k}
-                  disabled={show}
-                  onClick={() => setPicked({ ...picked, [i]: k })}
-                  className={`rounded-xl border p-2 text-right text-sm ${show && right ? "border-emerald-500 bg-emerald-50" : chosen ? "border-rose-400 bg-rose-50" : "border-slate-200"}`}
+                  type="button"
+                  disabled={answered}
+                  aria-pressed={chosen}
+                  className={className}
+                  onClick={() => setPicked((current) => ({ ...current, [i]: k }))}
                 >
-                  {o}
+                  <span>{option}</span>
+                  {answered && correct && <span className="mr-2 font-bold text-emerald-700">✓ صحيحة</span>}
+                  {chosen && !correct && <span className="mr-2 font-bold text-rose-700">إجابتك</span>}
                 </button>
               );
             })}
           </div>
-        </div>
+        </article>
       ))}
       {done && (
-        <div className="rounded-2xl p-4 text-center font-extrabold text-white" style={{ background: color }}>
-          نتيجتك: {score} من {items.length}
+        <div className="user-created-app__quiz-result" role="status" aria-live="polite" style={{ background: color, color: onColor }}>
+          <div className="text-2xl font-extrabold">{score} / {items.length}</div>
+          <p className="mt-1 text-sm font-bold">نتيجتك في الاختبار · {Math.round((score / items.length) * 100)}٪</p>
+          <button type="button" className="user-created-app__quiz-reset" onClick={reset}>أعد الاختبار</button>
         </div>
       )}
-    </div>
+    </section>
   );
 }

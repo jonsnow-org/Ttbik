@@ -5,64 +5,577 @@
       "id": "athar",
       "fine": true,
       "accent": "#e8b84a",
-      "bg": ["#0b1020", "#1b2347"],
+      "bg": [
+        "#0b1020",
+        "#1b2347"
+      ],
       "logo": "public/athar-bot-avatar.png",
       "name": "Athar · أثر",
-      "tagline": ["A living token for every day of the calendar", "رمز حيّ لكل يوم في التقويم"],
-      "points": [["Your birthday, your anniversary, a day you love", "يوم ميلادك أو زواجك أو يوم تحبه"], ["It grows more beautiful the longer you keep it", "يزداد جمالاً كلما طال بقاؤه عندك"], ["A keepsake on TON. Not an investment.", "ذكرى على TON، وليست استثماراً"]],
-      "shots": [{"url": "https://athar.89-168-89-15.sslip.io/", "caption": ["Find your day", "اعثر على يومك"]}],
-      "cta": ["Open Athar in Telegram", "افتح أثر في تيليجرام"],
+      "tagline": [
+        "A living token for every day of the calendar",
+        "رمز حيّ لكل يوم في التقويم"
+      ],
+      "points": [
+        [
+          "Your birthday, your anniversary, a day you love",
+          "يوم ميلادك أو زواجك أو يوم تحبه"
+        ],
+        [
+          "It grows more beautiful the longer you keep it",
+          "يزداد جمالاً كلما طال بقاؤه عندك"
+        ],
+        [
+          "A keepsake on TON. Not an investment.",
+          "ذكرى على TON، وليست استثماراً"
+        ]
+      ],
+      "shots": [
+        {
+          "url": "https://athar.89-168-89-15.sslip.io/",
+          "caption": [
+            "Find your day",
+            "اعثر على يومك"
+          ]
+        }
+      ],
+      "cta": [
+        "Open Athar in Telegram",
+        "افتح أثر في تيليجرام"
+      ],
       "handle": "@AtharDaysBot"
     },
     {
       "id": "zenobia",
       "fine": true,
       "accent": "#d9a441",
-      "bg": ["#1a0f08", "#4a2a14"],
+      "bg": [
+        "#1a0f08",
+        "#4a2a14"
+      ],
       "logo": "public/zenobia/coin-icon.jpg",
       "name": "Zenobia · زنوبيا",
-      "tagline": ["Zenobia, queen of Palmyra: history and a transparent game on TON", "زنوبيا ملكة تدمر: تاريخ ولعبة شفافة على TON"],
-      "points": [["Silk Road Passport that grows with its age", "جواز طريق الحرير يكبر بعمره"], ["Caravan board: who held longest", "لوحة القافلة: من احتفظ أطول"], ["Scores are ranks and titles only", "النقاط رتب وألقاب فقط"]],
-      "shots": [{"path": "/zenobia/silk.html", "caption": ["Silk Road Passport", "جواز طريق الحرير"]}, {"path": "/zenobia/hall.html", "caption": ["Caravan board", "لوحة القافلة"]}],
-      "cta": ["Join the caravan", "انضم إلى القافلة"],
-      "handle": "@Zenobia_Palmyrabot"
+      "tagline": [
+        "Zenobia, queen of Palmyra: history and a transparent game on TON",
+        "زنوبيا ملكة تدمر: تاريخ ولعبة شفافة على TON"
+      ],
+      "points": [
+        [
+          "Silk Road Passport that grows with its age",
+          "جواز طريق الحرير يكبر بعمره"
+        ],
+        [
+          "Caravan board: who held longest",
+          "لوحة القافلة: من احتفظ أطول"
+        ],
+        [
+          "Scores are ranks and titles only",
+          "النقاط رتب وألقاب فقط"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/zenobia/silk.html",
+          "caption": [
+            "Silk Road Passport",
+            "جواز طريق الحرير"
+          ]
+        },
+        {
+          "path": "/zenobia/hall.html",
+          "caption": [
+            "Caravan board",
+            "لوحة القافلة"
+          ]
+        }
+      ],
+      "cta": [
+        "Join the caravan",
+        "انضم إلى القافلة"
+      ],
+      "handle": "@Zenobia_Palmyrabot",
+      "channel": "coins"
     },
     {
       "id": "palmyra-launch",
       "fine": true,
       "accent": "#e0a64b",
-      "bg": ["#0e1a1f", "#1f3a44"],
+      "bg": [
+        "#0e1a1f",
+        "#1f3a44"
+      ],
       "logo": "public/zenobia/coin-icon.jpg",
       "name": "Palmyra Launch · تدمر لانش",
-      "tagline": ["Launch your own coin on TON", "أطلق عملتك الخاصة على TON"],
-      "points": [["A few taps, fees shown before you confirm", "خطوات قليلة والرسوم تظهر قبل التأكيد"], ["Browse coins launched by others", "تصفّح عملات أطلقها الآخرون"], ["Not financial advice. Crypto is risky.", "ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر"]],
-      "shots": [{"path": "/zenobia/coins.html", "caption": ["Browse coins", "تصفّح العملات"]}],
-      "cta": ["Open Palmyra Launch", "افتح Palmyra Launch"],
-      "handle": "@PalmyraLaunchBot"
+      "tagline": [
+        "Launch your own coin on TON",
+        "أطلق عملتك الخاصة على TON"
+      ],
+      "points": [
+        [
+          "A few taps, fees shown before you confirm",
+          "خطوات قليلة والرسوم تظهر قبل التأكيد"
+        ],
+        [
+          "Browse coins launched by others",
+          "تصفّح عملات أطلقها الآخرون"
+        ],
+        [
+          "Not financial advice. Crypto is risky.",
+          "ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/zenobia/coins.html",
+          "caption": [
+            "Browse coins",
+            "تصفّح العملات"
+          ]
+        }
+      ],
+      "cta": [
+        "Open Palmyra Launch",
+        "افتح Palmyra Launch"
+      ],
+      "handle": "@PalmyraLaunchBot",
+      "channel": "coins"
     },
     {
       "id": "sham-ai",
       "accent": "#5ac8a8",
-      "bg": ["#0b1a16", "#16423a"],
+      "bg": [
+        "#0b1a16",
+        "#16423a"
+      ],
       "logo": "public/zenobia/coin-icon.jpg",
       "name": "Sham AI · شام AI",
-      "tagline": ["Free tools, Telegram bots and news in Arabic", "أدوات مجانية وبوتات تيليجرام وأخبار بالعربية"],
-      "points": [["Free tools that run in your browser", "أدوات مجانية تعمل في متصفحك"], ["Bots for jobs, matching, prayer times and more", "بوتات للوظائف والتعارف ومواقيت الصلاة وغيرها"], ["No sign-up needed for most tools", "معظم الأدوات بلا تسجيل"]],
-      "shots": [{"path": "/", "caption": ["Everything in one place", "كل شيء في مكان واحد"]}, {"path": "/free-tools", "caption": ["Free tools", "أدوات مجانية"]}],
-      "cta": ["Visit the site", "زر الموقع"],
+      "tagline": [
+        "Free tools, Telegram bots and news in Arabic",
+        "أدوات مجانية وبوتات تيليجرام وأخبار بالعربية"
+      ],
+      "points": [
+        [
+          "Free tools that run in your browser",
+          "أدوات مجانية تعمل في متصفحك"
+        ],
+        [
+          "Bots for jobs, matching, prayer times and more",
+          "بوتات للوظائف والتعارف ومواقيت الصلاة وغيرها"
+        ],
+        [
+          "No sign-up needed for most tools",
+          "معظم الأدوات بلا تسجيل"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/",
+          "caption": [
+            "Everything in one place",
+            "كل شيء في مكان واحد"
+          ]
+        },
+        {
+          "path": "/free-tools",
+          "caption": [
+            "Free tools",
+            "أدوات مجانية"
+          ]
+        }
+      ],
+      "cta": [
+        "Visit the site",
+        "زر الموقع"
+      ],
       "handle": "t.me/ttbik5"
     },
     {
       "id": "literium",
       "accent": "#c9a36a",
-      "bg": ["#14100c", "#3a2b1c"],
+      "bg": [
+        "#14100c",
+        "#3a2b1c"
+      ],
       "logo": "public/literium-icon.png",
       "name": "Literium · ليتيريوم",
-      "tagline": ["An Arabic home for writing and reading", "منزل عربي للكتابة والقراءة"],
-      "points": [["Publish articles and short posts", "انشر مقالاتك وتغريداتك القصيرة"], ["Follow the writers you love", "تابع الكتّاب الذين تحبهم"], ["Read on the web or in the Android app", "اقرأ على الويب أو في تطبيق أندرويد"]],
-      "shots": [{"url": "https://literium.ai.studio/", "caption": ["Read and write", "اقرأ واكتب"]}],
-      "cta": ["Open Literium", "افتح ليتيريوم"],
+      "tagline": [
+        "An Arabic home for writing and reading",
+        "منزل عربي للكتابة والقراءة"
+      ],
+      "points": [
+        [
+          "Publish articles and short posts",
+          "انشر مقالاتك وتغريداتك القصيرة"
+        ],
+        [
+          "Follow the writers you love",
+          "تابع الكتّاب الذين تحبهم"
+        ],
+        [
+          "Read on the web or in the Android app",
+          "اقرأ على الويب أو في تطبيق أندرويد"
+        ]
+      ],
+      "shots": [
+        {
+          "url": "https://literium.ai.studio/",
+          "caption": [
+            "Read and write",
+            "اقرأ واكتب"
+          ]
+        }
+      ],
+      "cta": [
+        "Open Literium",
+        "افتح ليتيريوم"
+      ],
       "handle": "literium.ai.studio"
+    },
+    {
+      "id": "media-downloader",
+      "botLanding": "media-downloader",
+      "brandMark": "DL",
+      "accent": "#56b4e9",
+      "bg": [
+        "#071a2b",
+        "#14435c"
+      ],
+      "name": "Media Downloader · تحميل الوسائط",
+      "tagline": [
+        "Save social media videos and images in Telegram",
+        "حمّل فيديوهات وصور منصات التواصل من داخل تيليجرام"
+      ],
+      "points": [
+        [
+          "Send a supported link to the bot",
+          "أرسل رابطاً مدعوماً إلى البوت"
+        ],
+        [
+          "Receive the media file in the chat",
+          "استلم الملف مباشرة في المحادثة"
+        ],
+        [
+          "No extra app is needed",
+          "لا تحتاج إلى تثبيت تطبيق إضافي"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/media-downloader",
+          "caption": [
+            "Open the bot guide",
+            "شاهد طريقة استخدام البوت"
+          ]
+        }
+      ],
+      "cta": [
+        "Open the downloader bot",
+        "افتح بوت التحميل"
+      ],
+      "handle": "@ArabicAds_bot"
+    },
+    {
+      "id": "jobs-and-store",
+      "botLanding": "jobs-and-store",
+      "brandMark": "JS",
+      "accent": "#e6ad55",
+      "bg": [
+        "#17120a",
+        "#49331a"
+      ],
+      "name": "Jobs & Store · الوظائف والمتجر",
+      "tagline": [
+        "Find jobs and browse local offers in Telegram",
+        "ابحث عن فرص العمل وتصفّح عروض المتجر عبر تيليجرام"
+      ],
+      "points": [
+        [
+          "Browse daily job opportunities",
+          "تصفّح فرص العمل اليومية"
+        ],
+        [
+          "Explore products and local offers",
+          "استكشف المنتجات والعروض"
+        ],
+        [
+          "Open the bot and choose your section",
+          "افتح البوت واختر القسم الذي تريده"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/jobs-and-store",
+          "caption": [
+            "Jobs and marketplace",
+            "الوظائف والمتجر"
+          ]
+        }
+      ],
+      "cta": [
+        "Explore jobs and offers",
+        "استكشف الوظائف والعروض"
+      ],
+      "handle": "@Saragptbotbot"
+    },
+    {
+      "id": "dating-marriage",
+      "botLanding": "dating-marriage",
+      "brandMark": "DM",
+      "accent": "#d78cb5",
+      "bg": [
+        "#1b1020",
+        "#4c2448"
+      ],
+      "name": "Marriage & Match · التعارف والزواج",
+      "tagline": [
+        "Create a profile and discover compatible matches",
+        "أنشئ ملفك واكتشف الملفات الأقرب إلى تفضيلاتك"
+      ],
+      "points": [
+        [
+          "Set your preferences",
+          "حدّد المواصفات التي تبحث عنها"
+        ],
+        [
+          "Explore profiles and compatibility",
+          "تصفّح الملفات ونسبة التوافق"
+        ],
+        [
+          "Photos are shared with permission",
+          "تُعرض الصور وفق أذونات المستخدم"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/dating-marriage",
+          "caption": [
+            "Discover the matching bot",
+            "اكتشف بوت التعارف"
+          ]
+        }
+      ],
+      "cta": [
+        "Open the matching bot",
+        "افتح بوت التعارف"
+      ],
+      "handle": "@Saragptbot"
+    },
+    {
+      "id": "confessions",
+      "botLanding": "confessions",
+      "brandMark": "AN",
+      "accent": "#9f9fe8",
+      "bg": [
+        "#11152b",
+        "#30396b"
+      ],
+      "name": "Anonymous Confessions · الاعترافات المجهولة",
+      "tagline": [
+        "A personal inbox for anonymous messages",
+        "صندوق رسائل خاص تصلك إليه رسائل مجهولة"
+      ],
+      "points": [
+        [
+          "Create your personal inbox link",
+          "أنشئ رابط صندوقك الخاص"
+        ],
+        [
+          "Share it with your friends",
+          "شارك الرابط مع أصدقائك"
+        ],
+        [
+          "Read and reply inside Telegram",
+          "اقرأ الرسائل وردّ عليها داخل تيليجرام"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/confessions",
+          "caption": [
+            "Your anonymous inbox",
+            "صندوق رسائلك المجهولة"
+          ]
+        }
+      ],
+      "cta": [
+        "Create your inbox",
+        "أنشئ صندوقك"
+      ],
+      "handle": "@ie3terafatbot"
+    },
+    {
+      "id": "marriage-trust",
+      "brandMark": "WT",
+      "accent": "#d78cb5",
+      "bg": [
+        "#1b1020",
+        "#4c2448"
+      ],
+      "name": "Anonymous Matching Card · بطاقة التعارف المجهولة",
+      "tagline": [
+        "A private, anonymous profile card for Telegram matchmaking",
+        "بطاقة ملف شخصية مجهولة وخاصة للتعارف عبر تيليجرام"
+      ],
+      "points": [
+        [
+          "Create an approved profile and set your preferences",
+          "أنشئ ملفاً معتمداً وحدد مواصفات الشريك"
+        ],
+        [
+          "Share an anonymous profile card with people you trust",
+          "شارك بطاقة مجهولة مع من تثق بهم"
+        ],
+        [
+          "Photos are shared only with the owner's permission",
+          "لا تُعرض الصور إلا بإذن صاحبها"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/bot/dating-marriage",
+          "caption": [
+            "The matching bot",
+            "بوت التعارف والزواج"
+          ]
+        }
+      ],
+      "cta": [
+        "Create your private profile",
+        "أنشئ ملفك الخاص"
+      ],
+      "handle": "@Saragptbot"
+    },
+    {
+      "id": "channel-exchange",
+      "brandMark": "CX",
+      "accent": "#54a7dc",
+      "bg": [
+        "#071a2b",
+        "#123e5c"
+      ],
+      "name": "Channel Exchange · بورصة القنوات",
+      "tagline": [
+        "Advertise with channel reach estimates and post verification",
+        "أعلن في قنوات بأرقام وصول تقديرية وتحقق من النشر"
+      ],
+      "points": [
+        [
+          "Audit public channels for free before choosing",
+          "افحص القنوات العامة مجاناً قبل الاختيار"
+        ],
+        [
+          "Channel owners verify control before listing",
+          "يثبت صاحب القناة ملكيته قبل عرضها"
+        ],
+        [
+          "Track payment and the ad post in one deal",
+          "تابع الدفع وإثبات الإعلان في طلب واحد"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/channel-audit",
+          "caption": [
+            "Free channel audit",
+            "فحص القنوات مجاناً"
+          ]
+        },
+        {
+          "path": "/channels",
+          "caption": [
+            "Browse the exchange",
+            "تصفّح البورصة"
+          ]
+        }
+      ],
+      "cta": [
+        "Explore the exchange",
+        "استكشف البورصة"
+      ],
+      "handle": "@ttbik5"
+    },
+    {
+      "id": "group-khatma",
+      "brandMark": "KH",
+      "accent": "#28a58c",
+      "bg": [
+        "#062b2b",
+        "#0c5a50"
+      ],
+      "name": "Group Khatma · الختمة الجماعية",
+      "tagline": [
+        "Complete the Qur'an together in your Telegram group",
+        "اختموا القرآن معاً داخل مجموعة تيليجرام"
+      ],
+      "points": [
+        [
+          "Share the thirty parts among group members",
+          "وزّعوا الأجزاء الثلاثين على أفراد المجموعة"
+        ],
+        [
+          "Each reader claims a part and marks it complete",
+          "يأخذ كل قارئ جزءاً ويسجله عند الانتهاء"
+        ],
+        [
+          "The group receives a completion message and dua",
+          "تصلكم رسالة الختم والدعاء عند الاكتمال"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/khatma",
+          "caption": [
+            "Start a group khatma",
+            "ابدأ ختمة لمجموعتك"
+          ]
+        }
+      ],
+      "cta": [
+        "Add the bot to your group",
+        "أضف البوت إلى مجموعتك"
+      ],
+      "handle": "@Slaselbot"
+    },
+    {
+      "id": "group-contests",
+      "brandMark": "QC",
+      "accent": "#ca8a04",
+      "bg": [
+        "#271804",
+        "#65430d"
+      ],
+      "name": "Group Contests · مسابقات الجروبات",
+      "tagline": [
+        "Free quiz rounds that bring Telegram groups together",
+        "جولات أسئلة مجانية تجمع جروبات تيليجرام"
+      ],
+      "points": [
+        [
+          "Play short rounds with friends in your group",
+          "العبوا جولات قصيرة مع أصدقائكم في الجروب"
+        ],
+        [
+          "Score points on the weekly group leaderboard",
+          "اجمعوا النقاط في لوحة الصدارة الأسبوعية"
+        ],
+        [
+          "Prizes are funded by sponsors, with no entry fee",
+          "الجوائز من الرعاة فقط، بلا رسوم دخول"
+        ]
+      ],
+      "shots": [
+        {
+          "path": "/contests",
+          "caption": [
+            "Launch a group quiz",
+            "ابدأ مسابقة لجروبك"
+          ]
+        }
+      ],
+      "cta": [
+        "Add the bot and play",
+        "أضف البوت وابدأ اللعب"
+      ],
+      "handle": "@Slaselbot"
     }
   ]
 }

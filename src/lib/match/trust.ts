@@ -18,7 +18,7 @@ import { sendStarsInvoice, starsPayload } from "@/lib/starsPayment";
 import {
   CARD_INLINE_QUERY, MATCHMAKER_INTRO, MATCHMAKER_NOTE_MAX, MATCHMAKER_SLA_HOURS, MATCHMAKER_STARS_KIND, PRICE_MATCHMAKER,
   MATCHMAKER_CANDIDATES, cardLink, cardShareText, checkMatchmakerNote, parseCardStart, rankMatchmakerScored, shortfallStars, suggestCallback,
-  candidateWhyLine, emptyCandidatesText, NOT_SUITABLE_REASONS, isNotSuitableReason, notSuitableCallback, type NotSuitableReason, type Rejection,
+  candidateWhyLine, emptyCandidatesText, hasMatchmakerInventory, NOT_SUITABLE_REASONS, isNotSuitableReason, notSuitableCallback, type NotSuitableReason, type Rejection,
 } from "@/lib/match/trustRules";
 import { withShortLock, BUSY } from "@/lib/match/shortLock";
 
@@ -41,6 +41,9 @@ export function ensureTrustTables(): Promise<void> {
       // 🙅 «غير مناسب» + reason (prisma/migration_30_marriage_bot_digest_feedback.sql), additive.
       await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker_sent ADD COLUMN IF NOT EXISTS verdict TEXT`);
       await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker_sent ADD COLUMN IF NOT EXISTS verdict_at TIMESTAMPTZ`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker ENABLE ROW LEVEL SECURITY`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE match_matchmaker_sent ENABLE ROW LEVEL SECURITY`);
+      await prisma.$executeRawUnsafe(`REVOKE ALL ON TABLE match_matchmaker, match_matchmaker_sent FROM anon, authenticated`);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;
@@ -49,6 +52,33 @@ export function ensureTrustTables(): Promise<void> {
 async function approvedProfile(userId: string) {
   const p = await prisma.matchProfile.findUnique({ where: { userId }, include: { user: { select: { botId: true, isBanned: true } } } });
   return p && p.status === "APPROVED" && !p.user.isBanned ? p : null;
+}
+
+/** Mirrors the live suggestion visibility rules before selling a human-matchmaker request. */
+export async function hasEligibleMatchmakerCandidates(userId: string, botId: string): Promise<boolean> {
+  const me = await approvedProfile(userId);
+  if (!me || me.user.botId !== botId || (me.gender !== "MALE" && me.gender !== "FEMALE")) return false;
+  const want = me.gender === "MALE" ? "FEMALE" : "MALE";
+  const pool = await prisma.matchProfile.findMany({
+    where: { status: "APPROVED", isHidden: false, gender: want, userId: { not: userId }, user: { botId, isBanned: false } },
+    include: { user: { select: { lastActiveAt: true } } },
+    orderBy: { user: { lastActiveAt: "desc" } },
+    take: 300,
+  });
+  if (!pool.length) return false;
+  const ids = pool.map((p) => p.userId);
+  // Do not reuse countryOnlyOwners here: it deliberately swallows lookup errors for display paths.
+  // A payment gate must fail closed if privacy, blocks or likes cannot be read.
+  const [blocks, countryOnlyRows, liked] = await Promise.all([
+    prisma.matchBlock.findMany({ where: { OR: [{ blockerId: userId, blockedId: { in: ids } }, { blockerId: { in: ids }, blockedId: userId }] }, select: { blockerId: true, blockedId: true } }),
+    prisma.matchProfilePrivacy.findMany({ where: { userId: { in: ids }, countryOnly: true }, select: { userId: true } }),
+    prisma.matchLike.findMany({ where: { fromUserId: userId, toUserId: { in: ids } }, select: { toUserId: true } }),
+  ]);
+  const blocked = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
+  const countryOnly = new Set(countryOnlyRows.map((row) => row.userId));
+  const alreadyLiked = new Set(liked.map((x) => x.toUserId));
+  const visible = pool.filter((p) => !blocked.has(p.userId) && !alreadyLiked.has(p.userId) && (!countryOnly.has(p.userId) || sameCountry(p.country, me.country)));
+  return hasMatchmakerInventory(me.gender, visible.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +155,7 @@ async function askForNote(bot: TelegramBot, chatId: number, userId: string, reqI
 
 export type MatchmakerBuy =
   | { status: "no_profile" }
+  | { status: "no_candidates" }
   | { status: "open"; reqId: string; awaitingNote: boolean }
   | { status: "created"; reqId: string }
   | { status: "insufficient"; balance: number; stars: number }
@@ -140,6 +171,8 @@ export async function buyMatchmakerCore(userId: string, botId: string): Promise<
     if (!(await approvedProfile(userId))) return { status: "no_profile" };
     const open = await openRequestFor(userId);
     if (open) return { status: "open", reqId: open.id, awaitingNote: open.status === "AWAITING_NOTE" };
+    // An already-paid request continues above; a new one is never charged without eligible inventory.
+    if (!(await hasEligibleMatchmakerCandidates(userId, botId).catch(() => false))) return { status: "no_candidates" };
     const charge = await chargeMatchUser(userId, PRICE_MATCHMAKER, "MATCHMAKER");
     if (!charge.ok) return { status: "insufficient", balance: charge.balance, stars: shortfallStars(PRICE_MATCHMAKER, charge.balance) };
     await ensureTrustTables();
@@ -158,6 +191,10 @@ export async function buyMatchmaker(bot: TelegramBot, botRow: BotRow, chatId: nu
   if (r.status === "busy") return; // the first tap is answering
   if (r.status === "no_profile") {
     await bot.api.sendMessage(chatId, "⚠️ الخاطبة تحتاج ملفاً معتمداً حتى تعرف من تقترح له. أنشئ ملفك من «👤 ملفي الشخصي».").catch(() => null);
+    return;
+  }
+  if (r.status === "no_candidates") {
+    await bot.api.sendMessage(chatId, "🌿 لا توجد حالياً ملفات معتمدة ومتاحة من الجنس الذي تبحث عنه. لم نخصم رسوم الخاطبة. وإذا دفعت بالنجوم قبل قليل فقد أُضيفت قيمتها إلى رصيدك ويمكنك استخدامها لاحقاً. جرّب مجدداً عند انضمام ملفات جديدة.").catch(() => null);
     return;
   }
   if (r.status === "open") {

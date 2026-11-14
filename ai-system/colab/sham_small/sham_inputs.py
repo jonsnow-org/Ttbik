@@ -37,7 +37,7 @@ import zipfile
 from pathlib import Path
 
 KAGGLE_INPUT = Path("/kaggle/input")
-FETCH_ROOT = Path("/tmp/sham_inputs")
+FETCH_ROOT = Path(os.environ.get("SHAM_FETCH_ROOT") or "/tmp/sham_inputs")      # a ModelScope trainer Studio points this at its persistent disk (the root file system counts as memory there)
 
 # Earlier names of the same datasets (renames), treated as the notebook's own lineage.
 OLD_NAMES = {
@@ -111,8 +111,11 @@ def _unzip_nested(root: Path) -> None:
             return
         for z in archives:
             target = z.parent / z.stem
-            with zipfile.ZipFile(z) as zf:
-                zf.extractall(target)
+            try:
+                with zipfile.ZipFile(z) as zf:
+                    zf.extractall(target)
+            except zipfile.BadZipFile:      # a download cut by SHAM_KAGGLE_TIMEOUT leaves a partial archive: drop it (the caller's fallback / next candidate takes over), never crash the trainer
+                print(f"  ⚠ أرشيف ناقص أو تالف تُرك: {z.name}")
             z.unlink()
 
 
@@ -241,7 +244,12 @@ def _kaggle(cmd: list, tries: int = 6):
     import time as _time
     r = None
     for attempt in range(tries):
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            # a download that never ends froze a cn trainer for 35 minutes without a line (2026-11-13): give each Kaggle command a limit (SHAM_KAGGLE_TIMEOUT, 1800 s)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("SHAM_KAGGLE_TIMEOUT") or 1800))
+        except subprocess.TimeoutExpired:
+            print(f"  ⏱ Kaggle لم يُنهِ الأمر في المهلة: {' '.join(str(c) for c in cmd[:5])}")
+            return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_TIMEOUT)")
         out = (r.stderr or "") + (r.stdout or "")
         if r.returncode == 0 or not any(t in out for t in ("429", "Too Many Requests", "502", "503", "504", "timed out", "Connection")):
             return r
@@ -249,6 +257,37 @@ def _kaggle(cmd: list, tries: int = 6):
         print(f"  ⏳ Kaggle يتمهّل ({out.strip().splitlines()[-1][:80] if out.strip() else '?'}) — انتظار {wait} ث ثم إعادة {attempt + 2}/{tries}")
         _time.sleep(wait)
     return r
+
+
+def _head_from_modelscope(dest: Path) -> bool:
+    """The published head also lives in a ModelScope model repo (sham-modelscope.yml copies it there). The cn trainer Studio reaches ModelScope at home speed while Kaggle
+    downloads of its 850 MB took more than 30 minutes (2026-11-13: the trainer never started). Returns True when dest now holds final_merged.pt + its tokenizers."""
+    repo = os.environ.get("SHAM_MS_HEAD_REPO") or "novaai2026/sham-merged"
+    try:
+        from modelscope import snapshot_download
+        tok = os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
+        if tok:
+            try:
+                from modelscope.hub.api import HubApi
+                HubApi().login(tok)
+            except Exception:       # the cached login / public access may still work
+                pass
+        cache = dest.parent / "ms_cache"
+        src = Path(snapshot_download(repo, cache_dir=str(cache)))
+        got = 0
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in src.iterdir():
+            if f.is_file() and (f.name in ("final_merged.pt", "sham_small_tokenizer.json") or f.name.endswith("_tokenizer.pt")):
+                shutil.copy2(f, dest / f.name)
+                got += 1
+        shutil.rmtree(cache, ignore_errors=True)
+        ok = (dest / "final_merged.pt").exists() and (dest / "sham_small_tokenizer.json").exists()
+        print(f"  • sham-merged-checkpoint: من ModelScope ({repo}) — {got} ملفات" if ok else f"  ⚠ مستودع ModelScope {repo} ينقصه الرأس")
+        return ok
+    except Exception as exc:
+        print(f"  ⚠ تعذّر جلب الرأس من ModelScope ({type(exc).__name__}: {str(exc)[:100]}) — يُجرَّب Kaggle")
+        return False
+
 
 
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
@@ -278,6 +317,10 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
         older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _has(d, need)),
                        key=lambda d: int(d.name.rsplit("__v", 1)[1]))
         return older[-1] if older else (None if name != base else dest)
+    if base == "sham-merged-checkpoint" and not fresh and (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope":
+        if _head_from_modelscope(dest):
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
     user = _ensure_credentials()
     if not user:
         return None

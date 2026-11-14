@@ -28,7 +28,7 @@ SRC = HERE.parent / "colab" / "sham_small"
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 CODE_FILES_EXCLUDE = {"sham_small_api_keys.db"}
 FILES = ("final_merged.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "merge_progress.json",
-         "final_chat_self.pt", "final_chat.pt")      # 2026-10-14: the chat checkpoints too, when the merge dataset has them (optional; app.py prefers them by name)
+         "final_chat_self.pt", "final_chat.pt", "motion_tokenizer.pt")      # 2026-11-11: the motion tokenizer (video codec) too, when the workflow found one: serve.py loads motion_tokenizer*.pt next to the checkpoint; without it the Studio answers "no video" although one was trained. 2026-10-14: the chat checkpoints too, when the merge dataset has them (optional; app.py prefers them by name)
 CHAT_CKPTS = ("final_chat_self.pt", "final_chat.pt")
 
 
@@ -72,7 +72,7 @@ def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
     except Exception as exc:
         print(f"⚠ المُرمِّز المصقول لم يُعتمد ({type(exc).__name__}: {str(exc)[:100]}) — يُرفع ما في نقطة الدمج كما هو")
     sha_ckpt = sha256(out / "final_merged.pt")
-    tok_sha = {n: sha256(out / n) for n in ("image_tokenizer.pt", "audio_tokenizer.pt") if (out / n).exists()}
+    tok_sha = {n: sha256(out / n) for n in ("image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt") if (out / n).exists()}
     # one fingerprint for the Studio's reload decision (app.py reloads when "sha" changes): the model AND its media tokenizers
     sha = hashlib.sha256((sha_ckpt + "".join(f"|{k}:{v}" for k, v in sorted(tok_sha.items()))).encode()).hexdigest() if tok_sha else sha_ckpt
     code_sig = stage_code(out / "studio_code")
@@ -92,6 +92,31 @@ def remote_manifest(api, model_id: str) -> dict:
         return {}
 
 
+def stale_remote_code(remote_paths, local_code: Path) -> list[str]:
+    """Files under studio_code/ in the model repo that the signed local folder no longer has. push_model only ADDS files, and codesign.verify fails on any extra
+    file, so one deleted source file (sham_media_ready.py, 2026-11-11) made every Studio refuse the new signed code until it was removed by hand."""
+    keep = {p.relative_to(local_code.parent).as_posix() for p in Path(local_code).rglob("*") if p.is_file()}
+    remote = [r for r in remote_paths if r]
+    dirs = {r for r in remote if any(o.startswith(r + "/") for o in remote)}          # a folder entry is not a file: deleting it in a commit is rejected by the repository policy
+    return sorted(r for r in remote if r.startswith("studio_code/") and r not in keep and r not in dirs)
+
+
+def prune_remote_code(model_dir: Path, model_id: str = "") -> str:
+    model_id = model_id or MODEL_ID
+    try:
+        from modelscope.hub.api import HubApi
+        files = HubApi().get_model_files(model_id, recursive=True)
+        remote = [f.get("Path") for f in files if f.get("Type") != "tree" and f.get("Path")]
+        stale = stale_remote_code(remote, model_dir / "studio_code")
+        if not stale:
+            return "✅ لا ملفات كود زائدة في ModelScope"
+        from modelscope_hub.api import HubApi as NewApi
+        res = NewApi(token=os.environ.get("MODELSCOPE_TOKEN", "")).delete_files(model_id, "model", file_paths=stale, commit_message="remove studio_code files that the signed code no longer has")
+        return f"🧹 حُذفت {len(res.get('deleted_files', []))} من {len(stale)} ملف كود زائد (كانت تُفشل التوقيع)"
+    except Exception as exc:        # never blocks the sync: the model upload below is independent
+        return f"⚠ تعذّر حذف ملفات الكود الزائدة: {type(exc).__name__} {str(exc)[:120]}"
+
+
 def push_model(ckpt_dir: Path) -> str:
     token = os.environ.get("MODELSCOPE_TOKEN", "")
     if not token:
@@ -103,11 +128,11 @@ def push_model(ckpt_dir: Path) -> str:
     local = json.loads((model_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
     remote = remote_manifest(api, MODEL_ID)
     if remote.get("sha") == sha and remote.get("code_sig") == local["code_sig"] and remote.get("ckpt_sha") == local["ckpt_sha"]:
-        return "⏭ النموذج والكود في ModelScope هما نفسهما — لا إعادة رفع"
+        return "⏭ النموذج والكود في ModelScope هما نفسهما — لا إعادة رفع. " + prune_remote_code(model_dir)
     from modelscope.hub.constants import Visibility
     api.push_model(model_id=MODEL_ID, model_dir=str(model_dir), visibility=Visibility.PRIVATE, license="apache-2.0",
                    chinese_name="Sham", commit_message=f"sham-merged-checkpoint {sha[:12]} code {local['code_sig'][:8]}")
-    return f"✅ رُفع إلى ModelScope: النموذج {sha[:12]} والكود الموقَّع {local['code_sig'][:8]}"
+    return f"✅ رُفع إلى ModelScope: النموذج {sha[:12]} والكود الموقَّع {local['code_sig'][:8]}. " + prune_remote_code(model_dir)
 
 
 def stage_studio(studio_dir: Path) -> str:
@@ -159,6 +184,9 @@ if __name__ == "__main__":
             assert (md / "studio_code" / "ms_worker.py").exists() and (md / "studio_code" / "sham_small" / "model.py").exists()
             assert codesign.verify(md / "studio_code", (md / "studio_code" / codesign.SIG_NAME).read_text(), {"MODELSCOPE_API_TOKEN": "selftest-key"})
             assert not codesign.verify(md / "studio_code", (md / "studio_code" / codesign.SIG_NAME).read_text(), {"MODELSCOPE_API_TOKEN": "another"})
+            remote = ["studio_code/CODE_SIG", "studio_code/ms_worker.py", "studio_code/sham_small/model.py", "studio_code/sham_small/sham_media_ready.py", "model.pt"]
+            assert stale_remote_code(remote, md / "studio_code") == ["studio_code/sham_small/sham_media_ready.py"], stale_remote_code(remote, md / "studio_code")
+            assert stale_remote_code(remote + ["studio_code/sham_small"], md / "studio_code") == ["studio_code/sham_small/sham_media_ready.py"]      # the folder entry is never deleted
             os.environ.pop("MODELSCOPE_TOKEN", None)
             assert push_model(ck).startswith("⏭")
         print("sync_to_modelscope self-test OK")

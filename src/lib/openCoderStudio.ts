@@ -94,6 +94,57 @@ function apiName(api: string): string {
   return `${(process.env.OPEN_CODER_API_PREFIX || "").trim()}${api}`;
 }
 
+/** A model sometimes writes its tool call as DeepSeek-style markup (<｜DSML｜function_calls><｜DSML｜invoke name="web_search"><｜DSML｜parameter name="query">…) that the Studio's parser does not
+ *  turn into tool_calls (live 2026-11-11, LFM2.5 task: the markup was shown as the answer and the task ended with no answer). Turn it into real tool calls and strip it from the text. */
+/** A small model sometimes answers with a whole JSON message object instead of prose (live 2026-11-12, LFM2.5: {"role":"system","content":"..."}). When the entire
+ *  answer is such an object (only message / answer keys, one string body), show the body. Anything else is left untouched. */
+export function unwrapJsonAnswer(text: string): string {
+  const t = text.trim();
+  if (t.length < 2 || t[0] !== "{" || t[t.length - 1] !== "}") return text;
+  let obj: unknown;
+  try { obj = JSON.parse(t); } catch { return text; }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return text;
+  const o = obj as Record<string, unknown>;
+  const keys = Object.keys(o);
+  const allowed = new Set(["role", "content", "reflection", "answer", "response", "text", "message"]);
+  if (!keys.length || keys.some((k) => !allowed.has(k))) return text;
+  // LFM2.5 (live 2026-11-12) also writes {"reflection": ["step one", "step two"]}: an array of strings is the body too (joined line by line)
+  const asText = (v: unknown): string => (typeof v === "string" ? v.trim() : Array.isArray(v) && v.length && v.every((x) => typeof x === "string") ? (v as string[]).map((x) => x.trim()).filter(Boolean).join("\n") : "");
+  const body = ["content", "answer", "response", "text", "message", "reflection"].map((k) => asText(o[k])).find((v) => v);
+  return typeof body === "string" && body ? body : text;
+}
+
+export function recoverTextToolCalls(reply: CoderReply): CoderReply {
+  if (reply.type === "done" && !(reply.tool_calls && reply.tool_calls.length) && typeof reply.text === "string") {
+    const unwrapped = unwrapJsonAnswer(reply.text);
+    if (unwrapped !== reply.text) reply = { ...reply, text: unwrapped };
+  }
+  const text = typeof reply.text === "string" ? reply.text : "";
+  if (reply.type !== "done" || (reply.tool_calls && reply.tool_calls.length) || !/function_calls>/.test(text) || !/invoke\s+name=/.test(text)) return reply;
+  const calls: CoderToolCall[] = [];
+  const P = "(?:[｜|]DSML[｜|])?";
+  const invoke = new RegExp(`<${P}invoke\\s+name="([A-Za-z0-9_.:-]+)"\\s*>([\\s\\S]*?)</${P}invoke>`, "g");
+  const param = new RegExp(`<${P}parameter\\s+name="([A-Za-z0-9_.:-]+)"[^>]*>([\\s\\S]*?)</${P}parameter>`, "g");
+  let m: RegExpExecArray | null;
+  while ((m = invoke.exec(text))) {
+    const args: Record<string, unknown> = {};
+    let q: RegExpExecArray | null;
+    param.lastIndex = 0;
+    while ((q = param.exec(m[2]))) {
+      const raw = q[2].trim();
+      let v: unknown = raw;
+      if (/^-?\d+(\.\d+)?$/.test(raw) || /^(true|false|null)$/.test(raw) || /^[\[{][\s\S]*[\]}]$/.test(raw)) {
+        try { v = JSON.parse(raw); } catch { v = raw; }
+      }
+      args[q[1]] = v;
+    }
+    calls.push({ id: `recovered_${calls.length + 1}`, type: "function", function: { name: m[1], arguments: JSON.stringify(args) } });
+  }
+  if (!calls.length) return reply;
+  const clean = text.replace(new RegExp(`<${P}function_calls>[\\s\\S]*?</${P}function_calls>`, "g"), "").replace(new RegExp(`<${P}function_calls>[\\s\\S]*$`), "").trim();
+  return { ...reply, text: clean, tool_calls: calls, finish_reason: reply.finish_reason && reply.finish_reason !== "stop" ? reply.finish_reason : "tool_calls" };
+}
+
 export function parseCoderSse(body: string): CoderReply | null {
   for (const line of body.split("\n")) {
     if (!line.startsWith("data:")) continue;
@@ -101,7 +152,7 @@ export function parseCoderSse(body: string): CoderReply | null {
       const data = JSON.parse(line.slice(5).trim());
       if (!Array.isArray(data) || !data.length || data[0] == null) continue;
       const obj = typeof data[0] === "string" ? JSON.parse(data[0]) : data[0];
-      if (obj && typeof obj === "object" && typeof obj.type === "string") return obj as CoderReply;
+      if (obj && typeof obj === "object" && typeof obj.type === "string") return recoverTextToolCalls(obj as CoderReply);
     } catch {
       /* not a data line we understand: keep reading */
     }

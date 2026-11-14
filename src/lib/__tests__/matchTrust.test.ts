@@ -1,5 +1,5 @@
 import {
-  CARD_BUTTON, MATCHMAKER_BUTTON, PRICE_MATCHMAKER, cardLink, cardStartPayload, checkMatchmakerNote, isCardInlineQuery, parseCardStart, shortfallStars,
+  CARD_BUTTON, MATCHMAKER_BUTTON, PRICE_MATCHMAKER, cardLink, cardStartPayload, checkMatchmakerNote, hasMatchmakerInventory, isCardInlineQuery, parseCardStart, shortfallStars,
 } from "@/lib/match/trustRules";
 import { containsContactInfo } from "@/lib/match/contactGuard";
 
@@ -34,6 +34,14 @@ describe("زواج بثقة: shareable card", () => {
 });
 
 describe("زواج بثقة: human matchmaker", () => {
+  it("only offers a paid request when eligible inventory exists", () => {
+    expect(hasMatchmakerInventory("MALE", 1)).toBe(true);
+    expect(hasMatchmakerInventory("FEMALE", 24)).toBe(true);
+    expect(hasMatchmakerInventory("MALE", 0)).toBe(false);
+    expect(hasMatchmakerInventory("FEMALE", -1)).toBe(false);
+    expect(hasMatchmakerInventory("UNKNOWN", 3)).toBe(false);
+    expect(hasMatchmakerInventory("MALE", Number.NaN)).toBe(false);
+  });
   it("accepts a clear description", () => {
     const r = checkMatchmakerNote("  أبحث عن شريكة من الأردن بين 24 و30 سنة، ملتزمة  ", containsContactInfo);
     expect(r.ok).toBe(true);

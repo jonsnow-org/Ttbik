@@ -96,7 +96,8 @@ describe("entry points in the existing bots and the media Mini App", () => {
     expect(src).not.toMatch(/\.text\(SERVICES_BUTTON\)/);
     expect(src).not.toMatch(/\.text\(GETBOT_BUTTON\)/);
     expect(src).not.toContain("sendServices(");
-    expect(src).toMatch(/if \(isServicesRequest\(text\)\)/);
+    expect(src).toMatch(/if \(text === APP_BUTTON \|\| isServicesRequest\(text\)\)/);
+    expect(src).toContain('text === APP_BUTTON');
     expect(src).toContain('botAppUrl(gateUrl(), botRow.id)');
   });
   it("media Mini App profile lists the services", () => {
