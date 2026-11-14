@@ -70,6 +70,31 @@ d = sham_inputs.fetch_dataset("sham-crawl-ms1")
 print("FETCHED", None if d is None else sorted(p.name for p in d.iterdir()))
 '''
 
+FALLBACK = HEAD + r'''
+os.environ["SHAM_HEAD_SOURCE"] = "modelscope"
+log = []
+mode = {"v": "first-fails"}
+class Api:
+    def login(self, tok): pass
+    def create_model(self, model_id, **kw): log.append(("create", kw.get("license"), kw.get("chinese_name")))
+    def push_model(self, model_id, model_dir, **kw):
+        log.append(("push", kw.get("license"), kw.get("chinese_name")))
+        if mode["v"] == "all-fail" or kw.get("license") == "apache-2.0":
+            raise RuntimeError("400 Client Error: Bad Request body {\"Message\": \"invalid license\"}")
+hub = types.ModuleType("modelscope.hub"); api_mod = types.ModuleType("modelscope.hub.api"); api_mod.HubApi = Api
+const = types.ModuleType("modelscope.hub.constants")
+class V: PRIVATE = "private"
+const.Visibility = V
+for n, m in (("modelscope", types.ModuleType("modelscope")), ("modelscope.hub", hub), ("modelscope.hub.api", api_mod), ("modelscope.hub.constants", const)):
+    sys.modules[n] = m
+import sham_inputs
+tmp = pathlib.Path(tempfile.mkdtemp())
+(tmp / "final.pt").write_bytes(b"w")
+print("FIRST", sham_inputs.publish_modelscope(tmp, "sham-crawl-ms1", "m"), log)
+log.clear(); mode["v"] = "all-fail"
+print("SECOND", sham_inputs.publish_modelscope(tmp, "sham-crawl-ms1", "m"))
+'''
+
 
 def run(code: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-c", code, str(pathlib.Path(__file__).parent)], capture_output=True, text=True, timeout=180)
@@ -94,6 +119,18 @@ class MsPublish(unittest.TestCase):
         self.assertIn("REPOS ['sham-crawl-ms1', 'sham-crawl-ms1-corpus']", r.stdout)
         self.assertIn("'models': ['sham-crawl-ms1']", r.stdout)                    # discovered although Kaggle returned an empty list
         self.assertIn("FETCHED ['final.pt', 'sham_small_tokenizer.json']", r.stdout)   # configuration.json is not part of the dataset layout
+
+
+class MsCreateFallback(unittest.TestCase):
+    def test_a_rejected_create_is_retried_with_the_other_license_spelling_and_the_error_is_kept(self):
+        r = run(FALLBACK)
+        self.assertEqual(r.returncode, 0, r.stderr[-800:])
+        self.assertIn("FIRST modelscope:acct/sham-crawl-ms1", r.stdout)
+        self.assertIn("('create', 'Apache License 2.0', 'Sham')", r.stdout)
+        self.assertIn("SECOND None", r.stdout)
+        self.assertIn("invalid license", r.stdout)                                    # the hub's own message reaches the log (it was cut off at 160 characters)
+        self.assertIn("push_model[apache-2.0]", r.stdout)
+        self.assertIn("push_model[Apache License 2.0]", r.stdout)
 
 
 if __name__ == "__main__":
