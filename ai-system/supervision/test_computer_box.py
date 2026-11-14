@@ -193,6 +193,38 @@ class Running(Box):
         self.assertIn("computer_job", out["hint"])
         self.assertLess(time.time() - started, 15)
 
+    def test_the_disk_size_is_cached_not_walked_before_every_call(self):
+        # measured 2026-11-14: walking a cloned repository on the slow persistent mount took 25-30 s per call; the size is measured once and reused
+        calls = []
+        real = cb._walk_size
+        cb._walk_size = lambda path, cap_files=200000, deadline=None: (calls.append(str(path)), real(path, cap_files, deadline))[1]
+        try:
+            for _ in range(4):
+                self.assertTrue(self.run_box(session="q:m", action="run", command="true")["ok"])
+            self.run_box(session="q:m", action="write", path="a.txt", content="x")
+            self.run_box(session="q:m", action="status")
+        finally:
+            cb._walk_size = real
+        self.assertEqual(len(calls), 1, calls)
+
+    def test_a_walk_that_runs_out_of_time_is_finished_in_the_background(self):
+        old_walk, old_budget = cb._walk_size, cb.QUOTA_BUDGET
+        answers = [(7, False), (100, True)]
+        cb._walk_size = lambda path, cap_files=200000, deadline=None: answers.pop(0)
+        try:
+            home = self.tmp / "h"
+            home.mkdir()
+            self.assertEqual(cb.session_size(home), 7)                         # the lower bound answers at once
+            for _ in range(40):
+                with cb._LOCK:
+                    size = cb._QUOTA[str(home)]["size"]
+                if size == 100:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(size, 100)                                        # the background walk replaced it with the real size
+        finally:
+            cb._walk_size, cb.QUOTA_BUDGET = old_walk, old_budget
+
     def test_the_disk_quota_stops_new_work(self):
         old = cb.QUOTA_BYTES
         cb.QUOTA_BYTES = 10

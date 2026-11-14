@@ -308,17 +308,20 @@ def valid_job_id(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9]{6,12}", str(value or "")))
 
 
-def dir_size(path: Path, cap_files: int = 200000) -> int:
+def _walk_size(path: Path, cap_files: int = 200000, deadline: float | None = None) -> tuple[int, bool]:
+    """(bytes under path, finished). `deadline` is a time.monotonic() value: the walk stops there and says it did not finish."""
     total = 0
     seen = 0
     stack = [str(path)]
     while stack:
+        if deadline is not None and time.monotonic() > deadline:
+            return total, False
         try:
             with os.scandir(stack.pop()) as it:
                 for entry in it:
                     seen += 1
                     if seen > cap_files:
-                        return total
+                        return total, True
                     try:
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(entry.path)
@@ -328,7 +331,51 @@ def dir_size(path: Path, cap_files: int = 200000) -> int:
                         pass
         except OSError:
             pass
-    return total
+    return total, True
+
+
+def dir_size(path: Path, cap_files: int = 200000) -> int:
+    return _walk_size(path, cap_files)[0]
+
+
+# MEASURED 2026-11-14: the session folder lives on the persistent mount, where each file costs ~25-50 ms. The disk-quota check walked the WHOLE folder before every
+# run, write and job start (and in `status`), so a session holding a cloned repository (thousands of files) spent 25-30 s per call and then lost the answer at the
+# ~20 s gateway limit (workflow check: status 27 s, repo 28 s, search 33 s, changes 30 s, all empty). The size is now cached per session folder, measured within a
+# short time box, and refreshed by a background walk; writes add their own bytes to the cached value.
+QUOTA_TTL = 90.0
+QUOTA_BUDGET = 1.5
+_QUOTA: dict[str, dict] = {}
+
+
+def session_size(home: Path) -> int:
+    key = str(home)
+    now = time.time()
+    with _LOCK:
+        entry = _QUOTA.get(key)
+        if entry and now - entry["t"] < QUOTA_TTL:
+            return entry["size"]
+        previous = entry["size"] if entry else 0
+    size, finished = _walk_size(home, deadline=time.monotonic() + QUOTA_BUDGET)
+    size = max(size, previous) if not finished else size           # an unfinished walk only knows a lower bound
+    with _LOCK:
+        _QUOTA[key] = {"t": time.time(), "size": size, "refreshing": False}
+        start = not finished
+        if start:
+            _QUOTA[key]["refreshing"] = True
+    if start:
+        def refresh() -> None:
+            full, _ = _walk_size(home)
+            with _LOCK:
+                _QUOTA[key] = {"t": time.time(), "size": full, "refreshing": False}
+        threading.Thread(target=refresh, daemon=True, name="quota-refresh").start()
+    return size
+
+
+def note_written(home: Path, delta: int) -> None:
+    with _LOCK:
+        entry = _QUOTA.get(str(home))
+        if entry:
+            entry["size"] += max(0, int(delta))
 
 
 # ---------------------------------------------------------------- running as the session's own user
@@ -525,7 +572,7 @@ def _run_lock(session: str) -> threading.Lock:
 
 
 def over_quota(session: str) -> bool:
-    return dir_size(session_home(session)) > QUOTA_BYTES
+    return session_size(session_home(session)) > QUOTA_BYTES
 
 
 def _mem_available_mb() -> int | None:
@@ -917,6 +964,7 @@ def write_file(session: str, path: str, content: str) -> dict:
         return {"ok": False, "error": "that path is a directory or a link"}
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(data, encoding="utf-8")
+    note_written(session_home(session), len(data.encode("utf-8")))
     if is_root():
         uid = session_uid(session)
         for p in (target.parent, target):
@@ -1289,7 +1337,7 @@ def status(session: str = "") -> dict:
              "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
-        reply["your_disk_mb"] = round(dir_size(home) / 1024 ** 2, 1) if home.exists() else 0
+        reply["your_disk_mb"] = round(session_size(home) / 1024 ** 2, 1) if home.exists() else 0
         reply["jobs_running"] = sum(1 for j in _jobs(session).values() if j.get("exit_code") is None)
     return reply
 
