@@ -441,6 +441,9 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
         return json.dumps({"type": "text", "text": answer}, ensure_ascii=False)
     except Exception as exc:
         print(f"generate_chat failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        _m = sys.modules.get("model")      # 2026-11-11 diagnostics: which model module is loaded and the full stack of the failure
+        print("generate_chat traceback:", traceback.format_exc()[-3000:], "| model module:", getattr(_m, "__file__", None),
+              "has MOTION_VOCAB_BASE:", hasattr(_m, "MOTION_VOCAB_BASE"), "| sys.path:", sys.path[:6], flush=True)
         return json.dumps({"type": "error", "text": "Sham v2 chat generation failed: " + str(exc)[:180]}, ensure_ascii=False)
     finally:
         _LOCK.release()
