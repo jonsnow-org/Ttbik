@@ -1,7 +1,7 @@
 const db: any = { $executeRawUnsafe: jest.fn(async () => 0), $executeRaw: jest.fn(async () => 1), $queryRaw: jest.fn(async () => []) };
 jest.mock("@/lib/prisma", () => ({ prisma: db }));
 import { QUESTIONS } from "@/lib/contests/questions";
-import { CONTEST_CMD, ROUND_SIZE, TOP_CMD, parseAnswer, parseNext, pickQuestions, questionKeyboard, resultsText, scoreFor, weekStart } from "@/lib/contests/rules";
+import { AGAIN_DATA, CONTEST_CMD, ROUND_SIZE, TOP_CMD, resultsKeyboard, sponsorCta, parseAnswer, parseNext, pickQuestions, questionKeyboard, resultsText, scoreFor, weekStart } from "@/lib/contests/rules";
 import { handleContestGroupUpdate } from "@/lib/contests/contests";
 
 describe("contest rules", () => {
@@ -49,13 +49,41 @@ describe("contest rules", () => {
   });
 });
 
+describe("sponsorship call to action and keep-playing buttons", () => {
+  it("shows the free-slot line only when no sponsor is booked, with price and days, and promises no returns", () => {
+    const cta = sponsorCta(15, 7, "https://s/contests");
+    expect(cta).toContain("15$");
+    expect(cta).toContain("7 أيام");
+    expect(cta).toContain("https://s/contests");
+    expect(cta).not.toMatch(/ربح|أرباح|عائد|مضمون/);
+    expect(resultsText([], null, null, cta)).toContain("مساحة إعلانية");
+    const withSponsor = resultsText([], null, "برعاية متجر", cta);
+    expect(withSponsor).toContain("برعاية متجر");
+    expect(withSponsor).not.toContain("مساحة إعلانية");
+  });
+  it("offers play again, the leaderboard, adding the bot to another group, and the sponsor page", () => {
+    const kb = resultsKeyboard("Slaselbot", "https://s/contests").flat() as any[];
+    expect(kb.find((b) => b.callback_data === AGAIN_DATA)).toBeTruthy();
+    expect(kb.find((b) => b.callback_data === "ct")).toBeTruthy();
+    expect(kb.find((b) => String(b.url).includes("t.me/Slaselbot?startgroup=contest"))).toBeTruthy();
+    expect(kb.find((b) => b.url === "https://s/contests")).toBeTruthy();
+    for (const b of kb) if (b.callback_data) expect(Buffer.byteLength(b.callback_data)).toBeLessThanOrEqual(64);
+  });
+});
+
 describe("contest group gate", () => {
-  const bot: any = { api: { sendMessage: jest.fn(async () => ({ message_id: 1 })), answerCallbackQuery: jest.fn(), getMe: jest.fn() } };
+  const bot: any = { api: { sendMessage: jest.fn(async () => ({ message_id: 1 })), answerCallbackQuery: jest.fn(async () => true), getMe: jest.fn(async () => ({ username: "Slaselbot" })) } };
   beforeEach(() => jest.clearAllMocks());
   it("leaves ordinary chatter and khatma taps to others, untouched", async () => {
     expect(await handleContestGroupUpdate(bot, { id: "b" } as any, { message: { chat: { id: -1, type: "group" }, from: { id: 1 }, text: "مرحبا" } })).toBe(false);
     expect(await handleContestGroupUpdate(bot, { id: "b" } as any, { callback_query: { id: "q", data: "kj|1|1|1", from: { id: 1 }, message: { chat: { id: -1 } } } })).toBe(false);
     expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+  it("the play-again button does nothing outside a group (only closes the tap)", async () => {
+    const r = await handleContestGroupUpdate(bot, { id: "b" } as any, { callback_query: { id: "q", data: AGAIN_DATA, from: { id: 1 }, message: { chat: { id: 5, type: "private" } } } });
+    expect(r).toBe(true);
+    expect(bot.api.answerCallbackQuery).toHaveBeenCalledWith("q");
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
   });
 });

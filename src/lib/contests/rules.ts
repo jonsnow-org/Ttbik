@@ -37,6 +37,19 @@ export function minePointsText(points: number, answered: number, right: number, 
   if (!answered) return "لم تجب على أي سؤال في هذه الجولة بعد.";
   return `🎯 حسابك في هذه الجولة (يراه أنت فقط)\nالنقاط: ${points}\nأجبت على ${answered} من ${Math.min(step + 1, ROUND_SIZE)} · الصحيح حتى الآن: ${right}`;
 }
+export const AGAIN_DATA = "cr";
+/** The line shown where a sponsor would be when the slot is free (honest: it is advertising space, nothing is promised about returns). Pure. */
+export function sponsorCta(price: number, days: number, url: string): string {
+  return `📣 مساحة إعلانية متاحة: ارعَ مسابقات الجروبات (${price}$ لمدة ${days} أيام) فيظهر اسمك وجائزتك في كل جولة ولوحة الصدارة.\n${url}`;
+}
+/** Buttons under the results and /top: play again, bring the bot to another group, book the sponsor slot. */
+export function resultsKeyboard(botUsername: string, sponsorUrl: string) {
+  return [
+    [{ text: "🔁 جولة جديدة", callback_data: AGAIN_DATA }, { text: "📊 الصدارة", callback_data: "ct" }],
+    [{ text: "➕ أضف البوت لجروبك", url: `https://t.me/${botUsername}?startgroup=contest` }],
+    [{ text: "🎁 ارعَ المسابقات", url: sponsorUrl }],
+  ];
+}
 export const parseNext = (data: string) => /^cn\|(\d{1,12})$/.exec(String(data || ""))?.[1] || null;
 
 export function scoreFor(correct: boolean, firstCorrect: boolean): number {
@@ -64,12 +77,13 @@ export function revealText(step: number, qIndex: number, correctCount: number, t
 }
 
 export type Row = { name: string; points: number };
-export function resultsText(rows: Row[], groupRank: number | null, sponsor: string | null): string {
+export function resultsText(rows: Row[], groupRank: number | null, sponsor: string | null, cta: string | null = null): string {
   const medals = ["🥇", "🥈", "🥉"];
   const lines = rows.slice(0, 10).map((r, i) => `${medals[i] || `${i + 1}.`} ${r.name}: ${r.points}`);
   const out = ["🏁 انتهت الجولة!", "", ...(lines.length ? lines : ["لم يجب أحد هذه المرة."])];
   if (groupRank) out.push("", `📊 ترتيب جروبكم هذا الأسبوع بين كل الجروبات: ${groupRank}`);
   if (sponsor) out.push("", `🎁 ${sponsor}`);
+  else if (cta) out.push("", cta);
   out.push("", "جولة جديدة: /contest · لوحة الصدارة: /top");
   return out.join("\n");
 }

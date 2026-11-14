@@ -7,11 +7,12 @@ import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { activeSponsor } from "@/lib/khatma/khatma";
+import { SPONSOR_PRODUCTS, activeSponsor } from "@/lib/khatma/khatma";
+import { gateUrl } from "@/lib/hostingOps";
 import { QUESTIONS } from "@/lib/contests/questions";
 import { replyEphemeral } from "@/lib/telegramEphemeral";
 import {
-  CONTEST_CMD, FIRST_BONUS, POINTS_CORRECT, ROUND_SIZE, TOP_CMD, minePointsText, parseAnswer, parseMine, parseNext, pickQuestions, questionKeyboard, questionText, resultsText, revealText, weekStart,
+  CONTEST_CMD, FIRST_BONUS, POINTS_CORRECT, ROUND_SIZE, AGAIN_DATA, TOP_CMD, minePointsText, parseAnswer, parseMine, parseNext, pickQuestions, questionKeyboard, questionText, resultsKeyboard, resultsText, revealText, sponsorCta, weekStart,
 } from "@/lib/contests/rules";
 
 let ready: Promise<void> | null = null;
@@ -96,15 +97,19 @@ async function startRound(bot: TelegramBot, botRow: BotRow, msg: any) {
   await postQuestion(bot, created[0], msg.chat.id);
 }
 
+const sponsorPage = () => `${gateUrl()}/contests`;
+const ctaLine = () => sponsorCta(SPONSOR_PRODUCTS.contest.price, SPONSOR_PRODUCTS.contest.days, sponsorPage());
+
 async function sendTop(bot: TelegramBot, botRow: BotRow, chatId: number | string) {
   const rows = await weeklyGroups(botRow.id);
   const mine = rows.findIndex((r) => r.chat_id === String(chatId));
   const lines = rows.slice(0, 10).map((r, i) => `${i + 1}. ${r.username ? r.title || "جروب" : "جروب خاص"} · ${Number(r.points)} نقطة`);
   const sponsor = await activeSponsor("contest").catch(() => null);
+  const me = await bot.api.getMe().catch(() => null);
   await bot.api.sendMessage(chatId, [
     "📊 صدارة الجروبات هذا الأسبوع", "", ...(lines.length ? lines : ["لا نقاط بعد هذا الأسبوع. ابدأوا: /contest"]),
-    ...(mine >= 0 ? ["", `جروبكم: المركز ${mine + 1}`] : []), ...(sponsor ? ["", `🎁 ${sponsor}`] : []),
-  ].join("\n")).catch(() => null);
+    ...(mine >= 0 ? ["", `جروبكم: المركز ${mine + 1}`] : []), ...(sponsor ? ["", `🎁 ${sponsor}`] : ["", ctaLine()]),
+  ].join("\n"), me?.username ? { reply_markup: { inline_keyboard: resultsKeyboard(me.username, sponsorPage()) }, link_preview_options: { is_disabled: true } } : { link_preview_options: { is_disabled: true } }).catch(() => null);
 }
 
 async function handleAnswer(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
@@ -142,6 +147,19 @@ async function handleMine(bot: TelegramBot, botRow: BotRow, cq: any): Promise<bo
   return true;
 }
 
+/** «🔁 جولة جديدة» and «📊 الصدارة» under the results: any member keeps the group playing (one live round per group is enforced by startRound). */
+async function handleMisc(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
+  const d = String(cq.data || "");
+  if (d !== AGAIN_DATA && d !== "ct") return false;
+  const chat = cq.message?.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) { await bot.api.answerCallbackQuery(cq.id).catch(() => null); return true; }
+  await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+  await ensureContestTables();
+  if (d === "ct") await sendTop(bot, botRow, chat.id);
+  else await startRound(bot, botRow, { chat, from: cq.from });
+  return true;
+}
+
 async function handleNext(bot: TelegramBot, botRow: BotRow, cq: any): Promise<boolean> {
   const id = parseNext(String(cq.data || ""));
   if (!id) return false;
@@ -164,14 +182,18 @@ async function handleNext(bot: TelegramBot, botRow: BotRow, cq: any): Promise<bo
   await prisma.$executeRaw`UPDATE contest_rounds SET status = 'DONE', finished_at = now() WHERE id = ${r.id}`;
   const rows = await prisma.$queryRaw<{ name: string; points: bigint }[]>`SELECT max(user_name) name, sum(points) points FROM contest_answers WHERE round_id = ${r.id} GROUP BY user_id HAVING sum(points) > 0 ORDER BY sum(points) DESC LIMIT 10`;
   const [rank, sponsor] = await Promise.all([groupRank(r.chat_id).catch(() => null), activeSponsor("contest").catch(() => null)]);
-  await bot.api.sendMessage(chat.id, resultsText(rows.map((x) => ({ name: x.name, points: Number(x.points) })), rank, sponsor)).catch(() => null);
+  const me = await bot.api.getMe().catch(() => null);
+  await bot.api.sendMessage(chat.id, resultsText(rows.map((x) => ({ name: x.name, points: Number(x.points) })), rank, sponsor, ctaLine()), {
+    link_preview_options: { is_disabled: true },
+    ...(me?.username ? { reply_markup: { inline_keyboard: resultsKeyboard(me.username, sponsorPage()) } } : {}),
+  }).catch(() => null);
   return true;
 }
 
 /** Returns true when the group update was a contest action. */
 export async function handleContestGroupUpdate(bot: TelegramBot, botRow: BotRow, update: any): Promise<boolean> {
   const cq = update.callback_query;
-  if (cq) return (await handleAnswer(bot, botRow, cq)) || (await handleMine(bot, botRow, cq)) || (await handleNext(bot, botRow, cq));
+  if (cq) return (await handleAnswer(bot, botRow, cq)) || (await handleMine(bot, botRow, cq)) || (await handleMisc(bot, botRow, cq)) || (await handleNext(bot, botRow, cq));
   const msg = update.message;
   if (!msg?.chat || !msg.from || (msg.chat.type !== "group" && msg.chat.type !== "supergroup")) return false;
   const text = String(msg.text || "").trim();
@@ -194,6 +216,7 @@ export async function sendContestIntro(bot: TelegramBot, chatId: number, appUrl?
     { reply_markup: { inline_keyboard: [
       ...(appUrl ? [[{ text: "📱 الصدارة وجوائزي في التطبيق", web_app: { url: appUrl } }]] : []),
       [{ text: "➕ أضف البوت لجروب", url: `https://t.me/${u}?startgroup=contest` }],
+      [{ text: "🎁 ارعَ المسابقات", url: sponsorPage() }],
     ] } });
 }
 
