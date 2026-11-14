@@ -38,7 +38,7 @@ def main() -> int:
     for repo in [r.strip() for r in (os.environ.get("SHAM_TRAINER_REPOS") or DEFAULT).split(",") if r.strip()]:
         try:
             st = call(repo, token)
-            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device", "leftover") if k in st}
+            keep = {k: st.get(k) for k in ("phase", "job", "name", "error", "last", "cycle", "started", "minutes_since_last_line", "device", "leftover", "start") if k in st}
             noise = ("MB/s", "it/s", "Downloading [", "Processing ", "%|", "\x1b[A")                 # download progress bars filled the window and hid everything else (2026-11-14)
             lines = [l for l in (st.get("tail") or []) if "🧠" not in l and "🧵" not in l and not any(w in l for w in noise)]
             mem = [l for l in (st.get("tail") or []) if "🧠" in l][-1:]
