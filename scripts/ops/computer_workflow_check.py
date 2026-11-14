@@ -73,6 +73,10 @@ def main() -> int:
             log = smoke.box_call(args.api, token, {"session": session, "action": "job_log", "id": repo["job"]})
             if log.get("ok") and not log.get("running"):
                 repo = {"ok": log.get("exit_code") == 0, "path": f"repos/{args.repo.rstrip('/').split('/')[-2]}-{args.repo.rstrip('/').split('/')[-1]}"}
+                print(f"    clone job finished: exit {log.get('exit_code')} after {log.get('seconds')} s", flush=True)
+                print("    clone job output:", str(log.get("output", ""))[-700:].replace("\n", " | "), flush=True)
+                if repo["ok"] is not True:
+                    failures.append("computer_repo: the background download failed")
                 break
             time.sleep(3)
     folder = repo.get("path") or "repos/jonsnow-org-Ttbik"
