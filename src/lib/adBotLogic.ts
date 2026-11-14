@@ -4,6 +4,7 @@ import { APP_BUTTON, APP_INTRO, EXCHANGE_BUTTON, EXCHANGE_INTRO, isExchangeReque
 import { GETBOT_BUTTON, creatorPct, splitCreatorCut } from "@/lib/botSales";
 import { BOT_SALE_CALLBACK, handleBotSaleCallback, isGetbotRequest, sendPlans, type Tg } from "@/lib/botSalesChat";
 import { botAppUrl, isOwnerBot, ownerBotGetbotLink, setBotAppMenu } from "@/lib/builderOwnerBot";
+import { isOwnerUser, ownerGate, ownerId, ownerInUserView } from "@/lib/ownerPanel";
 import { gateUrl } from "@/lib/hostingOps";
 import { REMIT_BUTTON, REMIT_INTRO, isRemitRequest } from "@/lib/remit/remit";
 import { SITE_URL, publicSiteUrl } from "@/lib/siteUrl";
@@ -77,6 +78,7 @@ import {
  */
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
+const SUPER_ADMIN_ID_REAL = SUPER_ADMIN_ID;
 export const MIN_WITHDRAWAL = 1;
 const MIN_OWNER_WITHDRAWAL = 5;
 // Above this, a withdrawal still goes through the same SUPER_ADMIN
@@ -671,7 +673,29 @@ async function setPrivateBot(botId: string, on: boolean): Promise<void> {
   await supabaseAdmin().from("bot_settings").upsert({ key: `private_bot:${botId}`, value: on, updated_at: new Date().toISOString() });
 }
 
+/**
+ * Entry of every update of an ads & earn bot. Owner panel switch (src/lib/ownerPanel.ts), only on a bot the owner himself owns (the owner bot):
+ * «👤 لوحة المستخدم» opens what the bot's supervisor and its users see (inside, the owner is treated as the bot's owner, not as the platform
+ * owner), «🛠 لوحة الإدارة» goes back to the owner panel. The mode is per bot and stored in bot_settings.
+ */
 export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  const from = update?.callback_query?.from?.id ?? update?.message?.from?.id;
+  let viewAsUser = false;
+  if (from != null && isOwnerUser(from) && botRow.ownerId === ownerId()) {
+    if (update?.message && !update.message.successful_payment) {
+      const gate = await ownerGate(botRow.id, String(update.message.text || "").trim(), (t) => handleAdBotUpdate(bot, botRow, { ...update, message: { ...update.message, text: t } }));
+      if (gate === "handled") return;
+      viewAsUser = gate === "user";
+    } else {
+      viewAsUser = await ownerInUserView(botRow.id);
+    }
+  }
+  return handleAdBotUpdateInner(bot, botRow, update, viewAsUser);
+}
+
+async function handleAdBotUpdateInner(bot: TelegramBot, botRow: BotRow, update: any, viewAsUser: boolean) {
+  // In the owner's «user view» every platform-owner check below is false (the module constant is shadowed), so the owner sees the bot as its supervisor and users do.
+  const SUPER_ADMIN_ID = viewAsUser ? "" : SUPER_ADMIN_ID_REAL;
   const actor = String(update.callback_query?.from?.id ?? update.message?.from?.id ?? "");
   if (actor && actor !== SUPER_ADMIN_ID && (await isPrivateBot(botRow.id))) {
     const chat = update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;

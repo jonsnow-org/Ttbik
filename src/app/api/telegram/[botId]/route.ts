@@ -19,7 +19,7 @@ import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
 import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
-import { OWNER_PANEL_TEMPLATES, ownerPanelTransformer } from "@/lib/ownerPanel";
+import { OWNER_PANEL_TEMPLATES, ownerId, ownerPanelTransformer } from "@/lib/ownerPanel";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     const bot = new TelegramBot(botRow.token);
-    if (OWNER_PANEL_TEMPLATES.has(botRow.template)) bot.api.config.use(ownerPanelTransformer(botRow.id));
+    if (OWNER_PANEL_TEMPLATES.has(botRow.template) || (botRow.template === "AD_BOT" && !!ownerId() && botRow.ownerId === ownerId())) bot.api.config.use(ownerPanelTransformer(botRow.id));
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
