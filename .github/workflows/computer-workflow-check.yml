@@ -18,6 +18,7 @@ jobs:
       - name: Run the check
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}          # read-only: used only to get a short-lived download address (the private-repository path of computer_repo)
           STUDIO: ${{ inputs.studio }}
         run: |
           case "$STUDIO" in *[!a-z0-9-]*) echo "bad name"; exit 1;; esac

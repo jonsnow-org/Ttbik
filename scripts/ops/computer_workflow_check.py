@@ -8,12 +8,36 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import modelscope_computer_smoke as smoke  # noqa: E402
 
 TOOLS = ("git gh rg jq curl wget gcc g++ make cmake python3 pip3 node npm go java ruby php rustc cargo ffmpeg convert pandoc sqlite3 psql redis-cli mysql clang gdb valgrind "
          "vim nano tmux htop tree unzip 7z rsync ssh ping dig nc strace shellcheck fzf fdfind ag").split()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):  # noqa: D401
+        return None
+
+
+def signed_tarball(repo_url: str, token: str) -> str:
+    """What the app does for a private repository: ask GitHub for the tarball with the token, keep only the short-lived codeload address from the redirect.
+    The token itself never goes to the hub."""
+    parts = repo_url.rstrip("/").split("/")
+    if not token or len(parts) < 2:
+        return ""
+    req = urllib.request.Request(f"https://api.github.com/repos/{parts[-2]}/{parts[-1]}/tarball/HEAD", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "computer-check"})
+    try:
+        urllib.request.build_opener(_NoRedirect).open(req, timeout=15)
+    except urllib.error.HTTPError as exc:
+        loc = exc.headers.get("Location", "") if 300 <= exc.code < 400 else ""
+        return loc if loc.startswith("https://codeload.github.com/") else ""
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
 
 
 def main() -> int:
@@ -41,7 +65,9 @@ def main() -> int:
 
     status = step("computer status", {"action": "status"}, must=False)
     print("    toolchain:", status.get("toolchain"), "| devtools:", status.get("devtools"), flush=True)
-    repo = step("computer_repo: get the public repository", {"action": "repo", "url": args.repo}, timeout=150)
+    signed = signed_tarball(args.repo, (os.environ.get("GITHUB_TOKEN") or "").strip())
+    print("    signed address:", "yes (private-repository path, as the app does it)" if signed else "none (public path)", flush=True)
+    repo = step("computer_repo: get the repository", {"action": "repo", "url": args.repo, **({"signed_url": signed} if signed else {})}, timeout=150)
     if repo.get("job"):                                       # still downloading: wait for it
         for _ in range(40):
             log = smoke.box_call(args.api, token, {"session": session, "action": "job_log", "id": repo["job"]})
