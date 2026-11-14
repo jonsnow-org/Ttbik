@@ -83,4 +83,4 @@ export function ownerPanelTransformer(botId: string): Transformer {
 }
 
 /** Templates whose owner gate uses this switch (the chains bot has its own pair of buttons with the same labels; Athar has its own toggle). */
-export const OWNER_PANEL_TEMPLATES = new Set(["JOBS_BOT", "MEDICAL_BOT", "CONFESSION_BOT"]);
+export const OWNER_PANEL_TEMPLATES = new Set(["JOBS_BOT", "MEDICAL_BOT", "CONFESSION_BOT", "MARRIAGE_BOT"]);
