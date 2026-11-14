@@ -84,7 +84,7 @@ jobs:
           print("FRAMES", len(fr), "motion min/avg/max", min(diffs), round(sum(diffs) / len(diffs), 2), max(diffs))
           print("first_vs_last", round(ImageStat.Stat(ImageChops.difference(Image.open(fr[0]).convert("L"), Image.open(fr[-1]).convert("L"))).mean[0], 2))
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: video-bench

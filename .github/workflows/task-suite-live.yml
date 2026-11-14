@@ -36,8 +36,8 @@ jobs:
       matrix:
         model: ${{ fromJson(needs.plan.outputs.models) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       - name: Install test dependencies
@@ -58,7 +58,7 @@ jobs:
       - name: Table
         if: always()
         run: cat "$RUNNER_TEMP/task-suite.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no table was written"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: task-suite-${{ matrix.model }}

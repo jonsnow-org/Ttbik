@@ -9,8 +9,8 @@ jobs:
   sham-media-cpu-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Test local media readiness without GPU or network weights
@@ -41,8 +41,8 @@ jobs:
   nova-media-client-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Test Nova media Studio client without network calls
@@ -64,7 +64,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: placeholder
       NEXT_PUBLIC_SITE_URL: https://example.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2                        # content-shrink-check compares HEAD with HEAD~1
       - uses: actions/setup-node@v7
@@ -85,7 +85,7 @@ jobs:
     # runs in parallel with build; errors fail it, warnings (React-Compiler rules, <a>/<img> advice) do not: see eslint.config.mjs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -96,8 +96,8 @@ jobs:
   sham-v2-runtime-code-sync-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Verify signed code changes never alter Sham v2 weights or media
@@ -106,7 +106,7 @@ jobs:
   sham-v2-regression-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -124,7 +124,7 @@ jobs:
   oracle-runner-policy-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
