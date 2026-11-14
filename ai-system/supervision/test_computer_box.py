@@ -765,6 +765,15 @@ class Batch(Box):
         with patch.object(cb, "welcome", side_effect=RuntimeError("boom")):
             self.assertTrue(self.run_box(session=s, action="run", command="echo ok")["ok"])
 
+class PrivateRepo(Box):
+    def test_only_a_codeload_address_is_accepted_for_a_private_repo(self):
+        bad = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://evil.example/x.tar.gz")
+        self.assertFalse(bad["ok"])
+        self.assertIn("bad download address", bad["error"])
+        injected = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://codeload.github.com/o/r/x; rm -rf ~")
+        self.assertFalse(injected["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

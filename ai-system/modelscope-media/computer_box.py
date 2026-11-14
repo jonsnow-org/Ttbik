@@ -1260,7 +1260,7 @@ def repo_summary_command(folder: str) -> str:
     )
 
 
-def repo_fetch(session: str, url: str, ref: str = "") -> dict:
+def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> dict:
     """Public GitHub repository -> ~/repos/<owner>-<name> in ONE call (shallow clone; tarball when git is blocked). Private repositories are not fetched here:
     no GitHub token is ever put in this computer."""
     parsed = parse_repo_url(url)
@@ -1278,6 +1278,11 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
     marker = re.sub(r"[^A-Za-z0-9_.-]", "_", tar_ref)[:100]          # a snapshot of THIS ref fetched minutes ago is reused (the Studio's GitHub link is slow)
     api_url = shell_quote(f"https://api.github.com/repos/{owner}/{name}/tarball/{tar_ref}")
+    signed = str(signed_url or "").strip()       # a PRIVATE repository: the app asked GitHub for a short-lived download address with its own token and passes only that address (the token itself never comes here)
+    if signed:
+        if not re.fullmatch(r"https://codeload\.github\.com/[A-Za-z0-9_./?=&%~+-]{1,1500}", signed):
+            return {"ok": False, "error": "bad download address"}
+        tar_url = api_url = shell_quote(signed)
     # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
     # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
     # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
@@ -1493,7 +1498,7 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
     elif action == "changes":
         out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
     elif action == "repo":
-        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""), job.get("signed_url", ""))
     elif action == "search":
         out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
     elif action == "status":

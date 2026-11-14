@@ -214,3 +214,21 @@ describe("writing fast: edit in place and publish in one commit", () => {
     expect(guard.confirm).toBe(true);
   });
 });
+
+import { signedTarball as _signedTarball, cleanBoxArgs as _clean } from "@/lib/computerBox";
+describe("private repositories reach the computer as a signed address, never the token", () => {
+  const redirect = (loc: string, status = 302) => (async () => ({ status, headers: { get: (h: string) => (h.toLowerCase() === "location" ? loc : null) } })) as any;
+  it("returns the short-lived codeload address from the redirect", async () => {
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://codeload.github.com/owner/repo/legacy.tar.gz/HEAD?token=ABC"))).toBe("https://codeload.github.com/owner/repo/legacy.tar.gz/HEAD?token=ABC");
+  });
+  it("refuses other hosts, non-redirects and bad repo names", async () => {
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://evil.example/x"))).toBeNull();
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://codeload.github.com/x", 200))).toBeNull();
+    expect(await _signedTarball("tok", "../etc", "", redirect("https://codeload.github.com/x"))).toBeNull();
+    expect(await _signedTarball("", "owner/repo", "", redirect("https://codeload.github.com/x"))).toBeNull();
+  });
+  it("only a codeload address passes the argument cleaner", () => {
+    expect(_clean({ action: "repo", url: "https://github.com/o/r", signed_url: "https://codeload.github.com/o/r/x?token=1" })?.signed_url).toBe("https://codeload.github.com/o/r/x?token=1");
+    expect(_clean({ action: "repo", url: "https://github.com/o/r", signed_url: "https://evil.example/x" })?.signed_url).toBeUndefined();
+  });
+});

@@ -104,7 +104,7 @@ export const DESKTOP_TOOL_DEFS: CoderTool[] = [
 export const COMPUTER_PLAYBOOK = [
   "How to work fast on your computer:",
   "- start with computer_read \".\" and ~/NOTES.md (files and notes from earlier chats are still there; keep NOTES.md updated);",
-  "- to read a public GitHub repository use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
+  "- to read a GitHub repository (public or the owner's private one) use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
   "- anything over ~60 s (install, build, tests, download, server) goes to computer_job; do other work, then read its log;",
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
@@ -130,7 +130,7 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({ steps: { type: "array", items: obj({ tool: s("computer_* tool name"), continue_on_error: { type: "boolean" } }, ["tool"]) } }, ["steps"])),
   tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
-  tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
+  tool("computer_repo", "Get a GitHub repository onto YOUR computer in ONE call (into ~/repos), with a summary: public ones, and the owner's PRIVATE ones that the connected GitHub account can read. Then use computer_search / computer_read. Far faster than many GitHub API calls.",
     obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
   tool("computer_search", "Search text in files on YOUR computer (ripgrep): matching lines with file:line. path = folder or file, glob like *.ts.",
     obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
@@ -790,6 +790,10 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
+      if (name === "computer_repo" && mapped && ctx.githubToken) {       // the owner's own (private) repositories: a signed download address, never the token
+        const m = /github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(a.url || ""));
+        if (m) { const { signedTarball } = await import("@/lib/computerBox"); const u = await signedTarball(ctx.githubToken, `${m[1]}/${m[2]}`, String(a.ref || ""), ctx.fetchImpl); if (u) mapped.signed_url = u; }
+      }
       if (!mapped) return name === "computer_batch" ? "error: every batch step needs a valid computer_* tool and its arguments" : "error: computer_job action must be start, log, stop or list";
       // one private computer namespace per user AND model on the shared 16 GB computer hub
       return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
