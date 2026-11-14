@@ -1325,7 +1325,7 @@ def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
     """ripgrep when installed, grep otherwise; line-numbered, bounded."""
     g = f"-g {shell_quote(glob)} " if glob else ""
     inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
-    return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
+    return (f"if command -v rg >/dev/null; then rg -j 32 -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
             f"else grep -rIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
@@ -1336,9 +1336,11 @@ def search_files(session: str, pattern: str, path: str = ".", glob: str = "") ->
         safe_path(session, path)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
-    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 40, promote=False)
+    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 60)
     if not out.get("ok"):
         return out
+    if out.get("running"):                      # a slow search keeps running as a job; what it found so far is returned at once
+        return {"ok": True, "running": True, "id": out["id"], "matches": out["output"] or "(nothing yet)", "seconds": out["seconds"], "hint": out["hint"]}
     return {"ok": True, "matches": out["output"] or "(no matches)", "seconds": out["seconds"]}
 
 

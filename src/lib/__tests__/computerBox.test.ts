@@ -54,6 +54,13 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("run", { ok: false, error: "disk full" })).toBe("error: disk full");
   });
 
+  test("a search that is still running is shown with its job id and what it found so far", () => {
+    const text = renderBoxReply("search", { ok: true, running: true, id: "cd34ef56", matches: "src/a.ts:3:foo", seconds: 15.4, hint: "Read the rest with computer_job action=log id=cd34ef56" });
+    expect(text).toContain("still searching in the background as job cd34ef56");
+    expect(text).toContain("src/a.ts:3:foo");
+    expect(text).toContain("computer_job action=log id=cd34ef56");
+  });
+
   test("a command still running after the foreground wait is shown as a job to poll, not as exit null", () => {
     const text = renderBoxReply("run", { ok: true, running: true, id: "ab12cd34", job: "ab12cd34", exit_code: null, seconds: 15.2, cwd: ".", output: "installing…", hint: "Read the rest with computer_job action=log id=ab12cd34" });
     expect(text).toContain("still running in the background as job ab12cd34");

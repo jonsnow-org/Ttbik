@@ -335,6 +335,26 @@ class Jobs(Box):
         finally:
             cb.FG_SECONDS = old
 
+    def test_a_slow_search_keeps_running_as_a_job_and_returns_what_it_has(self):
+        old_fg, old_cmd = cb.FG_SECONDS, cb.search_command
+        cb.FG_SECONDS = 1
+        cb.search_command = lambda pattern, path=".", glob="": "echo first-hit; sleep 3; echo last-hit"
+        try:
+            out = self.run_box(session="promo:s", action="search", pattern="x")
+            self.assertTrue(out["ok"] and out["running"], out)
+            self.assertIn("first-hit", out["matches"])
+            for _ in range(40):
+                log = self.run_box(session="promo:s", action="job_log", id=out["id"])
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertIn("last-hit", log["output"])
+        finally:
+            cb.FG_SECONDS, cb.search_command = old_fg, old_cmd
+
+    def test_search_reads_files_with_many_threads_to_hide_the_mount_latency(self):
+        self.assertIn("rg -j 32 ", cb.search_command("foo"))
+
     def test_a_quick_command_answers_in_the_call_as_before(self):
         old = cb.FG_SECONDS
         cb.FG_SECONDS = 1
