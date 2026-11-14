@@ -290,6 +290,110 @@ def _head_from_modelscope(dest: Path) -> bool:
 
 
 
+def _on_modelscope() -> bool:
+    return (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope"
+
+
+def _ms_owner() -> str:
+    return os.environ.get("SHAM_MS_OWNER") or os.environ.get("MS_OWNER") or "novaai2026"
+
+
+def _ms_token() -> str:
+    return os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
+
+
+def _ms_api():
+    from modelscope.hub.api import HubApi
+    api = HubApi()
+    tok = _ms_token()
+    if tok:
+        api.login(tok)
+    return api
+
+
+def ms_model_repos(prefix: str = "sham-crawl-") -> list[str]:
+    """Names (without the owner) of the account's ModelScope MODEL repos that start with `prefix`. The cn trainer Studios publish here because Kaggle uploads from
+    cn fail: the owner's inventory of 2026-11-14 found NO dataset `sham-crawl-ms1` although that trainer had finished a cycle 11% better than its start point.
+    [] when there is no token or the hub does not answer."""
+    if not _ms_token():
+        return []
+    try:
+        api = _ms_api()
+        names: list[str] = []
+        page = 1
+        while page <= 6:
+            res = api.list_models(_ms_owner(), page_number=page, page_size=50, token=_ms_token())
+            rows = (res.get("Models") if isinstance(res, dict) else None) or []
+            if not rows:
+                break
+            for row in rows:
+                n = str(row.get("Name") or row.get("name") or "")
+                if n.startswith(prefix):
+                    names.append(n)
+            if len(rows) < 50:
+                break
+            page += 1
+        return sorted(set(names))
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"  ⚠ تعذّر سرد مستودعات ModelScope ({type(exc).__name__}: {str(exc)[:100]})")
+        return []
+
+
+def _ms_pull(repo: str, dest: Path) -> bool:
+    """Copies every file of the ModelScope model repo `repo` (name without owner) into dest, in the layout the Kaggle dataset has (files at the root)."""
+    try:
+        from modelscope import snapshot_download
+        _ms_api()
+        cache = dest.parent / "ms_cache_src"
+        src = Path(snapshot_download(f"{_ms_owner()}/{repo}", cache_dir=str(cache)))
+        dest.mkdir(parents=True, exist_ok=True)
+        got = 0
+        for f in src.rglob("*"):
+            if f.is_file() and f.name != "configuration.json" and ".git" not in f.parts:
+                target = dest / f.relative_to(src)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+                got += 1
+        shutil.rmtree(cache, ignore_errors=True)
+        print(f"  • {repo}: من ModelScope ({_ms_owner()}/{repo}) — {got} ملفات")
+        return got > 0
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"  ⚠ تعذّر جلب {repo} من ModelScope ({type(exc).__name__}: {str(exc)[:100]})")
+        return False
+
+
+def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str | None:
+    """Create-or-update the PRIVATE ModelScope model repo `<owner>/<name>` from upload_dir (the same files publish_dataset sends to Kaggle). Returns
+    "modelscope:<owner>/<name>" on success, None on failure (the files stay on the Studio's disk either way)."""
+    if not _ms_token():
+        return None
+    try:
+        import json
+        import tempfile
+
+        from modelscope.hub.constants import Visibility
+        api = _ms_api()
+        stage = Path(tempfile.mkdtemp(prefix="ms_push_"))
+        try:
+            for f in Path(upload_dir).iterdir():
+                if f.is_file() and f.name != "dataset-metadata.json":
+                    try:
+                        os.link(f, stage / f.name)                    # no second copy of an 850 MB checkpoint
+                    except OSError:
+                        shutil.copy2(f, stage / f.name)
+            (stage / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
+            model_id = f"{_ms_owner()}/{name}"
+            api.push_model(model_id=model_id, model_dir=str(stage), visibility=Visibility.PRIVATE, license="apache-2.0",
+                           chinese_name=name, commit_message=str(message)[:200])
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        print(f"نُشرت نسخة إلى ModelScope: {model_id} — الدمج يلتقطها تلقائياً.")
+        return f"modelscope:{model_id}"
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"تنبيه: فشل النشر إلى ModelScope ({type(exc).__name__}: {str(exc)[:160]}) — الملفات آمنة على قرص الاستوديو.")
+        return None
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -343,6 +447,12 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
             print(f"  • {base}: التنزيل الكامل فشل فنُزّلت الملفات واحداً واحداً ({got}/{len(names)})")
             _unzip_nested(dest)
             r = subprocess.CompletedProcess(r.args, 0, r.stdout, "")
+    if (r.returncode != 0 or not any(dest.iterdir())) and base.startswith(CRAWL_PREFIX) and not base.endswith("corpus"):
+        shutil.rmtree(dest, ignore_errors=True)
+        if base in ms_model_repos(base) and _ms_pull(base, dest) and _has(dest, need):      # a trainer that publishes to ModelScope instead of Kaggle
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
     if r.returncode != 0 or not any(dest.iterdir()):
         shutil.rmtree(dest, ignore_errors=True)
         msg = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
@@ -536,6 +646,9 @@ def crawl_dataset_names(prefix: str = CRAWL_PREFIX) -> dict:
         if not n.startswith(prefix):
             continue
         (found["corpora"] if n.endswith("corpus") else found["models"]).append(n)
+    for n in ms_model_repos(prefix):                                 # collection outputs published to ModelScope (cn trainers)
+        if n not in found["models"] and not n.endswith("corpus"):
+            found["models"].append(n)
     return found
 
 
@@ -648,7 +761,28 @@ def dataset_exists(slug: str, run=subprocess.run) -> bool:
     return False
 
 
+def _run_limited(cmd: list, limit: float):
+    """One attempt of a command with a wall-clock limit (exit code 124 when it does not finish): used for uploads, which must neither retry for hours nor hang."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        print(f"  ⏱ الرفع لم ينتهِ في {int(limit)} ث: {' '.join(str(c) for c in cmd[:4])}")
+        return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_PUBLISH_TIMEOUT)")
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
+    """Publish a track's output where the merge reads it. On a ModelScope Studio (cn trainers) the PRIVATE ModelScope model repo is tried FIRST (fast from there) and
+    Kaggle second with a time limit: uploads to Kaggle from cn kept failing, so a finished 5-hour cycle never reached the merge (inventory 2026-11-14: no dataset
+    sham-crawl-ms1). Returns the Kaggle slug, else "modelscope:<repo>", else None (the files stay in this session's Output / on the Studio's disk either way).
+    Text corpora (name ends with "corpus") go to Kaggle only."""
+    ms = None
+    if _on_modelscope() and not str(name).endswith("corpus"):
+        ms = publish_modelscope(upload_dir, name, message)
+    slug = _publish_kaggle(upload_dir, name, message)
+    return slug or ms
+
+
+def _publish_kaggle(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
     slug on success, None on failure (the files stay in this session's
@@ -667,11 +801,12 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
     exists = dataset_exists(slug)
     version_cmd = ["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"]
     create_cmd = ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"]
-    r = subprocess.run(version_cmd if exists else create_cmd, capture_output=True, text=True)
+    limit = int(os.environ.get("SHAM_KAGGLE_PUBLISH_TIMEOUT") or 1500)           # an upload that stalls must not hold the cycle's end for hours
+    r = _run_limited(version_cmd if exists else create_cmd, limit)
     out = (r.stdout or "") + (r.stderr or "")
     if not exists and "already in use" in out.lower():
         exists = True
-        r = subprocess.run(version_cmd, capture_output=True, text=True)
+        r = _run_limited(version_cmd, limit)
         out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "error" not in out.lower():
         print(f"{'نُشرت نسخة جديدة إلى' if exists else 'أُنشئت'} {slug} — التشغيل القادم يلتقطها تلقائياً.")
