@@ -475,10 +475,13 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   // Experimental Bot API 10.4 widget (private chat only). Telegram's own refusal reason is shown to the owner, never to users.
   if (text === "/widget") {
     await setPending(tgUserId, null);
-    const { sendStreakWidget, sendBoard } = await import("@/lib/streakWidget");
+    const { sendStreakWidget, sendBoard, probeWidgets } = await import("@/lib/streakWidget");
     const why = await sendStreakWidget(bot, chatId, tgUserId);
     if (why) {
-      if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) await bot.api.sendMessage(chatId, `⚙️ رفض تيليجرام إرسال الأداة التفاعلية:\n${why}`);
+      if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
+        const probe = await probeWidgets(bot, chatId, tgUserId);
+        await bot.api.sendMessage(chatId, `⚙️ رفض تيليجرام إرسال الأداة التفاعلية:\n${why}\n\nفحص تدريجي (من الأصغر للأكبر):\n${probe.join("\n")}`);
+      }
       else await bot.api.sendMessage(chatId, "الأداة التفاعلية غير متاحة لحسابك بعد؛ هذه لوحتك العادية:");
       await sendBoard(bot, chatId, tgUserId);
     }

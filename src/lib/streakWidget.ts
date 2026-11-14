@@ -93,6 +93,28 @@ export async function sendStreakWidget(bot: TelegramBot, chatId: number, userId:
   }
 }
 
+/** Owner-only diagnosis of «INPUT_MEDIA_WIDGET_NOT_ALLOWED»: sends four widgets from the smallest to the full one and reports the first that Telegram refuses.
+ *  If the smallest is refused the bot itself is not allowed; if only a later one is, the refused parameter is the cause. Returns report lines. */
+export async function probeWidgets(bot: TelegramBot, chatId: number, userId: string): Promise<string[]> {
+  const state = await stateFor(userId);
+  const steps: [string, Record<string, unknown>][] = [
+    ["1) html فقط", { html: "<b>1</b>" }],
+    ["2) + width/height", { html: "<b>2</b>", width: 300, height: 80 }],
+    ["3) + chat_data", { html: "<b>3</b>", width: 300, height: 80, chat_data: state }],
+    ["4) + allow_queries", { html: "<b>4</b>", width: 300, height: 80, chat_data: state, allow_queries: true }],
+  ];
+  const out: string[] = [];
+  for (const [name, params] of steps) {
+    try {
+      await rawCall(bot, "sendWidget", { chat_id: chatId, ...params });
+      out.push(`✅ ${name}`);
+    } catch (e) {
+      out.push(`❌ ${name}: ${String((e as { description?: string; message?: string })?.description || (e as Error)?.message || "?").slice(0, 120)}`);
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // «🧩 لوحة سلاسلي» — the board that always works: one message, one button per chain (inline callbacks, no widget needed).
 // ---------------------------------------------------------------------
