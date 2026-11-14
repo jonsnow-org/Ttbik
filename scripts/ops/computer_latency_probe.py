@@ -49,6 +49,8 @@ def timed(label: str, api: str, token: str, payload: dict, timeout: int = 120, n
     except Exception as exc:  # noqa: BLE001
         r, state = {}, f"FAIL({type(exc).__name__}: {str(exc)[:120]})"
     print(f"{time.time() - t:6.1f}s  {state:8s} {label}", flush=True)
+    if "server_ms" in r:
+        print(f"          | inside the hub: {r['server_ms']} ms (setup {r.get('setup_ms')})", flush=True)
     out = str(r.get("output", "")).strip()
     if out:
         print("          | " + out[:400].replace("\n", "\n          | "), flush=True)
