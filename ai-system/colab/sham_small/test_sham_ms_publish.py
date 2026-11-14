@@ -20,7 +20,7 @@ class Api:
     def push_model(self, model_id, model_dir, **kw):
         pushed["id"] = model_id
         pushed["files"] = sorted(p.name for p in pathlib.Path(model_dir).iterdir())
-        pushed["private"] = str(kw.get("visibility"))
+        pushed["private"] = repr(kw.get("visibility"))
 hub = types.ModuleType("modelscope.hub"); api_mod = types.ModuleType("modelscope.hub.api"); api_mod.HubApi = Api
 const = types.ModuleType("modelscope.hub.constants")
 class V: PRIVATE = "private"
@@ -76,9 +76,9 @@ log = []
 mode = {"v": "first-fails"}
 class Api:
     def login(self, tok): pass
-    def create_model(self, model_id, **kw): log.append(("create", kw.get("license"), kw.get("chinese_name")))
+    def create_model(self, model_id, **kw): log.append(("create", kw.get("license"), kw.get("chinese_name"), kw.get("visibility")))
     def push_model(self, model_id, model_dir, **kw):
-        log.append(("push", kw.get("license"), kw.get("chinese_name")))
+        log.append(("push", kw.get("license"), kw.get("chinese_name"), kw.get("visibility")))
         if mode["v"] == "all-fail" or kw.get("license") == "apache-2.0":
             raise RuntimeError("400 Client Error: Bad Request body {\"Message\": \"invalid license\"}")
 hub = types.ModuleType("modelscope.hub"); api_mod = types.ModuleType("modelscope.hub.api"); api_mod.HubApi = Api
@@ -109,7 +109,7 @@ class MsPublish(unittest.TestCase):
         self.assertIn("configuration.json", r.stdout)
         self.assertIn("final.pt", r.stdout)
         self.assertNotIn("dataset-metadata", r.stdout)
-        self.assertIn("'private': 'private'", r.stdout)
+        self.assertIn("'private': '1'", r.stdout)                                       # the integer, not the string "private" (the hub refused the string)
         self.assertIn("CORPUS acct/sham-crawl-ms1-corpus {}", r.stdout)           # the corpus never went to ModelScope
         self.assertIn("BOTH acct/sham-crawl-ms1 acct/sham-crawl-ms1", r.stdout)
 
@@ -126,7 +126,7 @@ class MsCreateFallback(unittest.TestCase):
         r = run(FALLBACK)
         self.assertEqual(r.returncode, 0, r.stderr[-800:])
         self.assertIn("FIRST modelscope:acct/sham-crawl-ms1", r.stdout)
-        self.assertIn("('create', 'Apache License 2.0', 'Sham')", r.stdout)
+        self.assertIn("('create', 'Apache License 2.0', 'Sham', 1)", r.stdout)
         self.assertIn("SECOND None", r.stdout)
         self.assertIn("invalid license", r.stdout)                                    # the hub's own message reaches the log (it was cut off at 160 characters)
         self.assertIn("push_model[apache-2.0]", r.stdout)

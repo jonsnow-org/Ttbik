@@ -362,6 +362,11 @@ def _ms_pull(repo: str, dest: Path) -> bool:
         return False
 
 
+# The hub's own numeric visibility (1 private, 5 public). MEASURED 2026-11-14: on the cn trainer Studio the SDK's `Visibility.PRIVATE` went into the create request as the
+# STRING "private" (request body in the 400 message: "Visibility": "private") and every create was refused with 400; the project's older scripts pass the integer.
+MS_PRIVATE = 1
+
+
 def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-update the PRIVATE ModelScope model repo `<owner>/<name>` from upload_dir (the same files publish_dataset sends to Kaggle). Returns
     "modelscope:<owner>/<name>" on success, None on failure (the files stay on the Studio's disk either way)."""
@@ -371,7 +376,6 @@ def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str |
         import json
         import tempfile
 
-        from modelscope.hub.constants import Visibility
         api = _ms_api()
         stage = Path(tempfile.mkdtemp(prefix="ms_push_"))
         try:
@@ -391,10 +395,10 @@ def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str |
                 try:
                     if variant:
                         try:
-                            api.create_model(model_id, visibility=Visibility.PRIVATE, license=license_name, chinese_name=display)
+                            api.create_model(model_id, visibility=MS_PRIVATE, license=license_name, chinese_name=display)
                         except Exception as exc2:                         # noqa: BLE001 - it may exist already; the push below decides
                             errors.append(f"create_model: {type(exc2).__name__}: {str(exc2)[:260]}")
-                    api.push_model(model_id=model_id, model_dir=str(stage), visibility=Visibility.PRIVATE, license=license_name,
+                    api.push_model(model_id=model_id, model_dir=str(stage), visibility=MS_PRIVATE, license=license_name,
                                    chinese_name=display, commit_message=str(message)[:200])
                     done = True
                     break
