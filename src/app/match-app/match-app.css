@@ -1,9 +1,15 @@
-/* Match Mini App: route-scoped viewport and safe-area behavior.
-   Preserve its navy / pink / copper visual identity. */
+/* Match Mini App: navy, rose, and copper. Motion lives with the layout, not the rules. */
 
 .match-app-root {
   --match-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-viewport-safe-area-inset-top, 0px), var(--tg-viewport-content-safe-area-inset-top, 0px));
   --match-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px));
+  --match-ink: #090d18;
+  --match-rose: #d81b60;
+  --match-copper: #e4b89a;
+  background:
+    radial-gradient(120% 70% at 100% -10%, rgba(216, 27, 96, 0.18), transparent 46%),
+    radial-gradient(90% 50% at -10% 30%, rgba(228, 184, 154, 0.08), transparent 42%),
+    var(--match-ink);
 }
 
 .match-app-sheet-85,
@@ -13,6 +19,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.35);
 }
 
 .match-app-sheet-85 {
@@ -28,4 +35,19 @@
 .match-app-sheet-88 {
   max-height: 88vh;
   max-height: 88dvh;
+}
+
+.match-nav {
+  background: rgba(12, 16, 32, 0.78);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .match-app-root,
+  .match-app-root * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
