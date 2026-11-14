@@ -101,7 +101,8 @@ function mainMenu(): Keyboard {
   kb.text(MENU_BUTTON).text(MEMORIAL_BUTTON).row();
   kb.text(CONTEST_BUTTON).text(APP_BUTTON).row();
   for (const cat of STREAK_CATEGORIES) kb.text(cat.menuLabel).row();
-  kb.text("📊 كل سلاسلي").text("ℹ️ معلومات");
+  kb.text("📊 كل سلاسلي").text("🧩 لوحة سلاسلي").row();
+  kb.text("ℹ️ معلومات");
   return kb.resized();
 }
 function categoryMenu(): Keyboard {
@@ -207,7 +208,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
   // The owner can try the khatma flows like any user.
-  if (isServicesRequest(text) || text === APP_BUTTON || text === "/app" || /^\/start app$/.test(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
+  if (isServicesRequest(text) || text === APP_BUTTON || text === "/app" || /^\/start app$/.test(text) || text === MENU_BUTTON || text === MEMORIAL_BUTTON || text === CONTEST_BUTTON || text === "/khatma" || text === "/contest" || text === "🧩 لوحة سلاسلي" || text === "/widget" || /^\/start (k_|khatma|contest|prize)/.test(text) || pending?.mode === "khatma_name" || pending?.mode === "khatma_dedication") return false;
 
   if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
@@ -296,6 +297,12 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
 // Regular flow
 // ---------------------------------------------------------------------
 export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  // 🧩 Bot API 10.4 widget tap («سجّلت اليوم» inside the chat bubble): dynamic import, the widget module imports this file.
+  if (update.widget_query) {
+    const { handleStreakWidgetQuery } = await import("@/lib/streakWidget");
+    await handleStreakWidgetQuery(bot, botRow, update.widget_query);
+    return;
+  }
   // 📖 Khatma: inline buttons (memorial purchase, memorial board) and the Stars receipt come first.
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -420,6 +427,13 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   if (activeCategory && text === "📤 مشاركة") {
     const entry = await getOrCreateEntry(tgUserId, activeCategory.id);
     await bot.api.sendMessage(chatId, shareCardText(activeCategory, entry), { reply_markup: categoryMenu() });
+    return;
+  }
+
+  if (text === "🧩 لوحة سلاسلي" || text === "/widget") {
+    await setPending(tgUserId, null);
+    const { sendStreakWidget } = await import("@/lib/streakWidget");
+    await sendStreakWidget(bot, chatId, tgUserId);
     return;
   }
 
