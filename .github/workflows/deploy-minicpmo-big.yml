@@ -121,7 +121,9 @@ jobs:
                 state="$(read_state)"
                 echo "Waiting for previous runtime to stop: $state ($i/24)"
                 case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
-                  stopped|deployfailed|failed) stopped=1; break;;
+                  # after a stop ModelScope immediately rebuilds the Studio (Stopping -> Building -> Deploying) and never shows "stopped":
+                  # the old process is gone then, and the next step pushes the new code over the build (live runs 43686353828, 2026-11-15)
+                  stopped|deployfailed|failed|building|deploying) stopped=1; break;;
                 esac
                 sleep 10
               done
