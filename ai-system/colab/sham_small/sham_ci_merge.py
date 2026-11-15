@@ -222,11 +222,12 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     chunk = max(1, int(os.environ.get("SHAM_MERGE_CHUNK", "3")))
 
     accepted_steps: list = []
+    max_regress = float(os.environ.get("SHAM_PUBLISH_MAX_REGRESS", "0.002"))     # the publish gate's own limit (below), also the limit on drift while merging
 
     def flush():
         nonlocal changed
         if candidates:
-            lines = guarded_merge(model, list(candidates), score, anchor=before)
+            lines = guarded_merge(model, list(candidates), score, anchor=before, drift=max_regress)
             report.extend(lines)
             changed = changed or any(l.startswith("✅") for l in lines)
             for l in lines:             # 2026-11-11: the head's step never moved (61,555) although trainers' work was merged in — carry the accepted candidate's step
@@ -283,7 +284,6 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     # 2026-11-11 no-regress publish gate (run 42827855870 published text 4.590→4.624: each merge was inside its own tolerance, the sum was not): the head
     # is published only when NO skill on the gate is worse than before by more than SHAM_PUBLISH_MAX_REGRESS (relative, default 0.2%). Otherwise the
     # base is kept unchanged (the record of tried sources is still published so the same files are not retried).
-    max_regress = float(os.environ.get("SHAM_PUBLISH_MAX_REGRESS", "0.002"))
     worse = {k: (before[k], after[k]) for k in before if after.get(k, 0.0) > before[k] * (1 + max_regress)}
     if changed and worse:
         report.append("⛔ بوابة عدم التراجع: لا يُنشر الدمج (ساءت مهارة) — " + ", ".join(f"{k} {a:.3f}→{b:.3f}" for k, (a, b) in worse.items()))
@@ -347,6 +347,15 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         del hist[:-200]
         (up / "merge_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
         published = publish(up, OWN, f"merged on CPU (GitHub) from {label} at step {step:,}")
+        if published and os.environ.get("MODELSCOPE_TOKEN"):
+            # 2026-11-15: the cn trainer Studio reads the head from the ModelScope model repo, which a separate job refreshed only every other day: a new head sat on Kaggle
+            # while the trainer kept starting from the old one. The merge now refreshes that copy itself, right after the Kaggle publish (never fatal: Kaggle stays the source of truth).
+            try:
+                from sham_inputs import publish_modelscope
+                ms_head = publish_modelscope(up, "sham-merged", f"head at step {step:,} ({label})")
+                report.append(f"🪞 نسخة الرأس على ModelScope: {ms_head or 'لم تُحدَّث (يبقى Kaggle المرجع)'}")
+            except Exception as exc:  # noqa: BLE001
+                report.append(f"🪞 تعذّر تحديث نسخة الرأس على ModelScope: {type(exc).__name__}: {str(exc)[:80]}")
     elif not changed:
         report.append("لا دمج جديد — لا نسخة جديدة تُنشر")
         # the record of tried sources still has to survive: publish only the progress when something new was tried
@@ -440,9 +449,20 @@ if __name__ == "__main__":
                 labels = logits.argmax(-1)
             return {"text": [(ids, labels)]}
 
-        res = run(fetch=fetch, publish=publish, gate_builder=gate_builder2,
-                  sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
+        import sham_inputs as _si
+        mirrored = []
+        real_pm = getattr(_si, "publish_modelscope", None)
+        _si.publish_modelscope = lambda up_dir, name, msg: (mirrored.append((name, sorted(p_.name for p_ in Path(up_dir).iterdir()))), f"modelscope:acct/{name}")[1]
+        os.environ["MODELSCOPE_TOKEN"] = "test-token-not-real"
+        try:
+            res = run(fetch=fetch, publish=publish, gate_builder=gate_builder2,
+                      sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
+        finally:
+            os.environ.pop("MODELSCOPE_TOKEN", None)
+            if real_pm is not None:
+                _si.publish_modelscope = real_pm
         assert res["changed"] and res["after"]["text"] < res["before"]["text"], res
+        assert mirrored and mirrored[0][0] == "sham-merged" and "final_merged.pt" in mirrored[0][1] and "modelscope:acct/sham-merged" in res["report"], (mirrored, res["report"][-300:])
         assert pubs and pubs[0][0] == OWN and "final_merged.pt" in pubs[0][1] and "merge_progress.json" in pubs[0][1], pubs
         # a verdict Sham reached by itself travels in merge_progress.json and is published even when nothing was merged
         pubs.clear()
@@ -471,7 +491,7 @@ if __name__ == "__main__":
         import sham_merge as _sm
         real_gm = _sm.guarded_merge
         try:
-            def bad_gm(model, cands, score_fn, anchor=None):
+            def bad_gm(model, cands, score_fn, anchor=None, drift=None):
                 with torch.no_grad():
                     for p_ in model.parameters():
                         p_.add_(2.0 * torch.randn_like(p_))
@@ -483,7 +503,7 @@ if __name__ == "__main__":
             res5 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
             assert not res5["changed"] and "عدم التراجع" in res5["report"] and res5["after"] == res5["before"], res5["report"]
 
-            def good_gm(model, cands, score_fn, anchor=None):
+            def good_gm(model, cands, score_fn, anchor=None, drift=None):
                 with torch.no_grad():
                     for n_, p_ in model.named_parameters():
                         p_.copy_(target[n_])
