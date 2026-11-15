@@ -67,6 +67,9 @@ def main() -> int:
     print("    toolchain:", status.get("toolchain"), "| devtools:", status.get("devtools"), flush=True)
     signed = signed_tarball(args.repo, (os.environ.get("GITHUB_TOKEN") or "").strip())
     print("    signed address:", "yes (private-repository path, as the app does it)" if signed else "none (public path)", flush=True)
+    if signed:     # what the hub itself gets from the short-lived address (status and speed only; the address is never printed)
+        probe = step("diagnostic: download speed of the signed address from the hub", {"action": "run", "command": "curl -sS -o /dev/null -m 40 -w 'http=%{http_code} bytes=%{size_download} seconds=%{time_total} connect=%{time_connect}\\n' " + "'" + signed.replace("'", "") + "'"}, must=False, timeout=60)
+        print("    ", str(probe.get("output", ""))[-300:].replace("\n", " | "), flush=True)
     repo = step("computer_repo: get the repository", {"action": "repo", "url": args.repo, **({"signed_url": signed} if signed else {})}, timeout=150)
     if repo.get("job"):                                       # still downloading: wait for it
         for _ in range(40):
