@@ -97,7 +97,7 @@ ALL_IN_ONE_STAGES = {
 # trimmed by build_all_in_one.GROUPS so that BOTH sections of a notebook fit in one session (they used to be 8.5 + 8.5 h and 11 h + 4.4 h).
 AB_STAGES = {
     "sham_cpu_training_track": (5.0, 5.0),
-    "sham_cpu_research_track": (5.0, 5.0),
+    # Track B (autonomous research) removed 2026-11-15: its checkpoints scored ~5x worse than head and were always refused by the merge
 }
 CHAT_IMAGE_STAGES = {
     "sham_chat_stage": (6.0, 5.0),
