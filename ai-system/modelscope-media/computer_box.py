@@ -214,6 +214,13 @@ def session_home(session: str) -> Path:
     return session_root(session) / "home"
 
 
+FAST_ROOT = Path(os.environ.get("BOX_FAST", "/tmp/computer-fast"))     # LOCAL disk: the persistent mount costs ~25-50 ms per file, so a checkout lives here and the home folder holds a symlink to it
+
+
+def fast_home(session: str) -> Path:
+    return FAST_ROOT / digest(session)[:24]
+
+
 def session_uid(session: str) -> int:
     """Return a collision-free, persistent unprivileged UID for this session.
 
@@ -273,8 +280,9 @@ def safe_path(session: str, rel: str) -> Path:
         text = text[2:]
     target = (home / text.lstrip("/")) if text.startswith("/") else (home / text)
     real_home = Path(os.path.realpath(home))
+    real_fast = Path(os.path.realpath(fast_home(session)))          # the session's own local-disk folder (checkouts are symlinked here)
     real = Path(os.path.realpath(target))
-    if real != real_home and real_home not in real.parents:
+    if all(real != base and base not in real.parents for base in (real_home, real_fast)):
         raise ValueError("path leaves your computer's home folder")
     return target
 
@@ -506,6 +514,11 @@ def ensure_home(session: str) -> Path:
         try:
             os.chmod(ROOT, 0o711)
             os.chmod(session_root(session), 0o711)         # others may traverse to their own home, nothing more
+        except OSError:
+            pass
+        try:
+            FAST_ROOT.mkdir(parents=True, exist_ok=True)
+            os.chmod(FAST_ROOT, 0o1777)                    # each session makes its own 0700 folder inside
         except OSError:
             pass
         if not _fix_owner(home, uid, time.monotonic() + HOME_BUDGET):
@@ -1297,12 +1310,13 @@ def repo_summary_command(folder: str) -> str:
 # extraction, the loose git objects of the baseline commit, the index). It is now built on the LOCAL disk (seconds), packed into one git pack, and only then copied
 # into the home folder with many parallel `cp` (the mount is latency-bound, not bandwidth-bound).
 PUBLISH_LOCAL_SH = (
-    # Directories are made first (one process), then files are copied in parallel with NO --parents: on the persistent mount parallel `cp --parents` workers
-    # raced to create the same folder and failed with "cannot make directory: File exists" (live check 2026-11-15, exit 1 after 115 s).
-    'publish_local() { src="$1"; dst="$2"; D="$(pwd)/$dst"; rm -rf "$D.new"; mkdir -p "$D.new" || return 1; '
-    '( cd "$src" && find . -mindepth 1 -type d -print0 | ( cd "$D.new" && xargs -0 -r mkdir -p -- ) ) || return 1; '
-    '( cd "$src" && find . \\( -type f -o -type l \\) -print0 | xargs -0 -r -P 16 -n 60 sh -c \'for f in "$@"; do cp -a -- "$f" "$0/$f" || exit 1; done\' "$D.new" ) || return 1; '
-    'rm -rf "$D"; mv "$D.new" "$D"; }; '
+    # A checkout is built on the local disk and STAYS there ($FAST/<dst>, one rename); the home folder only gets a symlink to it. Copying thousands of files
+    # (or deleting the old tree) on the persistent mount took minutes (live check 2026-11-15: the clone job outlived a 200 s wait) and raced on mkdir.
+    'publish_local() { src="$1"; dst="$2"; D="$(pwd)/$dst"; F="${FAST:-$(pwd)/../.fast}/$dst"; '
+    'mkdir -p "$(dirname "$F")" "$(dirname "$D")" || return 1; chmod 700 "${FAST:-$(pwd)/../.fast}" 2>/dev/null; '
+    'rm -rf "$F.new"; mv "$src" "$F.new" || return 1; rm -rf "$F"; mv "$F.new" "$F" || return 1; '
+    'if [ -L "$D" ]; then rm -f "$D"; elif [ -e "$D" ]; then mv "$D" "$D.old.$$" && { nohup rm -rf "$D.old.$$" >/dev/null 2>&1 & }; fi; '
+    'ln -s "$F" "$D"; }; '
 )
 
 
@@ -1335,7 +1349,7 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
     # publish still see what the model edits).
     t_dir, g_dir = '"$L/t"', '"$L/g"'               # on the LOCAL disk (see PUBLISH_LOCAL_SH)
     script = (
-        f"set -e; mkdir -p repos; L=$(mktemp -d /tmp/crepo.XXXXXX); trap 'rm -rf \"$L\"' EXIT; {PUBLISH_LOCAL_SH}"
+        f"set -e; mkdir -p repos; FAST={shell_quote(str(fast_home(session)))}; L=$(mktemp -d /tmp/crepo.XXXXXX); trap 'rm -rf \"$L\"' EXIT; {PUBLISH_LOCAL_SH}"
         # (2026-11-14 live check: `git fetch` inside an existing checkout on the persistent mount died with "Failed to checksum .git/objects/pack/tmp_pack" and left no folder;
         #  an older checkout is therefore replaced by a fresh tarball/clone download, as a missing one is)
         f"if [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "

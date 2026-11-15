@@ -792,19 +792,43 @@ class OwnerCredentials(Box):
 
 
 class LocalBuild(Box):
-    def test_a_checkout_built_on_local_disk_is_copied_into_the_home_folder_whole(self):
+    def test_a_checkout_built_on_local_disk_stays_there_and_the_home_folder_links_to_it(self):
         import tempfile as _tf
-        tmp = Path(_tf.mkdtemp()); src = tmp / "src"; home = tmp / "home"; home.mkdir(); (home / "repos").mkdir()
+        tmp = Path(_tf.mkdtemp()); src = tmp / "src"; home = tmp / "home"; fast = tmp / "fast"; home.mkdir(); (home / "repos").mkdir()
         for i in range(120):
             d = src / f"d{i % 7}" / f"e{i % 3}"; d.mkdir(parents=True, exist_ok=True); (d / f"f{i}.txt").write_text("x" * i)
         (src / ".git").mkdir(); (src / ".git" / "HEAD").write_text("ref")
         os.symlink("d0", src / "link")
-        r = subprocess.run(["bash", "-c", "set -e; " + cb.PUBLISH_LOCAL_SH + f" publish_local {src} repos/x"], cwd=home, capture_output=True, text=True)
+        want = sorted(str(p.relative_to(src)) for p in src.rglob("*"))
+        (home / "repos" / "x").mkdir(); (home / "repos" / "x" / "old.txt").write_text("old")          # an older real checkout on the slow mount is moved aside
+        r = subprocess.run(["bash", "-c", f"set -e; FAST={fast}; " + cb.PUBLISH_LOCAL_SH + f" publish_local {src} repos/x"], cwd=home, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        want = sorted(str(p.relative_to(src)) for p in src.rglob("*")); got = sorted(str(p.relative_to(home / "repos/x")) for p in (home / "repos/x").rglob("*"))
+        self.assertTrue(os.path.islink(home / "repos/x"))
+        self.assertEqual(os.path.realpath(home / "repos/x"), os.path.realpath(fast / "repos/x"))
+        got = sorted(str(p.relative_to(home / "repos/x")) for p in (home / "repos/x").rglob("*"))
         self.assertEqual(want, got)
         self.assertTrue(os.path.islink(home / "repos/x/link"))
-        self.assertFalse((home / "repos/x.new").exists())
+        self.assertFalse((fast / "repos/x.new").exists())
+        self.assertFalse(src.exists())                                    # moved, not copied
+        r2 = subprocess.run(["bash", "-c", f"set -e; FAST={fast}; " + cb.PUBLISH_LOCAL_SH + f" publish_local {tmp / 'src2'} repos/x"], cwd=home, capture_output=True, text=True)
+        self.assertNotEqual(r2.returncode, 0)                             # a missing source leaves the previous checkout alone
+        self.assertTrue(os.path.islink(home / "repos/x"))
+
+    def test_the_file_tools_may_follow_the_symlink_into_the_sessions_fast_folder_only(self):
+        import tempfile as _tf
+        old_fast = cb.FAST_ROOT
+        cb.FAST_ROOT = Path(_tf.mkdtemp())
+        try:
+            home = cb.ensure_home("sess-a"); fast = cb.fast_home("sess-a"); fast.mkdir(parents=True, exist_ok=True)
+            (fast / "repo").mkdir(); (fast / "repo" / "a.txt").write_text("hi")
+            os.symlink(fast / "repo", home / "repos" / "r")
+            self.assertEqual(cb.safe_path("sess-a", "repos/r/a.txt"), home / "repos/r/a.txt")
+            other = cb.fast_home("sess-b"); other.mkdir(parents=True, exist_ok=True)
+            os.symlink(other, home / "repos" / "stolen")
+            with self.assertRaises(ValueError):
+                cb.safe_path("sess-a", "repos/stolen")
+        finally:
+            cb.FAST_ROOT = old_fast
 
     def test_the_download_script_builds_in_tmp_not_in_the_home_folder(self):
         cap = {}
