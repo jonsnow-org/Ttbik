@@ -1293,6 +1293,16 @@ def repo_summary_command(folder: str) -> str:
     )
 
 
+# Measured 2026-11-15 (live check): a fresh checkout of a 3,000-file repository took 4-6 minutes on the persistent mount (~25-55 ms per file, three times: the
+# extraction, the loose git objects of the baseline commit, the index). It is now built on the LOCAL disk (seconds), packed into one git pack, and only then copied
+# into the home folder with many parallel `cp` (the mount is latency-bound, not bandwidth-bound).
+PUBLISH_LOCAL_SH = (
+    'publish_local() { src="$1"; dst="$2"; D="$(pwd)/$dst"; rm -rf "$D.new"; mkdir -p "$D.new" || return 1; '
+    '( cd "$src" && find . \\( -type f -o -type l \\) -print0 | xargs -0 -r -P 16 -n 60 cp -a --parents -t "$D.new" ) || return 1; '
+    'rm -rf "$D"; mv "$D.new" "$D"; }; '
+)
+
+
 def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> dict:
     """Public GitHub repository -> ~/repos/<owner>-<name> in ONE call (shallow clone; tarball when git is blocked). Private repositories are not fetched here:
     no GitHub token is ever put in this computer."""
@@ -1320,13 +1330,13 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
     # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
     # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
     # publish still see what the model edits).
-    t_dir, g_dir = shell_quote(folder + ".tar.part"), shell_quote(folder + ".git.part")
+    t_dir, g_dir = '"$L/t"', '"$L/g"'               # on the LOCAL disk (see PUBLISH_LOCAL_SH)
     script = (
-        f"set -e; mkdir -p repos; "
+        f"set -e; mkdir -p repos; L=$(mktemp -d /tmp/crepo.XXXXXX); trap 'rm -rf \"$L\"' EXIT; {PUBLISH_LOCAL_SH}"
         # (2026-11-14 live check: `git fetch` inside an existing checkout on the persistent mount died with "Failed to checksum .git/objects/pack/tmp_pack" and left no folder;
         #  an older checkout is therefore replaced by a fresh tarball/clone download, as a missing one is)
         f"if [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
-        f"else rm -rf {q} {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; mkdir -p {t_dir}; set +e; "
+        f"else mkdir -p {t_dir}; set +e; "
         f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
         f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
         f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; fetch_tar {api_url} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
@@ -1335,11 +1345,12 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
         f"if [ -f {t_dir}.ok ]; then win=tar; break; fi; if [ -f {g_dir}.ok ]; then win=git; break; fi; "
         f"if ! kill -0 $pt 2>/dev/null && ! kill -0 $pg 2>/dev/null; then [ -f {t_dir}.ok ] && win=tar; [ -f {g_dir}.ok ] && win=git; break; fi; sleep 0.5; done; "
         f"killtree $pt; killtree $pg; wait 2>/dev/null; set -e; "
-        f"if [ \"$win\" = tar ]; then mv {t_dir} {q}; echo \"fetched (tarball) in ${{SECONDS}}s\"; "
-        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); echo \"git baseline at ${{SECONDS}}s\"; "
-        f"elif [ \"$win\" = git ]; then mv {g_dir} {q}; echo \"fetched (git clone) in ${{SECONDS}}s\"; "
-        f"else rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
-        f"rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; touch {q}/.git/FETCHED_{marker}; fi; "
+        f"if [ \"$win\" = tar ]; then echo \"downloaded (tarball) in ${{SECONDS}}s\"; "
+        f"(cd {t_dir} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1; git repack -adq >/dev/null 2>&1; git prune-packed >/dev/null 2>&1 || true); echo \"git baseline (local) at ${{SECONDS}}s\"; "
+        f"publish_local {t_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
+        f"elif [ \"$win\" = git ]; then echo \"downloaded (git clone) in ${{SECONDS}}s\"; (cd {g_dir} && git gc -q >/dev/null 2>&1 || true); publish_local {g_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
+        f"else echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
+        f"touch {q}/.git/FETCHED_{marker}; fi; "
         f"{repo_summary_command(folder)}"
     )
     # a big repository (tar + git baseline commit) used to starve the 2 vCPUs so that the Studio answered the next calls with nothing: run it at the lowest priority

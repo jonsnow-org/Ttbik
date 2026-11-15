@@ -791,6 +791,33 @@ class OwnerCredentials(Box):
         self.assertEqual(cb.owner_env({"PATH": "/evil"}), {})
 
 
+class LocalBuild(Box):
+    def test_a_checkout_built_on_local_disk_is_copied_into_the_home_folder_whole(self):
+        import tempfile as _tf
+        tmp = Path(_tf.mkdtemp()); src = tmp / "src"; home = tmp / "home"; home.mkdir(); (home / "repos").mkdir()
+        for i in range(120):
+            d = src / f"d{i % 7}" / f"e{i % 3}"; d.mkdir(parents=True, exist_ok=True); (d / f"f{i}.txt").write_text("x" * i)
+        (src / ".git").mkdir(); (src / ".git" / "HEAD").write_text("ref")
+        os.symlink("d0", src / "link")
+        r = subprocess.run(["bash", "-c", "set -e; " + cb.PUBLISH_LOCAL_SH + f" publish_local {src} repos/x"], cwd=home, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        want = sorted(str(p.relative_to(src)) for p in src.rglob("*")); got = sorted(str(p.relative_to(home / "repos/x")) for p in (home / "repos/x").rglob("*"))
+        self.assertEqual(want, got)
+        self.assertTrue(os.path.islink(home / "repos/x/link"))
+        self.assertFalse((home / "repos/x.new").exists())
+
+    def test_the_download_script_builds_in_tmp_not_in_the_home_folder(self):
+        cap = {}
+        old = cb.job_start
+        cb.job_start = lambda session, cmd, label: cap.update(cmd=cmd) or {"ok": True, "id": "j1"}
+        try:
+            cb.repo_fetch("s1", "https://github.com/o/r")
+        finally:
+            cb.job_start = old
+        self.assertIn("mktemp -d /tmp/crepo.", cap["cmd"])
+        self.assertNotIn(".tar.part", cap["cmd"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
