@@ -89,6 +89,42 @@ def build_date_example(text_ids_fn, rng: random.Random, today=None) -> tuple[lis
     return build_chat_example(text_ids_fn(date_context_line(d) + "\n" + q), text_ids_fn(a))
 
 
+# ---- plain conversation (owner's sanity check 2026-11-15 on the published head: «السلام عليكم» and «كيف حالك؟» were answered with a <tool_call> JSON, «مرحبا» with a news
+# sentence, «من أنت؟» with noise). Tool examples use the same plain layout (<BOS><USER> q <SHAM>) as every chat turn, and the dialogue sources hold almost no greetings, so
+# a greeting was ambiguous and the model guessed the tool format. These few hundred short exchanges (greeting, how are you, thanks, goodbye, who are you) give the
+# plain layout its own answers. Wording is Sham's own (no commercial-model output).
+SMALLTALK = [
+    (["مرحبا", "مرحباً", "أهلاً", "أهلا وسهلا", "هلا", "هاي", "السلام عليكم", "السلام عليكم ورحمة الله", "صباح الخير", "مساء الخير", "مساء النور"],
+     ["مرحباً بك! كيف يمكنني مساعدتك؟", "أهلاً وسهلاً! تفضّل، بماذا أساعدك؟", "أهلاً بك. أنا شام، كيف أخدمك اليوم؟", "مرحباً! أنا هنا للمساعدة، ماذا تريد أن نفعل؟"],
+     {"السلام عليكم": "وعليكم السلام ورحمة الله وبركاته! كيف يمكنني مساعدتك؟", "السلام عليكم ورحمة الله": "وعليكم السلام ورحمة الله وبركاته. تفضّل، كيف أساعدك؟",
+      "صباح الخير": "صباح النور! كيف أساعدك اليوم؟", "مساء الخير": "مساء النور! تفضّل، بماذا أساعدك؟", "مساء النور": "مساء الخير! كيف يمكنني مساعدتك؟"}),
+    (["كيف حالك؟", "كيف حالك", "شلونك؟", "كيفك؟", "كيف الحال؟", "كيف أحوالك؟", "عامل إيه؟", "كيف تشعر اليوم؟"],
+     ["أنا بخير، شكراً لسؤالك. وأنت، كيف حالك؟", "بخير والحمد لله، شكراً لك. كيف أستطيع مساعدتك؟", "أنا بخير، وجاهز لمساعدتك. ما الذي تحتاجه؟"], {}),
+    (["من أنت؟", "من انت", "ما اسمك؟", "عرّفني بنفسك", "ما هو اسمك؟", "من أنت وماذا تفعل؟"],
+     ["أنا شام، نموذج ذكاء اصطناعي عربي. أتحدث معك وأجيب عن أسئلتك بقدر ما أعرف.", "اسمي شام، مساعد ذكاء اصطناعي يتحدث العربية. تفضّل بسؤالك.",
+      "أنا شام، نموذج ذكاء اصطناعي مستقل. أحادثك بالعربية وأحاول مساعدتك."], {}),
+    (["هل أنت نوفا؟", "أنت نوفا؟", "هل أنت نوفا أم شام؟"],
+     ["لا، أنا شام. نوفا مساعد آخر منفصل عني.", "أنا شام وليس نوفا؛ لكل منا مساره الخاص."], {}),
+    (["شكراً", "شكرا لك", "شكراً جزيلاً", "يعطيك العافية", "جزاك الله خيراً", "ممتن لك"],
+     ["العفو! سعيد بمساعدتك.", "على الرحب والسعة، أنا هنا متى احتجت.", "لا شكر على واجب. هل تحتاج شيئاً آخر؟"], {}),
+    (["مع السلامة", "إلى اللقاء", "وداعاً", "تصبح على خير", "سلام", "أراك لاحقاً"],
+     ["مع السلامة! أتمنى لك يوماً سعيداً.", "إلى اللقاء، وأنا في خدمتك متى شئت.", "في أمان الله! عد متى احتجت."], {}),
+    (["ماذا تستطيع أن تفعل؟", "بماذا تستطيع مساعدتي؟", "ما هي قدراتك؟", "كيف تساعدني؟"],
+     ["أستطيع الحديث معك بالعربية والإجابة عن أسئلتك، وأحاول وصف الصور ورسم صور بسيطة. قد أخطئ أحياناً، فتحقّق من المعلومات المهمة.",
+      "أحادثك وأجيب عن أسئلتك بقدر علمي، وأساعد في الكتابة وفي الأمور اليومية. اسألني ما شئت."], {}),
+    (["هل تسمعني؟", "هل أنت هنا؟", "هل أنت موجود؟", "ألو"],
+     ["نعم، أنا هنا. تفضّل.", "أسمعك جيداً، تفضّل بما تريد."], {}),
+]
+
+
+def build_smalltalk_example(text_ids_fn, rng: random.Random) -> tuple[list[int], list[int]]:
+    """One plain exchange from SMALLTALK (a fixed reply for the few greetings that have one, else a random one of the group)."""
+    questions, answers, fixed = rng.choice(SMALLTALK)
+    q = rng.choice(questions)
+    a = fixed.get(q) or rng.choice(answers)
+    return build_chat_example(text_ids_fn(q), text_ids_fn(a))
+
+
 def build_chat_example(
     user_ids: list[int], answer_ids: list[int], max_len: int = 512, max_user: int = 192,
 ) -> tuple[list[int], list[int]]:
@@ -632,6 +668,13 @@ if __name__ == "__main__":
     assert len(days) > 3                                              # random days: not one memorised date
     dated = build_search_example(cap, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng, date_line=date_context_line(datetime.date(2026, 1, 5)))
     assert seen[-4].startswith("التاريخ اليوم: 2026-01-05") and dated[0].count(SpecialTokens.SEARCH_START) == 1
+    # plain conversation: the prompt is masked, only the reply and its <EOS> are learned, and a greeting never gets a tool-call answer
+    st_seen = []
+    cap2 = lambda t: (st_seen.append(t), fake(t))[1]
+    st_ids, st_lab = build_smalltalk_example(cap2, random.Random(3))
+    assert st_lab[0] == IGNORE and st_lab[-1] == SpecialTokens.EOS and any(l != IGNORE for l in st_lab), st_lab
+    assert not any("tool_call" in a for _q, answers, fx in SMALLTALK for a in list(answers) + list(fx.values()))
+    assert len({tuple(build_smalltalk_example(lambda t: [len(t)], random.Random(k))[0]) for k in range(40)}) > 5      # variety, not one memorised line
     tr, ho = split_holdout(list(range(100)))
     assert len(ho) == 5 and not set(tr) & set(ho)
     # multi-turn: every turn, labels only on Sham's answers, oldest turns dropped first, one turn == build_chat_example

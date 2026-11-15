@@ -346,7 +346,7 @@ class Encoder:
             import datetime
             import random as _random
             import sham_auto_config
-            from sham_chat import build_date_example, build_search_example, date_context_line
+            from sham_chat import build_date_example, build_search_example, build_smalltalk_example, date_context_line
             import zlib
             r2 = _random.Random(zlib.crc32(text.encode('utf-8')[:600]))      # from the text itself, so the choice does not follow the document's length
             lines = [ln for ln in text.split("\n") if ln.strip()]
@@ -366,6 +366,8 @@ class Encoder:
                     out.append(ex)
             if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
                 out.append(build_date_example(self.tok.encode, r2))
+            if r2.random() < float(os.environ.get("SHAM_SMALLTALK_MIX") or sham_auto_config.get("smalltalk_share", 0.03)):     # greetings / identity / thanks (sanity check 2026-11-15)
+                out.append(build_smalltalk_example(self.tok.encode, r2))
         except Exception:
             pass
         return out
