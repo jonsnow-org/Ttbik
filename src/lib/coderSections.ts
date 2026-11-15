@@ -2237,7 +2237,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
       }
-      const text = String(r.text || "");
+      let text = String(r.text || "");
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= (Number(process.env.CODER_CARD_REFRESH_MS) || 5000)) {
@@ -2346,7 +2346,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       run.stallRetries = 0; run.goneRetries = 0;
-      const completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      let completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      if (!completedCalls.length && /<tool_call>\s*<function=/.test(text)) {      // the call came back as Qwen-XML text: run it (live 2026-11-15)
+        const { rescueXmlToolCalls } = await import("@/lib/coderXmlToolCalls");
+        const rescued = rescueXmlToolCalls(text);
+        if (rescued.calls.length) { text = rescued.text; completedCalls = rescued.calls; await taskEvent(run.id, "info", "🩹 استدعاء أداة جاء كنص XML؛ نفّذته.", db); }
+      }
       // Some Studio/model responses finish with neither text nor tool calls. Never report that as success:
       // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
       if (!text.trim() && completedCalls.length === 0) {
