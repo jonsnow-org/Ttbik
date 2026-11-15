@@ -217,9 +217,11 @@ def default_tolerance() -> float:
         return 0.02
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.01, 0.02, 0.03, 0.05, 0.1, 0.15, 0.3, 0.5, 0.75, 1.0), tolerance=None, anchor=None):
+def guarded_merge(model, sources, score_fn, ratios=(0.01, 0.02, 0.03, 0.05, 0.1, 0.15, 0.3, 0.5, 0.75, 1.0), tolerance=None, anchor=None, drift=None):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
-    Mutates model in place (only accepted merges stay). Returns report lines."""
+    Mutates model in place (only accepted merges stay). Returns report lines.
+    drift: the most any skill may sit above where the RUN started (relative). The CI merge passes its PUBLISH gate's own limit, so a candidate the final gate would
+    refuse is refused HERE (2026-11-15 run 150: a candidate cost media +1.7% inside the 2% merge room, the 0.2% publish gate then threw the whole 4.4 h run away)."""
     tolerance = default_tolerance() if tolerance is None else tolerance
     report = []
     base_score = score_fn(model)
@@ -238,7 +240,7 @@ def guarded_merge(model, sources, score_fn, ratios=(0.01, 0.02, 0.03, 0.05, 0.1,
             curve.append((lam, {k: (s[k] / base_score[k] - 1) * 100 for k in base_score}))
             if nearest is None or rel_mean < nearest[0]:
                 nearest = (rel_mean, lam, s)
-            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + skill_tolerance(k, tolerance)) for k in anchor)
+            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + (skill_tolerance(k, tolerance) if drift is None else min(skill_tolerance(k, tolerance), drift))) for k in anchor)
                     and (best is None or rel_mean < best[2])):      # best = lowest MEAN RELATIVE loss (the sum of raw losses was dominated by media, ~10 vs ~3)
                 best = (lam, s, rel_mean)
         if best is None:
@@ -317,6 +319,17 @@ if __name__ == "__main__":
     assert "❌" in rep[-1] and all(torch.equal(p, before[n]) for n, p in main.named_parameters())
     rep = guarded_merge(main, [("good", good, MEDIA_ROWS)], score)
     assert "✅" in rep[-1] and dist(main) < sum(float((before[n] - target[n]).pow(2).sum()) for n in before)
+    # drift limit: a source that helps skill "a" a lot but costs skill "b" ~1% at full strength is taken only as far as `drift` allows (the CI publish gate's own limit)
+    main_d, main_nd = ShamSmall(cfg), ShamSmall(cfg)
+    main_nd.load_state_dict(main_d.state_dict())
+    p0 = {n: p.detach().clone() for n, p in main_d.named_parameters()}
+    D0 = sum(float((p0[n] - target[n]).pow(2).sum()) for n in p0)
+    two = lambda m: {"a": dist(m) + 1.0, "b": 1.0 + 0.01 * sum(float((p.detach() - p0[n]).pow(2).sum()) for n, p in m.named_parameters()) / D0}
+    rep_nd = guarded_merge(main_nd, [("good", good, MEDIA_ROWS)], two, tolerance=0.02)
+    rep_d = guarded_merge(main_d, [("good", good, MEDIA_ROWS)], two, tolerance=0.02, drift=0.002)
+    assert "دُمج بنسبة 1.00" in rep_nd[-1], rep_nd[-1]                  # the old rule: 2% room, b +1%
+    assert "دُمج بنسبة 0.30" in rep_d[-1], rep_d[-1]                    # the drift limit stops it where b is still within 0.2%
+    assert two(main_d)["b"] <= 1.0 * 1.002 + 1e-9, two(main_d)
     # text-only rows: image rows of the embedding stay untouched
     main2 = ShamSmall(cfg)
     img_before = main2.token_embedding.weight[TEXT_VOCAB_SIZE:].clone()
