@@ -44,7 +44,7 @@ KNOWN_SOURCES = [
     ("sham-chat-checkpoint", "final_chat.pt", MEDIA_ROWS),
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
-    ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
+    # Track B (sham-research-track-checkpoint-v2) stopped 2026-11-15: scored ~5x worse than head, never merged
     # The live trainer (sham_live.py).
     ("sham-crawl-checkpoint", "final*.pt", MEDIA_ROWS),
     # The engineer's first crawl notebook published its final.pt INTO

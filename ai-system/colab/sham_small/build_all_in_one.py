@@ -112,9 +112,9 @@ AB_RESEARCH_BUDGET = (
 
 # the other two combined notebooks: name -> (file, group key in sham_chain.STAGE_GROUPS, title, sources, budget note, {source: [(old text, new text)]})
 GROUPS = {
-    "sham_ab_in_one": ("ab", "شام — دفتر المسارين A وB (تدريب نصي مستمر + بحث ذاتي)",
-                       [("sham_cpu_training_track", "المسار A — التدريب النصي المستمر"), ("sham_cpu_research_track", "المسار B — البحث الذاتي من الإنترنت")],
-                       "سبع ساعات للمسار A وساعة ونصف للمسار B كحدّ أقصى (مقيّدة بزمن الجلسة الفعلي) بدل 8.5 لكل منهما",
+    "sham_ab_in_one": ("ab", "شام — دفتر المسار A (تدريب نصي مستمر؛ أُوقف مسار البحث B)",
+                       [("sham_cpu_training_track", "المسار A — التدريب النصي المستمر")],
+                       "سبع ساعات للمسار A؛ أُوقف المسار B",
                        {"sham_cpu_training_track": [("MAX_TRAINING_HOURS = 8.5", "MAX_TRAINING_HOURS = 7.0   # 2026-10-19: 5 h + 5 h + setup hit Kaggle's 12 h kill before publishing; the training track gets the time")],
                         "sham_cpu_research_track": [("MAX_SESSION_HOURS = 8.5", AB_RESEARCH_BUDGET)]}),
     "sham_chat_image_in_one": ("chat_image", "شام — دفتر المحادثة والمرمزات (المرحلة الثالثة + ترميز الصورة ثم الصوت والفيديو)",
