@@ -830,6 +830,16 @@ class LocalBuild(Box):
         finally:
             cb.FAST_ROOT = old_fast
 
+    def test_a_tarball_checkout_gets_the_github_origin_so_changes_can_tell_which_repository_it_is(self):
+        cap = {}
+        old = cb.job_start
+        cb.job_start = lambda session, cmd, label: cap.update(cmd=cmd) or {"ok": True, "id": "j1"}
+        try:
+            cb.repo_fetch("s1", "https://github.com/o/r")
+        finally:
+            cb.job_start = old
+        self.assertIn("git remote add origin https://github.com/o/r.git", cap["cmd"].replace("'", ""))
+
     def test_the_download_script_builds_in_tmp_not_in_the_home_folder(self):
         cap = {}
         old = cb.job_start

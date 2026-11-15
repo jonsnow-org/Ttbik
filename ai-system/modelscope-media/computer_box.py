@@ -1363,7 +1363,7 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
         f"if ! kill -0 $pt 2>/dev/null && ! kill -0 $pg 2>/dev/null; then [ -f {t_dir}.ok ] && win=tar; [ -f {g_dir}.ok ] && win=git; break; fi; sleep 0.5; done; "
         f"killtree $pt; killtree $pg; wait 2>/dev/null; set -e; "
         f"if [ \"$win\" = tar ]; then echo \"downloaded (tarball) in ${{SECONDS}}s\"; "
-        f"(cd {t_dir} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1; git repack -adq >/dev/null 2>&1; git prune-packed >/dev/null 2>&1 || true); echo \"git baseline (local) at ${{SECONDS}}s\"; "
+        f"(cd {t_dir} && git init -q && git remote add origin {shell_quote(clone_url)} && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1; git repack -adq >/dev/null 2>&1; git prune-packed >/dev/null 2>&1 || true); echo \"git baseline (local) at ${{SECONDS}}s\"; "
         f"publish_local {t_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
         f"elif [ \"$win\" = git ]; then echo \"downloaded (git clone) in ${{SECONDS}}s\"; (cd {g_dir} && git gc -q >/dev/null 2>&1 || true); publish_local {g_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
         f"else echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
