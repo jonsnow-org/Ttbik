@@ -40,7 +40,7 @@ export type Pending = { calls: CoderToolCall[]; reason: string; summary: string;
 export type Run = {
   resumes?: number;                                    // how many times a worker that disappeared was picked up again (resumeOrphan), capped
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret"; secretName?: string };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -2414,6 +2414,17 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
+      if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
+        const gate = await import("@/lib/coderFinishGate");
+        const nudge = gate.finishNudge(run.goal || "", gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        if (nudge) {
+          run.nudges = (run.nudges || 0) + 1;
+          await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
+          st.messages.push({ role: "user", content: nudge });
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+      }
       if (!text.trim()) await send(ioBot, chatId, "⚠️ انتهى الرد بلا نص. قد يكون خادم البرمجة مشغولاً أو يعيد نتيجة فارغة. جرّب مرة أخرى بعد دقيقة، أو افتح التطبيق لرؤية السجلات.");
       if (st.inbox.length) {
         for (const m of st.inbox) st.messages.push({ role: "user", content: `[new message from the user while you were working]\n${m}` });
@@ -2424,7 +2435,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
       if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
       if (run.agent) st.agentResult = { status: "done", text: text.trim() || "(empty report)", at: Date.now() };
-      else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
+      else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham"
+        && await import("@/lib/coderFinishGate").then((g) => g.worthALesson(run.goal || "", g.toolNamesIn(st.messages as never)))) {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
         const snap = [...st.messages], id = run.id, steps = run.step;
         later(() => import("@/lib/coderLessons").then((m) => m.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));
