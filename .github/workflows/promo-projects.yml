@@ -7,6 +7,8 @@ on:
     paths:
       - "scripts/promo/**"
       - "promo/projects.json"
+      - "promo/catalog.json"
+      - "promo/handoff/**"
       - ".github/workflows/promo-projects.yml"
   schedule:
     - cron: "40 3 * * 1"
@@ -32,7 +34,8 @@ jobs:
           node-version: 22
       - name: validate campaigns and generator syntax
         run: |
-          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs
+          node --test scripts/promo/*.test.mjs
+          node --check scripts/promo/handoff.mjs
           node --check scripts/promo/make.mjs
           node --check scripts/promo/cards.mjs
           node --check scripts/promo/copy.mjs
@@ -77,4 +80,11 @@ jobs:
         with:
           name: promo-copy
           path: promo-copy/*
+          retention-days: 30
+      - name: supervisor handoff sheet (what to post by hand next, from promo/catalog.json + the ledger)
+        run: node scripts/promo/handoff.mjs --out promo-copy/HANDOFF.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-handoff
+          path: promo-copy/HANDOFF.md
           retention-days: 30

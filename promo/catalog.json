@@ -1,0 +1,26 @@
+{
+  "_": "Single source of truth for what the promotion system covers. lane=auto: published by a workflow/cron. lane=handoff: text pack + image for supervisors to post by hand (see promo/README.md). Update this file when a product is added; src/lib/__tests__/promoAudit.test.ts fails if a campaign is missing.",
+  "products": [
+    { "id": "sham-ai", "kind": "site", "campaign": "sham-ai", "auto": ["channel-post", "promo-remotion"], "handoff": ["instagram", "tiktok", "facebook", "x"] },
+    { "id": "literium", "kind": "site", "campaign": "literium", "auto": ["channel-post"], "handoff": ["instagram", "tiktok", "facebook", "x"] },
+    { "id": "zenobia", "kind": "coin", "campaign": "zenobia", "auto": ["coins-channel-post"], "handoff": ["x"] },
+    { "id": "palmyra-launch", "kind": "coin", "campaign": "palmyra-launch", "auto": ["coins-channel-post"], "handoff": ["x"] },
+    { "id": "media-downloader", "kind": "bot", "campaign": "media-downloader", "auto": ["channel-post"], "handoff": ["instagram", "tiktok", "facebook", "x"] },
+    { "id": "jobs-and-store", "kind": "bot", "campaign": "jobs-and-store", "auto": ["channel-post"], "handoff": ["facebook", "x"] },
+    { "id": "dating-marriage", "kind": "bot", "campaign": "dating-marriage", "auto": ["channel-post"], "handoff": ["facebook", "x"] },
+    { "id": "marriage-trust", "kind": "bot", "campaign": "marriage-trust", "auto": [], "handoff": ["facebook", "x"] },
+    { "id": "confessions", "kind": "bot", "campaign": "confessions", "auto": ["channel-post"], "handoff": ["instagram", "tiktok", "x"] },
+    { "id": "channel-exchange", "kind": "bot", "campaign": "channel-exchange", "auto": [], "handoff": ["x"] },
+    { "id": "group-khatma", "kind": "bot", "campaign": "group-khatma", "auto": [], "handoff": ["facebook", "x"] },
+    { "id": "group-contests", "kind": "bot", "campaign": "group-contests", "auto": [], "handoff": ["facebook", "x"] },
+    { "id": "daily-streaks", "kind": "bot", "campaign": "daily-streaks", "auto": [], "handoff": ["instagram", "tiktok", "facebook", "x"] },
+    { "id": "prayer-times", "kind": "site", "campaign": "prayer-times", "auto": ["channel-post"], "handoff": ["facebook", "x"] },
+    { "id": "news-prices", "kind": "site", "campaign": "news-prices", "auto": ["channel-post"], "handoff": ["facebook", "x"] },
+    { "id": "athar", "kind": "coin", "campaign": "athar", "owner": "athar-session", "note": "protected: not touched by this system", "auto": ["coins-channel-post"], "handoff": [] }
+  ],
+  "excluded": [
+    { "id": "ads-and-earn", "why": "income-claim risk: manual review only" },
+    { "id": "medical", "why": "health service: manual review only" },
+    { "id": "sham-ai-model", "why": "in development, not promoted yet" }
+  ]
+}
