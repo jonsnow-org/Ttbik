@@ -218,7 +218,9 @@ def _load(model_dir: Path) -> None:
                 except Exception:
                     pass
                 from sham_gguf import fast_model
-                fast_model(serve._state["model"])
+                # Sham v1 (a ~100M model) decodes through the 8-bit copy by default: the 4-bit copy (q4_k_m) agreed with PyTorch on only 4 of 6 test prompts in the live Studio log (2026-11-15) and costs ~3% loss;
+                # q8_0 costs ~0.3% and must agree on 6/6, otherwise PyTorch itself decodes. SHAM_GGUF_KIND=q4_k_m brings the old format back.
+                fast_model(serve._state["model"], None if _V2 else (os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0"))      # v2 keeps its own default
             except Exception as exc:
                 print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
         threading.Thread(target=_prepare_fast, daemon=True).start()
