@@ -769,6 +769,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_sanity_check": {
+      "file": ".github/workflows/sham-sanity-check.yml",
+      "title": "فحص سلامة رأس شام v1 المنشور (قراءة فقط): المُرمِّز، الردود بقالب التدريب، مهمة من بيانات التدريب، نهاية النص",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_trainer_status": {
       "file": ".github/workflows/sham-trainer-status.yml",
       "title": "حالة استوديوهات المدربين على حساب cn (قراءة فقط) لتشخيص من لا ينشر",
