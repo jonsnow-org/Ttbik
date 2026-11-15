@@ -246,8 +246,7 @@ function adminMenu(botId?: string): Keyboard {
     .text(MATCHMAKER_ADMIN_BUTTON).row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
-    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
-    .text("🩺 فحص البحث");
+    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة");
   // 📱 opens the Mini App straight on «🛡 لوحة القيادة» (same isMatchAdmin / SUPER_ADMIN_TELEGRAM_ID check server-side).
   // Reply-keyboard web_app buttons get an EMPTY initData (Telegram design), so the app could not
   // authenticate the admin. This is a plain text button; the bot answers with an INLINE web_app

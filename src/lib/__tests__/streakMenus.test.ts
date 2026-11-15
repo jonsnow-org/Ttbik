@@ -17,7 +17,7 @@ describe("chains bot panels", () => {
     const kb: any = mainMenu(false);
     const all = labels(kb);
     for (const c of STREAK_CATEGORIES) expect(all).toContain(c.menuLabel);
-    for (const t of ["🧩 لوحة سلاسلي", "📊 كل سلاسلي", "🏆 مسابقات الجروبات", "ℹ️ معلومات"]) expect(all).toContain(t);
+    for (const t of ["🧩 لوحة سلاسلي", "🏆 مسابقات الجروبات", "ℹ️ معلومات"]) expect(all).toContain(t);
     for (const row of kb.keyboard) expect(row.length).toBeLessThanOrEqual(2);
   });
   it("the admin panel has management first and shortcuts into the user panel and the app", () => {

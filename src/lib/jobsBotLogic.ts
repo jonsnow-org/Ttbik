@@ -190,8 +190,8 @@ function mainMenu(): Keyboard {
     .text("💼 قسم العمل").text("🛒 قسم المتجر").row()
     .text(TENDER_MENU_LABEL).row()
     .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
-  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
-  return kb.text(APP_BUTTON).text(SHOPS_BUTTON).row().text("ℹ️ معلومات").text(SERVICES_BUTTON).resized();
+  // Direct TON/USDT deposit, the sellers' shops and the services list are reachable from the balance screen / the Mini App; their old buttons still work.
+  return kb.text(APP_BUTTON).text("ℹ️ معلومات").resized();
 }
 function workMenu(): Keyboard {
   return new Keyboard().text("📢 نشر").text("🔍 بحث").row().text(backLabel()).resized();
@@ -1705,7 +1705,9 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
   if (text === "💰 رصيدي وإيداع") {
-    await bot.api.sendMessage(chatId, depositChoicesText(user.balance, depositLink(tgUserId), isNativeTonConfigured()), { reply_markup: mainMenu() });
+    const depositKb = mainMenu();
+    if (isNativeTonConfigured()) depositKb.row().text("🔷 إيداع TON / USDT مباشر"); // shown only on the balance screen, not on the home keyboard
+    await bot.api.sendMessage(chatId, depositChoicesText(user.balance, depositLink(tgUserId), isNativeTonConfigured()), { reply_markup: depositKb });
     await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("jstars") });
     return;
   }
