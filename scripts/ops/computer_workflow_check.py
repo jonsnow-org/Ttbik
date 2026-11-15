@@ -67,12 +67,19 @@ def main() -> int:
     print("    toolchain:", status.get("toolchain"), "| devtools:", status.get("devtools"), flush=True)
     signed = signed_tarball(args.repo, (os.environ.get("GITHUB_TOKEN") or "").strip())
     print("    signed address:", "yes (private-repository path, as the app does it)" if signed else "none (public path)", flush=True)
+    if signed:     # what the hub itself gets from the short-lived address (status and speed only; the address is never printed)
+        probe = step("diagnostic: download speed of the signed address from the hub", {"action": "run", "command": "curl -sS -o /dev/null -m 40 -w 'http=%{http_code} bytes=%{size_download} seconds=%{time_total} connect=%{time_connect}\\n' " + "'" + signed.replace("'", "") + "'"}, must=False, timeout=60)
+        print("    ", str(probe.get("output", ""))[-300:].replace("\n", " | "), flush=True)
     repo = step("computer_repo: get the repository", {"action": "repo", "url": args.repo, **({"signed_url": signed} if signed else {})}, timeout=150)
     if repo.get("job"):                                       # still downloading: wait for it
         for _ in range(40):
             log = smoke.box_call(args.api, token, {"session": session, "action": "job_log", "id": repo["job"]})
             if log.get("ok") and not log.get("running"):
                 repo = {"ok": log.get("exit_code") == 0, "path": f"repos/{args.repo.rstrip('/').split('/')[-2]}-{args.repo.rstrip('/').split('/')[-1]}"}
+                print(f"    clone job finished: exit {log.get('exit_code')} after {log.get('seconds')} s", flush=True)
+                print("    clone job output:", str(log.get("output", ""))[-700:].replace("\n", " | "), flush=True)
+                if repo["ok"] is not True:
+                    failures.append("computer_repo: the background download failed")
                 break
             time.sleep(3)
     folder = repo.get("path") or "repos/jonsnow-org-Ttbik"
