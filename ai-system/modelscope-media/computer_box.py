@@ -1297,8 +1297,11 @@ def repo_summary_command(folder: str) -> str:
 # extraction, the loose git objects of the baseline commit, the index). It is now built on the LOCAL disk (seconds), packed into one git pack, and only then copied
 # into the home folder with many parallel `cp` (the mount is latency-bound, not bandwidth-bound).
 PUBLISH_LOCAL_SH = (
+    # Directories are made first (one process), then files are copied in parallel with NO --parents: on the persistent mount parallel `cp --parents` workers
+    # raced to create the same folder and failed with "cannot make directory: File exists" (live check 2026-11-15, exit 1 after 115 s).
     'publish_local() { src="$1"; dst="$2"; D="$(pwd)/$dst"; rm -rf "$D.new"; mkdir -p "$D.new" || return 1; '
-    '( cd "$src" && find . \\( -type f -o -type l \\) -print0 | xargs -0 -r -P 16 -n 60 cp -a --parents -t "$D.new" ) || return 1; '
+    '( cd "$src" && find . -mindepth 1 -type d -print0 | ( cd "$D.new" && xargs -0 -r mkdir -p -- ) ) || return 1; '
+    '( cd "$src" && find . \\( -type f -o -type l \\) -print0 | xargs -0 -r -P 16 -n 60 sh -c \'for f in "$@"; do cp -a -- "$f" "$0/$f" || exit 1; done\' "$D.new" ) || return 1; '
     'rm -rf "$D"; mv "$D.new" "$D"; }; '
 )
 
