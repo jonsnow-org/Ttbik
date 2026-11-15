@@ -29,3 +29,8 @@ Turning publishing on/off, new channels or accounts, anything paid, claims about
 
 ## Report fields
 Coverage (tools/pages) · workflow freshness · posts added · episodes added · YouTube status · needs-owner.
+
+## تنظيم القسم (2026-11-15)
+- مصدر واحد للمنتجات: `promo/catalog.json`؛ المسار الآلي والمسار اليدوي موثّقان في `promo/README.md`.
+- ورقة التسليم الأسبوعية (`promo-handoff` Artifact) + السجل `promo/handoff/LEDGER.json`؛ المشرف يسجّل ما نشره يدوياً.
+- حملات جديدة: السلاسل اليومية، مواقيت الصلاة، الأخبار والأسعار. المستثنى بسبب: بوت الإعلان/الربح، الطبي، نموذج شام قيد التطوير، أثر (محمي).

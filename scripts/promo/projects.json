@@ -576,6 +576,132 @@
         "أضف البوت وابدأ اللعب"
       ],
       "handle": "@Slaselbot"
+    },
+    {
+      "id": "daily-streaks",
+      "name": "Daily Chains · السلاسل اليومية",
+      "handle": "@Slaselbot",
+      "brandMark": "DC",
+      "accent": "#e8a23a",
+      "bg": [
+        "#2a1a06",
+        "#5a3a0c"
+      ],
+      "tagline": [
+        "Keep a daily habit going with friends, one day at a time",
+        "حافظ على عادتك اليومية مع أصدقائك يوماً بعد يوم"
+      ],
+      "points": [
+        [
+          "Start a chain and check in every day",
+          "ابدأ سلسلة وسجّل حضورك كل يوم"
+        ],
+        [
+          "See your streak and today's card",
+          "شاهد تتابعك وبطاقة اليوم"
+        ],
+        [
+          "Group contests and khatma inside Telegram",
+          "مسابقات وختمة جماعية داخل تيليجرام"
+        ]
+      ],
+      "shots": [
+        {
+          "caption": [
+            "Open the chains mini app",
+            "افتح تطبيق السلاسل المصغّر"
+          ],
+          "path": "/mini-app"
+        }
+      ],
+      "cta": [
+        "Open the chains bot",
+        "افتح بوت السلاسل"
+      ]
+    },
+    {
+      "id": "prayer-times",
+      "name": "Prayer Times · مواقيت الصلاة",
+      "handle": "@ttbik5",
+      "brandMark": "PT",
+      "accent": "#3fa7d6",
+      "bg": [
+        "#06222e",
+        "#0c4a63"
+      ],
+      "tagline": [
+        "Prayer times for your city, free and without sign-up",
+        "مواقيت الصلاة لمدينتك مجاناً وبلا تسجيل"
+      ],
+      "points": [
+        [
+          "Pick your city and see today's times",
+          "اختر مدينتك وشاهد مواقيت اليوم"
+        ],
+        [
+          "A widget you can embed on your page",
+          "ودجت يمكن تضمينه في صفحتك"
+        ]
+      ],
+      "shots": [
+        {
+          "caption": [
+            "Open prayer times",
+            "افتح مواقيت الصلاة"
+          ],
+          "path": "/prayer-times"
+        }
+      ],
+      "cta": [
+        "Follow the channel",
+        "تابع القناة"
+      ]
+    },
+    {
+      "id": "news-prices",
+      "name": "News & Prices · الأخبار والأسعار",
+      "handle": "@ttbik5",
+      "brandMark": "NP",
+      "accent": "#9a7be0",
+      "bg": [
+        "#150f2a",
+        "#33266b"
+      ],
+      "tagline": [
+        "Daily news and market prices in one place",
+        "أخبار اليوم وأسعار السوق في مكان واحد"
+      ],
+      "points": [
+        [
+          "Short news digest, updated daily",
+          "ملخص أخبار قصير يتحدّث يومياً"
+        ],
+        [
+          "Currency and gold prices at a glance",
+          "أسعار العملات والذهب بنظرة"
+        ]
+      ],
+      "shots": [
+        {
+          "caption": [
+            "Open the news desk",
+            "افتح ركن الأخبار"
+          ],
+          "path": "/news"
+        },
+        {
+          "caption": [
+            "Open prices",
+            "افتح الأسعار"
+          ],
+          "path": "/prices"
+        }
+      ],
+      "cta": [
+        "Follow the channel",
+        "تابع القناة"
+      ],
+      "fine": true
     }
   ]
 }
