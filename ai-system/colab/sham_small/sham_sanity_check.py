@@ -6,6 +6,7 @@ answers (a model that has memorised or collapsed shows ~0 or huge)."""
 from __future__ import annotations
 
 import datetime
+import os
 import sys
 import time
 
@@ -29,7 +30,8 @@ def main() -> int:
     hits = sorted(own.rglob("final_merged.pt")) if own else []
     if not hits:
         print("NO HEAD FOUND")
-        return 1
+        # offline (the repository's CI runs every script as a self-test without Kaggle keys): nothing to check, not a failure; the workflow sets SHAM_SANITY_REQUIRE_HEAD=1
+        return 1 if os.environ.get("SHAM_SANITY_REQUIRE_HEAD") == "1" else 0
     model, step, _ = load_checkpoint(hits[0], map_location="cpu")
     tok_path = sorted(hits[0].parent.rglob("sham_small_tokenizer.json"))[0]
     tok = ShamTextTokenizer.load(str(tok_path))
