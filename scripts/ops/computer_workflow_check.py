@@ -89,7 +89,7 @@ def main() -> int:
     step("computer_read: read a file", {"action": "read", "path": f"{folder}/package.json"})
     step("computer_write: create a file in the checkout", {"action": "write", "path": f"{folder}/zz_check.txt", "content": "check\n"})
     step("computer_edit: edit a file", {"action": "edit", "path": f"{folder}/zz_check.txt", "old": "check", "new": "checked"})
-    changes = step("changes the model would publish (computer_publish input)", {"action": "changes", "dir": folder, "repo": "jonsnow-org/Ttbik"}, must=False)
+    changes = step("changes the model would publish (computer_publish input)", {"action": "changes", "dir": folder, "repo": "jonsnow-org/Ttbik"})
     print("    changes:", json.dumps(changes, ensure_ascii=False)[:300], flush=True)
     step("computer_run: run the code (python)", {"action": "run", "command": "python3 -c \"print(sum(range(10)))\"", "cwd": folder})
     job = step("computer_job: start a background job", {"action": "job_start", "command": "sleep 2; echo background-done", "name": "check"})
