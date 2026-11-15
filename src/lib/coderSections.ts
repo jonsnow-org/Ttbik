@@ -23,6 +23,15 @@ import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallb
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { stripThinkTags } from "@/lib/thinkTags";
+/** A queue wait on the Studio that holds this run's cache is cheaper than a cold read elsewhere (measured 2026-11-15: step 20, 27k tokens, moved to another Studio, 0 cached, ~15 min).
+ *  Small prompts move after 1.5 s as before; a big warm prompt waits up to CODER_WARM_WAIT_MS (default 5 min) for its home Studio. */
+export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): number {
+  const quick = process.env.CODER_QUEUE_MOVE_MS !== undefined ? Number(process.env.CODER_QUEUE_MOVE_MS) : 1500;
+  const warm = Number(process.env.CODER_WARM_KEEP_TOKENS) || 8000;
+  if ((run.step || 0) > 0 && (run.promptEst || 0) > warm) return Math.max(quick, Number(process.env.CODER_WARM_WAIT_MS) || 300000);
+  return quick;
+}
+
 export { stripThinkTags };
 import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
@@ -2237,7 +2246,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (r?.type !== "cancelled") await send(ioBot, chatId, userFailureText(o, chatId));
         return;
       }
-      const text = String(r.text || "");
+      let text = String(r.text || "");
       if (r.type === "pending") {
         // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
         if (Date.now() - (run.progressAt || 0) >= (Number(process.env.CODER_CARD_REFRESH_MS) || 5000)) {
@@ -2283,7 +2292,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
         const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}|${r.prefill?.processed ?? ""}`;   // reading the prompt counts as life
-        if (r.queue_pos && r.queue_pos > 0 && !r.total && (!r.phase || r.phase === "ready") && (run.queueMoves || 0) < 3 && Date.now() - (run.jobAt || run.jobMovedAt || 0) > (process.env.CODER_QUEUE_MOVE_MS !== undefined ? Number(process.env.CODER_QUEUE_MOVE_MS) : 1500) && await anyIdleStudio()) {
+        if (r.queue_pos && r.queue_pos > 0 && !r.total && (!r.phase || r.phase === "ready") && (run.queueMoves || 0) < 3 && Date.now() - (run.jobAt || run.jobMovedAt || 0) > queueMoveAfterMs(run) && await anyIdleStudio()) {
           // Waiting in a Studio's queue while another Studio is idle (measured: 3+ minutes at "position 1" with four idle): the step is cancelled and sent again at once to an idle
           // Studio (about 1.5 s after the first poll shows the queue). Speed first: a cold read of a short prompt is seconds, waiting behind an unknown job was minutes.
           await coderCancel(run.job).catch(() => null);
@@ -2346,7 +2355,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         continue;
       }
       run.stallRetries = 0; run.goneRetries = 0;
-      const completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      let completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      if (!completedCalls.length && /<tool_call>\s*<function=/.test(text)) {      // the call came back as Qwen-XML text: run it (live 2026-11-15)
+        const { rescueXmlToolCalls } = await import("@/lib/coderXmlToolCalls");
+        const rescued = rescueXmlToolCalls(text);
+        if (rescued.calls.length) { text = rescued.text; completedCalls = rescued.calls; await taskEvent(run.id, "info", "🩹 استدعاء أداة جاء كنص XML؛ نفّذته.", db); }
+      }
       // Some Studio/model responses finish with neither text nor tool calls. Never report that as success:
       // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
       if (!text.trim() && completedCalls.length === 0) {

@@ -14,3 +14,12 @@ describe("computer first for the owner", () => {
     expect(isGithubRead("computer_read")).toBe(false);
   });
 });
+
+import { queueMoveAfterMs } from "../coderSections";
+describe("queue move keeps a warm cache", () => {
+  test("small or first-step prompts move fast, big warm ones wait", () => {
+    expect(queueMoveAfterMs({ step: 0, promptEst: 30000 })).toBe(1500);
+    expect(queueMoveAfterMs({ step: 5, promptEst: 3000 })).toBe(1500);
+    expect(queueMoveAfterMs({ step: 5, promptEst: 25000 })).toBe(300000);
+  });
+});

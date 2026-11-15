@@ -509,6 +509,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <div style={bar} role="toolbar" aria-label={ar ? "طريقة اللمس والتطبيقات" : "Touch mode and apps"}>
             {tools.map(([id, icon, label]) => <button key={id} type="button" style={btn(tool === id)} onClick={() => setTool(id)}>{icon} {label}</button>)}
             <span style={{ flex: "0 0 1px", background: "#8885" }} />
+            <button type="button" style={btn()} aria-label={ar ? "الشاشة الرئيسية" : "Show desktop"} onClick={() => key("super+d")}>🏠 {ar ? "الرئيسية" : "Desktop"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "terminal" })}>🖥 {ar ? "طرفية" : "Terminal"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "browser" })}>🌐 {ar ? "متصفح" : "Browser"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "files" })}>📁 {ar ? "ملفات" : "Files"}</button>
