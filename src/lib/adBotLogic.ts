@@ -402,8 +402,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).text(APP_BUTTON).row(); // both shortcuts open this bot's own Mini App
+    .text(t(lang, "btnAccounts")).text(APP_BUTTON).row(); // exchange and remittances live inside the Mini App (their old buttons still work on keyboards already on screen)
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -534,8 +533,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnAccounts")).text(EXCHANGE_BUTTON).row()
-    .text(REMIT_BUTTON).text(APP_BUTTON).row()
+    .text(t(lang, "btnAccounts")).text(APP_BUTTON).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }

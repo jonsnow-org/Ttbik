@@ -87,7 +87,7 @@ describe("entry points in the existing bots and the media Mini App", () => {
   });
   it.each([["jobsBotLogic.ts", "shop"]])("%s: menu button + handler", (f, first) => {
     const src = lib(f);
-    expect(src).toMatch(/\.text\(SERVICES_BUTTON\)/);
+    expect(src).not.toMatch(/\.text\(SERVICES_BUTTON\)/); // trimmed from the home keyboard (menu cleanup); the handler stays for keyboards already on screen
     expect(src).toMatch(/if \(isServicesRequest\(text\)\)/);
     expect(src).toContain(`sendServices(bot, chatId, ["${first}"`);
   });

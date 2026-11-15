@@ -107,7 +107,7 @@ const isOwnerId = (id: string) => !!SUPER_ADMIN_ID && id === SUPER_ADMIN_ID;
 /** The user panel. Groups of two per row: board and totals, the four chains, the group features, app and info. The owner gets one extra row back to the admin panel. */
 export function mainMenu(owner = false): Keyboard {
   const kb = new Keyboard();
-  const items = [TODAY_LABEL, BOARD_BUTTON, ...STREAK_CATEGORIES.map((c) => c.menuLabel), ALL_BUTTON, MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, APP_BUTTON, INFO_BUTTON];
+  const items = [TODAY_LABEL, BOARD_BUTTON, ...STREAK_CATEGORIES.map((c) => c.menuLabel), MENU_BUTTON, MEMORIAL_BUTTON, CONTEST_BUTTON, APP_BUTTON, INFO_BUTTON];
   if (owner) items.push(ADMIN_PANEL_BUTTON);
   items.forEach((t, i) => { kb.text(t); if (i % 2 === 1) kb.row(); });
   return kb.resized();
