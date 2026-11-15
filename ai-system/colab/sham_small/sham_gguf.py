@@ -206,8 +206,10 @@ def fast_model(model, kind: str | None = None):
         except ImportError:
             if os.environ.get("SHAM_GGUF_INSTALL", "1") == "1":
                 import subprocess
-                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu",
-                                "llama-cpp-python", "gguf"], timeout=600, check=False, capture_output=True)
+                pr = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu",
+                                     "llama-cpp-python", "gguf"], timeout=600, check=False, capture_output=True, text=True)
+                if pr.returncode != 0:      # live log 2026-11-15 said only "No module named 'gguf'": the reason pip failed was swallowed
+                    print("sham_gguf: pip install failed (exit %s): %s" % (pr.returncode, (pr.stderr or pr.stdout or "").strip()[-600:].replace("\n", " | ")), flush=True)
             import gguf  # noqa: F401,F811
             import llama_cpp  # noqa: F401,F811
         td = tempfile.mkdtemp(prefix="sham_gguf_")
