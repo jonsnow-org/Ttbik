@@ -305,11 +305,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const [fit, setFit] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    const read = () => setVvh(Math.round(vv?.height || window.innerHeight));
-    read();
+    // The visible height is read after the phone's keyboard animation has settled (trailing 180 ms) and ignores changes under 24 px: the keyboard fires a burst of resize events
+    // (and the page itself scrolls while it opens), and following every one of them made the screen shrink, grow and shrink again (owner report 2026-11-13).
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const apply = () => { const h = Math.round(vv?.height || window.innerHeight); setVvh((prev) => (prev && Math.abs(prev - h) < 24 ? prev : h)); };
+    const read = () => { if (t) clearTimeout(t); t = setTimeout(apply, 180); };
+    apply();
     vv?.addEventListener("resize", read);
     window.addEventListener("resize", read);
-    return () => { vv?.removeEventListener("resize", read); window.removeEventListener("resize", read); };
+    return () => { if (t) clearTimeout(t); vv?.removeEventListener("resize", read); window.removeEventListener("resize", read); };
   }, []);
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
   const viewRef = useRef(view);
@@ -404,11 +408,21 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   useEffect(() => {
     const el = fitRef.current;
     if (!el || !running || !sw || !sh) { setFit(null); return; }
+    // loop guard: the observed box sizes itself from the picture, so a measure that changes the picture can re-trigger itself. Small changes (< 6 px) are ignored, and more than 8
+    // changes within 3 s freeze the size (the picture stays where it is instead of shrinking and growing forever).
+    const stamps: number[] = [];
     const measure = () => {
       const availW = el.clientWidth || 320;
       const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 230 : 320));
       const w = Math.floor(Math.min(availW, availH * (sw / sh)));
-      setFit({ w, h: Math.floor(w * (sh / sw)) });
+      setFit((prev) => {
+        if (prev && Math.abs(prev.w - w) < 6) return prev;
+        const now = Date.now();
+        while (stamps.length && now - stamps[0] > 3000) stamps.shift();
+        if (prev && stamps.length >= 8) return prev;
+        stamps.push(now);
+        return { w, h: Math.floor(w * (sh / sw)) };
+      });
     };
     measure();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
