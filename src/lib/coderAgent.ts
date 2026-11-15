@@ -829,6 +829,11 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (meter) await meter(Math.ceil((Date.now() - t0) / 1000));
       if (sbx !== null) return sbx;
     }
+    {   // owner order: repository work runs on the computer (coderComputerFirst.ts); the first GitHub read calls of a run are redirected to computer_repo
+      const cf = await import("@/lib/coderComputerFirst");
+      const redirect = cf.computerFirstRedirect(name, a as Record<string, unknown>, ctx.tier, ctx.runId, ctx.userId !== undefined && !!ctx.modelId);
+      if (redirect) return redirect;
+    }
     const gh = ctx.gh;
     if (!gh) return "error: GitHub is not connected in this chat";
     if (name === "github_api") {
