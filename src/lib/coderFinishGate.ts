@@ -23,12 +23,12 @@ export function isActionGoal(goal: string): boolean {
 
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
 export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
-  if (nudges >= 2) return "";
+  if (nudges >= 3) return "";
   if (!isActionGoal(goal) || madeChanges(toolNames)) return "";
   if (String(text || "").trim().length < 20) return "";
   return "[harness] The owner has already authorised you to ACT on this request and does not want a menu of options or a report. Do not ask which step to start with. "
     + "Now: bring the repository to the computer (computer_repo), find the exact bug or missing feature, edit the files (computer_edit / computer_write), run the tests (computer_test / computer_run), "
-    + "and publish the change with computer_publish as a branch and pull request. Report only after something was really changed and verified. Write in the language of the owner's request (Arabic) and make the tool call in THIS step, through the tool interface, never as <tool_call> text. If the repository holds several candidates, choose the one that matches the owner's own words (search the code for them).";
+    + "and publish the change with computer_publish as a branch and pull request. The request is broad, so do NOT try to finish everything: take the FIRST concrete item of your own list, make that one change now with computer_edit (read the file with computer_read first), run its test, then publish it; further items can follow in later steps. Report only after something was really changed and verified. Write in the language of the owner's request (Arabic) and make the tool call in THIS step, through the tool interface, never as <tool_call> text. If the repository holds several candidates, choose the one that matches the owner's own words (search the code for them).";
 }
 
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */

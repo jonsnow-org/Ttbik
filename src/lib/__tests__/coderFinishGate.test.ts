@@ -8,7 +8,8 @@ describe("owner finish gate", () => {
     const read = ["github_repo_scan", "github_read_files", "computer_search"];
     expect(finishNudge(GOAL, read, MENU, 0)).toMatch(/computer_repo/);
     expect(finishNudge(GOAL, read, MENU, 1)).not.toBe("");
-    expect(finishNudge(GOAL, read, MENU, 2)).toBe("");
+    expect(finishNudge(GOAL, read, MENU, 2)).not.toBe("");
+    expect(finishNudge(GOAL, read, MENU, 3)).toBe("");
   });
   test("a run that changed something, or a question that asked for no action, ends normally", () => {
     expect(finishNudge(GOAL, ["computer_edit"], "تم الإصلاح", 0)).toBe("");
