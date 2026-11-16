@@ -93,10 +93,15 @@ def _sample_from_logits(
         if not _NAN_REPORTED:
             _NAN_REPORTED = True
             raw = original
-            print("sample: non-finite probabilities (logits: nan=%d +inf=%d -inf=%d of %d, finite max=%s)" % (
+            print("sample: non-finite probabilities (logits: nan=%d +inf=%d -inf=%d of %d, finite max=%s; at the softmax: finite=%d of %d, temperature=%s top_k=%s top_p=%s range=%s)" % (
                 int(torch.isnan(raw).sum()), int((raw == float("inf")).sum()), int((raw == float("-inf")).sum()), raw.numel(),
-                (float(raw[torch.isfinite(raw)].max()) if bool(torch.isfinite(raw).any()) else "none")), flush=True)
+                (float(raw[torch.isfinite(raw)].max()) if bool(torch.isfinite(raw).any()) else "none"),
+                int(torch.isfinite(logits).sum()), logits.numel(), temperature, top_k, top_p, allowed_range), flush=True)
         safe = torch.nan_to_num(original, nan=float("-inf"), posinf=1e4, neginf=float("-inf"))
+        if allowed_range is not None:      # the fallback must stay inside the allowed ids (text / image / audio spans)
+            fence = torch.full_like(safe, float("-inf"))
+            fence[:, allowed_range[0]:allowed_range[1]] = 0.0
+            safe = safe + fence
         if not bool(torch.isfinite(safe).any()):
             safe = torch.zeros_like(safe)
         return safe.argmax(dim=-1, keepdim=True)
