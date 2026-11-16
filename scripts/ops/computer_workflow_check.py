@@ -86,6 +86,10 @@ def main() -> int:
     print("    path:", folder, "| summary:", str(repo.get("summary", ""))[:200].replace("\n", " | "), flush=True)
     found = step("computer_search: find a symbol (ripgrep)", {"action": "search", "pattern": "coderSystemPrompt", "path": folder, "glob": "*.ts"})
     print("    matches:", str(found.get("matches", ""))[:200].replace("\n", " | "), flush=True)
+    home = step("computer_search from HOME (no path): the checkout is a symlink to the local disk", {"action": "search", "pattern": "Slaselbot"})
+    print("    home search:", str(home.get("matches", ""))[:200].replace("\n", " | "), flush=True)
+    if "Slaselbot" not in str(home.get("matches", "")):
+        failures.append("computer_search from home found nothing inside the checkout")
     step("computer_read: read a file", {"action": "read", "path": f"{folder}/package.json"})
     step("computer_write: create a file in the checkout", {"action": "write", "path": f"{folder}/zz_check.txt", "content": "check\n"})
     step("computer_edit: edit a file", {"action": "edit", "path": f"{folder}/zz_check.txt", "old": "check", "new": "checked"})
