@@ -47,14 +47,21 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
 }
 
 /** Exactly the fields the Studio understands, bounded; anything else is dropped. */
+/** The hub's home folder is the working folder, so `~/repos/x` and `$HOME/repos/x` mean `repos/x`. The repo answer says "ready in ~/repos/x", and Nova used that spelling in a path: «No such file or directory», five wasted steps (2026-11-16). */
+export function homePath(p: unknown): string {
+  const t = String(p ?? "");
+  const m = /^(?:~|\$HOME|\$\{HOME\})(?:\/+(.*))?$/.exec(t);
+  return m ? (m[1] || ".") : t;
+}
+
 export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   const action = String(a.action || "").toLowerCase();
   if (!ACTIONS.has(action)) return null;
   const out: Record<string, unknown> = { action };
   if (a.command !== undefined) out.command = String(a.command).slice(0, 8000);
-  if (a.cwd !== undefined) out.cwd = String(a.cwd).slice(0, 300);
+  if (a.cwd !== undefined) out.cwd = homePath(a.cwd).slice(0, 300);
   if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(300, Math.trunc(Number(a.timeout))));
-  if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
+  if (a.path !== undefined) out.path = homePath(a.path).slice(0, 500);
   if (a.content !== undefined) out.content = String(a.content).slice(0, 1_000_000);
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
   if (a.name !== undefined) out.name = String(a.name).slice(0, 60);
@@ -72,7 +79,7 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.replace_all) out.replace_all = true;
   if (Array.isArray(a.edits)) out.edits = a.edits.slice(0, 40).map((e) => ({ old: String(e?.old ?? "").slice(0, 200_000), new: String(e?.new ?? "").slice(0, 200_000), ...(e?.replace_all ? { replace_all: true } : {}) }));
   if (a.repo !== undefined) out.repo = String(a.repo).slice(0, 200);
-  if (a.dir !== undefined) out.dir = String(a.dir).slice(0, 300);
+  if (a.dir !== undefined) out.dir = homePath(a.dir).slice(0, 300);
   if (a.diff !== undefined) out.diff = String(a.diff).slice(0, 400_000);
   if (a.continue_on_error) out.continue_on_error = true;
   if (action === "batch") {
