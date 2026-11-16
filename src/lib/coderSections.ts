@@ -2430,7 +2430,9 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
         const gate = await import("@/lib/coderFinishGate");
-        const nudge = gate.finishNudge(run.goal || "", gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        // the goal is the run's own request plus the owner's recent messages: a follow-up like «البوت هو @Slaselbot» carries no action verb of its own but continues the action request
+        const recentOwner = st.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !String(m.content).startsWith("[harness]")).slice(-6).map((m) => String(m.content)).join("\n");
+        const nudge = gate.finishNudge([run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
