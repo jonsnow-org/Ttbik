@@ -656,6 +656,7 @@ export type ToolCtx = {
   gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
   userId?: number | string; memoryChatId?: number | string; modelId?: string; db?: import("@/lib/coderAuth").Db;           // account/model computer namespace, memory and plan metering
   tier?: "owner" | "user";
+  goal?: string;                                                             // the run's own request (owner tier: used to find the project he means)
   memory?: { remember: boolean; recall: boolean };                         // the user's own memory switches for this model (undefined = both on)
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
 };
@@ -797,7 +798,15 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       }
       if (!mapped) return name === "computer_batch" ? "error: every batch step needs a valid computer_* tool and its arguments" : "error: computer_job action must be start, log, stop or list";
       // one private computer namespace per user AND model on the shared 16 GB computer hub
-      return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
+      const ns = `${ctx.userId}:${ctx.modelId}`;
+      const res = await boxDo(ctx.modelId, ns, mapped, ctx.fetchImpl);
+      if (name === "computer_repo" && ctx.tier === "owner" && typeof res === "string" && /repository ready in/.test(res)) { const cf2 = await import("@/lib/coderComputerFirst"); cf2.markRepoOnComputer(ctx.runId); }
+      if (name === "computer_repo" && ctx.tier === "owner" && ctx.goal && typeof res === "string") {      // which project does the owner mean? the docs are searched for his own words (coderGoalHints.ts)
+        const { docsHintsAfterRepo } = await import("@/lib/coderGoalHints");
+        const extra = await docsHintsAfterRepo(res, ctx.goal, async (sa) => { const m2 = boxActionFor("computer_search", sa); return m2 ? String(await boxDo(ctx.modelId!, ns, m2, ctx.fetchImpl)) : ""; });
+        if (extra) return res + extra;
+      }
+      return res;
     }
     if (name === "desktop") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the graphical desktop";
