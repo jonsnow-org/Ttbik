@@ -52,3 +52,21 @@ test("a tool or a platform page that is not in the promotion rotation is a warni
   d.coverage = { tools: 3, toolsMissing: [], pages: 5, pagesMissing: [] };
   assert.equal(overall(evaluate(d, NOW)), "ok");
 });
+
+test("the Literium app link: ok when it is a real APK of the same size as the latest release", () => {
+  const d = healthy(); d.app = { url: "https://x/downloads/Literium.apk", status: 200, isApk: true, size: 6596488, releaseSize: 6596488, releaseTag: "v1.0.9" };
+  const c = evaluate(d, NOW).find((x) => x.name === "Literium app download link");
+  assert.equal(c.level, "ok");
+});
+test("the Literium app link: a different size than the latest release warns (the site may hold an old APK)", () => {
+  const d = healthy(); d.app = { url: "https://x/downloads/Literium.apk", status: 200, isApk: true, size: 5000000, releaseSize: 6596488, releaseTag: "v1.0.9" };
+  const c = evaluate(d, NOW).find((x) => x.name === "Literium app download link");
+  assert.equal(c.level, "warn"); assert.match(c.detail, /older APK/);
+});
+test("the Literium app link: a broken link or a non-APK file is a failure", () => {
+  const d = healthy();
+  d.app = { url: "https://x/downloads/Literium.apk", status: 404, isApk: false, size: 0 };
+  assert.equal(evaluate(d, NOW).find((x) => x.name === "Literium app download link").level, "fail");
+  d.app = { url: "https://x/downloads/Literium.apk", status: 200, isApk: false, size: 10 };
+  assert.equal(evaluate(d, NOW).find((x) => x.name === "Literium app download link").level, "fail");
+});
