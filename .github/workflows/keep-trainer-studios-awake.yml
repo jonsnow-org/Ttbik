@@ -1,0 +1,57 @@
+name: "Keep the Sham trainer Studios awake"
+# Free Studios go to sleep after a quiet while, and a sleeping trainer trains nothing. Found 2026-11-16: the two international trainers (Jonjithup/sham-trainer-1 and sham-trainer-tools, free
+# 16 GB tier) were "Sleeping" hours after their deploy. A plain HTTP request does not wake a Studio (see keep-warm-chat-studios.yml); only ModelScope's deploy call does, from the code it
+# already holds, and the trainer app then resumes its cycle. This asks every 20 minutes: if a trainer Studio is Sleeping, start it; a running or building one is never touched.
+# Only Sham's own trainers are listed: never the computer hub, never Nova's Studios.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: keep-trainer-studios-awake
+  cancel-in-progress: true
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: wake sleeping trainers
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          TRAINERS = [("cn", "www.modelscope.cn", "novaai2026", "sham-trainer-1", "T_CN"),
+                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-1", "T_AI"),
+                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI")]
+          def call(url, tok, method="GET"):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok}, method=method, data=b"" if method == "POST" else None)
+              try:
+                  with urllib.request.urlopen(req, timeout=40) as r:
+                      return r.status, r.read().decode()
+              except urllib.error.HTTPError as exc:
+                  return exc.code, ""
+              except Exception as exc:
+                  return 0, type(exc).__name__
+          for site, host, owner, name, env in TRAINERS:
+              tok = os.environ.get(env, "")
+              if not tok:
+                  print(site, name, "no token"); continue
+              code, body = call(f"https://{host}/openapi/v1/studios/{owner}/{name}", tok)
+              status = ""
+              if code == 200:
+                  try:
+                      data = (json.loads(body).get("data") or {})
+                      status = str((data.get("runtime") or {}).get("status") or data.get("status") or "")
+                  except ValueError:
+                      status = ""
+              if status.lower() == "sleeping":
+                  c2, _ = call(f"https://{host}/openapi/v1/studios/{owner}/{name}/deploy", tok, "POST")
+                  print(f"{site} {owner}/{name}: Sleeping -> deploy HTTP {c2}")
+              else:
+                  print(f"{site} {owner}/{name}: {status or ('HTTP ' + str(code))} (left alone)")
+          PY
