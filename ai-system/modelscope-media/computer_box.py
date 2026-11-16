@@ -1389,11 +1389,11 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
 
 
 def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
-    """ripgrep when installed, grep otherwise; line-numbered, bounded."""
+    """ripgrep when installed, grep otherwise; line-numbered, bounded. Symlinks are followed: a checkout lives on the local disk and the home folder only holds a link to it, so a search from the home folder (`.`) found nothing without -L / -R (Nova run 6dde88f5, 2026-11-16: «no matches» for a word in 10 files)."""
     g = f"-g {shell_quote(glob)} " if glob else ""
     inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
-    return (f"if command -v rg >/dev/null; then rg -j 32 -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
-            f"else grep -rIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+    return (f"if command -v rg >/dev/null; then rg -L -j 32 -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
+            f"else grep -RIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
 def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
