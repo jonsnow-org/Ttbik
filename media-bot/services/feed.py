@@ -131,25 +131,59 @@ async def increment_clone(item_id: str) -> None:
         logger.warning("clone increment failed: %s", e)
 
 
-def _site_base() -> str:
+DEFAULT_SITE = "https://ttbik-gate.jonsnowx1r.workers.dev"
+
+
+def _site_bases() -> list[str]:
+    """Public site addresses to ask about a post's file: the one FEED_API_URL points at, then the permanent gate.
+    (FEED_API_URL can be an internal address on the host; the check must not depend on it alone.)"""
     api = _api_url()
-    return api[: -len("/api/media-feed")] if api.endswith("/api/media-feed") else api.rsplit("/api/", 1)[0]
+    bases: list[str] = []
+    if "/api/" in api:
+        bases.append(api.rsplit("/api/", 1)[0])
+    if DEFAULT_SITE not in bases:
+        bases.append(DEFAULT_SITE)
+    return bases
 
 
-async def list_unstreamable(limit: int = 200) -> list[dict[str, Any]]:
-    """Public feed items whose file Telegram refuses to hand out for streaming (over 20MB): the Mini App cannot play them."""
+async def list_unstreamable(limit: int = 200) -> tuple[list[dict[str, Any]], int, int]:
+    """Public feed items whose file Telegram refuses to hand out for streaming (over 20MB): the Mini App cannot play them.
+    Returns (items, how many were checked, how many checks could not be answered)."""
     out: list[dict[str, Any]] = []
+    checked = errors = 0
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(_api_url(), params={"limit": limit})
-            items = (r.json() or {}).get("items") or []
+            items: list[dict[str, Any]] = []
+            offset = 0
+            while len(items) < limit:  # the feed answers in pages
+                r = await client.get(_api_url(), params={"limit": 100, "offset": offset})
+                page = (r.json() or {}).get("items") or []
+                if not page:
+                    break
+                items += page
+                offset += len(page)
             for it in items:
-                pr = await client.get(f"{_site_base()}/api/media-path", params={"id": it["id"]})
-                if pr.status_code == 422 and "too big" in pr.text.lower() and it.get("url"):
-                    out.append(it)
+                checked += 1
+                answered = False
+                for base in _site_bases():
+                    try:
+                        pr = await client.get(f"{base}/api/media-path", params={"id": it["id"]})
+                    except Exception:
+                        continue
+                    if pr.status_code == 422 and "too big" in pr.text.lower():
+                        if it.get("url"):
+                            out.append(it)
+                        answered = True
+                        break
+                    if pr.status_code in (200, 404):
+                        answered = True
+                        break
+                if not answered:
+                    errors += 1
     except Exception as e:
         logger.warning("list_unstreamable failed: %s", e)
-    return out
+        errors += 1
+    return out, checked, errors
 
 
 async def replace_file(item: dict[str, Any], new_file_id: str, duration_sec: int = 0) -> bool:
