@@ -1585,12 +1585,47 @@ def _dispatch(session: str, action: str, job: dict) -> dict:
     entry = note_activity(session, "shell", action, _act_detail(action, job))
     _LIVE_ENTRY[threading.get_ident()] = entry
     out: dict = {}
+    _screen_line(session, action, job, None)
     try:
         out = _dispatch_inner(session, action, job)
         return out
     finally:
         _LIVE_ENTRY.pop(threading.get_ident(), None)
         finish_activity(entry, out if isinstance(out, dict) else {})
+        _screen_line(session, action, job, out if isinstance(out, dict) else {})
+
+
+# What the model does must be visible ON the computer's own screen (owner 2026-11-16: not in a panel under it). The desktop's "Model Computer" window tails
+# ~/.activity.log; commands already write their output there (_log_activity), so every OTHER action (read, search, edit, write, test, fetch, publish) adds one short line.
+_SCREEN_SKIP = {"run", "status", "activity", "job_list", "shot", "frame"}
+
+
+def _screen_line(session: str, action: str, job: dict, out: dict | None) -> None:
+    """One line per action in the session's ~/.activity.log: '▶ read path' when it starts, '   ✔ …' / '   ✖ …' when it ends. Never fails the action."""
+    if action in _SCREEN_SKIP:
+        return
+    try:
+        detail = _act_detail(action, job)
+        if out is None:
+            text = f"\n▶ {action}" + (f"  {detail}" if detail else "") + "\n"
+        else:
+            ok = bool(out.get("ok")) and out.get("exit_code") in (None, 0)
+            note = out.get("error") or out.get("message") or out.get("summary") or ""
+            if not note and isinstance(out.get("output"), str):
+                note = out["output"].strip().splitlines()[-1] if out["output"].strip() else ""
+            if not note and isinstance(out.get("content"), str):
+                note = f"{len(out['content'])} characters"
+            text = ("   ✔ " if ok else "   ✖ ") + str(note)[:160].replace("\n", " ") + "\n"
+        home = session_home(session)
+        if not home.is_dir():              # the very first action of a session creates the home itself: nothing to write into yet
+            return
+        path = home / ".activity.log"
+        if path.exists() and path.stat().st_size > 300_000:
+            path.write_text("", encoding="utf-8")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
+    except Exception:                                          # noqa: BLE001
+        pass
 
 
 def run_batch(session: str, steps) -> dict:

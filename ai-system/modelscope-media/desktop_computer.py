@@ -543,9 +543,9 @@ def _spawn_desktop(session: str) -> None:
             processes.append(panel)
             time.sleep(0.4)
 
-        if not icons_started:
-            # no desktop icons (pcmanfm missing): fall back to the old start screen, a terminal showing what the model does
-            processes.append(_spawn(_terminal_command(), env, "terminal"))
+        # The "Model Computer" window is part of the screen at every start (owner 2026-11-16: the live view of the model's work belongs ON the computer's screen):
+        # it tails ~/.activity.log, where the hub writes every command, read, edit and test of the model. The icons / taskbar stay around it.
+        processes.append(_spawn(_terminal_command(), env, "terminal"))
 
         # A stop may arrive while packages or X11 are starting. Publish the
         # process handles only if the caller still owns this exact session.
