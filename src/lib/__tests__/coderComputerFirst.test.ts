@@ -4,6 +4,7 @@ describe("computer first for the owner", () => {
   test("the first two GitHub read calls of an owner run are redirected to computer_repo, then they pass through", () => {
     const a = computerFirstRedirect("github_repo_scan", { repo: "jonsnow-org/Ttbik" }, "owner", "run-a", true);
     expect(a).toMatch(/computer_repo with url=https:\/\/github\.com\/jonsnow-org\/Ttbik/);
+    expect(a).toMatch(/his own words/);
     expect(computerFirstRedirect("github_list_files", {}, "owner", "run-a", true)).toMatch(/computer_repo/);
     expect(computerFirstRedirect("github_search_code", {}, "owner", "run-a", true)).toBe("");
   });

@@ -19,5 +19,6 @@ export function computerFirstRedirect(name: string, args: Record<string, unknown
   const repo = /^[\w.-]+\/[\w.-]+$/.test(String(args.repo || "")) ? String(args.repo) : "";
   const url = repo ? `https://github.com/${repo}` : "https://github.com/<owner>/<repo>";
   return `[harness] Not executed. Owner order: repository work runs on YOUR computer, not through GitHub API reads. Call computer_repo with url=${url} (ONE call, private repositories work), `
-    + "then use computer_search to find things and computer_read to read files, computer_edit/computer_write to change them, computer_test to check, and computer_publish to send the change.";
+    + "then use computer_search to find things and computer_read to read files, computer_edit/computer_write to change them, computer_test to check, and computer_publish to send the change. "
+    + "To decide WHICH project or bot the owner means, first search his own words (the key nouns of his request, in Arabic as he wrote them) over docs/ and AGENTS.md with computer_search (the repository's docs map names every bot and its files); never pick a folder just because it has a README.";
 }
