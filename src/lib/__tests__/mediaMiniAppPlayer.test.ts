@@ -35,12 +35,10 @@ describe("media mini-app video player (inline, never a floating window)", () => 
 
 describe("media mini-app failure handling", () => {
   const src = () => app("page.tsx");
-  it("recognises Telegram's 20MB getFile limit and offers the bot instead of a dead player", () => {
+  it("has no too-big fallback UI: big clips are compressed by the bot so they stream", () => {
     const s = src();
-    expect(s).toContain("/api/media-path?id=");
-    expect(s).toContain("/too big/i");
-    expect(s).toContain("افتحه في البوت");
-    expect(s).toContain("cloneHref(item.id)");
+    expect(s).not.toContain("tooBig");
+    expect(s).not.toContain("افتحه في البوت");
   });
   it("falls back to the clip's own first frame when the stored thumbnail link has expired", () => {
     const s = src();
