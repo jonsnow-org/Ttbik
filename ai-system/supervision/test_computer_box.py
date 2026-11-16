@@ -893,3 +893,18 @@ class LiveActivity(Box):
 
     def test_typed_text_is_never_in_the_feed(self):
         self.assertEqual(cb._act_detail("type", {"text": "hunter2"}), "")
+
+
+class ScreenLog(Box):
+    """What the model does is written into ~/.activity.log, which the desktop's "Model Computer" window shows on the computer's own screen."""
+    def test_every_action_leaves_a_line_on_the_screen_log_and_commands_are_not_doubled(self):
+        self.run_box(session="u7:coder", action="run", command="true")      # the first action creates the home
+        self.run_box(session="u7:coder", action="write", path="notes.txt", content="hello")
+        self.run_box(session="u7:coder", action="read", path="notes.txt")
+        self.run_box(session="u7:coder", action="run", command="echo ONCE_ONLY")
+        log = (cb.session_home("u7:coder") / ".activity.log").read_text(encoding="utf-8")
+        self.assertIn("▶ write  notes.txt", log)
+        self.assertIn("▶ read  notes.txt", log)
+        self.assertIn("✔", log)
+        self.assertEqual(log.count("ONCE_ONLY"), 2)      # the command line and its output, written by the command's own logger; no extra '▶ run' line
+        self.assertNotIn("▶ run", log)

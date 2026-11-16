@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./parts";
 import GraphicalDesktop from "./GraphicalDesktop";
-import LiveWorkFeed from "./LiveWorkFeed";
 import type { Lang } from "../i18n";
 import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
@@ -33,7 +32,6 @@ export default function FreeComputer({ lang, defaultModel }: { lang: Lang; defau
         </div>
       </div>
       <GraphicalDesktop key={model} model={model} ar={ar} />
-      <LiveWorkFeed ar={ar} />
     </div>
   );
 }
