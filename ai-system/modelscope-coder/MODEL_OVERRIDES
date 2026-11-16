@@ -5,3 +5,5 @@
 #   LFM2.5-8B-A1B          tools 5/6 code 6/6  80 tok/s (13x)         (Gemma 4 E4B 4 tok/s, Nemotron Bolt E4B 8 tok/s, both 5/6 and 8+ GB)
 # Nova's Studios carry no override again (app.py default: Qwen3.5-4B).
 lfm25-inference-server LiquidAI/LFM2.5-8B-A1B-GGUF LFM2.5-8B-A1B-Q4_K_M.gguf 32768
+# 2026-11-16: international 16 GB Studio (modelscope.ai, the owner's account) for the bigger Nova candidate Qwen3.6-35B-A3B (3B active, same family as Qwen3.5-4B). Bake-off on the same harness (run 43924124133): tools 6/6, code 6/6, first token 5.0 s, 8 tok/s (4B: 6/6, 6/6, 6.0 s, 8 tok/s), peak memory 13.8 GB at ctx 16k. In no pool: tested alone first.
+coder-inference-server-16 unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf 32768
