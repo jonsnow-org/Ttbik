@@ -146,44 +146,61 @@ def _site_bases() -> list[str]:
     return bases
 
 
-async def list_unstreamable(limit: int = 200) -> tuple[list[dict[str, Any]], int, int]:
+def _feed_urls() -> list[str]:
+    """Where to read the public feed: FEED_API_URL first, then the permanent gate (FEED_API_URL can be an address the bot cannot read from)."""
+    urls = [_api_url()]
+    gate = f"{DEFAULT_SITE}/api/media-feed"
+    if gate not in urls:
+        urls.append(gate)
+    return urls
+
+
+async def list_unstreamable(limit: int = 200) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Public feed items whose file Telegram refuses to hand out for streaming (over 20MB): the Mini App cannot play them.
-    Returns (items, how many were checked, how many checks could not be answered)."""
+    Returns (items, how many were checked, short descriptions of what could not be done)."""
     out: list[dict[str, Any]] = []
-    checked = errors = 0
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            items: list[dict[str, Any]] = []
-            offset = 0
-            while len(items) < limit:  # the feed answers in pages
-                r = await client.get(_api_url(), params={"limit": 100, "offset": offset})
-                page = (r.json() or {}).get("items") or []
-                if not page:
+    problems: list[str] = []
+    checked = 0
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        items: list[dict[str, Any]] = []
+        for feed_url in _feed_urls():
+            items, offset = [], 0
+            try:
+                while len(items) < limit:  # the feed answers in pages
+                    r = await client.get(feed_url, params={"limit": 100, "offset": offset})
+                    if r.status_code != 200:
+                        raise RuntimeError(f"HTTP {r.status_code}")
+                    page = (r.json() or {}).get("items") or []
+                    if not page:
+                        break
+                    items += page
+                    offset += len(page)
+                if items:
                     break
-                items += page
-                offset += len(page)
-            for it in items:
-                checked += 1
-                answered = False
-                for base in _site_bases():
-                    try:
-                        pr = await client.get(f"{base}/api/media-path", params={"id": it["id"]})
-                    except Exception:
-                        continue
-                    if pr.status_code == 422 and "too big" in pr.text.lower():
-                        if it.get("url"):
-                            out.append(it)
-                        answered = True
-                        break
-                    if pr.status_code in (200, 404):
-                        answered = True
-                        break
-                if not answered:
-                    errors += 1
-    except Exception as e:
-        logger.warning("list_unstreamable failed: %s", e)
-        errors += 1
-    return out, checked, errors
+            except Exception as e:  # try the next address
+                problems.append(f"{feed_url.split('/api/')[0]}: {type(e).__name__} {str(e)[:60]}")
+                logger.warning("feed read failed at %s: %s", feed_url, e)
+        if not items:
+            return out, 0, problems or ["empty feed"]
+        for it in items:
+            checked += 1
+            answered = False
+            for base in _site_bases():
+                try:
+                    pr = await client.get(f"{base}/api/media-path", params={"id": it["id"]})
+                except Exception:
+                    continue
+                if pr.status_code == 422 and "too big" in pr.text.lower():
+                    if it.get("url"):
+                        out.append(it)
+                    answered = True
+                    break
+                if pr.status_code in (200, 404):
+                    answered = True
+                    break
+            if not answered:
+                problems.append(f"media-path {it['id']}")
+    return out, checked, problems
 
 
 async def replace_file(item: dict[str, Any], new_file_id: str, duration_sec: int = 0) -> bool:
