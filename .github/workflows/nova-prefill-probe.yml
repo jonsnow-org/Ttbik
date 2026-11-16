@@ -3,6 +3,11 @@ name: Nova prefill speed probe (free, read-only)
 # thread / memory settings and prints the prompt-reading speed of each (tokens per second): which setting reads a prompt faster. Manual only.
 on:
   workflow_dispatch:
+    inputs:
+      only_ik:
+        description: "true = ONLY the engine comparison for the big Qwen3.6-35B-A3B model (mainline b11757 vs ik_llama.cpp, 2 cores, llama-bench pp512 / tg64); false = the old 4B setting probe"
+        required: false
+        default: "false"
 permissions:
   contents: read
 env:
@@ -10,6 +15,7 @@ env:
   LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
 jobs:
   probe:
+    if: inputs.only_ik != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -51,3 +57,38 @@ jobs:
             run_one "default again (noise check)"
           } | tee result.txt
           { echo "### Prefill speed, 2 cores ($(grep 'Model name' cpu.txt | sed 's/.*: *//'))"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  ik:
+    # 2026-11-16: the 35B-A3B model reads prompts at only 9.3 tok/s on the Studio's 2 cores with mainline b11757 (4B: 31-45). ik_llama.cpp has CPU-specific kernels and run-time repacking
+    # (-rtr 1) for IQ/Q quants of MoE models: does it read faster on the same 2 cores? Same model file, same cores, three engines/settings.
+    if: inputs.only_ik == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: free disk space (the model is 12 GB)
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL && df -h / | tail -1
+      - name: mainline llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
+          ls -l model.gguf; lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-160
+      - name: build ik_llama.cpp
+        run: |
+          git clone --depth 1 https://github.com/ikawrakow/ik_llama.cpp ik
+          cd ik && git log -1 --format='ik_llama.cpp %h %cs %s' | cut -c1-120
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_CUDA=OFF -DLLAMA_CURL=OFF > /dev/null
+          cmake --build build --target llama-bench -j 4 2>&1 | tail -3
+      - name: llama-bench on 2 cores
+        run: |
+          BIN=$(dirname "$(find llama -name llama-bench | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          { echo "== mainline b11757 (what the Studio runs)"
+            taskset -c 0,1 "$BIN/llama-bench" -m model.gguf -t 2 -p 512 -n 32 -r 1 2>&1 | grep -E "pp512|tg32" | cut -c1-200
+            echo "== ik_llama.cpp, default"
+            taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
+            echo "== ik_llama.cpp, run-time repack (-rtr 1)"
+            taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 1 -rtr 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
+          } | tee result.txt
+          { echo "### Engine comparison, Qwen3.6-35B-A3B IQ3_XXS, 2 cores"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
