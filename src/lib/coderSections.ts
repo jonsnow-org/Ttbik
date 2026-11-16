@@ -2356,7 +2356,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       run.stallRetries = 0; run.goneRetries = 0;
       let completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
-      if (!completedCalls.length && /<tool_call>\s*<function=/.test(text)) {      // the call came back as Qwen-XML text: run it (live 2026-11-15)
+      if (!completedCalls.length && /<tool_call>|<function=/.test(text)) {      // the call came back as Qwen-XML text: run it (live 2026-11-15)
         const { rescueXmlToolCalls } = await import("@/lib/coderXmlToolCalls");
         const rescued = rescueXmlToolCalls(text);
         if (rescued.calls.length) { text = rescued.text; completedCalls = rescued.calls; await taskEvent(run.id, "info", "🩹 استدعاء أداة جاء كنص XML؛ نفّذته.", db); }
