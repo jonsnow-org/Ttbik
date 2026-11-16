@@ -1,4 +1,4 @@
-import { computerFirstRedirect, isGithubRead } from "../coderComputerFirst";
+import { computerFirstRedirect, isGithubRead, markRepoOnComputer } from "../coderComputerFirst";
 
 describe("computer first for the owner", () => {
   test("the first two GitHub read calls of an owner run are redirected to computer_repo, then they pass through", () => {
@@ -22,5 +22,16 @@ describe("queue move keeps a warm cache", () => {
     expect(queueMoveAfterMs({ step: 0, promptEst: 30000 })).toBe(1500);
     expect(queueMoveAfterMs({ step: 5, promptEst: 3000 })).toBe(1500);
     expect(queueMoveAfterMs({ step: 5, promptEst: 25000 })).toBe(300000);
+  });
+});
+
+describe("single-file GitHub reads once the repository is on the computer", () => {
+  test("redirected to computer_read only after computer_repo succeeded for that run, owner only", () => {
+    expect(computerFirstRedirect("github_read_file", {}, "owner", "run-r", true)).toBe("");
+    markRepoOnComputer("run-r");
+    expect(computerFirstRedirect("github_read_file", {}, "owner", "run-r", true)).toMatch(/computer_read/);
+    expect(computerFirstRedirect("github_read_files", {}, "owner", "run-r", true)).toMatch(/computer_read/);
+    expect(computerFirstRedirect("github_read_file", {}, "user", "run-r", true)).toBe("");
+    expect(computerFirstRedirect("github_read_file", {}, "owner", "other-run", true)).toBe("");
   });
 });

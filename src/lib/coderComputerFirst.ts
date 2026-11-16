@@ -5,13 +5,26 @@
  */
 const GITHUB_READ = new Set(["github_repo_scan", "github_list_files", "github_search_code", "github_repo_audit"]);
 const redirected = new Map<string, number>();
+const GITHUB_FILE_READ = new Set(["github_read_file", "github_read_files"]);
+const repoReady = new Set<string>();      // runs whose repository is already on the computer
+
+/** Called when computer_repo succeeded for a run: from then on single-file GitHub reads are answered with computer_read too (the files are right there). */
+export function markRepoOnComputer(runId: string | undefined): void {
+  if (!runId) return;
+  repoReady.add(runId);
+  if (repoReady.size > 500) for (const k of [...repoReady].slice(0, 250)) repoReady.delete(k);
+}
 
 export function isGithubRead(name: string): boolean {
   return GITHUB_READ.has(name);
 }
 
 export function computerFirstRedirect(name: string, args: Record<string, unknown>, tier: string | undefined, runId: string | undefined, hasComputer: boolean): string {
-  if (tier !== "owner" || !hasComputer || !runId || !GITHUB_READ.has(name)) return "";
+  if (tier !== "owner" || !hasComputer || !runId) return "";
+  if (GITHUB_FILE_READ.has(name) && repoReady.has(runId)) {
+    return "[harness] Not executed: this repository is already on YOUR computer. Read the file with computer_read (path under the folder computer_repo reported) or find it with computer_search; GitHub API reads are not used for files you already have.";
+  }
+  if (!GITHUB_READ.has(name)) return "";
   const n = redirected.get(runId) || 0;
   if (n >= 2) return "";
   redirected.set(runId, n + 1);
