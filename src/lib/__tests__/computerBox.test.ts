@@ -1,4 +1,4 @@
-import { boxActionFor, boxDo, cleanBoxArgs, renderBoxReply } from "@/lib/computerBox";
+import { boxActionFor, boxDo, cleanBoxArgs, homePath, renderBoxReply } from "@/lib/computerBox";
 import { COMPUTER_PLAYBOOK, toolGroups } from "@/lib/coderAgent";
 const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice(4), "base64").toString("utf8") : x);   // jobs travel as base64 (the gateway filter rejects some plain text)
 
@@ -239,5 +239,20 @@ describe("the owner's GitHub credentials reach the computer only as a token-shap
     expect(_clean({ action: "run", command: "git clone x", env: { GH_TOKEN: FAKE, PATH: "/evil" } } as any)?.env).toEqual({ GH_TOKEN: FAKE });
     expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "short" } } as any)?.env).toBeUndefined();
     expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "a b; rm -rf /aaaaaaaaaaaaaaaa" } } as any)?.env).toBeUndefined();
+  });
+});
+
+describe("home paths", () => {
+  it("~/ and $HOME/ mean the hub home folder", () => {
+    expect(homePath("~/repos/a-b")).toBe("repos/a-b");
+    expect(homePath("$HOME/repos/a-b")).toBe("repos/a-b");
+    expect(homePath("~")).toBe(".");
+    expect(homePath("repos/a-b")).toBe("repos/a-b");
+    expect(homePath("src/~x")).toBe("src/~x");
+  });
+  it("search, read and run arguments are normalised", () => {
+    expect(cleanBoxArgs({ action: "search", pattern: "x", path: "~/repos/a-b" })).toMatchObject({ path: "repos/a-b" });
+    expect(cleanBoxArgs({ action: "run", command: "ls", cwd: "~/repos/a-b" })).toMatchObject({ cwd: "repos/a-b" });
+    expect(cleanBoxArgs({ action: "changes", repo: "a/b", dir: "~/repos/a-b" })).toMatchObject({ dir: "repos/a-b" });
   });
 });
