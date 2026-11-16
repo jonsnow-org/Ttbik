@@ -33,6 +33,23 @@ describe("media mini-app video player (inline, never a floating window)", () => 
 });
 
 
+describe("media mini-app failure handling", () => {
+  const src = () => app("page.tsx");
+  it("recognises Telegram's 20MB getFile limit and offers the bot instead of a dead player", () => {
+    const s = src();
+    expect(s).toContain("/api/media-path?id=");
+    expect(s).toContain("/too big/i");
+    expect(s).toContain("افتحه في البوت");
+    expect(s).toContain("cloneHref(item.id)");
+  });
+  it("falls back to the clip's own first frame when the stored thumbnail link has expired", () => {
+    const s = src();
+    expect(s).toContain("frameFailed");
+    expect(s).toContain('+ "#t=0.5"');
+  });
+});
+
+
 describe("Cloudflare media stream Worker origin routing", () => {
   const worker = fs.readFileSync(path.join(__dirname, "..", "..", "..", "cloudflare", "media-stream-worker.js"), "utf8");
   const wrangler = fs.readFileSync(path.join(__dirname, "..", "..", "..", "cloudflare", "media-stream.wrangler.jsonc"), "utf8");

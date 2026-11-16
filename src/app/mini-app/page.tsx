@@ -134,11 +134,20 @@ function CommentThread({ comment, all, depth, onReply, onOpenProfile }: { commen
 // image (owner report 2026-09-24: TikTok previews looked empty).
 function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: number) => void }) {
   const [failed, setFailed] = useState(false);
+  const [frameFailed, setFrameFailed] = useState(false);
   const p = platformOf(item.url);
   if (item.thumbnail && !failed) {
     return (
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
         <img src={item.thumbnail} alt="" loading="lazy" decoding="async" fetchPriority="low" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
+      </div>
+    );
+  }
+  // Signed Facebook/Instagram thumbnail links expire (403 within days): show the clip's own first frame instead (works for files Telegram can stream, i.e. up to 20MB).
+  if (!frameFailed && item.media_type !== "audio" && item.media_type !== "voice") {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-slate-900">
+        <video src={mediaStreamUrl(item.id, false, item.squad_code) + "#t=0.5"} muted playsInline preload="metadata" onError={() => setFrameFailed(true)} onLoadedMetadata={(e) => onRatio?.(e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full object-cover" />
       </div>
     );
   }
@@ -234,8 +243,24 @@ export default function MiniAppPage() {
   itemsRef.current = items;
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
+  // Telegram's Bot API cannot hand out files over 20MB for streaming (getFile: "file is too big"), though the bot sends them in chat fine.
+  const [tooBig, setTooBig] = useState<Record<string, boolean>>({});
+  const checkTooBig = (id: string) => {
+    fetch(`/api/media-path?id=${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then(async (r) => {
+        if (r.status !== 422) return;
+        const j = await r.json().catch(() => null);
+        if (/too big/i.test(String(j?.error || ""))) {
+          setTooBig((v) => ({ ...v, [id]: true }));
+          setPlayingId((cur) => (cur === id ? null : cur));
+          setPlayError(id);
+        }
+      })
+      .catch(() => {});
+  };
   const onPlayError = (id: string) => {
     const attempts = playErrorAttempts.current[id] || 0;
+    if (attempts === 0) checkTooBig(id);
     if (attempts === 0 && !viaVercel[id]) {
       playErrorAttempts.current[id] = 1;
       setViaVercel((v) => ({ ...v, [id]: true }));
@@ -1634,8 +1659,9 @@ export default function MiniAppPage() {
                 {playError === item.id && (
                   <div role="status" className="flex items-center gap-2 border-t border-rose-100 bg-gradient-to-l from-rose-50 to-orange-50 px-3.5 py-2.5">
                     <span className="text-lg" aria-hidden>⚠️</span>
-                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">تعذّر تشغيل المقطع. قد يكون الرابط منتهيًا أو الملف غير متاح أو هناك مشكلة في البث.</p>
-                    <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
+                    <p className="min-w-0 flex-1 text-[11px] font-semibold leading-5 text-rose-700">{tooBig[item.id] ? "المقطع كبير الحجم ولا يُعرض هنا. افتحه في البوت لتشاهده كاملاً." : "تعذّر تشغيل المقطع. قد يكون الرابط منتهيًا أو الملف غير متاح أو هناك مشكلة في البث."}</p>
+                    {tooBig[item.id] ? <a href={cloneHref(item.id)} onClick={() => { haptic(); track("download_intent", { post_id: item.id, method: "telegram-bot" }); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-sky-700 shadow-sm ring-1 ring-sky-200">⚡ افتح في البوت</a> :
+                    <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>}
                   </div>
                 )}
                 <div className="p-3.5">
