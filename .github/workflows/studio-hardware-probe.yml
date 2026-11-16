@@ -1,0 +1,50 @@
+name: Studio hardware probe (read-only)
+# Prints the hardware ModelScope reports for given Studios, on the cn site (account novaai2026) and the international site (owner's account), and the free hardware tiers each site offers.
+# Read-only: no Studio is created, changed or restarted; the tokens are never printed. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      cn_studios:
+        description: "comma list of cn Studio names"
+        required: false
+        default: "coder-inference-server,sham-trainer-1"
+      ai_studios:
+        description: "comma list of international Studio names"
+        required: false
+        default: "sham-trainer-1,sham-trainer-tools"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: hardware reported by ModelScope
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          CN: ${{ inputs.cn_studios }}
+          AI: ${{ inputs.ai_studios }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          def get(url, tok):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read().decode())
+              except Exception as exc:
+                  return {"error": f"{type(exc).__name__}: {str(exc)[:100]}"}
+          def studio(site, host, owner, name, tok):
+              d = (get(f"https://{host}/openapi/v1/studios/{owner}/{name}", tok).get("data") or {})
+              rt = d.get("runtime") or {}
+              print(f"{site} {owner}/{name}: hardware={d.get('hardware') or rt.get('hardware')} status={rt.get('status') or d.get('status')} visibility={d.get('visibility')}")
+          for n in [x.strip() for x in os.environ["CN"].split(",") if x.strip()]:
+              studio("cn", "www.modelscope.cn", "novaai2026", n, os.environ["T_CN"])
+          for n in [x.strip() for x in os.environ["AI"].split(",") if x.strip()]:
+              studio("ai", "www.modelscope.ai", "Jonjithup", n, os.environ["T_AI"])
+          for site, host, tok in (("cn", "www.modelscope.cn", os.environ["T_CN"]), ("ai", "www.modelscope.ai", os.environ["T_AI"])):
+              hw = get(f"https://{host}/openapi/v1/studios/hardware?sdk_type=gradio", tok)
+              items = ((hw.get("data") or {}).get("items") or (hw.get("data") or {}).get("hardware") or hw.get("data") or hw)
+              print(f"{site} hardware tiers:", json.dumps(items, ensure_ascii=False)[:1800])
+          PY
