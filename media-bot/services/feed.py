@@ -50,6 +50,8 @@ async def publish_feed_item(
     sharer_id: str,
     tags: list[str] | None = None,
     squad_code: str | None = None,
+    duration_sec: int = 0,
+    quality: str = "",
 ) -> dict[str, Any] | None:
     item: dict[str, Any] = {
         "id": uuid.uuid4().hex[:12],
@@ -63,6 +65,8 @@ async def publish_feed_item(
         "clones": 0,
         "tags": tags or ["عام"],
         "squad_code": squad_code or "",
+        "duration_sec": int(duration_sec or 0),
+        "quality": quality or "",
         "created_at": int(time.time()),
     }
     remember_local(item)
@@ -125,3 +129,44 @@ async def increment_clone(item_id: str) -> None:
             )
     except Exception as e:
         logger.warning("clone increment failed: %s", e)
+
+
+def _site_base() -> str:
+    api = _api_url()
+    return api[: -len("/api/media-feed")] if api.endswith("/api/media-feed") else api.rsplit("/api/", 1)[0]
+
+
+async def list_unstreamable(limit: int = 200) -> list[dict[str, Any]]:
+    """Public feed items whose file Telegram refuses to hand out for streaming (over 20MB): the Mini App cannot play them."""
+    out: list[dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(_api_url(), params={"limit": limit})
+            items = (r.json() or {}).get("items") or []
+            for it in items:
+                pr = await client.get(f"{_site_base()}/api/media-path", params={"id": it["id"]})
+                if pr.status_code == 422 and "too big" in pr.text.lower() and it.get("url"):
+                    out.append(it)
+    except Exception as e:
+        logger.warning("list_unstreamable failed: %s", e)
+    return out
+
+
+async def replace_file(item: dict[str, Any], new_file_id: str, duration_sec: int = 0) -> bool:
+    """Point an existing feed post at a streamable file (same id, counters kept)."""
+    row = {
+        "id": item["id"], "file_id": new_file_id, "media_type": item.get("media_type") or "video",
+        "title": item.get("title") or "", "url": item.get("url") or "", "thumbnail": item.get("thumbnail") or "",
+        "sharer_name": item.get("sharer_name") or "", "sharer_id": str(item.get("sharer_id") or ""),
+        "clones": item.get("clones") or 0, "views": item.get("views") or 0, "likes": item.get("likes") or 0,
+        "tags": item.get("tags") or ["عام"], "squad_code": item.get("squad_code") or "",
+        "duration_sec": int(duration_sec or 0), "quality": item.get("quality") or "",
+        "created_at": item.get("created_at") or int(time.time()),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(_api_url(), json=row, headers={"x-feed-secret": _secret(), "content-type": "application/json"})
+            return r.status_code < 400
+    except Exception as e:
+        logger.warning("replace_file failed: %s", e)
+        return False

@@ -3,28 +3,22 @@ import path from "path";
 
 const app = (file: string) => fs.readFileSync(path.join(__dirname, "..", "..", "app", "mini-app", file), "utf8");
 
-describe("media mini-app persistent video player", () => {
+describe("media mini-app video player (inline, never a floating window)", () => {
   const page = () => app("page.tsx");
-  const css = () => app("mini-app.css");
 
-  it("keeps the active video mounted in a portal instead of destroying it on scroll", () => {
+  it("has no floating/portal player and no dock styles", () => {
     const src = page();
-    expect(src).toContain('import { createPortal } from "react-dom"');
-    expect(src).toContain('data-mini-player="true"');
-    expect(src).toContain('data-player-anchor={playingId === item.id && !isAudio ? item.id : undefined}');
-    expect(src).toContain("document.body");
-    expect(src).toContain('setPlayerFrame({ mode: "dock" })');
-    expect(src).toContain("return isAudio ? null : cur");
-    expect(src).toContain('setPlayerFrame(item.media_type === "audio" || item.media_type === "voice" ? null : { mode: "dock" })');
-    expect(src).toContain("if (playingId || !autoplay)");
+    expect(src).not.toContain("createPortal");
+    expect(src).not.toContain("playerFrame");
+    expect(src).not.toContain("media-mini-app-player-float");
+    expect(app("mini-app.css")).not.toContain("player-float");
   });
 
-  it("shows a fixed safe-area-aware dock above the Telegram navigation bar", () => {
-    const styles = css();
-    expect(styles).toContain(".media-mini-app-player-float--dock");
-    expect(styles).toContain("bottom: calc(6.35rem + max(env(safe-area-inset-bottom, 0px), var(--tg-viewport-safe-area-inset-bottom, 0px), var(--tg-viewport-content-safe-area-inset-bottom, 0px)))");
-    expect(styles).toContain("aspect-ratio: 9 / 16");
-    expect(styles).toContain("prefers-reduced-motion: reduce");
+  it("plays the tapped video inside its own card and stops it when the card scrolls away", () => {
+    const src = page();
+    expect(src).toContain("onError={() => onPlayError(item.id)}");
+    expect(src).toContain("setPlayingId(null)");
+    expect(src).toContain("A playing video lives only inside its own card");
   });
 
   it("actively starts the muted autoplay preview and tries the site-stream fallback once", () => {
@@ -36,11 +30,20 @@ describe("media mini-app persistent video player", () => {
     expect(src).toContain("onError={() => onAutoPreviewError(item.id)}");
     expect(src).toContain("mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)");
   });
+});
 
-  it("preserves the portal player when the global media cleanup pauses off-card media", () => {
-    const src = page();
-    expect(src).toContain('media.dataset.miniPlayer === "true" && media.dataset.playerId === playingId');
-    expect(src).toContain('preload="auto"');
+
+describe("media mini-app failure handling", () => {
+  const src = () => app("page.tsx");
+  it("has no too-big fallback UI: big clips are compressed by the bot so they stream", () => {
+    const s = src();
+    expect(s).not.toContain("tooBig");
+    expect(s).not.toContain("افتحه في البوت");
+  });
+  it("falls back to the clip's own first frame when the stored thumbnail link has expired", () => {
+    const s = src();
+    expect(s).toContain("frameFailed");
+    expect(s).toContain('+ "#t=0.5"');
   });
 });
 

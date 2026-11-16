@@ -10,6 +10,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import LabeledPrice, Update
@@ -49,7 +50,8 @@ from services.archive import (
     set_cached_file_id,
 )
 from services.store import store, persist, load_from_archive, PREMIUM_DAILY_LIMIT
-from services.feed import publish_feed_item, find_local, increment_clone
+from services.feed import publish_feed_item, find_local, increment_clone, list_unstreamable, replace_file
+from services.compress import make_stream_copy, drop_stream_copy
 from services.subtitles import youtube_subtitle_summary, guess_tags
 from services.premium import verify_premium_code, sync_premium_grant
 from services import notify_prefs
@@ -370,6 +372,50 @@ async def _send_owner_stats(update: Update) -> None:
         + app_block,
         reply_markup=owner_main_keyboard(),
     )
+
+
+async def refeed_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner only: re-encode feed clips the Mini App cannot stream (over 20MB) and point their posts at the smaller copy."""
+    if not update.effective_user or update.effective_user.id != cfg.owner_id or not update.message:
+        return
+    batch = int(os.environ.get("REFEED_BATCH", "4"))
+    await update.message.reply_text("🔎 أبحث عن المقاطع الكبيرة في الخلاصة...")
+    todo = await list_unstreamable()
+    if not todo:
+        await update.message.reply_text("✅ كل مقاطع الخلاصة قابلة للتشغيل في التطبيق.")
+        return
+    await update.message.reply_text(f"وجدت {len(todo)} مقطعًا كبيرًا. سأعالج {min(batch, len(todo))} الآن (أعد /refeed للباقي).")
+    fixed = 0
+    for it in todo[:batch]:
+        if _dl_lock.locked():
+            await update.message.reply_text("⏳ تحميل آخر قيد المعالجة، أعد /refeed بعد قليل.")
+            break
+        result = None
+        try:
+            async with _dl_lock:
+                result, err = await download_media(it["url"], quality="720", media_type="video")
+                if not result:
+                    await update.message.reply_text(f"⚠️ تعذّر تنزيل {it['id']}: {friendly_reason(err)}")
+                    continue
+                src = Path(str(result.path))
+                copy, dur = await make_stream_copy(src)
+                try:
+                    if copy is None:
+                        await update.message.reply_text(f"⚠️ تعذّر ضغط {it['id']}")
+                        continue
+                    fid = await archive_and_get_file_id(context.bot, cfg.archive_channel_id, str(copy), it["url"], "video", "720|stream", it.get("title") or "media", downloader_name="refeed", downloader_id=cfg.owner_id)
+                    if fid and await replace_file(it, fid, int(dur or 0)):
+                        fixed += 1
+                    else:
+                        await update.message.reply_text(f"⚠️ تعذّر تحديث {it['id']}")
+                finally:
+                    drop_stream_copy(copy, src)
+        except Exception as e:
+            logger.exception("refeed failed for %s: %s", it.get("id"), e)
+        finally:
+            if result is not None:
+                cleanup_download_directory(result.path)
+    await update.message.reply_text(f"✅ صُلّح {fixed} من {min(batch, len(todo))}. المتبقي: {max(0, len(todo) - batch)}.")
 
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -880,7 +926,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ok, sent_id = await send_from_cache_or_file(context.bot, query.message.chat_id, file_id, str(result.path), media_type, result.title)
             if ok:
                 store.record_download(user_id)
-                await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user)
+                await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user, bot=context.bot, local_path=str(result.path), quality=quality)
                 await _save(context.bot)
                 await query.edit_message_text(f"✅ تم · {limit_msg}")
             else:
@@ -898,7 +944,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 pass
 
 
-async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user) -> None:
+async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user, bot=None, local_path: str | None = None, quality: str = "") -> None:
     if not file_id:
         return
     is_owner = user_id == cfg.owner_id
@@ -909,18 +955,38 @@ async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, ti
         return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     tags = guess_tags(title, "")
+    duration = 0
+    # The Mini App can only stream files up to 20MB (Bot API getFile limit): publish a compressed copy of a bigger clip.
+    if local_path and bot is not None and media_type not in ("audio", "voice"):
+        src = Path(local_path)
+        copy = None
+        try:
+            copy, dur = await make_stream_copy(src)
+            duration = int(dur or 0)
+            if copy is not None and copy != src:
+                fid2 = await archive_and_get_file_id(
+                    bot, cfg.archive_channel_id, str(copy), url, media_type, f"{quality}|stream", title,
+                    downloader_name=name, downloader_id=user_id,
+                )
+                if fid2:
+                    file_id = fid2
+                    logger.info("feed uses the compressed stream copy for %s", url[:60])
+        except Exception as e:
+            logger.warning("stream copy failed: %s", e)
+        finally:
+            drop_stream_copy(copy, src)
     try:
         if pub:
             await publish_feed_item(
                 file_id=file_id, media_type=media_type, title=title, url=url or "",
                 thumbnail=thumbnail or "", sharer_name=name, sharer_id=str(user_id),
-                tags=tags, squad_code="",
+                tags=tags, squad_code="", duration_sec=duration, quality=quality,
             )
         if room and squad:
             await publish_feed_item(
                 file_id=file_id, media_type=media_type, title=title, url=url or "",
                 thumbnail=thumbnail or "", sharer_name=name, sharer_id=str(user_id),
-                tags=tags, squad_code=squad,
+                tags=tags, squad_code=squad, duration_sec=duration, quality=quality,
             )
     except Exception as e:
         logger.warning("publish_feed_item failed: %s", e)
@@ -982,6 +1048,7 @@ def _build_app() -> Application:
     app.add_handler(CommandHandler(["restore_cancel", "restore_resume"], restore_flag_cmd))
     app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("refeed", refeed_cmd))
     app.add_handler(CommandHandler("premium", premium_cmd))
     app.add_handler(CommandHandler("notifications", notifications_cmd))
     # Distinct groups: PTB runs only the first matching handler per group, and
