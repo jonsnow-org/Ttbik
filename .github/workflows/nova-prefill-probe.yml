@@ -8,6 +8,14 @@ on:
         description: "true = ONLY the engine comparison for the big Qwen3.6-35B-A3B model (mainline b11757 vs ik_llama.cpp, 2 cores, llama-bench pp512 / tg64); false = the old 4B setting probe"
         required: false
         default: "false"
+      model_repo:
+        description: "HF repo of the model for the engine comparison"
+        required: false
+        default: "unsloth/Qwen3.6-35B-A3B-GGUF"
+      model_file:
+        description: "GGUF file in that repo"
+        required: false
+        default: "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
 permissions:
   contents: read
 env:
@@ -72,7 +80,7 @@ jobs:
           curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
           echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
           mkdir llama && tar -xzf llama.tgz -C llama
-          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
+          curl -sSL --fail -o model.gguf "https://huggingface.co/${{ inputs.model_repo }}/resolve/main/${{ inputs.model_file }}"
           ls -l model.gguf; lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-160
       - name: build ik_llama.cpp
         run: |
@@ -86,10 +94,10 @@ jobs:
           export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
           find ik/build -name "*.so*" | head -5
           { echo "== mainline b11757 (what the Studio runs)"
-            taskset -c 0,1 "$BIN/llama-bench" -m model.gguf -t 2 -p 512 -n 32 -r 1 2>&1 | grep -E "pp512|tg32" | cut -c1-200
+            taskset -c 0,1 "$BIN/llama-bench" -m model.gguf -t 2 -p 512 -n 32 -r 2 2>&1 | grep -E "pp512|tg32" | cut -c1-200
             echo "== ik_llama.cpp, default"
-            env LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src" taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
+            env LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src" taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 2 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
             echo "== ik_llama.cpp, run-time repack (-rtr 1)"
-            env LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src" taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 1 -rtr 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
+            env LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src" taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 2 -rtr 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
           } | tee result.txt
-          { echo "### Engine comparison, Qwen3.6-35B-A3B IQ3_XXS, 2 cores"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Engine comparison, ${{ inputs.model_file }}, 2 cores"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
