@@ -147,3 +147,39 @@ jobs:
           python3 -c "import json;t=json.load(open('r2.json')).get('timings',{});print('after restore: prompt_n',t.get('prompt_n'),'cache_n',t.get('cache_n'),'prefill',round(t.get('prompt_per_second',0),1),'tok/s')"
           stop
           { echo "### ik_llama.cpp llama-server with Studio flags"; echo "accepted:$OK"; tail -8 eval.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - name: server prefill/decode ablation, mainline vs ik with the Studio's flags added one by one (same prompt, 2 cores)
+        if: inputs.ik_server == 'ablation'
+        run: |
+          MBIN=$(dirname "$(find llama -name llama-server | head -1)")
+          IKLIB="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src"
+          mkdir -p slots
+          python3 - <<'PY' > prompt.json
+          import json
+          words = ("The deployment pipeline builds the image, runs the tests, pushes the artifact and restarts the service while the monitor watches latency and error rates. " * 100)
+          print(json.dumps({"messages": [{"role": "system", "content": "You are a coding assistant."}, {"role": "user", "content": words + "\n\nWrite a short Python function that reverses a string, with a docstring."}], "max_tokens": 64, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": False}))
+          PY
+          cfg() {   # label, engine (main|ik), flags...
+            label="$1"; eng="$2"; shift 2
+            if [ "$eng" = main ]; then export LD_LIBRARY_PATH="$MBIN"; SRV="$MBIN/llama-server"; else export LD_LIBRARY_PATH="$IKLIB"; SRV=ik/build/bin/llama-server; fi
+            taskset -c 0,1 $SRV -m model.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 "$@" > server.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 100); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "$label: server exited"; return; }; sleep 3; done
+            for k in 1 2; do
+              curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > r.json
+              python3 - "$label" "$k" <<'PY'
+          import json, sys
+          t = json.load(open("r.json")).get("timings", {})
+          print(f"{sys.argv[1]:46s} run{sys.argv[2]} prompt {t.get('prompt_n')} tok | prefill {t.get('prompt_per_second',0):5.1f} tok/s | decode {t.get('predicted_per_second',0):5.1f} tok/s")
+          PY
+            done
+            kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true; sleep 2
+          }
+          { cfg "mainline bare" main
+            cfg "mainline Studio flags (cache-ram, ckpt, ngram-mod)" main --cache-ram 1024 --slot-save-path $PWD/slots --ctx-checkpoints 8 --spec-type ngram-mod
+            cfg "ik bare" ik
+            cfg "ik -rtr" ik -rtr
+            cfg "ik -rtr + cache-ram + slot-save + ckpt" ik -rtr --cache-ram 1024 --slot-save-path $PWD/slots --ctx-checkpoints 8
+            cfg "ik -rtr + ngram-mod" ik -rtr --spec-type ngram-mod
+            cfg "ik -rtr + -ub 512 -b 2048" ik -rtr -ub 512 -b 2048
+          } | tee ablation.txt
+          { echo "### Server ablation (${{ inputs.model_file }}, 2 cores)"; echo '```'; cat ablation.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
