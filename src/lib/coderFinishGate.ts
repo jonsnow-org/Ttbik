@@ -17,6 +17,13 @@ export function madeChanges(toolNames: string[]): boolean {
   return toolNames.some((n) => CHANGE_TOOL.test(n));
 }
 
+const CLAIM = /(تم\s+(?:إصلاح|اصلاح|تنفيذ|تطوير|تحسين|تعديل|إضافة|اضافة|إنشاء|انشاء|نشر|دمج|كتابة)|قمت\s+ب(?:إصلاح|اصلاح|تعديل|تطوير|إضافة|اضافة|تحسين)|تحسينات\s+في\s+\S+\.(?:py|ts|tsx|js|json)|I(?:'ve| have)\s+(?:fixed|implemented|updated|added|improved|refactored))/i;
+
+/** True when the answer reports that something was changed. */
+export function claimsChanges(text: string): boolean {
+  return CLAIM.test(String(text || ""));
+}
+
 export function isActionGoal(goal: string): boolean {
   return ACTION_GOAL.test(String(goal || ""));
 }
@@ -24,6 +31,11 @@ export function isActionGoal(goal: string): boolean {
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
 export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
   if (nudges >= 3) return "";
+  // An answer that says "تم إصلاح / تم تنفيذ …" while no edit, write or publish call was ever made is a false report (live 2026-11-16: five files "improved", zero change calls).
+  if (claimsChanges(text) && !madeChanges(toolNames)) {
+    return "[harness] Your answer says things were fixed or changed, but this run made NO edit, write, patch or publish call: nothing was changed. Never report work you did not do. "
+      + "Do the work now (computer_read the file, computer_edit it, computer_test, computer_publish), or say plainly that nothing was changed yet and why. Write in the owner's language (Arabic).";
+  }
   if (!isActionGoal(goal) || madeChanges(toolNames)) return "";
   if (String(text || "").trim().length < 20) return "";
   return "[harness] The owner has already authorised you to ACT on this request and does not want a menu of options or a report. Do not ask which step to start with. "

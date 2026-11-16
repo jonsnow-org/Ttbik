@@ -25,4 +25,11 @@ describe("owner finish gate", () => {
   test("tool names are read from the messages", () => {
     expect(toolNamesIn([{ tool_calls: [{ function: { name: "computer_edit" } }] }, {}])).toEqual(["computer_edit"]);
   });
+
+  test("a report of changes with no change call is sent back, whatever the goal", () => {
+    const report = "تم إصلاح وتطوير البوت. تحسينات في config.py: إضافة type hints كاملة";
+    expect(finishNudge("البوت هو @Slaselbot", ["computer_read", "computer_search"], report, 0)).toMatch(/NO edit/);
+    expect(finishNudge("البوت هو @Slaselbot", ["computer_edit"], report, 0)).toBe("");
+    expect(finishNudge("ما هو أفضل مكتبة؟", [], "أنصح بكذا لأن السبب طويل وواضح", 0)).toBe("");
+  });
 });
