@@ -78,7 +78,6 @@ export const isDark = (): boolean => {
   return g === "dark" || Boolean(ma);
 };
 export const isApple = () => launch.platform === "ios" || launch.platform === "macos";
-export const isAndroid = () => launch.platform === "android" || launch.platform === "android_x";
 
 export function haptic(k: "light" | "medium" | "success" | "warning" | "error" | "select"): void {
   if (k === "select") {
@@ -129,7 +128,6 @@ export function useBack(on: boolean, cb: () => void): () => void {
 }
 
 /** Ask before closing while a long form is being edited. */
-export const confirmClose = (on: boolean) => tryDo(() => (on ? closingBehavior.enableConfirmation() : closingBehavior.disableConfirmation()));
 
 // ---------------------------------------------------------------- home screen shortcut
 export const canAddToHome = () => avail(addToHomeScreen);
@@ -196,4 +194,3 @@ export function bindMain(text: string, cb: () => void, opts: { enabled?: boolean
   };
 }
 /** True when Telegram draws the MainButton (the in-page save button can then stay as a quiet fallback). */
-export const hasMain = () => launch.inTelegram && Boolean(tryDo(() => mainButton.isMounted()));

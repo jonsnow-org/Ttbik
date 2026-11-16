@@ -21,7 +21,7 @@ import {
 import { NSTR, fill, type NStr } from "./strings";
 import { THEME_MODES, leaveFullscreen, loadMode, paintTelegram, resolveMode, saveMode, themeVars, type Resolved, type ThemeMode } from "./theme";
 import {
-  BillingPage, BrandIcon, ConnectorsTab, EventsTimeline, Fail, Loading, MemoryTab, PanelPage, PendingBanner, PolicySection, ScheduleForm, Sheet,
+  BillingPage, BrandIcon, ConnectorsTab, Fail, Loading, MemoryTab, PanelPage, PendingBanner, PolicySection, ScheduleForm, Sheet,
   ago, api, fmtTime, srcIcon, tx,
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
@@ -403,14 +403,13 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
 
 // ---------------------------------------------------------------- Chats (conversation threads; falls back to the request list)
 function Chats({ c }: { c: Ctx }) {
-  const { t, n, lang, me, open } = c;
+  const { t, n, lang, me } = c;
   const [d, setD] = useState<Threads | null>(null);
   const [fallback, setFallback] = useState<Task[] | null>(null);
   const [err, setErr] = useState("");
   const [note, setNote] = useState(false);
   const [busy, setBusy] = useState(false);
   // each model has its own chat list: Nova, Sham, Sham v2 (the ones this person may use)
-  const canon = (x?: string) => (x === "sham_loop" ? "sham" : x || "coder");
   const [model, setModel] = useState<string>("all");           // ONE list of every conversation of every model; a model tab only filters it
   const [avail, setAvail] = useState<{ id: string; name: string }[]>([{ id: "all", name: n.ch_all }, { id: "coder", name: "Nova AI" }]);
   const [bump, setBump] = useState(0);
@@ -442,7 +441,6 @@ function Chats({ c }: { c: Ctx }) {
     haptic("medium");
     try { await api("chat_new", model === "all" ? {} : { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
-  const isLive = (s: string) => s === "running" || s === "waiting";
   return (
     <div className="n-page">
       <div className="n-ph" lang={lang}>
@@ -488,7 +486,7 @@ function Chats({ c }: { c: Ctx }) {
 }
 // One model's chat list: search, pinned first, archive filter, select + bulk delete, clean-up of old / archived ones, "continue" by opening a chat.
 function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; bump: number; live: (Task & { thread_id?: string })[]; onNew: () => void }) {
-  const { t, n, lang, open } = c;
+  const { t, n, open } = c;
   const [q, setQ] = useState("");
   const [view, setView] = useState<"exclude" | "only">("exclude");
   const [d, setD] = useState<ChatList | null>(null);
