@@ -2436,6 +2436,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
+          await send(ioBot, chatId, `↩️ الرد السابق لا يُعتمد: لم يُسجَّل فيه أي تعديل فعلي. أعدتُ النموذج إلى العمل (المحاولة ${run.nudges} من 3).`);      // the draft was already on the owner's screen while it streamed: say plainly that it was rejected
           st.messages.push({ role: "user", content: nudge });
           await saveState(chatId, st, db, slot);
           continue;
