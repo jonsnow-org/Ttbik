@@ -11,7 +11,7 @@ test("computer_publish pushes one commit and github_create_pr opens a PR", async
   expect(token).not.toBe("");
   const gh = githubClient(token);
   const notes: string[] = [];
-  const ctx: any = { gh, addNote: (t: string) => notes.push(t), githubToken: token, userId: 777001, modelId: "nova", tier: "owner" };
+  const ctx: any = { gh, addNote: (t: string) => notes.push(t), githubToken: token, userId: 777001, modelId: "coder", tier: "owner" };
   const call = (name: string, args: any) => runTool({ id: name, type: "function", function: { name, arguments: JSON.stringify(args) } } as any, ctx);
   const log: string[] = [];
   let pr = 0;
