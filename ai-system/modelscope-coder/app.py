@@ -330,6 +330,23 @@ SLOT_KEEP = max(1, int(os.environ.get("CODER_SLOT_KEEP", "3") or 3))            
 SLOT_MIN_TOKENS = max(200, int(os.environ.get("CODER_SLOT_MIN_TOKENS", "1500") or 1500))     # shorter ones are cheap to read again
 SLOT_MAX_MB = max(100, int(os.environ.get("CODER_SLOT_MAX_MB", "1500") or 1500))     # a state bigger than this is not kept (disk)
 _LAST = {"conv": ""}                                                                 # whose state is in the slot now
+# 2026-11-16 (nova-base-state-probe.yml, this model, 2 cores): the SHARED START (system + tools, 4.2k tokens in the probe) read from zero takes 346 s; the state saved once (349 MB, 0.1 s) and
+# restored into a NEW process lets a DIFFERENT conversation read only its own 19 tokens (2.9 s). So the shared start is kept in its own file, keyed by the hash of the system text + the tool list
+# (a different tool list is a different file, never a stale one), and restored first when a fresh server gets a conversation that has no file of its own.
+START_KEEP = max(1, int(os.environ.get("CODER_START_KEEP", "2") or 2))                # shared-start files kept (one per tool list in use)
+START_MIN_TOKENS = max(1000, int(os.environ.get("CODER_START_MIN_TOKENS", "3000") or 3000))     # a shorter start is cheap to read again
+
+
+def _start_key(msgs, tools) -> str:
+    sysm = next((m.get("content", "") for m in msgs if isinstance(m, dict) and m.get("role") == "system"), "")
+    sysm = sysm if isinstance(sysm, str) else " ".join(str(x.get("text", "")) for x in sysm if isinstance(x, dict))
+    import hashlib
+    spec = json.dumps(tools or [], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1((sysm[:8000] + "\n" + spec).encode("utf-8", "ignore")).hexdigest()[:20]
+
+
+def _start_file(key: str):
+    return SLOT_DIR / f"_start_{key}.bin"
 
 
 def _conv_key(msgs) -> str:
@@ -355,8 +372,11 @@ def _slot_call(action: str, filename: str) -> bool:
 
 def _slot_prune() -> None:
     try:
-        files = sorted(SLOT_DIR.glob("*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+        files = sorted((f for f in SLOT_DIR.glob("*.bin") if not f.name.startswith("_start_")), key=lambda f: f.stat().st_mtime, reverse=True)
         for f in files[SLOT_KEEP:]:
+            f.unlink(missing_ok=True)
+        starts = sorted(SLOT_DIR.glob("_start_*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in starts[START_KEEP:]:
             f.unlink(missing_ok=True)
     except Exception:
         pass
@@ -374,6 +394,11 @@ def _slot_before(job: dict) -> None:
     if f.is_file() and _slot_call("restore", f.name):
         job["slot_restored"] = True
         _log("slot restored", conv)
+        return
+    start = job.get("start") or ""
+    if start and _start_file(start).is_file() and _slot_call("restore", _start_file(start).name):       # a conversation never seen here: it still begins with the shared start
+        job["slot_restored"] = "start"
+        _log("shared start restored", start)
 
 
 def _slot_after(job: dict) -> None:
@@ -390,6 +415,14 @@ def _slot_after(job: dict) -> None:
         if f.is_file() and f.stat().st_size > SLOT_MAX_MB * 1048576:
             f.unlink(missing_ok=True)                     # too big for this disk: not kept
         else:
+            start = job.get("start") or ""
+            if start and total >= START_MIN_TOKENS and f.is_file() and not _start_file(start).is_file():
+                try:
+                    import shutil
+                    shutil.copyfile(f, _start_file(start))      # the saved state begins with the shared start; a different conversation reuses that common part (probe, case 6)
+                    _log("shared start kept", start, f"{f.stat().st_size // 1048576} MB")
+                except Exception as exc:
+                    _log("shared start not kept:", type(exc).__name__, str(exc)[:100])
             _slot_prune()
 
 
@@ -611,7 +644,7 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     except Exception as exc:
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
     jid = uuid.uuid4().hex
-    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs),
+    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs), "start": _start_key(msgs, tls),
            "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time(),
            "priority": 1 if _num(priority, 0) > 0 else 0}
     with JOBS_LOCK:

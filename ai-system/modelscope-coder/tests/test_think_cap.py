@@ -106,4 +106,33 @@ with tempfile.TemporaryDirectory() as d:
         app._slot_after({"conv": c, "prefill": {"total": 2000}, "status": "done"}); time.sleep(0.02)
     assert len(list(app.SLOT_DIR.glob("*.bin"))) == 2, "only the newest conversations are kept on disk"
     app.LLAMA_PORT, app.SLOT_DIR, app.SLOT_KEEP = _port, _dir, _keep; app._LAST["conv"] = ""
+# the SHARED START (system + tools) is kept once in its own file and comes back for a conversation the Studio has never seen (nova-base-state-probe.yml: 346 s -> 2.9 s)
+with tempfile.TemporaryDirectory() as d:
+    _port, _dir, _keep = app.LLAMA_PORT, app.SLOT_DIR, app.SLOT_KEEP
+    app.LLAMA_PORT = srv4.server_address[1]; app.SLOT_DIR = pathlib.Path(d); app.SLOT_KEEP = 2; app._LAST["conv"] = ""; slot_calls.clear()
+    tools_a, tools_b = [{"type": "function", "function": {"name": "a"}}], [{"type": "function", "function": {"name": "b"}}]
+    ma = [{"role": "system", "content": "the shared system text"}, {"role": "user", "content": "task one"}]
+    mb = [{"role": "system", "content": "the shared system text"}, {"role": "user", "content": "a different task"}]
+    assert app._start_key(ma, tools_a) == app._start_key(mb, tools_a), "the start does not depend on the user's request"
+    assert app._start_key(ma, tools_a) != app._start_key(ma, tools_b), "another tool list is another start (never a stale file)"
+    sa = app._start_key(ma, tools_a)
+    ja = {"conv": app._conv_key(ma), "start": sa, "prefill": {"total": 4200}, "status": "done"}
+    app._slot_after(ja)
+    assert (app.SLOT_DIR / f"_start_{sa}.bin").is_file(), "a long first job leaves the shared start on disk"
+    short = {"conv": "cshort", "start": "short", "prefill": {"total": 1600}, "status": "done"}
+    app._slot_after(short); assert not (app.SLOT_DIR / "_start_short.bin").exists(), "a short start is cheap to read again: not kept as a start"
+    slot_calls.clear(); app._LAST["conv"] = ""
+    jb = {"conv": app._conv_key(mb), "start": sa}; app._slot_before(jb)
+    assert slot_calls == [("restore", f"_start_{sa}.bin")] and jb.get("slot_restored") == "start", "a fresh server + a conversation it never saw: the shared start comes back"
+    slot_calls.clear(); app._LAST["conv"] = ""
+    jc = {"conv": "never-seen", "start": app._start_key(ma, tools_b)}; app._slot_before(jc)
+    assert slot_calls == [] and not jc.get("slot_restored"), "another tool list: nothing to restore, the start is read as before"
+    slot_calls.clear(); app._LAST["conv"] = "someone"
+    jd = {"conv": app._conv_key(mb), "start": sa}; app._slot_before(jd)
+    assert slot_calls == [], "once something has run, the live prompt cache holds the start: no restore"
+    for k in ("s1", "s2", "s3"):
+        (app.SLOT_DIR / f"_start_{k}.bin").write_bytes(b"x"); time.sleep(0.02)
+    app._slot_prune()
+    assert len(list(app.SLOT_DIR.glob("_start_*.bin"))) == app.START_KEEP, "only the newest shared starts are kept"
+    app.LLAMA_PORT, app.SLOT_DIR, app.SLOT_KEEP = _port, _dir, _keep; app._LAST["conv"] = ""
 print("OK")
