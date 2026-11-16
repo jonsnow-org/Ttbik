@@ -22,7 +22,7 @@ env:
 jobs:
   eval:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
@@ -31,12 +31,19 @@ jobs:
           - { id: qwen3-8b, repo: Qwen/Qwen3-8B-GGUF, file: Qwen3-8B-Q4_K_M.gguf }
           - { id: qwen2.5-coder-7b, repo: Qwen/Qwen2.5-Coder-7B-Instruct-GGUF, file: qwen2.5-coder-7b-instruct-q4_k_m.gguf }
           - { id: deepseek-r1-0528-qwen3-8b, repo: unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF, file: DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf }
+          # 2026-11-16: BIG compressed models (12-13 GB files: they need a 16 GB Studio, not the 8 GB ones). Mixture-of-experts, ~3 B parameters active per token.
+          - { id: qwen3-coder-30b-a3b-iq3xxs, repo: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF, file: Qwen3-Coder-30B-A3B-Instruct-UD-IQ3_XXS.gguf, ctx: 16384, big: "1" }
+          - { id: gpt-oss-20b-q4km, repo: unsloth/gpt-oss-20b-GGUF, file: gpt-oss-20b-Q4_K_M.gguf, ctx: 16384, big: "1" }
+          - { id: glm-4.7-flash-iq3xxs, repo: unsloth/GLM-4.7-Flash-GGUF, file: GLM-4.7-Flash-UD-IQ3_XXS.gguf, ctx: 16384, big: "1" }
     steps:
       - uses: actions/checkout@v4
         if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
+      - name: free disk space (big models are 12-13 GB)
+        if: matrix.big == '1' && (inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id)))
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL && df -h / | tail -1
       - name: llama.cpp and the model
         if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
         run: |
@@ -51,7 +58,7 @@ jobs:
           set -o pipefail
           BIN=$(dirname "$(find llama -name llama-server | head -1)")
           export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
-          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ matrix.ctx || 32768 }} -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
           PID=$!
           for i in $(seq 1 120); do
             curl -sf http://127.0.0.1:8080/health >/dev/null && break
