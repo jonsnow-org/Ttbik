@@ -359,11 +359,11 @@ class Jobs(Box):
         import subprocess
         real = self.tmp / "fast" / "repo"
         real.mkdir(parents=True)
-        (real / "a.ts").write_text("const Slaselbot = 1;\n")
+        (real / "a.ts").write_text("const SymlinkProbeToken = 1;\n")
         home = self.tmp / "home"
         home.mkdir()
         os.symlink(real.parent, home / "repos")
-        out = subprocess.run(["/bin/bash", "-c", cb.search_command("Slaselbot", ".")], cwd=home, capture_output=True, text=True).stdout
+        out = subprocess.run(["/bin/bash", "-c", cb.search_command("SymlinkProbeToken", ".")], cwd=home, capture_output=True, text=True).stdout
         self.assertIn("a.ts", out)
 
     def test_a_quick_command_answers_in_the_call_as_before(self):
