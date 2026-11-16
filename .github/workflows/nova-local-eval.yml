@@ -39,6 +39,8 @@ jobs:
           - { id: qwen3.6-35b-a3b-iq2m, repo: unsloth/Qwen3.6-35B-A3B-GGUF, file: Qwen3.6-35B-A3B-UD-IQ2_M.gguf, ctx: 16384, big: "1" }
           - { id: gemma-4-26b-a4b-iq3s, repo: unsloth/gemma-4-26B-A4B-it-GGUF, file: gemma-4-26B-A4B-it-UD-IQ3_S.gguf, ctx: 16384, big: "1" }
           - { id: qwen3.8-27b-iq3xxs, repo: unsloth/Qwen3.8-27B-GGUF, file: Qwen3.8-27B-UD-IQ3_XXS.gguf, ctx: 16384, big: "1" }
+          - { id: nemotron-3.5-lightning-iq2xxs, repo: bartowski/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF, file: NVIDIA-Nemotron-3.5-Lightning-30B-A3B-IQ2_XXS.gguf, ctx: 16384, big: "1" }
+          - { id: nemotron-3.5-lightning-ternary, repo: boro64/Ternary-Nemotron-3.5-Lightning-30B-A3B-GGUF, file: Ternary-Nemotron-3.5-Lightning-30B-A3B-GGUF.gguf, ctx: 16384, big: "1" }
     steps:
       - uses: actions/checkout@v4
         if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
