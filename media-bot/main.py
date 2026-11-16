@@ -380,9 +380,12 @@ async def refeed_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     batch = int(os.environ.get("REFEED_BATCH", "4"))
     await update.message.reply_text("🔎 أبحث عن المقاطع الكبيرة في الخلاصة...")
-    todo = await list_unstreamable()
+    todo, checked, check_errors = await list_unstreamable()
+    if check_errors:
+        await update.message.reply_text(f"⚠️ تعذّر فحص {check_errors} من {checked} منشورًا (الاتصال بالموقع). أعد المحاولة بعد قليل.")
     if not todo:
-        await update.message.reply_text("✅ كل مقاطع الخلاصة قابلة للتشغيل في التطبيق.")
+        if not check_errors:
+            await update.message.reply_text(f"✅ فحصت {checked} منشورًا، وكلها قابلة للتشغيل في التطبيق.")
         return
     await update.message.reply_text(f"وجدت {len(todo)} مقطعًا كبيرًا. سأعالج {min(batch, len(todo))} الآن (أعد /refeed للباقي).")
     fixed = 0
