@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Avatar, Badge, Banner, Button, ButtonCell, Caption, Cell, Chip, IconContainer, Input, List, Modal, Navigation, Placeholder,
-  Progress, Section, SegmentedControl, Select, Spinner, Switch, Textarea, Timeline, Title,
+  Progress, Section, SegmentedControl, Select, Spinner, Switch, Textarea, Title,
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "./OwnerModelsPanel";
@@ -77,8 +77,6 @@ export function fmtTime(iso: string | null, tz: string, lang: Lang): string {
   }
 }
 export const tx = (t: Str, k: string) => ((t as any)[k] as string) || k;
-export const STATUS_MODE: Record<string, "primary" | "critical" | "secondary" | "gray"> = { running: "primary", waiting: "critical", done: "secondary", failed: "critical", stopped: "gray", ceiling: "gray", limited: "gray" };
-export const StatusBadge = ({ s, t }: { s: string; t: Str }) => <Badge type="number" mode={STATUS_MODE[s] || "gray"}>{tx(t, `status_${s}`)}</Badge>;
 export const Emoji = ({ c }: { c: string }) => <IconContainer><span style={{ fontSize: 18, lineHeight: 1 }} aria-hidden="true">{c}</span></IconContainer>;
 export const Loading = () => <div style={{ display: "grid", placeItems: "center", padding: 32 }}><Spinner size="m" /></div>;
 export function Fail({ t, msg, retry }: { t: Str; msg: string; retry: () => void }) {
@@ -101,54 +99,6 @@ export function useMain(on: boolean, text: string, cb: () => void, enabled = tru
   useEffect(() => (on ? bindMain(text, () => ref.current(), { enabled, loading }) : undefined), [on, text, enabled, loading]);
 }
 export const inTg = () => getLaunch().inTelegram;
-// ---------------------------------------------------------------- tasks
-export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; live: boolean; t: Str; last?: number }) {
-  const [evs, setEvs] = useState<Ev[] | null>(null);
-  const after = useRef(0);
-  useEffect(() => {
-    let stop = false;
-    after.current = 0;
-    setEvs(null);
-    let inFlight = false;
-    const pull = async () => {
-      // A slow response must not overlap the next poll: overlapping requests can return the
-      // same cursor and append duplicate events to the timeline.
-      if (stop || inFlight || document.visibilityState !== "visible") return;
-      inFlight = true;
-      try {
-        const d = await api<{ events: Ev[] }>("events", { runId, after: after.current });
-        if (stop) return;
-        const events = Array.isArray(d.events) ? d.events.filter((e) => Number.isFinite(e.id) && e.id > after.current) : [];
-        if (events.length) {
-          after.current = events[events.length - 1].id;
-          setEvs((x) => [...(x || []), ...events]);
-        } else setEvs((x) => x || []);
-      } catch {
-        setEvs((x) => x || []);
-      } finally {
-        inFlight = false;
-      }
-    };
-    void pull();
-    const id = live ? setInterval(pull, 1500) : null;
-    return () => { stop = true; if (id) clearInterval(id); };
-  }, [runId, live]);
-  if (!evs) return <Loading />;
-  const shown = last ? evs.slice(-last) : evs;
-  if (!shown.length) return <Cell multiline><Caption>{live ? "…" : "—"}</Caption></Cell>;
-  return (
-    <div style={{ padding: "8px 16px" }}>
-      <Timeline active={live ? shown.length - 1 : shown.length}>
-        {shown.map((e) => (
-          <Timeline.Item key={e.id} header={tx(t, `ev_${e.kind}`)}>
-            <span dir="auto" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{e.kind === "text" ? e.text : e.text.slice(0, 400)}</span>
-          </Timeline.Item>
-        ))}
-      </Timeline>
-    </div>
-  );
-}
-
 /** The secure box: the model asked for a password / token. A masked field that goes straight to the server's vault; the chat, the history and the model never see the value. */
 function SecretBox({ p, lang, onDone }: { p: Pending; lang: Lang; onDone: () => void }) {
   const [value, setValue] = useState("");

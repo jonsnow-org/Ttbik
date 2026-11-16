@@ -6,7 +6,6 @@ import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
 import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
 
-const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
 // The page draws only the screen. The apps are a real taskbar INSIDE the Linux desktop (tint2 on the hub), so tapping them is
 // tapping the screen; nothing here sits beside it (owner's order 2026-11-09).
@@ -233,13 +232,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     if (item.type !== undefined) {
       if (!drainTimer.current) drainTimer.current = setTimeout(() => { drainTimer.current = null; void drain(); }, 140);
     } else { if (drainTimer.current) { clearTimeout(drainTimer.current); drainTimer.current = null; } void drain(); }
-  };
-  const keyName = (event: React.KeyboardEvent): string | null => {
-    const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
-    const key = names[event.key] || event.key;
-    const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
-    const mapped = [...modifiers, key].join("+");
-    return /^[A-Za-z0-9_+ -]{1,40}$/.test(mapped) ? mapped.replace(/ /g, "") : null;
   };
   const [kbOn, setKbOn] = useState(false);
   const typeRef = useRef<HTMLInputElement>(null);
