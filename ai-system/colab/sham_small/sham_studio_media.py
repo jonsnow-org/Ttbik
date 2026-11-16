@@ -320,15 +320,24 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     ids = tokenizer.encode(build_user_text(prompt, today))[-384:]
     wrapped = chat_prompt_ids(ids)
     first = choose(model, wrapped, tokenizer.vocab_size)
-    if first == SpecialTokens.IMAGE_START:
-        return _image_result(model, image_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
-    if first == SpecialTokens.AUDIO_START:
-        return _audio_result(model, audio_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
-    if first == SpecialTokens.VIDEO_START:
-        if motion_tokenizer is None:
-            return dict(NO_VIDEO)
-        return _video_result(model, image_tokenizer, motion_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]],
-                             num_frames or _video_frames())
+    try:
+        if first == SpecialTokens.IMAGE_START:
+            return _image_result(model, image_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
+        if first == SpecialTokens.AUDIO_START:
+            return _audio_result(model, audio_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
+        if first == SpecialTokens.VIDEO_START:
+            if motion_tokenizer is None:
+                return dict(NO_VIDEO)
+            from model import TOTAL_VOCAB_SIZE
+            if int(model.cfg.vocab_size) < TOTAL_VOCAB_SIZE:
+                # Live 2026-11-16: the published head has 42256 token rows, the motion ids start at 42260: sampling them gave an all -inf row and an
+                # IndexError, and every plain message the model started as a clip died with "تعذّر توليد الرد". Without the motion rows there is no clip to make.
+                raise RuntimeError("the model has no motion token rows (vocab %d < %d)" % (int(model.cfg.vocab_size), TOTAL_VOCAB_SIZE))
+            return _video_result(model, image_tokenizer, motion_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]],
+                                 num_frames or _video_frames())
+    except Exception as exc:
+        # a picture / sound / clip that cannot be made is never the whole answer to a message: the words come instead
+        print(f"generate_any: the model chose media but it failed ({type(exc).__name__}: {str(exc)[:120]}); answering in words", flush=True)
     return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
 
 
