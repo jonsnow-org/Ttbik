@@ -7,6 +7,9 @@ on:
       studio:
         description: "Studio number 1-5 (use one the owner is not using)"
         default: "2"
+      base:
+        description: "an INTERNATIONAL Studio's address instead of studio 1-5 (e.g. https://jonjithup-coder-inference-server-16.ms.fun); uses the international token"
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -20,5 +23,6 @@ jobs:
           sparse-checkout-cone-mode: false
       - run: python3 scripts/nova-eval/studio_bench.py "$N"
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.base != '' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
           N: ${{ inputs.studio }}
+          BASE: ${{ inputs.base }}

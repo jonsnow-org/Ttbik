@@ -4,7 +4,7 @@ Starts the measurement with the Studio's `bench` call, then polls `status` until
 import json, os, sys, time, urllib.error, urllib.request
 
 n = sys.argv[1] if len(sys.argv) > 1 else "2"
-base = f"https://studio-novaai2026-coder-inference-server{'' if n == '1' else '-' + n}.api-inference.modelscope.net/gradio_api"
+base = os.environ.get("BASE", "").rstrip("/") + "/gradio_api" if os.environ.get("BASE") else f"https://studio-novaai2026-coder-inference-server{'' if n == '1' else '-' + n}.api-inference.modelscope.net/gradio_api"   # BASE = an international Studio's address (e.g. https://jonjithup-coder-inference-server-16.ms.fun)
 H = {"Authorization": "Bearer " + os.environ["T"], "content-type": "application/json"}
 
 def op(req, t):
@@ -24,6 +24,7 @@ def call(name, data):
     return json.loads(json.loads(line[5:])[0])
 
 st = call("status", {})
+print("phase:", st.get("phase"), "| model:", st.get("model_repo"), st.get("model"), "| ctx:", st.get("ctx"), "| threads:", st.get("threads"), "| detail:", str(st.get("detail"))[:200], flush=True)
 print("Studio", n, "| cpu:", st.get("cpu"), "| flags:", " ".join(f for f in st.get("cpu_flags", []) if f.startswith(("amx", "avx512_vnni", "avx512_bf16"))), "| queue", st.get("queue"), flush=True)
 print("start:", call("bench", {}), flush=True)
 t0 = time.time()
