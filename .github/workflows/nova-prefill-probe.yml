@@ -8,6 +8,10 @@ on:
         description: "true = ONLY the engine comparison for the big Qwen3.6-35B-A3B model (mainline b11757 vs ik_llama.cpp, 2 cores, llama-bench pp512 / tg64); false = the old 4B setting probe"
         required: false
         default: "false"
+      ik_server:
+        description: "true = after the bench, also run ik_llama.cpp's llama-server with the Studio's flags: which flags it accepts, tools/code scores, and saving/restoring a conversation state"
+        required: false
+        default: "false"
       model_repo:
         description: "HF repo of the model for the engine comparison"
         required: false
@@ -73,6 +77,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
       - name: free disk space (the model is 12 GB)
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL && df -h / | tail -1
       - name: mainline llama.cpp and the model
@@ -101,3 +109,41 @@ jobs:
             env LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src" taskset -c 0,1 ik/build/bin/llama-bench -m model.gguf -t 2 -p 512 -n 32 -r 2 -rtr 1 2>&1 | grep -E "pp512|tg32|error|unknown|failed" | cut -c1-200
           } | tee result.txt
           { echo "### Engine comparison, ${{ inputs.model_file }}, 2 cores"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: ik_llama.cpp llama-server with the Studio's flags (accepted flags, tools/code, slot save + restore)
+        if: inputs.ik_server == 'true'
+        run: |
+          export LD_LIBRARY_PATH="$PWD/ik/build/bin:$PWD/ik/build/src:$PWD/ik/build/ggml/src"
+          SRV=ik/build/bin/llama-server; ls -l $SRV | cut -c1-80
+          mkdir -p slots
+          python3 - <<'PY' > prompt.json
+          import json
+          words = ("The deployment pipeline builds the image, runs the tests, pushes the artifact and restarts the service while the monitor watches latency and error rates. " * 100)
+          print(json.dumps({"messages": [{"role": "system", "content": "You are a coding assistant."}, {"role": "user", "content": words + "\n\nSay OK."}], "max_tokens": 4, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": True}))
+          PY
+          start() {   # extra flags...
+            taskset -c 0,1 $SRV -m model.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 "$@" > server.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 100); do curl -sf http://127.0.0.1:8080/health >/dev/null && return 0; kill -0 $PID 2>/dev/null || return 1; sleep 3; done; return 1
+          }
+          stop() { kill $PID 2>/dev/null; wait $PID 2>/dev/null; sleep 2; }
+          echo "== which Studio flags does ik_llama.cpp's llama-server accept?"
+          OK=""
+          for f in "--alias nova-ai" "--cache-ram 1024" "--slot-save-path $PWD/slots" "--ctx-checkpoints 8" "--spec-type ngram-mod" "-rtr" "-fa" "--reasoning-budget 0"; do
+            if start $f; then echo "  accepted: $f"; OK="$OK $f"; else echo "  REFUSED : $f -> $(grep -iE 'error|unknown|invalid|not (supported|found)' server.log | head -1 | cut -c1-140)"; fi
+            stop
+          done
+          echo "== full set of the accepted flags: tools/code, then slot save + restore"
+          case "$OK" in *--slot-save-path*) ;; *) OK="$OK --slot-save-path $PWD/slots";; esac
+          start $OK || { tail -20 server.log; echo "::error::server with the accepted set did not start"; exit 1; }
+          EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "ik-test" | tee eval.txt | tail -6
+          curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > r1.json
+          python3 -c "import json;t=json.load(open('r1.json')).get('timings',{});print('first read: prompt_n',t.get('prompt_n'),'prefill',round(t.get('prompt_per_second',0),1),'tok/s')"
+          echo "save: $(curl -s -m 120 -X POST 'http://127.0.0.1:8080/slots/0?action=save' -H 'content-type: application/json' -d '{"filename":"t.bin"}' | cut -c1-200)"
+          ls -l slots | tail -2
+          stop
+          start $OK || { tail -20 server.log; echo "::error::restart failed"; exit 1; }
+          echo "restore: $(curl -s -m 120 -X POST 'http://127.0.0.1:8080/slots/0?action=restore' -H 'content-type: application/json' -d '{"filename":"t.bin"}' | cut -c1-200)"
+          curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > r2.json
+          python3 -c "import json;t=json.load(open('r2.json')).get('timings',{});print('after restore: prompt_n',t.get('prompt_n'),'cache_n',t.get('cache_n'),'prefill',round(t.get('prompt_per_second',0),1),'tok/s')"
+          stop
+          { echo "### ik_llama.cpp llama-server with Studio flags"; echo "accepted:$OK"; tail -8 eval.txt; } >> "$GITHUB_STEP_SUMMARY"
