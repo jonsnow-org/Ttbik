@@ -1,0 +1,24 @@
+name: "Nova 2 probe (one-off, read-only)"
+# Asks the international Studio coder-inference-server-16 for its status page with the repo's international token, and compares with a Studio known to answer.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          echo "::add-mask::$T_AI"
+          echo "token length: ${#T_AI}"
+          for n in coder-inference-server-16 sham-trainer-1; do
+            for path in "/" "/gradio_api/info"; do
+              out=$(curl -s -m 25 -w ' |HTTP %{http_code}' -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai$path" | head -c 300)
+              echo "$n $path -> $out"
+            done
+          done
+          echo "--- no token ---"
+          curl -s -m 25 -w ' |HTTP %{http_code}\n' "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai/" | head -c 300
