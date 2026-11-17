@@ -68,7 +68,7 @@ def load(path: str) -> Task:
 
 
 class Verifier:
-    """A step is accepted only if its check holds. Check kinds: exit0, contains, file(+min_bytes), json_file, lines_at_least, sha256."""
+    """A step is accepted only if its check holds. Check kinds: exit0, contains, file(+min_bytes/has/sha256), quality (media gate), json_file, lines_at_least."""
 
     def __init__(self, folder: str):
         self.dir = folder
@@ -98,6 +98,11 @@ class Verifier:
                     return False, "sha256 differs"
                 if "has" in spec and spec["has"] not in open(p, encoding="utf-8", errors="replace").read():
                     return False, f"{spec['file']} lacks {spec['has']!r}"
+            if spec.get("quality"):                          # generated media is judged by the existing gate, independently of the worker that made it
+                from media_workers import quality_of
+                good, why = quality_of(self._path(spec["file"]))
+                if not good:
+                    return False, f"quality gate: {why}"
             if "json_file" in spec:
                 if not json.load(open(self._path(spec["json_file"]), encoding="utf-8")):
                     return False, "empty json"

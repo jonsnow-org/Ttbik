@@ -37,6 +37,8 @@ jobs:
           set -o pipefail
           python ai-system/terminal/test_mesh.py 2>&1 | tee /tmp/test_mesh.log
           python ai-system/terminal/test_tasks.py 2>&1 | tee /tmp/test_tasks.log
+          python -m pip install pillow 2>&1 | tail -1
+          python ai-system/terminal/test_media_workers.py 2>&1 | tee /tmp/test_media.log
       - name: Decisive experiment (train, run the 30 + 12 tasks in the sandbox, benchmark)
         if: always()
         run: |

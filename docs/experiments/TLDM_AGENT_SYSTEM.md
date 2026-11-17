@@ -12,7 +12,7 @@
 4. **تقرير الطرفية (T-LDM)**: نتيجة الأمر هي المكافأة؛ الموجّه يقرر سهل/صعب؛ الخبراء محوّلات LoRA؛ العمل محلي أولًا والشبكة للصعب؛ كل مستخدم جديد يضيف حوسبة ومعرفة؛ بلا إنترنت تعمل وحدها.
 
 ## 3) ما هو موجود (لا نبني فوق الفراغ)
-- **شام، اتجاهات الوسائط الأربعة** كنقاط خدمة في `serve.py`: `/ask/image` `/ask/video` `/ask/audio` (رؤية وسمع)، `/generate/text` `/generate/image` `/generate/audio` `/generate/video` (كتابة وتوليد). وجودة الوسائط عندها قياس (`sham_media_quality.py`).
+- **شام، اتجاهات الوسائط الأربعة** كنقاط خدمة في `serve.py`: `/ask/image` `/ask/video` `/ask/audio` (رؤية وسمع)، `/generate/text` `/generate/image` `/generate/audio` `/generate/video` (كتابة وتوليد). وجودة الوسائط عندها قياس (`media_quality.py`).
 - **الحاسوب المدمج** (`sham_computer.py`، `sham_embedded_tools.py`): ملفات وتنفيذ وواجهة المالك للقراءة فقط (`_ACTIVITY`).
 - **حد الأدوات**: النموذج يصدر غلاف `<tool_call>`؛ **GitHub والموصّلات والذاكرة والدفع (push) والتأكيد والرموز يملكها تطبيق الويب فقط** (`sham_embedded_tools.py` يقول صراحة: الأدوات الأخرى «تعود إلى التطبيق دون مساس»). هذا القيد يحكم التصميم.
 - **نوفا** (`coder_tasks`، `coder_task_events`، `coder_lessons`، `coderSchedules`، `coderConnectors`، `coderMedia`، `coderVision`): محرك مهام طويلة بحالة دائمة واستئناف ودروس. لا نكرره؛ نأخذ منه الفكرة (سجل مهمة دائم) على مستوى الطريقة.
