@@ -2,6 +2,9 @@ import Link from "next/link";
 import CoverImage from "@/components/CoverImage";
 
 const COVERS: Record<string, string> = {
+  "openai-for-chile-public-sector-ai-2026": "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80",
+  "government-ai-partnership-checklist": "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80",
+  "apec-economic-leaders-meeting-shenzhen-2026": "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=1200&q=80",
   "why-gold-and-the-dollar-move-opposite": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
   "five-forces-that-move-exchange-rates": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
   "news-analysis-opinion-how-to-tell-apart": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
