@@ -7,3 +7,6 @@ export const COMPUTER_MODEL_OPTIONS = [
 ] as const;
 
 export const COMPUTER_MODEL_IDS = COMPUTER_MODEL_OPTIONS.map(({ id }) => id);
+
+/** Nova 2 is Nova with a bigger model: it works in NOVA'S computer (same user+model session, same files, same tools). Every computer / tool call maps its model id through this. */
+export const computerModelOf = (id: string | undefined): string => (id === "nova2" ? "coder" : id || "coder");

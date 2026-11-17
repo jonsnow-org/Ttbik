@@ -1,6 +1,7 @@
 // Server side of the coder's Telegram Mini App (/coder-app). Every call carries Telegram's signed initData (header
 // x-telegram-init-data), verified with the coder bot's own token (verifyTelegramInitData) — the user id from it is the private chat id.
 // One dispatcher (appOp) so the route stays thin and everything here is unit-testable with a fake db and bot.
+import { computerModelOf } from "@/lib/computerModels";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -361,6 +362,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const limit = Number(body.limit) || 60;
         const items: (Awaited<ReturnType<typeof C.chatList>>["items"][number] & { model: string })[] = [];
         for (const m of knownAll) {
+          if (m.id === "nova2") continue;                          // Nova 2 shares Nova's threads: they are listed once, under Nova
           if (!C.isChatModel(m.id) || !modelUsableBy(m, user.tier === "owner")) continue;
           const l = await C.chatList(chatId, st, m.id, { q: typeof body.q === "string" ? body.q : undefined, archived: archivedAll, limit }, db).catch(() => null);
           if (l) for (const x of l.items) items.push({ ...x, model: m.id, current: x.current && m.id === selected });
@@ -629,21 +631,21 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { desktopDo } = await import("@/lib/desktopComputer");
       return await desktopDo(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { browserStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
       const base = browserStudioFor(model);

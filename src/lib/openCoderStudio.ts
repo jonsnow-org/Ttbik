@@ -7,6 +7,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
@@ -45,9 +46,9 @@ export function coderStudioUrl(): string {
 // by an AsyncLocalStorage set at every engine entry (the webhook handler, every worker leg); a new completion may only go to that model's pool.
 // A job id carries a GLOBAL index into allEngineBases(), so polling a job always reaches the Studio that took it, whatever the context.
 const engineModel = new AsyncLocalStorage<string>();
-export const ENGINE_MODELS = ["coder", "lfm25"] as const;
+export const ENGINE_MODELS = ["coder", "lfm25", "nova2"] as const;
 export type EngineModel = (typeof ENGINE_MODELS)[number];
-export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25";
+export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25" || id === "nova2";
 /** Runs fn with `model`'s Studio pool for every new completion made inside it (any non-engine id = Nova's pool). */
 export function withEngineModel<T>(model: string | undefined, fn: () => T): T {
   return engineModel.run(isEngineModel(model) ? model : "coder", fn);
@@ -60,7 +61,26 @@ export function lfmStudioUrls(): string[] {
   if (/^(off|none|0)$/i.test(raw)) return [];
   return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
 }
+// ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
+// Like LFM2.5 it has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
+// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Its conversation is Nova's own (same chat state): switching
+// between Nova and Nova 2 continues the same thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
+export const NOVA2_DEFAULT = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
+export function nova2Urls(): string[] {
+  const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || (process.env.NODE_ENV === "test" ? "" : NOVA2_DEFAULT)).trim();
+  if (/^(off|none|0)$/i.test(raw)) return [];
+  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham|lfm/i.test(x));
+}
+export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim());
+/** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
+export function tokenFor(base: string): string {
+  if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || coderToken()).trim();
+  return coderToken();
+}
 function novaStudioUrls(): string[] {
+  return oldNovaStudioUrls();
+}
+function oldNovaStudioUrls(): string[] {
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
   const lfm = new Set(lfmStudioUrls());
   const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
@@ -70,12 +90,13 @@ function novaStudioUrls(): string[] {
 }
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
-  const nova = novaStudioUrls();
-  return [...nova, ...lfmStudioUrls().filter((x) => !nova.includes(x))];
+  const nova = oldNovaStudioUrls();
+  const lfm = lfmStudioUrls().filter((x) => !nova.includes(x));
+  return [...nova, ...lfm, ...nova2Urls().filter((x) => !nova.includes(x) && !lfm.includes(x))];
 }
 /** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; LFM2.5: its own). Never the other model's. */
 export function coderStudioUrls(model: EngineModel = currentEngineModel()): string[] {
-  return model === "lfm25" ? lfmStudioUrls() : novaStudioUrls();
+  return model === "lfm25" ? lfmStudioUrls() : model === "nova2" ? nova2Urls() : novaStudioUrls();
 }
 const studioCooling = new Map<string, number>();                       // base -> skip until (after a failure), per server instance
 const COOL_MS = 60000;
@@ -345,7 +366,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 async function callOnce(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = coderToken();
+  const tok = tokenFor(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {
@@ -485,7 +506,7 @@ async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<
 async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
   const name = apiName("status");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = coderToken();
+  const tok = tokenFor(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {

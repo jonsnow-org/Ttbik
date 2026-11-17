@@ -3,6 +3,7 @@
 // replaces its weights when ready: it is never a separate entry); "Sham" is hidden until the owner turns it on.
 // Users only ever get { id, name, desc, price_stars, selected } — never the serving address or the model behind it.
 import { secretCached } from "@/lib/hostedSecrets";
+import { nova2TokenSet, nova2Urls } from "@/lib/openCoderStudio";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export type CoderModel = {
@@ -22,6 +23,8 @@ export type CoderModel = {
 export const DEFAULT_MODELS: CoderModel[] = [
   // The order here is the order in the picker: Nova AI (one, with everything added to it), Sham (the old one, every fix and tool added to its own code) and Sham v2 (the new body, tried beside it).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي: يصلح مشاريع GitHub ويبحث ويجدول ويفهم الصور ويصنع الصور والصوت والفيديو.", en: "Practical coder and assistant: fixes GitHub projects, searches, schedules, reads pictures and makes pictures, speech and video." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
+  // Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studio, beside Nova (the 4B), which stays as it is. Stronger and slower; owner-only until the owner opens it.
+  { id: "nova2", name: { ar: "Nova 2", en: "Nova 2" }, desc: { ar: "Nova بنموذج أكبر وأقوى (Qwen3.6-35B-A3B) على استوديو الحساب الدولي: أبطأ وأعمق. نوفا الأصلي يبقى كما هو.", en: "Nova with a bigger, stronger model (Qwen3.6-35B-A3B) on the international Studio: slower and deeper. The original Nova stays as it is." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "", sort: 0.5 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
   { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد، بأدواته ووسائطه واستوديوهاته الخاصة: بحث وGitHub وحاسوب افتراضي وصور وصوت وفيديو.", en: "Sham with a new body, with its own tools, media and Studios: search, GitHub, a private computer, pictures, speech and video." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
@@ -108,6 +111,7 @@ export function modelReady(m: CoderModel): boolean {
   if (m.isDefault) return true;
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   if (m.id === "freei") return Boolean(secretCached("AI_GITHUB_TOKEN"));   // env or the secret stored from the Athar bot (src/lib/hostedSecrets.ts)
+  if (m.id === "nova2") return nova2TokenSet() && nova2Urls().length > 0;
   if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
