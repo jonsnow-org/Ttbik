@@ -1,0 +1,42 @@
+{
+ "corpus_bytes": 611962,
+ "budget_s_each": 120.0,
+ "threads": 4,
+ "decode_ms_per_token": {
+  "256": {
+   "attention": 1.126,
+   "recurrence": 0.97
+  },
+  "2048": {
+   "attention": 4.525,
+   "recurrence": 0.798
+  },
+  "8192": {
+   "attention": 13.33,
+   "recurrence": 0.738
+  },
+  "32768": {
+   "attention": 39.403,
+   "recurrence": 0.738
+  }
+ },
+ "attention": {
+  "steps": 900,
+  "train_tokens_per_s": 30712,
+  "params": 889600,
+  "val_bits_per_byte": 3.245
+ },
+ "recurrence": {
+  "steps": 633,
+  "train_tokens_per_s": 21587,
+  "params": 856832,
+  "val_bits_per_byte": 2.5562
+ },
+ "attention_mtp4": {
+  "steps": 831,
+  "train_tokens_per_s": 28364,
+  "params": 987904,
+  "val_bits_per_byte": 3.5442,
+  "tokens_per_verifying_pass": 2.45
+ }
+}
