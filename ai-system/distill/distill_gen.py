@@ -5,7 +5,7 @@ prompts.jsonl  ->  teachers in registry.json  ->  records in the intelligence-la
 Nothing here trains Sham: records go to quarantine (reviewed=false) and reach training only through sham_sil_bridge (SHAM_SIL_ALLOW_TEACHER=1, reviewed + passed) and the merge gate.
 
     python distill_gen.py --prompts prompts.jsonl --out records.jsonl [--teachers a,b] [--limit 200]
-A prompt row: {"prompt": "...", "task": "reasoning|natural_sft|...", "verifier": "safe_arithmetic|numeric_match|normalized_exact|none", "verification": {...}}
+A prompt row: {"prompt": "...", "task": "reasoning|natural_sft|...", "verifier": "safe_arithmetic|numeric_match|normalized_exact|python_tests|none", "verification": {...}}
 Rules: (1) a teacher must be enabled and of class open (a restricted one also needs owner_approved + SHAM_DISTILL_ALLOW_RESTRICTED=<id>); (2) a record with a verifier is accepted only when the lab verifier passes;
 (3) a record WITHOUT a verifier is accepted only when two different teachers agree; otherwise it stays pending in quarantine. Stdlib only; no secrets are read except the key named by key_env.
 """
@@ -79,6 +79,11 @@ def agree(a: str, b: str, threshold: float = 0.8) -> bool:
 
 
 def verify(rec: dict) -> dict:
+    if rec.get("verifier") == "python_tests":                 # execution verifier: the answer's code must run and pass the hidden tests (exec_verify.py)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from exec_verify import run_python_tests
+        ok, why = run_python_tests(rec["target"], str((rec.get("verification") or {}).get("tests", "")))
+        return {"passed": ok, "detail": why}
     sys.path.insert(0, str(LAB_SRC))
     from sham_intelligence_lab.schema import example_from_teacher
     from sham_intelligence_lab.distillation import verify_example

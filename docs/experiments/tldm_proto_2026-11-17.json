@@ -1,0 +1,29 @@
+{
+ "budget_s": 600.0,
+ "threads": 4,
+ "latents": 8,
+ "think_steps": 4,
+ "diffusion_steps": 8,
+ "tldm_params": 1537408,
+ "tldm_train_steps": 1432,
+ "tldm": {
+  "acc_seen_words": 0.7,
+  "acc_new_words": 0.6,
+  "writer_passes_per_block": 8,
+  "ms_per_sample": 19.42,
+  "bytes_per_s": 1132
+ },
+ "tldm_after_evolution": {
+  "kept_successes": 256,
+  "acc_seen_words": 0.673,
+  "acc_new_words": 0.687
+ },
+ "ar_params": 857088,
+ "ar_train_steps": 2573,
+ "autoregressive": {
+  "acc_seen_words": 0.98,
+  "acc_new_words": 0.807,
+  "ms_per_sample": 15.78,
+  "bytes_per_s": 1395
+ }
+}

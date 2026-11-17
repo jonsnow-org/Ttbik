@@ -1,0 +1,49 @@
+name: "T-LDM experiments (CPU, reproducible)"
+# The decisive experiment of the SHAM T-LDM book, run where a restart of someone's machine cannot kill it: tests, training, benchmark, logs as an artifact.
+# Manual only. Uses no secret. Nothing here touches Sham, Nova or any Studio.
+on:
+  push:
+    branches: [claude/exec-verify-bench]
+    paths: [".github/workflows/tldm-experiment.yml"]     # (a new workflow cannot be started by hand before it is on the default branch: editing this file starts one run)
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "config under ai-system/tldm/configs/ (experiment_0.3b.yaml | experiment_0.3b_bpe.yaml)"
+        default: "experiment_0.3b_bpe.yaml"
+      steps:
+        description: "training steps (0 = the config's own)"
+        default: "0"
+      run_loop:
+        description: "also train and evaluate the multi-step agent loop (true | false)"
+        default: "false"
+permissions:
+  contents: read
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - name: Tests
+        run: python ai-system/tldm/scripts/test_all.py 2>&1 | tee /tmp/test_all.log
+      - name: Decisive experiment (train, run the 30 + 12 tasks in the sandbox, benchmark)
+        run: |
+          cd ai-system/tldm
+          python training/train_0.3b.py --config "configs/${{ inputs.config || 'experiment_0.3b_bpe.yaml' }}" --steps "${{ inputs.steps || '0' }}" --out checkpoints/exp/final.pt 2>&1 | tee /tmp/train.log
+          python eval/benchmark.py --ckpt checkpoints/exp/final.pt 2>&1 | tee /tmp/bench.log
+          python terminal/terminal_loop.py --ckpt checkpoints/exp/final.pt --demo 2>&1 | tee /tmp/demo.log
+      - name: Agent loop and self-evolution (optional)
+        if: ${{ inputs.run_loop == 'true' || github.event_name == 'push' }}
+        run: |
+          cd ai-system/tldm
+          python training/train_loop.py --config configs/loop.yaml 2>&1 | tee /tmp/loop.log
+          python training/evolve.py 2>&1 | tee /tmp/evolve.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tldm-logs
+          path: /tmp/*.log

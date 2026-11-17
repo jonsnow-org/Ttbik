@@ -1,0 +1,13 @@
+# The decisive experiment of the project book: d=640, 8 layers, 5 latent steps, block 64, trained on the 30 terminal examples.
+d: 640
+layers: 8
+latents: 16
+think_steps: 5
+block: 64
+in_len: 64
+writer_layers: 3
+heads: 4
+bitnet: false
+steps: 300
+lr: 0.001
+diffusion_steps: 10
