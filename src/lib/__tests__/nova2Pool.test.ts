@@ -1,5 +1,7 @@
 import { coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
+import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
+import { browserStudioFor } from "@/lib/browserComputer";
 
 const OLD = ["https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net", "https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net"];
 const N2 = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
@@ -51,5 +53,14 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     process.env.NOVA2_STUDIO_TOKEN = "ai-token";
     expect(modelReady(m)).toBe(true);
     expect(DEFAULT_MODELS.find((x) => x.id === "coder")).toBeTruthy();   // Nova is still there
+  });
+
+  test("Nova 2 works in Nova's computer: same session identity, same hub, no second workspace", () => {
+    expect(computerModelOf("nova2")).toBe("coder");
+    expect(computerModelOf("coder")).toBe("coder");
+    expect(computerModelOf("lfm25")).toBe("lfm25");
+    expect(computerModelOf(undefined)).toBe("coder");
+    expect(COMPUTER_MODEL_IDS).not.toContain("nova2");
+    expect(browserStudioFor(computerModelOf("nova2"))).toBe(browserStudioFor("coder"));
   });
 });

@@ -16,7 +16,7 @@ async function table(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS coder_flags (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   if (db === prismaDb) ready = true;
 }
-const keyOf = (model: string): string => `mode:${model === "coder" || model === "nova" ? "coder" : model}`;
+const keyOf = (model: string): string => `mode:${model === "coder" || model === "nova" || model === "nova2" ? "coder" : model}`;
 
 export async function refreshForced(db: Db = prismaDb, force = false): Promise<Record<string, Pref>> {
   if (!force && Date.now() - at < TTL) return cache;

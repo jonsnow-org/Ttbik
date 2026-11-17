@@ -13,6 +13,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
+import { computerModelOf } from "@/lib/computerModels";
 import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
@@ -1373,8 +1374,8 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
   return {
     tier: tierFor(chatId),
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
-    chatKey: coderChatKey(`${chatId}:${st.model || "coder"}`),
-    modelId: st.model || "coder",
+    chatKey: coderChatKey(`${chatId}:${computerModelOf(st.model)}`),
+    modelId: computerModelOf(st.model),                       // Nova 2 uses Nova's tools and computer session
     userId: chatId,
     memoryChatId: modelSessionChatId(chatId),
     memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },

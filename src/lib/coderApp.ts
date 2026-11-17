@@ -1,6 +1,7 @@
 // Server side of the coder's Telegram Mini App (/coder-app). Every call carries Telegram's signed initData (header
 // x-telegram-init-data), verified with the coder bot's own token (verifyTelegramInitData) — the user id from it is the private chat id.
 // One dispatcher (appOp) so the route stays thin and everything here is unit-testable with a fake db and bot.
+import { computerModelOf } from "@/lib/computerModels";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -629,21 +630,21 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { desktopDo } = await import("@/lib/desktopComputer");
       return await desktopDo(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = String(body.model || "coder");
+      const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { browserStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
       const base = browserStudioFor(model);
