@@ -6,9 +6,17 @@
 // CODER_AGENTS=off removes the tool.
 
 import { reportsHardChars } from "@/lib/coderContext";
+import { currentEngineModel } from "@/lib/openCoderStudio";
 
 /** CODER_TOOL_GROUPS=lazy brings back the earlier lazy loading (load_tools); the default is ONE fixed tool list on every step (coderAgent.ts coderToolsFor). */
-export const toolGroupsLazy = (): boolean => (process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "lazy";
+export const toolGroupsLazy = (): boolean => {
+  const mode = (process.env.CODER_TOOL_GROUPS || "").toLowerCase();
+  if (mode === "lazy") return true;
+  if (mode === "fixed") return false;
+  // Nova 2 (35B on 2 cores) reads ~7-9 tokens/s: the full tool list is ~11,000 tokens = 20+ minutes of reading before the first word (measured 2026-11-17: 14,342-token prompt for "who are you").
+  // It gets the small list (load_tools + the group it needs); Nova (4B, fast reader) keeps the fixed list that its prompt cache likes.
+  return currentEngineModel() === "nova2";
+};
 
 export const AGENT_MAX = 5;          // agents one run can start at once
 export const SUB_AGENT_MAX = 2;      // sub-agents ONE "worker" agent can start (read-only helpers, one level only)
