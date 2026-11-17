@@ -1,4 +1,4 @@
-import { coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { agentCapacity, agentHelperModel, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
@@ -17,6 +17,18 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     delete process.env.NOVA2_STUDIO_TOKEN;
   });
   afterAll(() => { process.env = keep; });
+
+  test("Nova 2 stays on its one Studio and its agents run on Nova's pool (before: one Studio meant no agents at all)", () => {
+    expect(withEngineModel("nova2", () => agentCapacity())).toBe(2);              // two Nova Studios -> two agents beside the parent
+    expect(withEngineModel("nova2", () => agentCapacity(true))).toBe(1);          // a nested helper gets one
+    expect(withEngineModel("nova2", () => agentHelperModel())).toBe("coder");     // the child run is a Nova run
+    expect(withEngineModel("coder", () => agentHelperModel())).toBe("coder");
+    expect(withEngineModel("coder", () => agentCapacity())).toBe(2);              // Nova itself is unchanged
+    process.env.OPEN_CODER_STUDIO_URLS = "";
+    process.env.OPEN_CODER_STUDIO_URL = "";
+    expect(withEngineModel("nova2", () => agentCapacity())).toBe(0);              // no Nova Studio to hand work to: no delegate tool
+    expect(withEngineModel("nova2", () => agentHelperModel())).toBe("nova2");
+  });
 
   test("Nova keeps its Studios and Nova 2 has its own", () => {
     expect(withEngineModel("coder", () => coderStudioUrls())).toEqual(OLD);

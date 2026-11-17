@@ -5,8 +5,8 @@
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
 import { historyChars } from "@/lib/coderContext";
-import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
-import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
+import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
+import { agentCapacity, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 
@@ -18,7 +18,7 @@ const s = (description: string) => ({ type: "string", description });
 const n = (description: string) => ({ type: "number", description });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): CoderTool => ({ type: "function", function: { name, description, parameters } });
 const REPO = s("owner/name, e.g. jonsnow-org/Ttbik");
-const delegateAvailable = (): boolean => agentsEnabled() && maxParallelAgentsForStudios(coderStudioUrls().length) > 0;
+const delegateAvailable = (): boolean => agentsEnabled() && agentCapacity() > 0;
 
 export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_whoami", "Who the GitHub token belongs to.", obj({})),

@@ -11,6 +11,7 @@ import { getSecret, secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
+import { AGENT_MAX, maxParallelAgentsForStudios } from "@/lib/coderAgents";
 const PROVIDER_JOB_PREFIX = "p~";   // jobs of the removed "Sham inside Nova" provider: a run saved before that was removed gets "gone" instead of being polled
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
 export type CoderMessage =
@@ -92,6 +93,17 @@ function oldNovaStudioUrls(): string[] {
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
+}
+/** Sub-agents ("delegate"). Nova 2 is ONE big Studio: its task stays pinned to it (one warm cache) and its agents run on Nova's own pool, each on a different Studio from the parent
+ *  (owner 2026-11: one copy of the big model, work spread automatically over the other Studios). Every other model keeps agents on its own pool. */
+export function agentHelperModel(model: EngineModel = currentEngineModel()): EngineModel {
+  return model === "nova2" && oldNovaStudioUrls().length > 0 ? "coder" : model;
+}
+/** How many agents the current run may start at once. */
+export function agentCapacity(nested = false): number {
+  const cur = currentEngineModel();
+  if (cur === "nova2") { const n = oldNovaStudioUrls().length; return n < 1 ? 0 : nested ? 1 : Math.min(AGENT_MAX, n); }
+  return maxParallelAgentsForStudios(coderStudioUrls(cur).length, nested);
 }
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
