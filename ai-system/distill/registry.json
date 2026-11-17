@@ -87,18 +87,18 @@
       "id": "ms-qwen3-32b",
       "class": "open",
       "license": "Apache-2.0",
-      "enabled": true,
+      "enabled": false,
       "host": "modelscope-api-inference",
       "endpoint": "https://api-inference.modelscope.ai/v1/chat/completions",
       "model": "Qwen/Qwen3-32B",
       "key_env": "MODELSCOPE_AI_TOKEN",
-      "note": "ModelScope API-Inference (free for the owner's account, paid in Magicubes: ~1 per standard call, ~2 per flagship); needs the Alibaba real-name verification; first run tells if it works"
+      "note": "ModelScope API-Inference (free for the owner's account, paid in Magicubes: ~1 per standard call, ~2 per flagship); needs the Alibaba real-name verification; SKIPPED by owner order 2026-11-17 (no verification / daily-credit path); kept disabled"
     },
     {
       "id": "ms-qwen3-235b",
       "class": "open",
       "license": "Apache-2.0",
-      "enabled": true,
+      "enabled": false,
       "host": "modelscope-api-inference",
       "endpoint": "https://api-inference.modelscope.ai/v1/chat/completions",
       "model": "Qwen/Qwen3-235B-A22B-Instruct-2507",
