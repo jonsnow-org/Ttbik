@@ -36,9 +36,19 @@ function ensureTable(): Promise<void> {
   ready ??= prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS hosted_secrets (name TEXT PRIMARY KEY, value_enc TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => { ready = null; throw e; });
   return ready;
 }
+/** A value pasted from the bot's own hint arrives as "<value>" (the owner copies the template): strip the placeholder brackets / quotes and surrounding spaces. */
+export function cleanSecret(v: string): string {
+  let t = String(v ?? "").trim();
+  for (let i = 0; i < 3; i++) {
+    const m = /^(<(.*)>|"(.*)"|'(.*)'|`(.*)`)$/s.exec(t);
+    if (!m) break;
+    t = (m[2] ?? m[3] ?? m[4] ?? m[5] ?? "").trim();
+  }
+  return t;
+}
 export async function setSecret(name: string, value: string): Promise<void> {
   if (!ALLOWED.test(name)) throw new Error("name not allowed");
-  const blob = seal(value);
+  const blob = seal(cleanSecret(value));
   await ensureTable();
   await prisma.$executeRawUnsafe(`INSERT INTO hosted_secrets (name, value_enc) VALUES ($1,$2) ON CONFLICT (name) DO UPDATE SET value_enc=EXCLUDED.value_enc, updated_at=now()`, name, blob);
   cache.delete(name);
@@ -63,7 +73,7 @@ export async function getSecret(name: string): Promise<string> {
   try {
     await ensureTable();
     const rows = (await prisma.$queryRawUnsafe(`SELECT value_enc FROM hosted_secrets WHERE name=$1`, name)) as { value_enc: string }[];
-    const v = (rows[0] && open(rows[0].value_enc)) || "";
+    const v = cleanSecret((rows[0] && open(rows[0].value_enc)) || "");
     cache.set(name, { v, at: Date.now() });
     return v;
   } catch { return ""; }
