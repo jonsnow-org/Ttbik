@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import terminal_tasks as T  # noqa: E402
 
 IN_LEN, BLOCK = 192, 64
-OUT_FILES = ["out.txt", "report.txt", "total.txt", "result.txt", "count.txt"]
+OUT_FILES = [n + ".txt" for n in ("out", "report", "total", "result", "count", "data", "stats", "final")]
+NEW_FILES = [n + ".txt" for n in ("summary", "answer", "number", "tally", "size")]     # never seen in training: tests copying the name from the task
 CHAT = [("hello", "Hello! How can I help you?"), ("hi", "Hello! How can I help you?"), ("thanks", "You're welcome."), ("who are you", "I am Sham. I work through a terminal."),
         ("مرحبا", "أهلا بك! كيف أساعدك؟"), ("شكرا", "على الرحب والسعة."), ("من انت", "أنا شام، أعمل عبر طرفية.")]
 
@@ -29,9 +30,9 @@ def pad(text: str) -> list[int]:
     return b + [0] * (BLOCK - len(b))
 
 
-def make_episode(rng: random.Random):
+def make_episode(rng: random.Random, new_names: bool = False):
     """-> (task, plan, reply_template): plan = commands where {r0},{r1}.. are the stripped results of the earlier steps."""
-    f = rng.choice(OUT_FILES)
+    f = rng.choice(NEW_FILES if new_names else OUT_FILES)
     k = rng.randrange(6)
     if k == 0:
         t = rng.choice([f"count the errors in the log and save the number to {f}", f"how many errors are in app.log? write the count in {f}"])

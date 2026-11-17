@@ -32,13 +32,17 @@ class DiffusionWriter(nn.Module):
         return F.cross_entropy(lg[masked], target[masked])
 
     @torch.no_grad()
-    def generate(self, z, steps: int = 10):
+    def generate(self, z, steps: int = 10, temperature: float = 0.0):
         B, N = z.shape[0], self.block
         tok = torch.zeros(B, N, dtype=torch.long, device=z.device)
         masked = torch.ones(B, N, dtype=torch.bool, device=z.device)
         for s in range(steps):
-            probs = F.softmax(self.logits(tok, masked, z).float(), -1)
-            conf, pred = probs.max(-1)
+            probs = F.softmax(self.logits(tok, masked, z).float() / (temperature or 1.0), -1)
+            if temperature:
+                pred = torch.multinomial(probs.reshape(-1, probs.shape[-1]), 1).reshape(probs.shape[:2])      # exploration: a different but plausible command each time
+                conf = probs.gather(-1, pred[..., None])[..., 0]
+            else:
+                conf, pred = probs.max(-1)
             conf = torch.where(masked, conf, torch.full_like(conf, -1.0))
             keep = N - (N * (s + 1)) // steps                       # hidden positions that remain after this pass
             k = int(masked[0].sum()) - keep

@@ -51,9 +51,9 @@ class _Core(nn.Module):
         return self.writer.loss(z, target)
 
     @torch.no_grad()
-    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False):
+    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False, temperature: float = 0.0):
         z, used = self.latents(h, pad_mask, early_exit)
-        return self.writer.generate(z, steps), {"latent_steps_used": used, "latents": z.shape[1]}
+        return self.writer.generate(z, steps, temperature), {"latent_steps_used": used, "latents": z.shape[1]}
 
 
 class Sham1_TLDM(nn.Module):
@@ -75,8 +75,8 @@ class Sham1_TLDM(nn.Module):
         return self.core.loss(self.read(ids), ids == PAD, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False):
-        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit)
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, temperature: float = 0.0):
+        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit, temperature)
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters())
@@ -110,8 +110,8 @@ class ShamBodyTLDM(nn.Module):
         return self.core.loss(self.read(ids), pad_mask, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None):
-        return self.core.generate(self.read(ids), pad_mask, steps, early_exit)
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None, temperature: float = 0.0):
+        return self.core.generate(self.read(ids), pad_mask, steps, early_exit, temperature)
 
     def trainable_report(self) -> dict:
         tot = sum(p.numel() for p in self.parameters())

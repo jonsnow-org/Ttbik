@@ -40,12 +40,12 @@ def run_agent(model, cfg, task, hide=False, max_steps=5):
         term.close()
 
 
-def evaluate(model, cfg, n, seed, hide=False):
+def evaluate(model, cfg, n, seed, hide=False, new_names=False):
     rng = random.Random(seed)
     ok = state_ok = 0
     t0 = time.time()
     for _ in range(n):
-        task, plan, reply_t = J.make_episode(rng)
+        task, plan, reply_t = J.make_episode(rng, new_names)
         _, ref_reply, ref_snap = J.run_episode(task, plan, reply_t)
         reply, snap, _ = run_agent(model, cfg, task, hide)
         state_ok += snap == ref_snap
@@ -85,8 +85,9 @@ def main():
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     torch.save({"cfg": cfg, "model": model.state_dict()}, a.out)
     model.eval()
-    print("new episodes, results returned to the model :", evaluate(model, cfg, a.eval, seed=777), flush=True)
-    print("new episodes, results HIDDEN from the model :", evaluate(model, cfg, a.eval, seed=777, hide=True), flush=True)
+    print("episodes (file names seen in training), results returned to the model :", evaluate(model, cfg, a.eval, seed=777), flush=True)
+    print("episodes (file names NEVER seen), results returned to the model        :", evaluate(model, cfg, a.eval, seed=778, new_names=True), flush=True)
+    print("episodes (seen names), results HIDDEN from the model                   :", evaluate(model, cfg, a.eval, seed=777, hide=True), flush=True)
 
 
 if __name__ == "__main__":
