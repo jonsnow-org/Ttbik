@@ -26,7 +26,7 @@ test("daily news has source-matched Arabic and English versions", () => {
 
 
 test("the wider global news briefings are bilingual and independently sourced", () => {
-  for (const slug of ["china-mexico-cooperation-apec-2026", "us-remote-ai-chip-controls-2026"]) {
+  for (const slug of ["japan-russian-airspace-incident-2026", "china-mexico-cooperation-apec-2026", "us-remote-ai-chip-controls-2026"]) {
     const ar = NEWS_ITEMS.find((item) => item.slug === slug);
     const en = EN_NEWS.find((item) => item.slug === slug);
     assert.ok(ar, `Arabic news entry missing: ${slug}`);
@@ -62,6 +62,12 @@ test("the APEC event remains current through its final day in both locales", () 
   }
   assert.equal(isUpcomingDate(en, "2026-11-20"), false);
   assert.equal(isEventUpcomingOrCurrent(ar, "2026-11-20"), false);
+});
+
+test("English covers fall back to the site's editorial image when a slug has no custom cover", () => {
+  const root = process.cwd();
+  const component = readFileSync(path.join(root, "src/components/EnglishStoryCard.tsx"), "utf8");
+  assert.match(component, /COVERS\\[slug\\] \\|\\| \`\\$\\{SITE_URL\\}\\/og\\/news\\.jpg\`/);
 });
 
 test("English editorial detail pages render source links and matching locale alternates", () => {
