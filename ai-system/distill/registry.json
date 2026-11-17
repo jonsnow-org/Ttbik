@@ -1,0 +1,15 @@
+{
+  "_note": "Teachers for Sham's distillation network. class=open: open-weight model with a permissive licence that WE host (allowed). class=commercial: a service whose terms restrict training on its outputs: refused unless owner_approved is true AND the env var SHAM_DISTILL_ALLOW_COMMERCIAL lists its id; the owner's standing policy (2026-11) is no training on commercial-model outputs. No keys live here: key_env names an environment variable.",
+  "teachers": [
+    {"id": "qwen36-35b-a3b", "class": "open", "license": "Apache-2.0", "enabled": true, "host": "notebook",
+     "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "nova-ai", "key_env": "NODE_KEY"},
+    {"id": "qwen35-4b", "class": "open", "license": "Apache-2.0", "enabled": false, "host": "nova-studio",
+     "endpoint": "", "model": "nova-ai", "key_env": "", "note": "Nova's own model; second opinion for agreement checks once a second open teacher is hosted"},
+    {"id": "gpt-oss-20b", "class": "open", "license": "Apache-2.0", "enabled": false, "host": "notebook",
+     "endpoint": "http://127.0.0.1:8081/v1/chat/completions", "model": "gpt-oss-20b", "key_env": "NODE_KEY"},
+    {"id": "chatgpt-free-app", "class": "commercial", "license": "provider terms", "enabled": false, "owner_approved": false,
+     "note": "No API for the free app; automating it breaks its terms and risks the account. Manual copy does not scale. Do not enable."},
+    {"id": "groq-or-openrouter-free", "class": "commercial", "license": "provider terms + each model's licence", "enabled": false, "owner_approved": false,
+     "note": "free i's models: not used for training (some free tiers train on prompts; some model licences restrict output use)."}
+  ]
+}
