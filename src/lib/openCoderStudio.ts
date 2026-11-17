@@ -7,6 +7,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
@@ -60,7 +61,26 @@ export function lfmStudioUrls(): string[] {
   if (/^(off|none|0)$/i.test(raw)) return [];
   return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
 }
+// ── Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studios, beside the old Nova pool, switched by the owner and undone by the owner ────────────
+// Addresses: AI_NOVA2_URLS (comma list; a stored secret of the Athar bot `/secret`, or the env NOVA2_STUDIO_URLS). Token of the international account: AI_NOVA2_TOKEN.
+// The switch: AI_NOVA_POOL = nova2 sends every NEW completion to this pool; anything else (or deleting the secret) is the old Nova exactly as before. Job ids of the old pool and of
+// LFM keep their numbers (the Nova 2 Studios are appended last in the index space), so a switch never orphans a running job.
+export function nova2Urls(): string[] {
+  const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || "").trim();
+  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham|lfm/i.test(x));
+}
+export function nova2Active(): boolean {
+  return /^(nova2|on|1)$/i.test((process.env.NOVA_POOL || secretCached("AI_NOVA_POOL") || "").trim()) && nova2Urls().length > 0;
+}
+/** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
+export function tokenFor(base: string): string {
+  if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || coderToken()).trim();
+  return coderToken();
+}
 function novaStudioUrls(): string[] {
+  return nova2Active() ? nova2Urls() : oldNovaStudioUrls();
+}
+function oldNovaStudioUrls(): string[] {
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
   const lfm = new Set(lfmStudioUrls());
   const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
@@ -70,8 +90,9 @@ function novaStudioUrls(): string[] {
 }
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
-  const nova = novaStudioUrls();
-  return [...nova, ...lfmStudioUrls().filter((x) => !nova.includes(x))];
+  const nova = oldNovaStudioUrls();
+  const lfm = lfmStudioUrls().filter((x) => !nova.includes(x));
+  return [...nova, ...lfm, ...nova2Urls().filter((x) => !nova.includes(x) && !lfm.includes(x))];
 }
 /** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; LFM2.5: its own). Never the other model's. */
 export function coderStudioUrls(model: EngineModel = currentEngineModel()): string[] {
@@ -345,7 +366,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 async function callOnce(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = coderToken();
+  const tok = tokenFor(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {
@@ -485,7 +506,7 @@ async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<
 async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
   const name = apiName("status");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = coderToken();
+  const tok = tokenFor(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {

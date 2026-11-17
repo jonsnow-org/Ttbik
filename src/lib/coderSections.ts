@@ -13,7 +13,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { nova2Active, coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -90,7 +90,7 @@ const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 2 * 600
 /** The CPU reads a prompt at ~25 tokens/s and says nothing meanwhile: until the first text, a long prompt is given the time it needs (capped), unless the Studio reports its reading progress (then any progress counts as life). */
 const readingMs = (run: { promptEst?: number }, r: { total?: number; prefill?: { processed?: number } | null }) =>
   r.total || r.prefill ? 0 : Math.min(20 * 60000, Math.round(((run.promptEst || 0) / 25) * 1000 * 1.3) + 60000);
-const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000));
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000), nova2Active() ? 1500000 : 0);   // Nova 2 (35B on 2 cores) reads ~9 tokens/s: a step may legitimately show no progress for many minutes
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
