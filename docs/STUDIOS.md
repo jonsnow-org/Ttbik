@@ -9,6 +9,8 @@
 | Sham v2 video | \`sham-v2-video-server\` | \`SHAM_V2_VIDEO_URL\` | Sham v2 dedicated video generation |
 | Nova media | \`nova-media-server\` | \`NOVA_MEDIA_STUDIO_URL\` | Nova image, Arabic speech and real video |
 | Candidate media | each candidate's \`*-media\` Studio | candidate-specific media router | Candidate-owned image/audio/video weights |
+| Nova 35B trial (international account Jonjithup, 16 GB) | `coder-inference-server-16` | token address `studio-jonjithup-<name>.api-inference.modelscope.ai` | **Experiment only**, outside every Nova group: Qwen3.6-35B-A3B IQ3_XXS (reads ~9 tok/s). Not in production. Its `MODEL_OVERRIDES` line lives on branch `claude/nova-16g-studio` (see `docs/FREE_COMPUTE.md` §5). |
+| ModelScope Notebook (modelscope.ai, owner's account) | GPU A10 23 GB / CPU 8c 32 GB | none (sessions of 4 h, started by hand) | **Not a Studio and not 24/7.** Burst compute for Sham training and heavy Nova jobs: `docs/FREE_COMPUTE.md`, `scripts/notebook-node/gpu_node.sh`. |
 | **Computer hub** | **\`nova-inference-server\` (private 16 GB RAM)** | **\`COMPUTER_STUDIO_URL\` → \`browserStudioFor()\`** | **Full developer terminal/toolchain, persistent files/jobs, Chromium and X11 desktop only; no LLM or media weights** |
 
 ## Computer isolation
