@@ -2,11 +2,12 @@
 """python training/memory_eval.py --ckpt checkpoints/loop/final.pt  : the long-term file memory (serve_adapter.TLDMChat + memory/store.py), measured on the SAME
 NEW episodes (file names never seen in training, seed 778 as in training/evolve.py) three times, end to end through the sandbox:
   pass 0  memory OFF (the serving path as it was; must equal train_loop.evaluate on the same episodes: the served input is built like the training input)
-  pass 1  memory ON, starting empty (repeated tasks inside the pass can already be recalled)
-  pass 2  memory ON again, after pass 1 (every task seen once)
+  then, for each memory GATE, pass 1 (memory ON, starting empty) and pass 2 (again, after pass 1):
+     exit_code_only_UNSAFE  the first version: any clean episode became a success (kept here only to show what it cost)
+     verified               a success needs the verifier's yes (here the reference episode; in serving, a check that knows the task)
+     no_verifier            nothing is ever stored as a success
 Per pass: episode success (final folder state AND reply equal the reference), model calls, recalls, recalls that returned a WRONG answer, lessons applied, episodes/s.
-Success for the memory itself = a reply was reached and every command exited 0 (the terminal's verdict; there is no reference at serving time), so a wrong-but-clean
-episode can be remembered: `recall_wrong` counts exactly that, it is not hidden."""
+`recall_wrong` counts recalls that returned a wrong answer; it is reported for every gate, not hidden."""
 import argparse
 import json
 import os
@@ -35,14 +36,14 @@ def episodes(n, seed):
     return out
 
 
-def run_pass(writer, eps, memory_root):
+def run_pass(writer, eps, memory_root, verify=None):
     last = {}
 
     def backend(_session):
         last["t"] = T.fresh()
         return last["t"]
     factory = (lambda s: serve_adapter.memory_for(memory_root, "sham_tldm_eval", s)) if memory_root else None
-    chat = serve_adapter.TLDMChat(writer, backend, confirm=lambda c: True, memory_factory=factory)
+    chat = serve_adapter.TLDMChat(writer, backend, confirm=lambda c: True, memory_factory=factory, verify=verify)
     m = {"episode_success": 0, "final_state_correct": 0, "model_calls": 0, "recalls": 0, "recall_wrong": 0, "partial_recalls": 0, "lessons": 0}
     t0 = time.time()
     for task, ref_reply, ref_snap in eps:
@@ -75,16 +76,22 @@ def main():
     eps = episodes(a.eval, seed=778)
     distinct = len({" ".join(t.lower().split()) for t, _, _ in eps})
     print(f"{len(eps)} episodes, {distinct} distinct task texts (names never seen in training)", flush=True)
-    root = tempfile.mkdtemp(prefix="tldm_memory_eval_")
-    try:
-        res = {"pass0_memory_off": run_pass(writer, eps, None)}
-        print("pass 0, memory OFF            :", res["pass0_memory_off"], flush=True)
-        res["pass1_memory_on_empty"] = run_pass(writer, eps, root)
-        print("pass 1, memory ON (from empty):", res["pass1_memory_on_empty"], flush=True)
-        res["pass2_memory_on_after_pass1"] = run_pass(writer, eps, root)
-        print("pass 2, memory ON (after 1)   :", res["pass2_memory_on_after_pass1"], flush=True)
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+    refs = {t: (r, snap) for t, r, snap in eps}
+
+    def reference_check(task, reply, steps, backend):                # evaluation's verifier: the reference episode (serving needs its own check)
+        r, snap = refs[task]
+        return reply == r and T.snapshot(backend) == snap
+    res = {"pass0_memory_off": run_pass(writer, eps, None)}
+    print("pass 0, memory OFF                       :", res["pass0_memory_off"], flush=True)
+    for gate, verify in (("exit_code_only_UNSAFE", lambda *x: True), ("verified", reference_check), ("no_verifier", None)):
+        root = tempfile.mkdtemp(prefix="tldm_memory_eval_")
+        try:
+            res[f"{gate}_pass1"] = run_pass(writer, eps, root, verify)
+            res[f"{gate}_pass2"] = run_pass(writer, eps, root, verify)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        print(f"gate {gate:22s} pass 1 (from empty) :", res[f"{gate}_pass1"], flush=True)
+        print(f"gate {gate:22s} pass 2 (after 1)    :", res[f"{gate}_pass2"], flush=True)
     if a.json:
         with open(a.json, "w", encoding="utf-8") as f:
             json.dump({"episodes": len(eps), "distinct_tasks": distinct, **res}, f, indent=1)

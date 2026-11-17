@@ -7,7 +7,10 @@ Long-term memory as files (step 2 of docs/experiments/TLDM_TERMINAL_SPEC.md §3)
             All equal -> the remembered reply, with no model call.  First difference -> the replay stops there and the model continues from the REAL history
             (a remembered value is never written over a different present: the check runs before the next command).
   * LESSONS: a command that failed for the same task before is not run again; the model sees one line saying so and writes another block.
-  * every finished episode is saved (success = a final reply was reached and every command that ran exited 0); the store is per model (memory_for(root, model_id, session)).
+  * every finished episode is saved; the store is per model (memory_for(root, model_id, session)).
+    A SUCCESS (the only thing recall ever replays) needs: a final reply, every command exited 0, AND `verify(task, reply, steps, backend)` said yes.
+    No verifier = nothing is stored as a success (exit codes alone are not proof: a measured run stored 15 of 60 wrong-but-clean answers that way).
+    In serving, the verifier is a check that knows the task (the owner's approval, a test, a file check); in evaluation, the reference episode.
 """
 from __future__ import annotations
 
@@ -28,6 +31,14 @@ GAVE_UP = "I could not finish within the allowed number of steps."
 
 def enabled() -> bool:
     return os.environ.get("SHAM_TLDM", "0").strip() == "1"
+
+
+def _approval_question(cmd: str, reason: str) -> str:
+    try:
+        from approvals import question
+    except ImportError:
+        return cmd
+    return question(cmd, reason)
 
 
 def _flat(r) -> str:
@@ -56,11 +67,12 @@ def load_writer(ckpt: str):
 
 
 class TLDMChat:
-    def __init__(self, writer, backend_factory, max_steps: int = 5, confirm=None, memory_factory=None):
+    def __init__(self, writer, backend_factory, max_steps: int = 5, confirm=None, memory_factory=None, verify=None):
         """writer(task, hist) -> text of the next block. backend_factory(session) -> an executor with .run(command, confirm).
-        memory_factory(session) -> this model's MemoryStore for that session, or None (memory off)."""
+        memory_factory(session) -> this model's MemoryStore for that session, or None (memory off).
+        verify(task, reply, steps, backend) -> bool: the gate before an episode becomes a remembered success (None = never)."""
         self.writer, self.backend_factory, self.max_steps, self.confirm = writer, backend_factory, max_steps, confirm
-        self.memory_factory = memory_factory
+        self.memory_factory, self.verify = memory_factory, verify
         self.last_info: dict = {}
 
     @classmethod
@@ -83,18 +95,38 @@ class TLDMChat:
 
         def execute(cmd):
             r = backend.run(cmd)
-            if r.needs_confirmation and self.confirm is not None and self.confirm(cmd):
-                r = backend.run(cmd, confirm=True)
+            if r.needs_confirmation:                                # the owner's allow/deny (approvals.py): asked through the app's confirmation, never assumed
+                reason = r.refused.split(": ", 1)[-1] if r.refused else "needs approval"
+                allowed = False
+                if self.confirm is not None:
+                    try:
+                        allowed = bool(self.confirm(_approval_question(cmd, reason)))
+                    except Exception:
+                        allowed = False
+                if allowed:
+                    r = backend.run(cmd, confirm=True)
+                else:
+                    r.refused = (f"denied by the owner: `{cmd}` was not run ({reason})" if self.confirm is not None
+                                 else f"not run: `{cmd}` needs the owner's approval ({reason}) and no approval channel is connected")
+                info["approvals"] = info.get("approvals", 0) + 1
+                info["denied"] = info.get("denied", 0) + (not allowed)
             events.append(r)
             out = _flat(r)
             hist.append((cmd, out))
             steps.append((cmd, out, bool(r.ok)))
             return r, out
 
-        def finish(reply, success):
+        def finish(reply, clean):
             if memory is not None:
+                verified = False
+                if clean and self.verify is not None:
+                    try:
+                        verified = bool(self.verify(message, reply, list(steps), backend))
+                    except Exception:
+                        verified = False                            # a verifier that breaks is a "no"
+                info["verified"] = verified
                 try:
-                    memory.save(message, steps, reply, success, time.time() - t0)
+                    memory.save(message, steps, reply, verified, time.time() - t0)
                 except OSError:
                     pass
             return reply, events

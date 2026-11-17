@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,9 +66,22 @@ def execute(command: str, confirm: bool = True):
         r = t.run(command, confirm=False)
         if r.needs_confirmation and confirm:
             r = t.run(command, confirm=True)
-        return r.ok, (r.out if r.ok else r.refused or r.out), snapshot(t)
+        return r.ok, normalize(r.out if r.ok else r.refused or r.out, t.dir), snapshot(t)
     finally:
         t.close()
+
+
+CLOCK = re.compile(r"\b\d{1,2}:\d{2}:\d{2}\b")
+
+
+def normalize(out: str, root: str) -> str:
+    """What changes from one run to the next and is not the command's doing: the sandbox's own temporary folder (`pwd` printed /tmp/tldm_term_<random>, so a
+    correct `pwd` never matched the reference run) and the clock time (`date` matched only inside the same second). Both are masked the same way on both sides.
+    The command's own text is escaped first, so printing the mask itself (`echo '<sandbox>'`) does not count as `pwd`. Limit: a command that prints a
+    made-up clock time would pass for `date`; the held-out set has no such case."""
+    out = out.replace("\\", "\\\\").replace("<", "\\<")
+    out = out.replace(os.path.realpath(root), "<sandbox>").replace(root, "<sandbox>")
+    return CLOCK.sub("<time>", out)
 
 
 def same_effect(reference: str, produced: str) -> bool:

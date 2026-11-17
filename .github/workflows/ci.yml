@@ -33,7 +33,7 @@ jobs:
           python -m unittest discover -s ai-system/distill -p 'test_publish_pool.py' -v
           python -m unittest discover -s ai-system/distill -p 'test_exec_verify.py' -v
           python -m unittest discover -s ai-system/tldm/memory -p 'test_memory.py' -v       # T-LDM hidden terminal: file memory (recall, lessons, one memory per model); no model, no network
-          python ai-system/terminal/test_tasks.py && python ai-system/terminal/test_app_port.py       # T-LDM agent system: coordinator (phase 1) and the app port (phase 3: <tool_call>, no token, the user's yes)
+          python ai-system/terminal/test_tasks.py && python ai-system/terminal/test_app_port.py && python ai-system/terminal/test_approvals.py       # T-LDM agent system: coordinator (phase 1), the app port (phase 3) and the owner's terminal policy of 2026-11-18 (model_computer + approvals)
           PYTHONPATH=ai-agent python -m unittest discover -s ai-agent -p 'test_agent_loop.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_bank_search.py' -v       # the Studio's bank_search over the central knowledge bank

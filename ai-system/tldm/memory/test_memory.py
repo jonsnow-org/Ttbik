@@ -33,12 +33,12 @@ class MemoryTest(unittest.TestCase):
         for t in self.terms:
             t.close()
 
-    def chat(self, writer, model_id="sham_v2", factory=None):
+    def chat(self, writer, model_id="sham_v2", factory=None, verify=lambda task, reply, steps, backend: True):
         def backend(_session):
             t = factory() if factory else T.fresh()
             self.terms.append(t)
             return t
-        return serve_adapter.TLDMChat(writer, backend, confirm=lambda c: True, memory_factory=lambda s: serve_adapter.memory_for(self.root, model_id, s))
+        return serve_adapter.TLDMChat(writer, backend, confirm=lambda c: True, memory_factory=lambda s: serve_adapter.memory_for(self.root, model_id, s), verify=verify)
 
     def test_recall_replays_a_finished_task_with_no_model_call_and_the_same_final_state(self):
         c1 = self.chat(count_writer([]))
@@ -86,6 +86,29 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual((c2.last_info["lessons"], reply), (1, "Done."))
         self.assertIsNotNone(store.recall("show the notes"), "the corrected episode is remembered as a success")
         self.assertEqual(store.failed_commands("show the notes"), {"cat missing.txt"}, "only the command that failed is a lesson")
+
+    def test_only_a_verified_episode_becomes_a_success(self):
+        store = serve_adapter.memory_for(self.root, "sham_v2", "s1")
+        c = self.chat(count_writer([]), verify=None)
+        c.respond("s1", TASK)
+        self.assertFalse(c.last_info["verified"])
+        self.assertIsNone(store.recall(TASK), "no verifier: exit codes alone never make a remembered success")
+        self.assertEqual(store.failed_commands(TASK), set(), "a clean but unverified episode teaches no lesson: no command failed")
+        seen = []
+
+        def wrong_answer(task, reply, steps, backend):              # the gate sees the reply, the steps and the model's own computer
+            seen.append((reply, [x[0] for x in steps], os.path.isdir(backend.dir)))
+            return False
+        self.chat(count_writer([]), verify=wrong_answer).respond("s1", TASK)
+        self.assertIsNone(store.recall(TASK))
+        self.assertEqual(seen[0][1:], (["wc -l app.log"], True))
+
+        def broken(*a):
+            raise RuntimeError("verifier crashed")
+        self.chat(count_writer([]), verify=broken).respond("s1", TASK)
+        self.assertIsNone(store.recall(TASK), "a verifier that breaks is a no")
+        self.chat(count_writer([])).respond("s1", TASK)
+        self.assertIsNotNone(store.recall(TASK))
 
     def test_memory_is_per_model_and_per_session(self):
         self.chat(count_writer([]), model_id="sham").respond("s1", TASK)

@@ -171,6 +171,13 @@ def the_30_terminal_examples_all_run_and_are_logged():
     assert len(T.TRAIN) == 30 and len(T.HELDOUT) >= 10
 
 
+@test
+def same_effect_masks_the_sandbox_folder_and_the_clock_but_still_tells_wrong_commands_apart():
+    assert T.same_effect("pwd", "pwd") and T.same_effect("date", "date")      # each run has its own temp folder / second
+    assert not T.same_effect("pwd", "ls") and not T.same_effect("date", "touch date.txt")
+    assert not T.same_effect("pwd", "echo '<sandbox>'"), "the mask must not be writable by the command itself"
+
+
 def _sham_computer(session):
     d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
     sys.path.insert(0, d)
@@ -249,11 +256,27 @@ def hidden_terminal_the_user_sees_only_the_final_reply_and_the_flag_is_off_by_de
 
 
 @test
+def owner_policy_2026_11_18_shams_computer_plus_approval_before_a_sensitive_command():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend
+    import uuid
+    b = ShamEmbeddedBackend("tldm_policy_" + uuid.uuid4().hex[:8], "sham", separate=False)
+    assert b.policy == "model_computer_approvals", b.policy
+    calls = []
+    orig = b._exec
+    b._exec = lambda c: (calls.append(c), orig(c))[1]
+    assert b.run("echo kept > k.txt").ok and b.run("echo $HOME").out.startswith("/"), "the base is the computer as it is"
+    r = b.run("rm k.txt")
+    assert r.needs_confirmation and not r.ok and "rm k.txt" not in calls, "without the owner's allow it never reaches the computer"
+    assert b.run("rm k.txt", confirm=True).ok and calls[-1] == "rm k.txt"
+
+
+@test
 def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     import unittest
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
     res = unittest.TextTestRunner(stream=open(os.devnull, "w"), verbosity=0).run(suite)
-    assert res.testsRun >= 7 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
+    assert res.testsRun >= 8 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
 
 
 if __name__ == "__main__":
