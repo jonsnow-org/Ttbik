@@ -22,7 +22,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: notebook-task
+  group: notebook-task-${{ inputs.script }}-${{ inputs.name }}   # different scripts/names run side by side when the notebook has more than one runner
   cancel-in-progress: false
 jobs:
   run:
