@@ -41,12 +41,15 @@ class ComputerBackend:
                 return self._done(Result(command, False, "", 126, refused=why), t0)
             if needs and not confirm:
                 return self._done(Result(command, False, "", 0, refused="needs the user's confirmation", needs_confirmation=True), t0)
-        text = self.computer.execute("computer_run", {"command": command})
+        text = self._exec(command)
         m = re.match(r"exit code (-?\d+)\n?(.*)", text, re.S)
         if m:
             code, out = int(m.group(1)), m.group(2).strip()
             return self._done(Result(command, code == 0, out, code), t0)
         return self._done(Result(command, False, text.strip(), 1), t0)       # "error: ..." (timeout, path, ...)
+
+    def _exec(self, command: str) -> str:            # the one place that reaches the computer (subclasses change only HOW it is reached)
+        return self.computer.execute("computer_run", {"command": command})
 
     def _done(self, r: Result, t0: float) -> Result:
         r.secs = round(time.time() - t0, 3)

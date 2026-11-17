@@ -170,7 +170,8 @@ def _sham_computer(session):
     sys.path.insert(0, d)
     sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
     import sham_computer
-    return sham_computer.Computer(session=session)
+    import uuid
+    return sham_computer.Computer(session=session + "_" + uuid.uuid4().hex[:8])         # a fresh workspace per run: tests must not depend on earlier runs
 
 
 @test
@@ -205,6 +206,40 @@ def strict_policy_is_applied_before_the_command_reaches_the_computer():
     assert b.run("mkdir backup").needs_confirmation and calls == []
     assert b.run("mkdir backup", confirm=True).ok and b.run("ls").out == "backup"
     assert [c for c, _ in calls] == ["computer_run", "computer_run"]
+
+
+@test
+def sham_v1_and_v2_share_one_embedded_computer_today_and_the_terminal_is_visible_to_the_owner():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend, session_key
+    import sham_embedded_tools as tools
+    import uuid
+    s = "tldm_bind_test_" + uuid.uuid4().hex[:8]
+    b1, b2 = ShamEmbeddedBackend(s, "sham", separate=False), ShamEmbeddedBackend(s, "sham_v2", separate=False)
+    assert b1.key == b2.key == s and b1.computer is b2.computer, "today v1 and v2 share the computer, as the models themselves do"
+    assert b1.run("echo v1 > f.txt").ok and "v1" in tools.computer_for(s).execute("computer_read", {"path": "f.txt"}), "one body"
+    act = tools.view(s, "activity")["activity"]
+    assert act and act[-1]["tool"] == "computer_run" and "echo v1" in act[-1]["arguments"], "the owner's read-only Mini App screen must list the terminal's command"
+    # the future split: its own computer of the same class per model, by a switch, no code change
+    assert session_key(s, "sham", separate=True) == "sham:" + s and session_key(s, "sham_v2", separate=True) == "sham_v2:" + s
+    c1, c2 = ShamEmbeddedBackend(s, "sham", separate=True), ShamEmbeddedBackend(s, "sham_v2", separate=True)
+    assert c1.computer is not c2.computer and str(c1.computer.home) != str(c2.computer.home)
+    assert type(c1.computer) is type(b1.computer)
+    assert c2.run("ls").out == "", "a separated computer starts empty: nothing leaks from the other model"
+
+
+@test
+def hidden_terminal_the_user_sees_only_the_final_reply_and_the_flag_is_off_by_default():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend
+    import serve_adapter
+    assert serve_adapter.enabled() is False, "SHAM_TLDM must be off unless deliberately enabled"
+    script = iter(["$ echo 7 > n.txt", "$ cat n.txt", "The number is 7."])
+    seen = []
+    chat = serve_adapter.TLDMChat(lambda task, hist: (seen.append(list(hist)), next(script))[1], lambda session: ShamEmbeddedBackend("tldm_hidden_" + __import__("uuid").uuid4().hex[:8], "sham", separate=False))
+    reply, events = chat.respond("tldm_hidden", "save 7 and read it back")
+    assert reply == "The number is 7." and "$" not in reply
+    assert [e.out for e in events] == ["", "7"] and seen[2] == [("echo 7 > n.txt", ""), ("cat n.txt", "7")], "the terminal's result must come back to the model"
 
 
 if __name__ == "__main__":

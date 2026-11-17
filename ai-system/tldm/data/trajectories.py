@@ -10,24 +10,25 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import terminal_tasks as T  # noqa: E402
 
-IN_LEN, BLOCK = 192, 64
 OUT_FILES = [n + ".txt" for n in ("out", "report", "total", "result", "count", "data", "stats", "final")]
 NEW_FILES = [n + ".txt" for n in ("summary", "answer", "number", "tally", "size")]     # never seen in training: tests copying the name from the task
 CHAT = [("hello", "Hello! How can I help you?"), ("hi", "Hello! How can I help you?"), ("thanks", "You're welcome."), ("who are you", "I am Sham. I work through a terminal."),
         ("مرحبا", "أهلا بك! كيف أساعدك؟"), ("شكرا", "على الرحب والسعة."), ("من انت", "أنا شام، أعمل عبر طرفية.")]
 
 
-def view(task: str, hist) -> list[int]:
-    h = "".join(f"$ {c}\n> {r}\n" for c, r in hist)
-    tb = list(task.encode("utf-8"))[:64]
-    hb = list(h.encode("utf-8"))[-(IN_LEN - len(tb) - 1):]
-    s = tb + [10] + hb
-    return s + [0] * (IN_LEN - len(s))
+def view_text(task: str, hist) -> str:
+    """The model's input as TEXT: the task, then every command and the result the terminal returned."""
+    return task[:64] + "\n" + "".join(f"$ {c}\n> {r}\n" for c, r in hist)
 
 
-def pad(text: str) -> list[int]:
-    b = list(text.encode("utf-8"))[:BLOCK]
-    return b + [0] * (BLOCK - len(b))
+def view_ids(tok, task: str, hist, in_len: int) -> list[int]:
+    """The model's input as ids: the task, a newline, then the TAIL of everything the terminal returned (the end of the history is what matters), padded to in_len."""
+    t = [i for i in tok.encode(task[:64], len(task.encode("utf-8")) + 1) if i][:32]
+    h_text = "".join(f"$ {c}\n> {r}\n" for c, r in hist)
+    h = [i for i in tok.encode(h_text, len(h_text.encode("utf-8")) + 1) if i]
+    room = in_len - len(t) - 1
+    s = t + [10] + (h[-room:] if room > 0 else [])
+    return s + [0] * (in_len - len(s))
 
 
 def make_episode(rng: random.Random, new_names: bool = False):
@@ -54,32 +55,46 @@ def make_episode(rng: random.Random, new_names: bool = False):
 
 
 def run_episode(task: str, plan, reply_t: str):
-    """Runs the plan in a fresh sandbox. -> (steps, reply, final_snapshot) with steps = [(input_view_before_the_step, target_text)] for every step incl. the final reply."""
+    """Runs the plan in a fresh sandbox. -> (steps, reply, final_snapshot) with steps = [(history_before_the_step, target_text)] for every step incl. the final reply."""
     term = T.fresh()
     try:
         hist, res, steps = [], [], []
         for cmd_t in plan:
             cmd = cmd_t.format(**{f"r{i}": v for i, v in enumerate(res)})
-            steps.append((view(task, hist), "$ " + cmd))
+            steps.append((list(hist), "$ " + cmd))
             r = term.run(cmd, confirm=True)
             out = (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")
             res.append(out)
             hist.append((cmd, out))
         reply = reply_t.format(**{f"r{i}": v for i, v in enumerate(res)})
-        steps.append((view(task, hist), reply))
+        steps.append((list(hist), reply))
         return steps, reply, T.snapshot(term)
     finally:
         term.close()
 
 
-def make_dataset(n: int, seed: int):
+def corpus_texts(n: int, seed: int) -> list[str]:
+    """Texts the tokenizer is trained on: tasks, commands and replies of TRAINING episodes (file names of the training split only)."""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        task, plan, reply_t = make_episode(rng)
+        steps, _, _ = run_episode(task, plan, reply_t)
+        out.append(task)
+        for h, t in steps:
+            out.append(t)
+            out += [f"$ {c}\n> {r}\n" for c, r in h]
+    return out
+
+
+def make_dataset(n: int, seed: int, tok, in_len: int, block: int):
     rng = random.Random(seed)
     xs, ys = [], []
     for _ in range(n):
         task, plan, reply_t = make_episode(rng)
         steps, _, _ = run_episode(task, plan, reply_t)
-        for v, tgt in steps:
-            xs.append(v); ys.append(pad(tgt))
+        for h, tgt in steps:
+            xs.append(view_ids(tok, task, h, in_len)); ys.append(tok.encode(tgt, block))
     return xs, ys
 
 

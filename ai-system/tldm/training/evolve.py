@@ -13,14 +13,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "memory"))
 from common import ROOT  # noqa: E402
 import torch  # noqa: E402
-from sham_tldm import Sham1_TLDM, decode_bytes  # noqa: E402
+from sham_tldm import Sham1_TLDM, from_state  # noqa: E402
 import trajectories as J  # noqa: E402
 import terminal_tasks as T  # noqa: E402
 from self_evolution import MemoryStore, attach_lora, save_adapter  # noqa: E402
 from train_loop import build, run_agent, evaluate  # noqa: E402
 
 
-def explore(model, cfg, store, n, seed, temperature):
+def explore(model, cfg, tok, store, n, seed, temperature):
     """Runs sampled episodes on fresh tasks; -> training pairs from the successful ones."""
     rng = random.Random(seed)
     pairs, wins = [], 0
@@ -32,17 +32,17 @@ def explore(model, cfg, store, n, seed, temperature):
         try:
             reply, steps = "", []
             for _ in range(5):
-                ids = torch.tensor([J.view(task, hist)])
+                ids = torch.tensor([J.view_ids(tok, task, hist, cfg["in_len"])])
                 with torch.no_grad():
                     out, _ = model.generate(ids, steps=cfg["diffusion_steps"], temperature=temperature)
-                text = decode_bytes(out[0])
+                text = tok.decode(out[0])
                 if text.startswith("$ "):
                     cmd = text[2:].strip()
                     r = term.run(cmd, confirm=True)
-                    steps.append((J.view(task, hist), text))
+                    steps.append((J.view_ids(tok, task, hist, cfg["in_len"]), text))
                     hist.append((cmd, (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")))
                 else:
-                    steps.append((J.view(task, hist), text)); reply = text
+                    steps.append((J.view_ids(tok, task, hist, cfg["in_len"]), text)); reply = text
                     break
             good = reply == ref_reply and T.snapshot(term) == ref_snap
         finally:
@@ -50,7 +50,7 @@ def explore(model, cfg, store, n, seed, temperature):
         store.save(task, hist, reply, good, time.time() - t0)
         if good:
             wins += 1
-            pairs += [(v, J.pad(t)) for v, t in steps]
+            pairs += [(v, tok.encode(t, cfg["block"])) for v, t in steps]
     return pairs, wins
 
 
@@ -66,12 +66,13 @@ def main():
     ck = torch.load(a.ckpt, map_location="cpu")
     cfg = ck["cfg"]
     model = build(cfg)
+    tok = from_state(ck.get("tokenizer", {"kind": "byte"}))
     model.load_state_dict(ck["model"])
     model.eval()
-    before = evaluate(model, cfg, a.eval, seed=778, new_names=True)
+    before = evaluate(model, cfg, tok, a.eval, seed=778, new_names=True)
     print("before evolution (names never seen):", before, flush=True)
     store = MemoryStore(a.memory)
-    pairs, wins = explore(model, cfg, store, a.explore, seed=5, temperature=0.7)
+    pairs, wins = explore(model, cfg, tok, store, a.explore, seed=5, temperature=0.7)
     print(f"exploration: {wins}/{a.explore} sampled episodes judged successful by the terminal -> {len(pairs)} training steps for the LoRA", flush=True)
     if not pairs:
         print("no successes to learn from"); return
@@ -87,7 +88,7 @@ def main():
         opt.step()
     model.eval()
     size = save_adapter(model, a.adapter)
-    after = evaluate(model, cfg, a.eval, seed=778, new_names=True)
+    after = evaluate(model, cfg, tok, a.eval, seed=778, new_names=True)
     print("after the LoRA (same episodes)      :", after, flush=True)
     print(f"adapter file: {size/1024:.1f} KB (the base checkpoint is untouched)")
     wins2 = sum(1 for r in store.successes())
