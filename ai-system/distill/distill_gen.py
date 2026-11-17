@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -56,8 +57,16 @@ def ask(t: dict, prompt: str, timeout: int = 180, env=None) -> str:
         headers["Authorization"] = "Bearer " + key
     body = json.dumps({"model": t["model"], "messages": [{"role": "user", "content": prompt}], "temperature": 0.2, "max_tokens": 600}).encode()
     req = urllib.request.Request(t["endpoint"], data=body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return clean_answer(json.loads(r.read().decode())["choices"][0]["message"]["content"])
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return clean_answer(json.loads(r.read().decode())["choices"][0]["message"]["content"])
+    except urllib.error.HTTPError as e:     # say WHY (status + a short body) so a wrong model id or key is visible in the log; the key itself is never in the body we print
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:160].replace(key, "***") if key else e.read().decode("utf-8", "replace")[:160]
+        except Exception:  # noqa: BLE001
+            pass
+        raise RuntimeError(f"HTTP {e.code} {body}") from None
 
 
 def _words(s: str) -> set[str]:
@@ -104,7 +113,9 @@ def run(rows: list[dict], teachers: list[dict], ask_fn=ask, env=None) -> tuple[l
             try:
                 answers.append((t, ask_fn(t, row["prompt"])))
             except Exception as exc:  # a teacher that is down is skipped, never fatal
-                stats.setdefault("errors", []).append(f"{t['id']}: {type(exc).__name__}")
+                msg = f"{t['id']}: {type(exc).__name__} {str(exc)[:200]}"
+                if msg not in stats.setdefault("errors", []):
+                    stats["errors"].append(msg)
         if not answers:
             continue
         if row.get("verifier", "none") not in ("none", ""):
