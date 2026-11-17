@@ -46,9 +46,9 @@ export function coderStudioUrl(): string {
 // by an AsyncLocalStorage set at every engine entry (the webhook handler, every worker leg); a new completion may only go to that model's pool.
 // A job id carries a GLOBAL index into allEngineBases(), so polling a job always reaches the Studio that took it, whatever the context.
 const engineModel = new AsyncLocalStorage<string>();
-export const ENGINE_MODELS = ["coder", "lfm25"] as const;
+export const ENGINE_MODELS = ["coder", "lfm25", "nova2"] as const;
 export type EngineModel = (typeof ENGINE_MODELS)[number];
-export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25";
+export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25" || id === "nova2";
 /** Runs fn with `model`'s Studio pool for every new completion made inside it (any non-engine id = Nova's pool). */
 export function withEngineModel<T>(model: string | undefined, fn: () => T): T {
   return engineModel.run(isEngineModel(model) ? model : "coder", fn);
@@ -61,24 +61,24 @@ export function lfmStudioUrls(): string[] {
   if (/^(off|none|0)$/i.test(raw)) return [];
   return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
 }
-// ── Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studios, beside the old Nova pool, switched by the owner and undone by the owner ────────────
-// Addresses: AI_NOVA2_URLS (comma list; a stored secret of the Athar bot `/secret`, or the env NOVA2_STUDIO_URLS). Token of the international account: AI_NOVA2_TOKEN.
-// The switch: AI_NOVA_POOL = nova2 sends every NEW completion to this pool; anything else (or deleting the secret) is the old Nova exactly as before. Job ids of the old pool and of
-// LFM keep their numbers (the Nova 2 Studios are appended last in the index space), so a switch never orphans a running job.
+// ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
+// Like LFM2.5 it has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
+// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Its conversation is Nova's own (same chat state): switching
+// between Nova and Nova 2 continues the same thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
+export const NOVA2_DEFAULT = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
 export function nova2Urls(): string[] {
-  const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || "").trim();
+  const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || (process.env.NODE_ENV === "test" ? "" : NOVA2_DEFAULT)).trim();
+  if (/^(off|none|0)$/i.test(raw)) return [];
   return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham|lfm/i.test(x));
 }
-export function nova2Active(): boolean {
-  return /^(nova2|on|1)$/i.test((process.env.NOVA_POOL || secretCached("AI_NOVA_POOL") || "").trim()) && nova2Urls().length > 0;
-}
+export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim());
 /** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
 export function tokenFor(base: string): string {
   if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || coderToken()).trim();
   return coderToken();
 }
 function novaStudioUrls(): string[] {
-  return nova2Active() ? nova2Urls() : oldNovaStudioUrls();
+  return oldNovaStudioUrls();
 }
 function oldNovaStudioUrls(): string[] {
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
@@ -96,7 +96,7 @@ export function allEngineBases(): string[] {
 }
 /** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; LFM2.5: its own). Never the other model's. */
 export function coderStudioUrls(model: EngineModel = currentEngineModel()): string[] {
-  return model === "lfm25" ? lfmStudioUrls() : novaStudioUrls();
+  return model === "lfm25" ? lfmStudioUrls() : model === "nova2" ? nova2Urls() : novaStudioUrls();
 }
 const studioCooling = new Map<string, number>();                       // base -> skip until (after a failure), per server instance
 const COOL_MS = 60000;

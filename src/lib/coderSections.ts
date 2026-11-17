@@ -13,7 +13,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { nova2Active, coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -90,7 +90,7 @@ const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 2 * 600
 /** The CPU reads a prompt at ~25 tokens/s and says nothing meanwhile: until the first text, a long prompt is given the time it needs (capped), unless the Studio reports its reading progress (then any progress counts as life). */
 const readingMs = (run: { promptEst?: number }, r: { total?: number; prefill?: { processed?: number } | null }) =>
   r.total || r.prefill ? 0 : Math.min(20 * 60000, Math.round(((run.promptEst || 0) / 25) * 1000 * 1.3) + 60000);
-const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000), nova2Active() ? 1500000 : 0);   // Nova 2 (35B on 2 cores) reads ~9 tokens/s: a step may legitimately show no progress for many minutes
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000), currentEngineModel() === "nova2" ? 1500000 : 0);   // Nova 2 (35B on 2 cores) reads ~9 tokens/s: a step may legitimately show no progress for many minutes
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
@@ -369,10 +369,10 @@ async function engineModelOf(chatId: number | string | undefined, db: Db, slot =
 }
 
 /** Find the engine that owns a persisted run, even when the account has since switched models. */
-export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | undefined> {
+export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | "nova2" | undefined> {
   for (const model of ["coder", "lfm25"] as const) {
     const st = await withEngineModel(model, () => loadStateStrict(chatId, db, slot)).catch(() => null);
-    if (st?.run?.id === runId) return model;
+    if (st?.run?.id === runId) return model === "coder" && st.model === "nova2" ? "nova2" : model;   // Nova 2 shares Nova's chat state: the model recorded in it says which pool owns the run
   }
   return undefined;
 }
@@ -755,7 +755,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   if (requiresProgressCard(content)) await openCard(bot, chatId, st.run!, content, db);
   await saveState(chatId, st, db);
   await typing(bot, chatId);
-  const engine = selectedModel === "lfm25" ? "lfm25" : "coder";
+  const engine = selectedModel === "lfm25" ? "lfm25" : selectedModel === "nova2" ? "nova2" : "coder";
   const legMs = Number(process.env.CODER_MEDIA_LEG_MS || 0) || MEDIA_LEG_MS;   // CODER_MEDIA_LEG_MS: how long one media leg may run before handing off (tests, tuning)
   later(() => withEngineModel(engine, () => drive(bot, botRow, chatId, st.run!.chain, db, legMs)));
   return true;
@@ -1183,7 +1183,7 @@ export async function stopRun(chatId: number, slot = "", runId?: string, db: Db 
   const selected = runId
     ? await engineModelForRun(chatId, runId, db, slot)
     : undefined;
-  const engine = selected || (currentEngineModel() === "lfm25" ? "lfm25" : "coder");
+  const engine = selected || currentEngineModel();
   return withEngineModel(engine, () => stopRunInner(chatId, slot, runId, db));
 }
 async function stopRunInner(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
@@ -2729,7 +2729,7 @@ ${summary}`, db);
  * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
-  const model = currentEngineModel() === "lfm25" ? "lfm25" : await engineModelOf(chatId, db, slot);
+  const model = currentEngineModel() !== "coder" ? currentEngineModel() : await engineModelOf(chatId, db, slot);
   return withEngineModel(model, () => driveInner(bot, botRow, chatId, chain, db, budgetMs, slot));
 }
 async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
@@ -2777,7 +2777,7 @@ async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chai
   }
 }
 
-export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" = "coder"): Promise<void> {
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" | "nova2" = "coder"): Promise<void> {
   return withEngineModel(engineModel, async () => {
     if (engineModel === "lfm25") await ensureLfmSessionState(chatId, db);
     const { Bot } = await import("grammy");
@@ -2850,7 +2850,7 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
     }
     await saveState(chatId, st, db, slot);
     await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
-    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "lfm25" ? "lfm25" : "coder"));
+    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "lfm25" || selectedModel === "nova2" ? selectedModel : "coder"));
     return true;
   });
 }

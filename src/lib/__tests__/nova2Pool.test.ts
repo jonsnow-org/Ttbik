@@ -1,40 +1,34 @@
-import { coderStudioUrls, allEngineBases, nova2Active, nova2Urls, tokenFor, withEngineModel } from "@/lib/openCoderStudio";
+import { coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 
 const OLD = ["https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net", "https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net"];
 const N2 = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
 
-describe("Nova 2 pool (35B on the international Studio, beside the old Nova)", () => {
+describe("Nova 2: its own model (35B on the international Studio) beside Nova", () => {
   const keep = { ...process.env };
   beforeEach(() => {
     process.env.OPEN_CODER_STUDIO_URL = OLD[0];
     process.env.OPEN_CODER_STUDIO_URLS = OLD[1];
     process.env.OPEN_CODER_STUDIO_TOKEN = "cn-token";
     process.env.LFM_STUDIO_URLS = "off";
-    delete process.env.NOVA2_STUDIO_URLS; delete process.env.NOVA_POOL; delete process.env.NOVA2_STUDIO_TOKEN;
+    process.env.NOVA2_STUDIO_URLS = N2;
+    delete process.env.NOVA2_STUDIO_TOKEN;
   });
   afterAll(() => { process.env = keep; });
 
-  test("without the switch the old Nova is untouched", () => {
-    process.env.NOVA2_STUDIO_URLS = N2;
-    expect(nova2Active()).toBe(false);
+  test("Nova keeps its Studios and Nova 2 has its own", () => {
     expect(withEngineModel("coder", () => coderStudioUrls())).toEqual(OLD);
+    expect(withEngineModel("nova2", () => coderStudioUrls())).toEqual([N2]);
+    expect(withEngineModel("nova2", () => currentEngineModel())).toBe("nova2");
+    expect(isEngineModel("nova2")).toBe(true);
   });
 
-  test("the switch sends new completions to Nova 2 and the old pool keeps its job indexes", () => {
-    process.env.NOVA2_STUDIO_URLS = N2;
-    const before = allEngineBases();
-    process.env.NOVA_POOL = "nova2";
-    expect(nova2Active()).toBe(true);
-    expect(withEngineModel("coder", () => coderStudioUrls())).toEqual([N2]);
-    expect(allEngineBases()).toEqual(before);                     // no index moved
-    expect(allEngineBases().slice(0, 2)).toEqual(OLD);
-    expect(allEngineBases()[allEngineBases().length - 1]).toBe(N2);
-  });
-
-  test("switching on without any address changes nothing", () => {
-    process.env.NOVA_POOL = "nova2";
-    expect(nova2Active()).toBe(false);
-    expect(withEngineModel("coder", () => coderStudioUrls())).toEqual(OLD);
+  test("the job-index space only grows at the end: no job of Nova or LFM2.5 changes its number", () => {
+    const all = allEngineBases();
+    expect(all.slice(0, 2)).toEqual(OLD);
+    expect(all[all.length - 1]).toBe(N2);
+    process.env.NOVA2_STUDIO_URLS = "off";
+    expect(allEngineBases()).toEqual(OLD);
   });
 
   test("only https addresses of non-Sham, non-hub, non-LFM Studios are accepted", () => {
@@ -46,5 +40,16 @@ describe("Nova 2 pool (35B on the international Studio, beside the old Nova)", (
     process.env.NOVA2_STUDIO_TOKEN = "ai-token";
     expect(tokenFor(N2)).toBe("ai-token");
     expect(tokenFor(OLD[0])).toBe("cn-token");
+    expect(nova2TokenSet()).toBe(true);
+  });
+
+  test("the model is in the list, owner-only, ready only with its token", () => {
+    const m = DEFAULT_MODELS.find((x) => x.id === "nova2")!;
+    expect(m).toBeTruthy();
+    expect(m.ownerOnly).toBe(true);
+    expect(modelReady(m)).toBe(false);
+    process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+    expect(modelReady(m)).toBe(true);
+    expect(DEFAULT_MODELS.find((x) => x.id === "coder")).toBeTruthy();   // Nova is still there
   });
 });
