@@ -11,6 +11,42 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    slug: "china-mexico-cooperation-apec-2026",
+    title: "China and Mexico seek deeper cooperation ahead of APEC leaders' meeting",
+    dek: "Xi Jinping and Claudia Sheinbaum met in Shenzhen on 17 November, discussing technology, agriculture, water, trade and other areas. The sources reviewed do not report a new trade agreement signed at the meeting.",
+    date: "2026-11-17",
+    body: [
+      "Chinese President Xi Jinping met Mexican President Claudia Sheinbaum in Shenzhen on the afternoon of 17 November 2026, ahead of the APEC Economic Leaders' Meeting scheduled for 18–19 November. China's Foreign Ministry confirmed the meeting.",
+      "Sheinbaum said Mexico wants to strengthen cooperation with China in trade, investment, science and technology, manufacturing, artificial intelligence, agriculture and water management, as well as health, education, culture and tourism. The Chinese statement also highlighted infrastructure, technology and clean energy.",
+      "Reuters independently reported the same broad areas of discussion. The official statement and reporting reviewed here do not record a new trade agreement signed during the meeting, so expressions of interest should not be confused with a completed deal or a financial commitment.",
+      "The meeting took place as China hosts APEC in 2026; Mexico is scheduled to host the forum in 2028. The next evidence to watch is whether the announced areas of cooperation lead to specific projects or published agreements."
+    ],
+    tool: "/en/events/apec-economic-leaders-meeting-shenzhen-2026",
+    sources: [
+      { href: "https://www.mfa.gov.cn/eng/xw/zyxw/202611/t20261117_12061358.html", label: "China's Foreign Ministry — Official meeting statement" },
+      { href: "https://www.reuters.com/world/china/mexico-keen-strengthen-cooperation-with-china-president-says-2026-11-17/", label: "Reuters — Areas discussed by the two leaders" }
+    ]
+  },
+  {
+    slug: "us-remote-ai-chip-controls-2026",
+    title: "US issues new controls on remote access to advanced AI chips",
+    dek: "The interim rule targets defined data-centre arrangements and certain destinations. The Federal Register lists it as unpublished and scheduled for publication on 19 November.",
+    date: "2026-11-17",
+    body: [
+      "The U.S. Commerce Department's Bureau of Industry and Security (BIS) announced an interim final rule on 16 November 2026 addressing remote access to advanced chips and servers through data centres in third countries. BIS says the measure is intended to prevent cloud-computing arrangements from bypassing restrictions on sensitive technology.",
+      "The rule adds licensing requirements for certain exports, re-exports and in-country transfers involving advanced items destined for defined data-centre arrangements serving companies in restricted destinations. It also adds requirements for certain chip exports to Indonesia, Malaysia, Singapore, Thailand and Brazil, subject to specific conditions and exceptions.",
+      "The Associated Press and Reuters report that the measure is aimed in part at limiting Chinese companies' access to U.S. computing capacity hosted outside China. It is not a blanket ban on all cloud services or every chip shipment: the rule specifies covered equipment, destinations and use cases that require authorization.",
+      "As of 17 November, the Federal Register listed the document as unpublished and scheduled for publication on 19 November 2026. The announcement date and the scheduled formal publication date are therefore distinct; this report does not describe the rule as already in force.",
+      "The practical effect will depend on the final published text, licensing decisions and the application of its exceptions to chip exporters, data-centre operators and cloud providers."
+    ],
+    sources: [
+      { href: "https://media.bis.gov/press-release/bis-issues-rule-addressing-remote-access-american-super-intelligence-technology", label: "BIS — Official interim-rule announcement" },
+      { href: "https://www.federalregister.gov/public-inspection/2026-23529/addressing-remote-access-to-advanced-semiconductors", label: "Federal Register — Publication status and scheduled date" },
+      { href: "https://www.reuters.com/legal/litigation/us-issues-rule-protect-advanced-ai-chips-being-accessed-remotely-2026-11-16/", label: "Reuters — Details of the new controls" },
+      { href: "https://apnews.com/article/nvidia-export-controls-chips-china-remote-access-60f868d3bb430b85a8657b27d421096e", label: "AP — Scope of the rule and China's response" }
+    ]
+  },
+  {
     slug: "openai-for-chile-public-sector-ai-2026",
     title: "Chile and OpenAI sign memorandum to explore AI in public services",
     dek: "The announced partnership covers public-sector processes, civil-service training and startup support. The memorandum sets out areas to explore, not a government service already in operation.",

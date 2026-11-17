@@ -24,6 +24,19 @@ test("daily news has source-matched Arabic and English versions", () => {
   assert.match(en.dek, /memorandum/);
 });
 
+
+test("the wider global news briefings are bilingual and independently sourced", () => {
+  for (const slug of ["china-mexico-cooperation-apec-2026", "us-remote-ai-chip-controls-2026"]) {
+    const ar = NEWS_ITEMS.find((item) => item.slug === slug);
+    const en = EN_NEWS.find((item) => item.slug === slug);
+    assert.ok(ar, `Arabic news entry missing: ${slug}`);
+    assert.ok(en, `English news entry missing: ${slug}`);
+    assert.equal(ar.dateIso, en.date);
+    assert.deepEqual(sourceUrls(ar), sourceUrls(en));
+    assert.ok(ar.sources.length >= 2);
+  }
+});
+
 test("the practical guide is bilingual and cites the same governance sources", () => {
   const ar = ARTICLE_ITEMS.find((item) => item.slug === ARTICLE_SLUG);
   const en = EN_ARTICLES.find((item) => item.slug === ARTICLE_SLUG);
