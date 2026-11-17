@@ -1,4 +1,5 @@
-import { coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { coderToolsFor } from "@/lib/coderAgent";
+import { agentsAllowedFor, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
@@ -17,6 +18,24 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     delete process.env.NOVA2_STUDIO_TOKEN;
   });
   afterAll(() => { process.env = keep; });
+
+  test("Nova 2 reads ~8 tokens/s: it gets the small tool list (load_tools), Nova keeps the full fixed list", () => {
+    const msgs = [{ role: "user", content: "من انت" }] as never;
+    const size = (m: "coder" | "nova2") => withEngineModel(m, () => JSON.stringify(coderToolsFor(true, true, msgs)).length);
+    expect(size("nova2")).toBeLessThan(6000);                       // ~2,000 tokens at most (measured 1,860 characters)
+    expect(size("coder")).toBeGreaterThan(30000);                   // unchanged for Nova: the whole list, same text every request
+    const names = withEngineModel("nova2", () => (coderToolsFor(true, true, msgs) as { function: { name: string } }[]).map((t) => t.function.name));
+    expect(names).toContain("load_tools");
+    expect(names).toContain("ask_user");
+    expect(names).not.toContain("delegate");
+  });
+
+  test("Nova 2 works alone: no agents, and never the cn token on its international Studio", () => {
+    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(false);
+    expect(withEngineModel("coder", () => agentsAllowedFor())).toBe(true);
+    delete process.env.NOVA2_STUDIO_TOKEN;
+    expect(tokenFor(N2)).not.toContain("cn-token");
+  });
 
   test("Nova keeps its Studios and Nova 2 has its own", () => {
     expect(withEngineModel("coder", () => coderStudioUrls())).toEqual(OLD);

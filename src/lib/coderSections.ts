@@ -14,7 +14,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderStudioUrls, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -1897,7 +1897,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (call.function.name === "delegate") {
         const requested = normalizeTasks(parseArgs(call), tierFor(chatId) === "owner", run.agent ? run.agentDepth || 1 : 0);
         const studioCount = coderStudioUrls().length;
-        const maxAgents = maxParallelAgentsForStudios(studioCount, Boolean(run.agent));
+        const maxAgents = agentsAllowedFor() ? maxParallelAgentsForStudios(studioCount, Boolean(run.agent)) : 0;
         const tasks = requested.slice(0, maxAgents);
         const omitted = requested.slice(tasks.length).map((t) => t.title);
         run.queued = rest;
@@ -1906,6 +1906,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             ? "error: sub-agents are switched off"
             : !requested.length
               ? "error: delegate needs tasks:[{title, task}] (1 to 5)"
+              : !agentsAllowedFor()
+                ? "error: this model works alone on its own Studio (no agents). Continue in this run with the tools already available."
               : studioCount < 2
                 ? "error: parallel agents are disabled because fewer than two Nova Studios are configured. Continue in this run and use github_repo_audit, github_repo_scan, github_read_files, and independent read calls."
                 : "error: there is no spare Studio capacity for a child agent at this level; continue with the tools already available.";
