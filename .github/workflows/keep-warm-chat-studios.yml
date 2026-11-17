@@ -23,6 +23,21 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "$n HTTP $code"
           done
+      - name: Ping the Sham trainer Studios
+        # A Studio nobody calls goes to sleep: the pinged ones stayed Running and the un-pinged ones slept (read 2026-11-17).
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
+          for n in sham-trainer-1 sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_CN" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
+            echo "cn $n HTTP $code"
+          done
+          for n in sham-trainer-1 sham-trainer-tools; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
+            echo "ai $n HTTP $code"
+          done
       - name: Wake each live media Studio if it fell asleep
         # A plain HTTP request does NOT wake a sleeping free Studio (checked 2026-11-11: after an image request every media Studio was still
         # "Sleeping" and every image failed with HTTP 404). Only ModelScope's deploy call starts it again, from the code it already holds.

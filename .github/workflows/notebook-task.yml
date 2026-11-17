@@ -1,0 +1,47 @@
+name: Run a script on the owner's notebook runner (ModelScope Notebook)
+# The notebook registers itself as a self-hosted runner (scripts/notebook-node/runner.sh). This workflow is manual only (workflow_dispatch can never be started from a fork)
+# and runs a script from this repository on that machine with the repository's secrets as environment variables: nothing is typed in the notebook.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh)"
+        default: "train_sham_gpu.sh"
+      args:
+        description: "argument for the script (gpu_node.sh: setup | bench | serve)"
+        default: ""
+      job:
+        description: "trainer job: live|images|audio|chat|tools|text|codec|motion"
+        default: "live"
+      hours:
+        description: "training hours (the notebook session lasts 4 h at most)"
+        default: "3"
+      name:
+        description: "lineage name: publishes sham-crawl-<name>"
+        default: "nb1"
+permissions:
+  contents: read
+concurrency:
+  group: notebook-task
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: [self-hosted, notebook]
+    timeout-minutes: 250
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run
+        env:
+          MS_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          JOB: ${{ inputs.job }}
+          HOURS: ${{ inputs.hours }}
+          NAME: ${{ inputs.name }}
+          FG: "1"
+          SCRIPT: ${{ inputs.script }}
+          ARGS: ${{ inputs.args }}
+        run: |
+          echo "::add-mask::$MS_TOKEN"; echo "::add-mask::$KAGGLE_API_TOKEN"
+          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh) ;; *) echo "script not allowed"; exit 1;; esac
+          bash "scripts/notebook-node/$SCRIPT" $ARGS
