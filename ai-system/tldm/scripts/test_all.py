@@ -165,6 +165,48 @@ def the_30_terminal_examples_all_run_and_are_logged():
     assert len(T.TRAIN) == 30 and len(T.HELDOUT) >= 10
 
 
+def _sham_computer(session):
+    d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
+    sys.path.insert(0, d)
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    import sham_computer
+    return sham_computer.Computer(session=session)
+
+
+@test
+def one_body_per_model_the_terminal_works_through_the_models_own_computer():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from backends import ComputerBackend
+    comp = _sham_computer("tldm_test_one_body")
+    calls = []
+    orig = comp.execute
+    comp.execute = lambda name, args: (calls.append(name), orig(name, args))[1]
+    b = ComputerBackend(comp, policy="model_computer")
+    assert b.run("echo hello > made_by_terminal.txt").ok
+    assert "hello" in comp.execute("computer_read", {"path": "made_by_terminal.txt"}), "the model's own tools must see the terminal's file: one body"
+    assert set(calls) <= {"computer_run", "computer_read"}, calls                      # the terminal only ever calls the tool the model already has
+    assert b.run("echo $HOME").out.startswith("/"), "model_computer policy = the computer's own behaviour, unchanged (shell expansion works)"
+    assert b.run("false").ok is False
+
+
+@test
+def strict_policy_is_applied_before_the_command_reaches_the_computer():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from backends import ComputerBackend
+    comp = _sham_computer("tldm_test_strict")
+    calls = []
+    orig = comp.execute
+    comp.execute = lambda name, args: (calls.append((name, args.get("command"))), orig(name, args))[1]
+    b = ComputerBackend(comp, policy="strict")
+    for cmd in ("rm -rf /", "sudo ls", "curl http://x", "cat /etc/passwd", "ls; ls"):
+        r = b.run(cmd, confirm=True)
+        assert not r.ok and r.refused, cmd
+    assert calls == [], "a refused command must never reach the computer"
+    assert b.run("mkdir backup").needs_confirmation and calls == []
+    assert b.run("mkdir backup", confirm=True).ok and b.run("ls").out == "backup"
+    assert [c for c, _ in calls] == ["computer_run", "computer_run"]
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:

@@ -143,19 +143,26 @@ class SandboxTerminal:
         self._log(res)
         return res
 
-    def _run(self, command: str, confirm: bool) -> Result:
+    def vet(self, command: str):
+        """The policy alone, without running anything. -> (stages, redirect, refused_reason, needs_confirmation). Used by every backend that applies this policy to another executor."""
         parsed = self._parse(command.strip())
         if isinstance(parsed, str):
-            return Result(command, False, "", 126, refused=parsed)
+            return None, None, parsed, False
         stages, redirect = parsed
         needs = False
         for argv in stages:
             why = self._check(argv)
             if why:
-                return Result(command, False, "", 126, refused=why)
+                return None, None, why, False
             needs = needs or argv[0] in CONFIRM
         if redirect and not self._inside(redirect[1]):
-            return Result(command, False, "", 126, refused=f"redirect target {redirect[1]!r} is outside the working directory")
+            return None, None, f"redirect target {redirect[1]!r} is outside the working directory", False
+        return stages, redirect, "", needs
+
+    def _run(self, command: str, confirm: bool) -> Result:
+        stages, redirect, why, needs = self.vet(command)
+        if why:
+            return Result(command, False, "", 126, refused=why)
         if needs and not confirm:
             return Result(command, False, "", 0, refused="needs the user's confirmation", needs_confirmation=True)
         data, code = None, 0
