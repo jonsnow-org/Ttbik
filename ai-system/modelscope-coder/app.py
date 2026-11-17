@@ -146,6 +146,49 @@ def _llama_dir() -> Path:
     return exe.parent
 
 
+# ---------------------------------------------------------------- optional second engine: ik_llama.cpp (the owner's order 2026-11-17: run it with -rtr 1 on Nova's Studios and on the 35B Studio)
+# Measured 2026-11-16/17 on 2 cores (nova-prefill-probe.yml): the server decodes 6.7 tokens/s with `-rtr` against 5.0 for the pinned mainline build (+34%), reads prompts about as fast (13.9 vs 13.3), keeps every flag this
+# app uses, tools 6/6 code 6/6, and saves/restores conversation state (ik writes two extra files next to the .bin: `.checkpoints` and `.tokens.json`). It is used only on a Studio the deploy marked with `engine.ik`
+# (ai-system/modelscope-coder/ENGINES) AND only while it works: if it does not start, or the server dies, the Studio restarts on the pinned mainline build by itself (_ENGINE["ik_bad"]), so it can never take a Studio down.
+# Its files and saved states live apart from the mainline ones (`_slots_ik`, `_llama/ik`), because the two engines cannot read each other's state files.
+IK_FLAGS = os.environ.get("CODER_IK_FLAGS", "-rtr").split()
+_ENGINE = {"name": "mainline", "ik_bad": False, "ik_ref": ""}
+
+
+def _ik_wanted() -> bool:
+    if _ENGINE["ik_bad"] or _vision_wanted():          # the picture-reading Studio keeps the build it was tested on
+        return False
+    on = (HERE / "engine.ik").exists() or os.environ.get("CODER_ENGINE", "").strip().lower() == "ik"
+    return on and bool(list(HERE.glob("ik-llama.part*"))) and (HERE / "ik-llama.sha256").exists()
+
+
+def _ik_dir() -> Path:
+    """Joins the 4 MiB parts, checks the sha256 the deploy wrote next to them, unpacks (flat folder: llama-server + its libraries)."""
+    out = HERE / "_llama" / "ik"
+    exe = out / "llama-server"
+    if exe.exists():
+        return out
+    parts = sorted(HERE.glob("ik-llama.part*"))
+    want = (HERE / "ik-llama.sha256").read_text().split()[0].strip().lower()
+    data = b"".join(p.read_bytes() for p in parts)
+    got = hashlib.sha256(data).hexdigest()
+    if got != want:
+        raise RuntimeError(f"ik_llama.cpp tarball sha256 mismatch ({got[:12]})")
+    out.mkdir(parents=True, exist_ok=True)
+    tgz = out / "ik.tgz"
+    tgz.write_bytes(data)
+    with tarfile.open(tgz) as t:
+        try:
+            t.extractall(out, filter="data")
+        except TypeError:
+            t.extractall(out)
+    tgz.unlink(missing_ok=True)
+    exe.chmod(0o755)
+    ref = out / "REF"
+    _ENGINE["ik_ref"] = ref.read_text().strip()[:80] if ref.exists() else ""
+    return out
+
+
 # ---------------------------------------------------------------- model
 def _download_model() -> Path:
     local = os.environ.get("CODER_MODEL_PATH", "")
@@ -242,11 +285,18 @@ def _download_mmproj() -> str:
 
 
 
-def _start_server(model: Path, bindir: Path) -> None:
+def _start_server(model: Path, bindir: Path, engine: str = "mainline") -> None:
+    global SLOT_DIR
+    SLOT_DIR = HERE / ("_slots_ik" if engine == "ik" else "_slots")      # saved states are per engine (the two cannot read each other's files)
+    _ENGINE["name"] = engine
+    STATE["engine"] = engine
+    _LAST["conv"] = ""                                       # a new server process holds no conversation yet (the saved state, not this marker, brings one back)
     SLOT_DIR.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
            "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+    if engine == "ik":
+        cmd += IK_FLAGS
     if "lfm" in model.name.lower():       # LFM thinks by default: all of a short answer's tokens went to reasoning and the text came back empty (measured 2026-11-02); the app turns thinking on per request itself
         cmd += ["--reasoning-budget", "0"]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
@@ -284,14 +334,25 @@ def _supervisor() -> None:
     while True:
         try:
             if _PROC["p"] is None or _PROC["p"].poll() is not None:
+                if _PROC["p"] is not None and _ENGINE["name"] == "ik":
+                    _ENGINE["ik_bad"] = True                  # the ik server exited after it was started (crash, memory): this Studio goes back to the pinned mainline build
+                    _log("ik_llama.cpp server exited; restarting on mainline")
                 if _PROC["p"] is not None and _VIS["on"]:
                     _VIS["bad"] = True                    # the server died while the vision file was loaded (most likely memory): start again without it
                     _log("server exited with vision on; restarting without it")
                 STATE.update(phase="loading", error="")
-                bindir = _llama_dir()
+                engine, bindir = "mainline", None
+                if _ik_wanted():
+                    try:
+                        bindir, engine = _ik_dir(), "ik"
+                    except Exception as exc:
+                        _ENGINE["ik_bad"] = True
+                        _log("ik_llama.cpp not usable, using mainline:", type(exc).__name__, str(exc)[:120])
+                if bindir is None:
+                    bindir = _llama_dir()
                 model = _download_model()
-                STATE.update(detail="starting llama-server")
-                _start_server(model, bindir)
+                STATE.update(detail=f"starting llama-server ({engine})")
+                _start_server(model, bindir, engine)
                 if not _wait_health():
                     tail = ""
                     try:
@@ -302,6 +363,9 @@ def _supervisor() -> None:
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
         except Exception as exc:
+            if _ENGINE["name"] == "ik" and not _ENGINE["ik_bad"]:
+                _ENGINE["ik_bad"] = True                 # ik did not come up: the next start (5 s later) is the mainline build
+                _log("ik_llama.cpp failed to start; restarting on mainline")
             if _VIS["on"]:
                 _VIS["bad"] = True
                 _log("vision failed to start; restarting without it")
@@ -314,7 +378,7 @@ def _supervisor() -> None:
             if p is not None and p.poll() is None:
                 p.kill()
             _PROC["p"] = None
-            time.sleep(5 if _SPEC["bad"] and _SPEC["on"] else 60)
+            time.sleep(5 if (_SPEC["bad"] and _SPEC["on"]) or (_ENGINE["ik_bad"] and _ENGINE["name"] == "ik") else 60)
             continue
         time.sleep(10)
 
@@ -370,14 +434,28 @@ def _slot_call(action: str, filename: str) -> bool:
         return False
 
 
+def _sidecars(f: Path) -> list:
+    """Extra files an engine writes next to a saved state (ik: `<name>.checkpoints`, `<name>.tokens.json`); mainline writes none."""
+    try:
+        return [x for x in SLOT_DIR.glob(f.name + ".*") if x.is_file()]
+    except Exception:
+        return []
+
+
+def _drop(f: Path) -> None:
+    f.unlink(missing_ok=True)
+    for x in _sidecars(f):
+        x.unlink(missing_ok=True)
+
+
 def _slot_prune() -> None:
     try:
         files = sorted((f for f in SLOT_DIR.glob("*.bin") if not f.name.startswith("_start_")), key=lambda f: f.stat().st_mtime, reverse=True)
         for f in files[SLOT_KEEP:]:
-            f.unlink(missing_ok=True)
+            _drop(f)
         starts = sorted(SLOT_DIR.glob("_start_*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
         for f in starts[START_KEEP:]:
-            f.unlink(missing_ok=True)
+            _drop(f)
     except Exception:
         pass
 
@@ -412,14 +490,16 @@ def _slot_after(job: dict) -> None:
     SLOT_DIR.mkdir(parents=True, exist_ok=True)
     f = SLOT_DIR / f"{conv}.bin"
     if _slot_call("save", f.name):
-        if f.is_file() and f.stat().st_size > SLOT_MAX_MB * 1048576:
-            f.unlink(missing_ok=True)                     # too big for this disk: not kept
+        if f.is_file() and (f.stat().st_size + sum(x.stat().st_size for x in _sidecars(f))) > SLOT_MAX_MB * 1048576:
+            _drop(f)                                      # too big for this disk: not kept
         else:
             start = job.get("start") or ""
             if start and total >= START_MIN_TOKENS and f.is_file() and not _start_file(start).is_file():
                 try:
                     import shutil
                     shutil.copyfile(f, _start_file(start))      # the saved state begins with the shared start; a different conversation reuses that common part (probe, case 6)
+                    for x in _sidecars(f):                      # ik keeps checkpoints + token list in files next to the state: the start needs its own copies, under its own name
+                        shutil.copyfile(x, SLOT_DIR / (_start_file(start).name + x.name[len(f.name):]))
                     _log("shared start kept", start, f"{f.stat().st_size // 1048576} MB")
                 except Exception as exc:
                     _log("shared start not kept:", type(exc).__name__, str(exc)[:100])

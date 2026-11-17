@@ -58,8 +58,39 @@ jobs:
           print("studios:", names)
           PY
 
-  deploy:
+  build-ik:
+    # ik_llama.cpp for the Studios listed in ENGINES (owner's order 2026-11-17: ik with -rtr on Nova's Studios and the 35B Studio). Built in ubuntu:22.04 (an old glibc, so it runs on the Studio's OS) with the plain AVX2 baseline
+    # that the speed tests used; packed as one tarball (llama-server + libraries), cut into 4 MiB plain parts like the llama.cpp release, with its sha256. If this job fails, the deploys go ahead without it and every Studio runs mainline.
     needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      IK_REF: a6383da
+    steps:
+      - name: build, pack and self-check
+        run: |
+          mkdir -p out
+          docker run --rm -e IK_REF -v "$PWD/out:/out" ubuntu:22.04 bash -euxc '
+            apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git cmake g++ make ca-certificates >/dev/null
+            git clone https://github.com/ikawrakow/ik_llama.cpp /ik && cd /ik && git checkout "$IK_REF"
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_CUDA=OFF -DLLAMA_CURL=OFF > /dev/null
+            cmake --build build --target llama-server -j4 2>&1 | tail -3
+            mkdir /pkg && cp build/bin/llama-server /pkg/ && find build -name "*.so*" -exec cp -P {} /pkg/ \;
+            echo "ik_llama.cpp $(git log -1 --format="%h %cs")" > /pkg/REF
+            cd /pkg && echo "missing libraries:" && (LD_LIBRARY_PATH=/pkg ldd ./llama-server | grep "not found" || echo none)
+            LD_LIBRARY_PATH=/pkg ./llama-server --help 2>&1 | head -2
+            tar czf /out/ik-llama.tgz -C /pkg .'
+          cd out && sha256sum ik-llama.tgz | cut -d" " -f1 > ik-llama.sha256 && ls -l && cat ik-llama.sha256
+          split -b 4M -d -a 3 ik-llama.tgz ik-llama.part && rm ik-llama.tgz && ls
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ik-package
+          path: out/
+          retention-days: 3
+
+  deploy:
+    needs: [plan, build-ik]
+    if: ${{ always() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -70,6 +101,13 @@ jobs:
       REPO: ${{ matrix.studio }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: The ik_llama.cpp package (only for a Studio listed with ik in ENGINES)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ik-package
+          path: ik-package
 
       - name: Account, free hardware and existing Studio (read-only)
         env:
@@ -138,6 +176,16 @@ jobs:
           rm -f llama-${LLAMA_BUILD}.part*
           cp ../llama-${LLAMA_BUILD}.part* .
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
+          # ENGINES: a Studio marked `ik` gets the ik_llama.cpp package (parts + sha256 + the engine.ik marker); any other Studio has none of it. A missing package (the build job failed) leaves the Studio on mainline.
+          cd ..
+          if grep -qE "^${REPO} +ik\b" ai-system/modelscope-coder/ENGINES 2>/dev/null && ls ik-package/ik-llama.part* >/dev/null 2>&1 && [ -s ik-package/ik-llama.sha256 ]; then
+            rm -f ms-studio/ik-llama.part*; cp ik-package/ik-llama.part* ik-package/ik-llama.sha256 ms-studio/; echo on > ms-studio/engine.ik; echo "engine: ik_llama.cpp package attached"
+          else
+            rm -f ms-studio/ik-llama.part* ms-studio/ik-llama.sha256 ms-studio/engine.ik; echo "engine: mainline"
+          fi
+          cd ms-studio
+          grep -q 'ik-llama.part' .gitattributes 2>/dev/null || printf 'ik-llama.part* -filter -diff -merge -text\n' >> .gitattributes
+          git add -A ik-llama.part* ik-llama.sha256 engine.ik 2>/dev/null || true
           git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
