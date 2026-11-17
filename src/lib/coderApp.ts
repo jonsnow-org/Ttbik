@@ -362,6 +362,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const limit = Number(body.limit) || 60;
         const items: (Awaited<ReturnType<typeof C.chatList>>["items"][number] & { model: string })[] = [];
         for (const m of knownAll) {
+          if (m.id === "nova2") continue;                          // Nova 2 shares Nova's threads: they are listed once, under Nova
           if (!C.isChatModel(m.id) || !modelUsableBy(m, user.tier === "owner")) continue;
           const l = await C.chatList(chatId, st, m.id, { q: typeof body.q === "string" ? body.q : undefined, archived: archivedAll, limit }, db).catch(() => null);
           if (l) for (const x of l.items) items.push({ ...x, model: m.id, current: x.current && m.id === selected });
