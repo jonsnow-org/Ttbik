@@ -10,6 +10,7 @@ Stdlib only.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -24,8 +25,8 @@ from dataclasses import dataclass
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "distill"))
 from exec_verify import FORBIDDEN as PY_FORBIDDEN  # noqa: E402
 
-ALLOWED = {"ls", "cat", "echo", "pwd", "head", "tail", "wc", "grep", "sort", "uniq", "mkdir", "touch", "date", "seq", "tr", "cut", "basename", "dirname", "stat", "python3", "true", "false"}
-CONFIRM = {"rm", "mv", "cp"}
+ALLOWED = {"ls", "cat", "echo", "pwd", "head", "tail", "wc", "grep", "sort", "uniq", "touch", "date", "seq", "tr", "cut", "basename", "dirname", "stat", "python3", "true", "false"}
+CONFIRM = {"rm", "mv", "cp", "mkdir"}      # human confirmation (the project book: before mkdir, pip, git; pip and git are refused outright here)
 REFUSED = {"sudo", "su", "passwd", "shutdown", "reboot", "chmod", "chown", "dd", "mkfs", "kill", "pkill", "curl", "wget", "ssh", "scp", "nc", "ncat", "telnet", "ftp", "pip", "apt", "bash", "sh", "eval", "exec", "env", "export", "git", "docker", "mount", "crontab", "systemctl"}
 FILE_CMDS = {"ls", "cat", "head", "tail", "wc", "grep", "sort", "uniq", "mkdir", "touch", "cp", "mv", "rm", "stat", "cut", "basename", "dirname"}
 OPS_OK = {"|", ">", ">>"}
@@ -52,11 +53,12 @@ def _limits() -> None:
 
 
 class SandboxTerminal:
-    def __init__(self, workdir: str | None = None, log_path: str | None = None, timeout: int = 8):
+    def __init__(self, workdir: str | None = None, log_path: str | None = None, timeout: int = 8, trusted: dict | None = None):
         self._own = workdir is None
         self.dir = os.path.realpath(workdir or tempfile.mkdtemp(prefix="tldm_term_"))
         os.makedirs(self.dir, exist_ok=True)
         self.log_path, self.timeout, self.task = log_path, timeout, ""
+        self.trusted = dict(trusted or {})            # {script name in the working folder: sha256 of its text}: reviewed scripts (e.g. organize.py) the model may START but never write
 
     def close(self) -> None:
         if self._own:
@@ -124,6 +126,10 @@ class SandboxTerminal:
                     code = open(os.path.join(self.dir, argv[1]), encoding="utf-8").read()
                 except OSError:
                     return "script not found"
+                if argv[1] in self.trusted:
+                    if hashlib.sha256(code.encode("utf-8")).hexdigest() == self.trusted[argv[1]]:
+                        return ""                                   # a reviewed script, unchanged since it was reviewed
+                    return "trusted script was modified (sha256 mismatch)"
             else:
                 return "python3 is allowed only as `python3 FILE` or `python3 -c CODE`"
             if PY_FORBIDDEN.search(code):
