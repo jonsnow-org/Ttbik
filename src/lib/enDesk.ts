@@ -5,9 +5,84 @@ export type DeskItem = {
   date: string;
   body: string[];
   tool?: string;
+  sources?: { href: string; label: string }[];
+  endDate?: string;
 };
 
 export const EN_NEWS: DeskItem[] = [
+  {
+    slug: "japan-russian-airspace-incident-2026",
+    title: "Japan protests after two suspected Russian aircraft enter its airspace",
+    dek: "Japan’s Defense Ministry said two aircraft believed to be Russian entered airspace above territorial waters northwest of Okinoshima on 17 November. Fighters were scrambled and warnings issued; Tokyo said it lodged a strong protest. The ministry did not identify the aircraft types or explain their purpose.",
+    date: "2026-11-17",
+    body: [
+      "Japan’s Defense Ministry said on 17 November 2026 that one aircraft suspected of being Russian entered the airspace above territorial waters northwest of Okinoshima, Fukuoka Prefecture, from about 4:07 to 4:10 a.m. Japan Standard Time. A second suspected Russian aircraft entered from about 4:09 to 4:12 a.m. These are the incident times reported by the ministry, not the publication time of this article.",
+      "The ministry said the Japan Self-Defense Forces scrambled fighters from the Western Air Defense Force and issued notices and warnings. It said the aircraft later crossed the Tsushima Strait, passed between Yonaguni Island and Taiwan, and continued toward the Pacific. The statement did not identify the aircraft types.",
+      "Tokyo said it lodged a strong diplomatic protest with Russia and demanded measures to prevent a recurrence. Reuters and the Associated Press independently reported the incursion, the fighter response and Japan’s protest.",
+      "Japan’s Defense Ministry said the last confirmed violation of its airspace by a Russian aircraft was near Rebun Island in Hokkaido in September 2024. The ministry did not establish the purpose of the 17 November flight, so the incident alone does not prove a wider escalation.",
+      "Sham AI publication date: 17 November 2026. Incident date: early 17 November in Japan Standard Time."
+    ],
+    sources: [
+      { href: "https://www.mod.go.jp/j/press/news/2026/11/17c.html", label: "Japan Ministry of Defense — official statement on the aircraft" },
+      { href: "https://www.reuters.com/business/aerospace-defense/tokyo-lodges-protest-after-aircraft-believed-be-russian-violate-japan-airspace-2026-11-17/", label: "Reuters — Japan’s protest and incident details" },
+      { href: "https://apnews.com/article/japan-russia-china-military-airspace-a07dac6180c1cd4d6b7bd2c0389d9f6d", label: "Associated Press — incident and Japanese statements" }
+    ],
+  },
+  {
+    slug: "china-mexico-cooperation-apec-2026",
+    title: "China and Mexico seek deeper cooperation ahead of APEC leaders' meeting",
+    dek: "Xi Jinping and Claudia Sheinbaum met in Shenzhen on 17 November, discussing technology, agriculture, water, trade and other areas. The sources reviewed do not report a new trade agreement signed at the meeting.",
+    date: "2026-11-17",
+    body: [
+      "Chinese President Xi Jinping met Mexican President Claudia Sheinbaum in Shenzhen on the afternoon of 17 November 2026, ahead of the APEC Economic Leaders' Meeting scheduled for 18–19 November. China's Foreign Ministry confirmed the meeting.",
+      "Sheinbaum said Mexico wants to strengthen cooperation with China in trade, investment, science and technology, manufacturing, artificial intelligence, agriculture and water management, as well as health, education, culture and tourism. The Chinese statement also highlighted infrastructure, technology and clean energy.",
+      "Reuters independently reported the same broad areas of discussion. The official statement and reporting reviewed here do not record a new trade agreement signed during the meeting, so expressions of interest should not be confused with a completed deal or a financial commitment.",
+      "The meeting took place as China hosts APEC in 2026; Mexico is scheduled to host the forum in 2028. The next evidence to watch is whether the announced areas of cooperation lead to specific projects or published agreements."
+    ],
+    tool: "/en/events/apec-economic-leaders-meeting-shenzhen-2026",
+    sources: [
+      { href: "https://www.mfa.gov.cn/eng/xw/zyxw/202611/t20261117_12061358.html", label: "China's Foreign Ministry — Official meeting statement" },
+      { href: "https://www.reuters.com/world/china/mexico-keen-strengthen-cooperation-with-china-president-says-2026-11-17/", label: "Reuters — Areas discussed by the two leaders" }
+    ]
+  },
+  {
+    slug: "us-remote-ai-chip-controls-2026",
+    title: "US issues new controls on remote access to advanced AI chips",
+    dek: "The interim rule targets defined data-centre arrangements and certain destinations. The Federal Register lists it as unpublished and scheduled for publication on 19 November.",
+    date: "2026-11-17",
+    body: [
+      "The U.S. Commerce Department's Bureau of Industry and Security (BIS) announced an interim final rule on 16 November 2026 addressing remote access to advanced chips and servers through data centres in third countries. BIS says the measure is intended to prevent cloud-computing arrangements from bypassing restrictions on sensitive technology.",
+      "The rule adds licensing requirements for certain exports, re-exports and in-country transfers involving advanced items destined for defined data-centre arrangements serving companies in restricted destinations. It also adds requirements for certain chip exports to Indonesia, Malaysia, Singapore, Thailand and Brazil, subject to specific conditions and exceptions.",
+      "The Associated Press and Reuters report that the measure is aimed in part at limiting Chinese companies' access to U.S. computing capacity hosted outside China. It is not a blanket ban on all cloud services or every chip shipment: the rule specifies covered equipment, destinations and use cases that require authorization.",
+      "As of 17 November, the Federal Register listed the document as unpublished and scheduled for publication on 19 November 2026. The announcement date and the scheduled formal publication date are therefore distinct; this report does not describe the rule as already in force.",
+      "The practical effect will depend on the final published text, licensing decisions and the application of its exceptions to chip exporters, data-centre operators and cloud providers."
+    ],
+    sources: [
+      { href: "https://media.bis.gov/press-release/bis-issues-rule-addressing-remote-access-american-super-intelligence-technology", label: "BIS — Official interim-rule announcement" },
+      { href: "https://www.federalregister.gov/public-inspection/2026-23529/addressing-remote-access-to-advanced-semiconductors", label: "Federal Register — Publication status and scheduled date" },
+      { href: "https://www.reuters.com/legal/litigation/us-issues-rule-protect-advanced-ai-chips-being-accessed-remotely-2026-11-16/", label: "Reuters — Details of the new controls" },
+      { href: "https://apnews.com/article/nvidia-export-controls-chips-china-remote-access-60f868d3bb430b85a8657b27d421096e", label: "AP — Scope of the rule and China's response" }
+    ]
+  },
+  {
+    slug: "openai-for-chile-public-sector-ai-2026",
+    title: "Chile and OpenAI sign memorandum to explore AI in public services",
+    dek: "The announced partnership covers public-sector processes, civil-service training and startup support. The memorandum sets out areas to explore, not a government service already in operation.",
+    date: "2026-11-17",
+    body: [
+      "OpenAI announced OpenAI for Chile on 17 November 2026, a partnership with the Chilean government led by its Ministry of Science, Technology, Knowledge and Innovation. The company says the memorandum of understanding was signed on the sidelines of Semafor's Silicon Valley & The World conference in California.",
+      "The announcement says the partners will explore AI use in the ministry's administrative processes, practical training for civil servants, and support for local startups. Training topics include checking AI outputs, protecting sensitive information and keeping human oversight in place.",
+      "Chilean coverage describes the document as a memorandum of understanding, not a procurement award or an exclusive agreement. OpenAI's announcement does not specify a final budget, implementation timetable or a particular public service that has already gone live.",
+      "The partnership builds on Chile's national AI policy. Its practical impact will depend on later decisions about use cases, data governance, human review and how public-service outcomes are measured.",
+      "This is a report on OpenAI's announcement and Chilean coverage, not an independent evaluation or a guarantee of project results."
+    ],
+    tool: "/en/articles/government-ai-partnership-checklist",
+    sources: [
+      { href: "https://openai.com/index/introducing-openai-for-chile/", label: "OpenAI — Introducing OpenAI for Chile" },
+      { href: "https://www.t13.cl/noticia/nacional/chile-openai-firman-acuerdo-colaboracion-para-modernizar-estado-17-11-2026", label: "T13 — Details of the memorandum" },
+      { href: "https://minciencia.gob.cl/areas/inteligencia-artificial/Inteligencia-Artificial/", label: "Chile's Ministry of Science — National AI policy" }
+    ]
+  },
   {
     slug: "us-midterms-2026-democrats-gains-nov",
     title: "2026 US midterms: Democrats make historic gains in House and Senate",
@@ -127,6 +202,24 @@ export const EN_NEWS: DeskItem[] = [
 
 export const EN_EVENTS: DeskItem[] = [
   {
+    slug: "apec-economic-leaders-meeting-shenzhen-2026",
+    title: "33rd APEC Economic Leaders' Meeting in Shenzhen",
+    dek: "APEC leaders are scheduled to meet in Shenzhen on 18–19 November under China's 2026 host-year theme, with trade, regional connectivity and AI among the issues discussed during Leaders' Week.",
+    date: "2026-11-18",
+    endDate: "2026-11-19",
+    body: [
+      "The 33rd APEC Economic Leaders' Meeting is scheduled for 18–19 November 2026 in Shenzhen, Guangdong, China. China's Foreign Ministry says President Xi Jinping will chair the meeting under the theme “Building an Asia-Pacific Community to Prosper Together.”",
+      "APEC said senior officials met in Shenzhen ahead of Leaders' Week to advance work on trade integration, connectivity and artificial intelligence. Those topics form part of the forum's regional cooperation agenda; they should not be read as binding decisions before leaders publish their outcomes.",
+      "The week also includes the APEC CEO Summit on 17–18 November. The business summit and the leaders' meeting are related but distinct events with different programmes and participants.",
+      "The official announcements reviewed here confirm the dates and host city but do not provide public session times. This entry therefore records the announced schedule without guessing at individual sessions or outcomes."
+    ],
+    sources: [
+      { href: "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html", label: "China's Foreign Ministry — Leaders' Meeting dates" },
+      { href: "https://www.apec.org/press/news-releases/2026/1115_CSOM", label: "APEC — Trade, connectivity and AI agenda" },
+      { href: "https://www.apec.org/", label: "APEC — 2026 events calendar" }
+    ]
+  },
+  {
     slug: "world-tsunami-awareness-day-2026",
     title: "World Tsunami Awareness Day 2026: Be tsunami ready, resilience starts with you",
     dek: "5 November is World Tsunami Awareness Day. The 2026 UN theme focuses on individual and community preparedness. Not a disaster forecast.",
@@ -210,6 +303,27 @@ export const EN_EVENTS: DeskItem[] = [
 
 export const EN_ARTICLES: DeskItem[] = [
   {
+    slug: "government-ai-partnership-checklist",
+    title: "How to assess government AI partnerships: six questions before deployment",
+    dek: "A memorandum, pilot and procurement contract are different commitments. Use this checklist to examine scope, data, oversight, accountability and public-service results.",
+    date: "2026-11-17",
+    body: [
+      "Start by identifying the document: is it an announcement, a memorandum of understanding, a limited pilot, or a procurement and implementation contract? Those forms do not create the same obligations. OpenAI's announcement of OpenAI for Chile describes a memorandum and areas the partners will explore; it does not establish that a government system is already operating.",
+      "Ask for the exact use case. Which agency and service are involved? Will the system summarise documents, classify requests, draft replies or influence a decision about a person's rights or benefits? The greater the impact on an individual, the stronger the need for human review and a clear appeal route.",
+      "Trace the data. What information enters the system? Could it include personal, health or financial records? Where is it processed, who can access it, and how long is it retained? The answers should be written, consistent with local law and specific about deletion and cross-border transfers.",
+      "Assign responsibility before deployment. Name the people who review outputs, detect errors and bias, respond to complaints, and can suspend or correct the system. The OECD AI Principles and UNESCO's recommendation emphasise transparency, accountability and human oversight across the AI lifecycle.",
+      "Make procurement and ownership explicit. Are there fees or future commitments? Who owns the data and outputs? Can the agency move to another provider? What happens if the supplier changes prices or stops the service? A general partnership announcement does not answer these questions.",
+      "Measure outcomes rather than activity. Track processing time, error rates, accessibility, user satisfaction and differences across groups and regions. Publish a baseline before a pilot and results afterwards; counting training sessions alone does not show whether a public service improved.",
+      "This is a general review framework, not a verdict on Chile's memorandum or a recommendation to buy from any provider. A real assessment requires the implementation documents, data terms and published results."
+    ],
+    sources: [
+      { href: "https://openai.com/index/introducing-openai-for-chile/", label: "OpenAI — Introducing OpenAI for Chile" },
+      { href: "https://minciencia.gob.cl/areas/inteligencia-artificial/Inteligencia-Artificial/", label: "Chile's Ministry of Science — National AI policy and action plan" },
+      { href: "https://oecd.ai/en/ai-principles", label: "OECD — AI Principles" },
+      { href: "https://unesdoc.unesco.org/in/rest/annotationSVC/DownloadWatermarkedAttachment/attach_import_fa6f4b4a-9298-4a92-ba07-8108ac513153?_=380455eng.pdf&from=1&to=21", label: "UNESCO — Recommendation on the Ethics of Artificial Intelligence" }
+    ]
+  },
+  {
     slug: "why-gold-and-the-dollar-move-opposite",
     title: "Why gold and the dollar often move in opposite directions (and when they don't)",
     dek: "Three mechanisms explain the usual inverse link, and one situation breaks it. Questions to ask before you read meaning into a one-day move.",
@@ -266,6 +380,10 @@ export const EN_ARTICLES: DeskItem[] = [
     tool: "/en/articles",
   },
 ];
+
+export function isUpcomingDate(item: Pick<DeskItem, "date" | "endDate">, today: string): boolean {
+  return item.endDate ? item.endDate >= today : item.date > today;
+}
 
 export function bySlug<T extends { slug: string }>(items: T[], slug: string): T | undefined {
   return items.find((item) => item.slug === slug);

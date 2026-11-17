@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { NEWS_ITEMS, getNewsItem } from "@/lib/newsItems";
+import { EN_NEWS, bySlug } from "@/lib/enDesk";
 import { LIVE_DESKS } from "@/lib/newsLive";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -27,7 +28,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: item.title,
     description: item.description,
-    alternates: { canonical: url },
+    alternates: { canonical: url, ...(bySlug(EN_NEWS, item.slug) ? { languages: { ar: url, en: `${SITE}/en/news/${item.slug}` } } : {}) },
     openGraph: {
       title: item.title,
       description: item.description,

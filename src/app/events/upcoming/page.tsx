@@ -4,7 +4,7 @@ import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
 import EditorialHubNav from "@/components/editorial/EditorialHubNav";
-import { EVENT_EXTRAS } from "@/lib/eventsExtra";
+import { EVENT_EXTRAS, isEventUpcomingOrCurrent } from "@/lib/eventsExtra";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -40,7 +40,7 @@ export default function UpcomingEventsPage() {
   const today = istanbulToday();
   const upcoming = [...EVENT_EXTRAS, ...EVENT_ITEMS]
     .filter((e, i, all) => all.findIndex((x) => x.slug === e.slug) === i)
-    .filter((e) => e.dateIso > today)
+    .filter((e) => isEventUpcomingOrCurrent(e, today))
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 
   return (
@@ -68,7 +68,7 @@ export default function UpcomingEventsPage() {
               title={e.title}
               blurb={e.blurb}
               dateLabel={e.dateLabel}
-              badge="قادم"
+              badge={e.dateIso <= today ? "جارٍ" : "قادم"}
               badgeTone="indigo"
               imageUrl={e.imageUrl}
               imageAlt={e.title}

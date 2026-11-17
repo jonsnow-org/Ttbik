@@ -5,6 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
 import { englishCover } from "@/components/EnglishStoryCard";
 import { EN_NEWS, bySlug } from "@/lib/enDesk";
+import { getNewsItem } from "@/lib/newsItems";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export function generateStaticParams() {
@@ -16,10 +17,11 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const item = bySlug(EN_NEWS, slug);
   if (!item) return {};
   const url = `${SITE_URL}/en/news/${item.slug}`;
+  const arabic = getNewsItem(item.slug);
   return {
     title: { absolute: `${item.title} | Sham AI` },
     description: item.dek,
-    alternates: { canonical: url, languages: { en: url } },
+    alternates: { canonical: url, ...(arabic ? { languages: { en: url, ar: `${SITE_URL}/news/${arabic.slug}` } } : {}) },
     openGraph: { images: [{ url: englishCover(item.slug), width: 1200, height: 630 }] },
   };
 }
@@ -41,6 +43,14 @@ export default async function Page(props: { params: Promise<{ slug: string }> })
           {item.body.map((paragraph) => (
             <p key={paragraph} className="mt-4 text-sm leading-7 text-slate-800">{paragraph}</p>
           ))}
+          {item.sources?.length ? (
+            <section className="mt-6 border-t border-slate-100 pt-4">
+              <h2 className="text-sm font-bold text-slate-900">Sources</h2>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-sky-800">
+                {item.sources.map((source) => <li key={source.href}><a href={source.href} target="_blank" rel="noopener noreferrer" className="hover:underline">{source.label}</a></li>)}
+              </ul>
+            </section>
+          ) : null}
           {item.tool && <Link href={item.tool} className="mt-6 inline-block rounded-full bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-600">Open the related page</Link>}
         </div>
       </article>
