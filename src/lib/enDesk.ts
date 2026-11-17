@@ -5,9 +5,30 @@ export type DeskItem = {
   date: string;
   body: string[];
   tool?: string;
+  sources?: { href: string; label: string }[];
+  endDate?: string;
 };
 
 export const EN_NEWS: DeskItem[] = [
+  {
+    slug: "openai-for-chile-public-sector-ai-2026",
+    title: "Chile and OpenAI sign memorandum to explore AI in public services",
+    dek: "The announced partnership covers public-sector processes, civil-service training and startup support. The memorandum sets out areas to explore, not a government service already in operation.",
+    date: "2026-11-17",
+    body: [
+      "OpenAI announced OpenAI for Chile on 17 November 2026, a partnership with the Chilean government led by its Ministry of Science, Technology, Knowledge and Innovation. The company says the memorandum of understanding was signed on the sidelines of Semafor's Silicon Valley & The World conference in California.",
+      "The announcement says the partners will explore AI use in the ministry's administrative processes, practical training for civil servants, and support for local startups. Training topics include checking AI outputs, protecting sensitive information and keeping human oversight in place.",
+      "Chilean coverage describes the document as a non-binding memorandum rather than a procurement contract or an exclusive agreement. OpenAI's announcement does not specify a final budget, implementation timetable or a particular public service that has already gone live.",
+      "The partnership builds on Chile's national AI policy. Its practical impact will depend on later decisions about use cases, data governance, human review and how public-service outcomes are measured.",
+      "This is a report on OpenAI's announcement and Chilean coverage, not an independent evaluation or a guarantee of project results."
+    ],
+    tool: "/en/articles/government-ai-partnership-checklist",
+    sources: [
+      { href: "https://openai.com/index/introducing-openai-for-chile/", label: "OpenAI — Introducing OpenAI for Chile" },
+      { href: "https://www.t13.cl/noticia/nacional/chile-openai-firman-acuerdo-colaboracion-para-modernizar-estado-17-11-2026", label: "T13 — Details of the memorandum" },
+      { href: "https://minciencia.gob.cl/areas/inteligencia-artificial/Inteligencia-Artificial/", label: "Chile's Ministry of Science — National AI policy" }
+    ]
+  },
   {
     slug: "us-midterms-2026-democrats-gains-nov",
     title: "2026 US midterms: Democrats make historic gains in House and Senate",
@@ -127,6 +148,24 @@ export const EN_NEWS: DeskItem[] = [
 
 export const EN_EVENTS: DeskItem[] = [
   {
+    slug: "apec-economic-leaders-meeting-shenzhen-2026",
+    title: "33rd APEC Economic Leaders' Meeting in Shenzhen",
+    dek: "APEC leaders are scheduled to meet in Shenzhen on 18–19 November under China's 2026 host-year theme, with trade, regional connectivity and AI among the issues discussed during Leaders' Week.",
+    date: "2026-11-18",
+    endDate: "2026-11-19",
+    body: [
+      "The 33rd APEC Economic Leaders' Meeting is scheduled for 18–19 November 2026 in Shenzhen, Guangdong, China. China's Foreign Ministry says President Xi Jinping will chair the meeting under the theme “Building an Asia-Pacific Community to Prosper Together.”",
+      "APEC said senior officials met in Shenzhen ahead of Leaders' Week to advance work on trade integration, connectivity and artificial intelligence. Those topics form part of the forum's regional cooperation agenda; they should not be read as binding decisions before leaders publish their outcomes.",
+      "The week also includes the APEC CEO Summit on 17–18 November. The business summit and the leaders' meeting are related but distinct events with different programmes and participants.",
+      "The official announcements reviewed here confirm the dates and host city but do not provide public session times. This entry therefore records the announced schedule without guessing at individual sessions or outcomes."
+    ],
+    sources: [
+      { href: "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html", label: "China's Foreign Ministry — Leaders' Meeting dates" },
+      { href: "https://www.apec.org/press/news-releases/2026/1115_CSOM", label: "APEC — Trade, connectivity and AI agenda" },
+      { href: "https://www.apec.org/", label: "APEC — 2026 events calendar" }
+    ]
+  },
+  {
     slug: "world-tsunami-awareness-day-2026",
     title: "World Tsunami Awareness Day 2026: Be tsunami ready, resilience starts with you",
     dek: "5 November is World Tsunami Awareness Day. The 2026 UN theme focuses on individual and community preparedness. Not a disaster forecast.",
@@ -210,6 +249,27 @@ export const EN_EVENTS: DeskItem[] = [
 
 export const EN_ARTICLES: DeskItem[] = [
   {
+    slug: "government-ai-partnership-checklist",
+    title: "How to assess government AI partnerships: six questions before deployment",
+    dek: "A memorandum, pilot and procurement contract are different commitments. Use this checklist to examine scope, data, oversight, accountability and public-service results.",
+    date: "2026-11-17",
+    body: [
+      "Start by identifying the document: is it an announcement, a memorandum of understanding, a limited pilot, or a procurement and implementation contract? Those forms do not create the same obligations. OpenAI's announcement of OpenAI for Chile describes a memorandum and areas the partners will explore; it does not establish that a government system is already operating.",
+      "Ask for the exact use case. Which agency and service are involved? Will the system summarise documents, classify requests, draft replies or influence a decision about a person's rights or benefits? The greater the impact on an individual, the stronger the need for human review and a clear appeal route.",
+      "Trace the data. What information enters the system? Could it include personal, health or financial records? Where is it processed, who can access it, and how long is it retained? The answers should be written, consistent with local law and specific about deletion and cross-border transfers.",
+      "Assign responsibility before deployment. Name the people who review outputs, detect errors and bias, respond to complaints, and can suspend or correct the system. The OECD AI Principles and UNESCO's recommendation emphasise transparency, accountability and human oversight across the AI lifecycle.",
+      "Make procurement and ownership explicit. Are there fees or future commitments? Who owns the data and outputs? Can the agency move to another provider? What happens if the supplier changes prices or stops the service? A general partnership announcement does not answer these questions.",
+      "Measure outcomes rather than activity. Track processing time, error rates, accessibility, user satisfaction and differences across groups and regions. Publish a baseline before a pilot and results afterwards; counting training sessions alone does not show whether a public service improved.",
+      "This is a general review framework, not a verdict on Chile's memorandum or a recommendation to buy from any provider. A real assessment requires the implementation documents, data terms and published results."
+    ],
+    sources: [
+      { href: "https://openai.com/index/introducing-openai-for-chile/", label: "OpenAI — Introducing OpenAI for Chile" },
+      { href: "https://minciencia.gob.cl/areas/inteligencia-artificial/Inteligencia-Artificial/", label: "Chile's Ministry of Science — National AI policy and action plan" },
+      { href: "https://oecd.ai/en/ai-principles", label: "OECD — AI Principles" },
+      { href: "https://unesdoc.unesco.org/in/rest/annotationSVC/DownloadWatermarkedAttachment/attach_import_fa6f4b4a-9298-4a92-ba07-8108ac513153?_=380455eng.pdf&from=1&to=21", label: "UNESCO — Recommendation on the Ethics of Artificial Intelligence" }
+    ]
+  },
+  {
     slug: "why-gold-and-the-dollar-move-opposite",
     title: "Why gold and the dollar often move in opposite directions (and when they don't)",
     dek: "Three mechanisms explain the usual inverse link, and one situation breaks it. Questions to ask before you read meaning into a one-day move.",
@@ -266,6 +326,10 @@ export const EN_ARTICLES: DeskItem[] = [
     tool: "/en/articles",
   },
 ];
+
+export function isUpcomingDate(item: Pick<DeskItem, "date" | "endDate">, today: string): boolean {
+  return item.endDate ? item.endDate >= today : item.date > today;
+}
 
 export function bySlug<T extends { slug: string }>(items: T[], slug: string): T | undefined {
   return items.find((item) => item.slug === slug);
