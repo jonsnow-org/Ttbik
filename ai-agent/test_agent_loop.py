@@ -160,7 +160,7 @@ class Loop(unittest.TestCase):
         it = iter(steps)
         A.call_model = lambda messages, model, max_tokens=0: next(it) if not isinstance(next(it, None), type(None)) else ""   # replaced below
 
-    def run_with(self, replies, **kw):
+    def run_with(self, replies, body="حلّل ملف src/a.py", **kw):
         seq = list(replies)
         seen = []
 
@@ -168,7 +168,7 @@ class Loop(unittest.TestCase):
             seen.append(messages)
             return seq.pop(0)
         A.call_model = fake
-        issue = {"number": 3, "title": "Telegram: [x]", "body": "حلّل ملف src/a.py\n<!-- tg-chat:1 -->", "labels": [{"name": "from-telegram"}]}
+        issue = {"number": 3, "title": "Telegram: [x]", "body": body + "\n<!-- tg-chat:1 -->", "labels": [{"name": "from-telegram"}]}
         return L.run_agent(issue, [], "m", "prod", root=self.root, **kw), seen
 
     def test_a_greeting_ends_at_once(self):
@@ -205,6 +205,30 @@ class Loop(unittest.TestCase):
         self.assertIn("حدّ الخطوات", msg)
         self.assertIn("Few steps left", seen[L.MAX_STEPS - 1][-1]["content"])
         self.assertEqual(L.compact_trace(["read_file", "read_file", "search"]), "read_file ×2, search")
+
+    def test_a_command_is_not_allowed_to_end_with_a_question_to_the_owner(self):
+        ask = '{"tool": "final", "args": {"message": "وجدت 3 مشكلات. أي خطوة تريد أن أبدأ بها؟"}}'
+        (msg, trace), seen = self.run_with([ask, '{"tool": "edit_file", "args": {"path": "src/a.py", "old": "x = 1", "new": "x = 2"}}',
+                                            '{"tool": "final", "args": {"message": "عدّلت x إلى 2"}}'], body="أصلح الملف src/a.py وطوّره")
+        self.assertEqual(trace[0], "nudge")
+        self.assertIn("do not ask him", seen[1][-1]["content"])
+        self.assertIn("edit_file", trace)
+
+    def test_a_plain_question_may_still_end_with_a_question(self):
+        (msg, trace), _ = self.run_with(['{"tool": "final", "args": {"message": "هل تقصد الملف a.py؟"}}'], body="ما هذا الملف؟")
+        self.assertEqual(trace, [])
+
+    def test_edits_that_never_reached_a_pull_request_are_pushed_to_finish(self):
+        (msg, trace), seen = self.run_with(['{"tool": "edit_file", "args": {"path": "src/a.py", "old": "x = 1", "new": "x = 3"}}',
+                                            '{"tool": "final", "args": {"message": "عدّلت"}}', '{"tool": "final", "args": {"message": "عدّلت وتركت الفرع"}}'], body="عدّل x")
+        self.assertIn("nudge", trace)
+        self.assertIn("open_pr", seen[2][-1]["content"])
+
+    def test_the_nudges_are_bounded(self):
+        ask = '{"tool": "final", "args": {"message": "هل تريد؟"}}'
+        (msg, trace), _ = self.run_with([ask] * 5, body="أصلح كل شيء")
+        self.assertEqual(trace.count("nudge"), L.MAX_NUDGES)
+        self.assertIn("هل تريد", msg)
 
 
 if __name__ == "__main__":
