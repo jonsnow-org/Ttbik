@@ -36,11 +36,12 @@
       "id": "openrouter-gpt-oss-20b",
       "class": "open",
       "license": "Apache-2.0",
-      "enabled": true,
+      "enabled": false,
       "host": "openrouter-free-api",
       "endpoint": "https://openrouter.ai/api/v1/chat/completions",
       "model": "openai/gpt-oss-20b:free",
-      "key_env": "OPENROUTER_API_KEY"
+      "key_env": "OPENROUTER_API_KEY",
+      "note": "2026-11-17: the :free slug is gone (404 \"unavailable for free\"); re-enable with a free open-licence model id when one is known"
     },
     {
       "id": "chatgpt-app-export",

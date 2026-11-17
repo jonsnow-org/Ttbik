@@ -51,7 +51,7 @@ def clean_answer(text: str) -> str:
 
 def ask(t: dict, prompt: str, timeout: int = 180, env=None) -> str:
     env = os.environ if env is None else env
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; sham-distill/1.0; +https://github.com/jonsnow-org/Ttbik)"}   # Groq's edge answers 403 "error code: 1010" to the default python-urllib agent
     key = env.get(t.get("key_env", ""), "") if t.get("key_env") else ""
     if key:
         headers["Authorization"] = "Bearer " + key
