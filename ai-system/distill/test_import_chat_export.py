@@ -27,6 +27,10 @@ class T(unittest.TestCase):
         self.assertEqual(out, [("ما عاصمة فرنسا؟", "عاصمة فرنسا باريس.")])
         self.assertEqual((st["private"], st["duplicate"], st["empty_or_long"]), (2, 1, 2))
 
+    def test_answers_that_name_the_teacher_are_dropped(self):
+        out, st = I.clean([("من أنت؟", "أنا ChatGPT من OpenAI"), ("ما عاصمة مصر؟", "القاهرة هي العاصمة")])
+        self.assertEqual(st["brand"], 1); self.assertEqual(len(out), 1)
+
     def test_records_are_marked_as_accepted_by_the_owner(self):
         r = I.to_records([("س", "جواب")], "chatgpt-export")[0]
         self.assertTrue(r["metadata"]["reviewed"]); self.assertEqual(r["metadata"]["verification_status"], "owner_accepted")

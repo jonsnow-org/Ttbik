@@ -22,6 +22,10 @@ class Rules(unittest.TestCase):
             if t["class"] == "restricted":
                 self.assertFalse(t.get("owner_approved"))
 
+    def test_an_answer_that_names_its_teacher_never_passes(self):
+        recs, st = D.run([{"prompt": "من أنت؟", "task": "natural_sft", "accept": "first"}], [OPEN], ask_fn=lambda t, p: "أنا Qwen من Alibaba")
+        self.assertEqual(recs[0]["metadata"]["verification_status"], "failed")
+
     def test_think_blocks_are_removed(self):
         self.assertEqual(D.clean_answer("<think>x</think>102"), "102")
 

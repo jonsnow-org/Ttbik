@@ -22,6 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 LAB_SRC = HERE.parent / "colab" / "sham_small" / "intelligence_lab" / "src"
 PROMPT_VERSION = "sil-distill-v1"
+BRAND = re.compile(r"chatgpt|openai|\bgpt-?\d|anthropic|claude|gemini|qwen|alibaba|liquid ?ai|llama|\bmeta ai\b|as an ai language model|أنا (?:شات|تشات)", re.I)   # a teacher naming itself would teach Sham a wrong identity
 
 
 def load_registry(path: Path | None = None) -> dict:
@@ -33,7 +34,7 @@ def teacher_allowed(t: dict, env=None) -> tuple[bool, str]:
     env = os.environ if env is None else env
     if not t.get("enabled"):
         return False, "disabled"
-    if t.get("class") == "open":
+    if t.get("class") in ("open", "own"):
         return (True, "") if t.get("endpoint") else (False, "no endpoint")
     if t.get("class") == "restricted":      # terms restrict training on the outputs: only with the owner's explicit switch
         listed = {x.strip() for x in env.get("SHAM_DISTILL_ALLOW_RESTRICTED", "").split(",") if x.strip()}
@@ -78,6 +79,8 @@ def verify(rec: dict) -> dict:
 
 
 def make_record(t: dict, row: dict, answer: str, status: str) -> dict:
+    if status == "passed" and BRAND.search(answer):
+        status = "failed"
     return {"prompt": row["prompt"], "target": answer, "task": row.get("task", "distilled_sft"), "teacher_id": t["id"], "confidence": None,
             "difficulty": int(row.get("difficulty", 2)), "verifier": row.get("verifier", "none"), "verification": row.get("verification", {}),
             "metadata": {"reviewed": False, "verification_status": status, "model_version": t.get("model", ""), "prompt_version": PROMPT_VERSION,
