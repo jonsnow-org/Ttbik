@@ -9,6 +9,8 @@ HDR = {"Authorization": "Bearer " + os.environ["T"], "content-type": "applicatio
 OUT = {}
 
 def base(n):
+    if os.environ.get("BASE"):      # an international Studio's address (token-auth address), e.g. the 16 GB 35B Studio
+        return os.environ["BASE"].rstrip("/") + "/gradio_api"
     return f"https://studio-novaai2026-coder-inference-server{'' if n == 1 else '-%d' % n}.api-inference.modelscope.net/gradio_api"
 
 def op(req, t):
@@ -33,7 +35,7 @@ def ask(n, tools, user, label, log):
     msgs = [{"role": "system", "content": P["system"]}, {"role": "user", "content": user}]
     r = call(n, "chat", {"messages": json.dumps(msgs), "tools": json.dumps(tools), "max_tokens": 1, "think": "", "temperature": 0.2, "wait_s": 5})
     job = r.get("job")
-    while r.get("type") == "pending" and time.time() - t0 < 1500:
+    while r.get("type") == "pending" and time.time() - t0 < 4500:
         time.sleep(5)
         try:
             r = call(n, "job_result", {"job_id": job, "offset": 0})
