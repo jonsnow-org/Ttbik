@@ -30,10 +30,11 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MODELSCOPE_AI_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
-          echo "::add-mask::$GROQ_API_KEY"; echo "::add-mask::$OPENROUTER_API_KEY"
+          echo "::add-mask::$GROQ_API_KEY"; echo "::add-mask::$OPENROUTER_API_KEY"; echo "::add-mask::$MODELSCOPE_AI_TOKEN"
           python3 ai-system/distill/distill_gen.py --prompts ai-system/distill/prompts/seed_ar.jsonl --out /tmp/new.jsonl \
-            --teachers groq-gpt-oss-120b,groq-qwen3-32b,openrouter-gpt-oss-20b --expand "${{ inputs.expand || '8' }}" --limit 120
+            --teachers groq-gpt-oss-120b,groq-qwen3-32b,openrouter-gpt-oss-20b,ms-qwen3-32b,ms-qwen3-235b --expand "${{ inputs.expand || '8' }}" --limit 120
       - name: Publish to the pool
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
