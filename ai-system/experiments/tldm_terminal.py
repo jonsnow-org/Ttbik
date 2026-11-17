@@ -13,7 +13,7 @@ Measured: success of whole episodes, on seen words and NEW words; the same model
 (its own successful episodes, judged by the terminal, are added to training).
 Usage: python3 tldm_terminal.py --seconds 600 --out result.json
 """
-import argparse, json, math, os, random, re, sys, time
+import argparse, ast, json, math, operator, os, random, re, sys, time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,6 +29,29 @@ WORDS_NEW = ["ocean", "tiger", "smile", "dream", "night", "happy"]
 
 
 # ---------------------------------------------------------------- the terminal
+_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
+_FUNCS = {"max": max, "min": min, "sum": sum}
+
+
+def safe_calc(expr: str):
+    """Arithmetic with + - * /, parentheses, and max/min/sum over listed numbers; nothing else is evaluated."""
+    def ev(n):
+        if isinstance(n, ast.Expression):
+            return ev(n.body)
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            return -ev(n.operand)
+        if isinstance(n, ast.BinOp) and type(n.op) in _OPS:
+            return _OPS[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.Tuple):
+            return tuple(ev(x) for x in n.elts)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _FUNCS and not n.keywords:
+            return _FUNCS[n.func.id](*[ev(a) for a in n.args])
+        raise ValueError("not allowed")
+    return ev(ast.parse(expr.strip(), mode="eval"))
+
+
 class Terminal:
     def __init__(self, files):
         self.files, self.said, self.done = dict(files), [], False
@@ -56,7 +79,7 @@ class Terminal:
             e = m.group(1)
             if re.fullmatch(r"(?:[0-9+\-*/(), ]|max|min|sum)+", e):
                 try:
-                    return str(eval(e, {"__builtins__": {}}, {"max": max, "min": min, "sum": sum}))[:40]
+                    return str(safe_calc(e))[:40]
                 except Exception:
                     return "bad expression"
             return "bad expression"

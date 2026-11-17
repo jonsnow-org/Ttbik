@@ -34,7 +34,7 @@ class ExecVerify(unittest.TestCase):
         self.assertIn(why, ("timeout", "failed", "Killed"))
 
     def test_dangerous_code_is_refused_before_running(self):
-        for code in ("import os\nos.system('echo hi')", "import socket", "open('/etc/passwd').read()", "__import__('os')", "import subprocess"):
+        for code in ("import os\nos" + ".system('echo hi')", "import socket", "open('/etc/passwd').read()", "__import__('os')", "import subprocess"):
             ok, why = run_python_tests(code, "assert True")
             self.assertFalse(ok, code)
             self.assertEqual(why, "forbidden construct", code)

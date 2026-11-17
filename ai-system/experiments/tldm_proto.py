@@ -95,7 +95,7 @@ def batch(rng, words, n):
     for _ in range(n):
         ins, expr = make(rng, words)
         code = f"print({expr})"
-        xs.append(pack(ins)); ys.append(pack(code)); ex.append(str(eval(expr)))
+        xs.append(pack(ins)); ys.append(pack(code)); ex.append(expr)
     return torch.tensor(xs), torch.tensor(ys), ex
 
 
@@ -229,6 +229,11 @@ def run_code(code: str, timeout=5) -> str:
         return "<timeout>"
 
 
+def expected(expr: str) -> str:
+    """The truth for an expression: what the reference code prints, run by the same child-process runner as the model's code (no eval in this process)."""
+    return run_code(f"print({expr})")
+
+
 def decode(row) -> str:
     out = bytearray()
     for t in row:
@@ -243,7 +248,7 @@ def evaluate(gen_block, words, seed, n=150):
     ok = 0
     for _ in range(n):
         ins, expr = make(rng, words)
-        ok += run_code(gen_block(ins)) == str(eval(expr))
+        ok += run_code(gen_block(ins)) == expected(expr)
     return round(ok / n, 3)
 
 
@@ -299,7 +304,7 @@ def main():
     while len(kept) < 256 and time.time() - t1 < 30:
         ins, expr = make(rng2, WORDS_TRAIN + WORDS_NEW)
         code = gen_t(ins)
-        if run_code(code) == str(eval(expr)):
+        if run_code(code) == expected(expr):
             kept.append((pack(ins), pack(code)))
     model.train()
     t2 = time.time()
