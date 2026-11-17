@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { ARTICLE_ITEMS, getArticle } from "@/lib/articlesIndex";
+import { EN_ARTICLES, bySlug } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -24,7 +25,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: a.title,
     description: a.description,
-    alternates: { canonical: `${SITE}/articles/${a.slug}` },
+    alternates: { canonical: `${SITE}/articles/${a.slug}`, ...(bySlug(EN_ARTICLES, a.slug) ? { languages: { ar: `${SITE}/articles/${a.slug}`, en: `${SITE}/en/articles/${a.slug}` } } : {}) },
     openGraph: {
       title: a.title,
       description: a.description,
