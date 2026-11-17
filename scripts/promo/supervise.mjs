@@ -49,6 +49,15 @@ export function evaluate(d, now = Date.now()) {
     add("Tools in the promo rotation", c.toolsMissing.length ? "warn" : "ok", c.toolsMissing.length ? `built but not listed in src/lib/freeTools.ts (so never promoted): ${c.toolsMissing.join(", ")}` : `all ${c.tools} tools are listed`);
     add("Platform pages in the coins-channel announcements", c.pagesMissing.length ? "warn" : "ok", c.pagesMissing.length ? `add to promo/platform-features.json (or its exempt list): ${c.pagesMissing.join(", ")}` : `all ${c.pages} public pages are covered`);
   }
+  // the Literium Android app link used in channel posts (channelPool.ts -> <site>/downloads/Literium.apk): must answer with a real APK,
+  // and must be the same build as the latest published release of the app repository (a different size means the site still serves an old one)
+  if (d.app) {
+    const a = d.app, mb = (n) => (n / 1048576).toFixed(1) + " MB";
+    if (a.status !== 200) add("Literium app download link", "fail", `${a.url} answered HTTP ${a.status || "no answer"}`);
+    else if (!a.isApk) add("Literium app download link", "fail", `${a.url} answered 200 but the file is not an APK (no ZIP header)`);
+    else if (a.releaseSize && a.size && a.releaseSize !== a.size) add("Literium app download link", "warn", `the site serves ${mb(a.size)} but the latest release ${a.releaseTag || ""} is ${mb(a.releaseSize)}: the site may still hold an older APK (upload the new web package, then Publish)`);
+    else add("Literium app download link", "ok", `${mb(a.size)}${a.releaseSize ? ", same size as the latest release " + (a.releaseTag || "") : " (release not readable, size not compared)"}`);
+  }
   if (typeof d.errors === "number") add("Open auto-error issues", d.errors === 0 ? "ok" : "warn", d.errors === 0 ? "none" : `${d.errors} open: ${(d.errorTitles || []).join(" | ")}`);
   return out;
 }
@@ -70,6 +79,22 @@ async function http(url, ms = 20000, headers = undefined) {
   } catch { return { status: 0, text: "" }; }
 }
 
+/** Reads only the headers and the first bytes of the APK (never the whole file). */
+export async function probeApk(url, ms = 20000) {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: "follow" });
+    const size = Number(r.headers.get("content-length")) || 0;
+    let isApk = false;
+    if (r.status === 200 && r.body) {
+      const reader = r.body.getReader();
+      const { value } = await reader.read();
+      isApk = !!value && value[0] === 0x50 && value[1] === 0x4b;   // "PK": APKs are ZIP files
+      await reader.cancel().catch(() => {});
+    }
+    return { url, status: r.status, size, isApk };
+  } catch { return { url, status: 0, size: 0, isApk: false }; }
+}
+
 async function main() {
   const repo = process.env.GITHUB_REPOSITORY || "jonsnow-org/Ttbik";
   const token = process.env.GITHUB_TOKEN || "";
@@ -88,6 +113,14 @@ async function main() {
   ]) {
     const r = await http(url);
     data.site.push({ label, status: r.status, ok: r.status === 200 && check(r.text), info: !!info, note: r.status === 200 ? "unexpected body" : "" });
+  }
+  {
+    const appRepo = process.env.LITERIUM_APP_REPO || "jonsnow-org/Lena9";
+    const base = (process.env.NEXT_PUBLIC_LITERIUM_URL || "https://literium.ai.studio/").trim().replace(/\/$/, "");
+    const app = await probeApk(`${base}/downloads/Literium.apk`);
+    const rel = await fetch(`https://api.github.com/repos/${appRepo}/releases/latest`, { headers: { accept: "application/vnd.github+json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(20000) }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
+    const asset = rel?.assets?.find((x) => x.name === "Literium.apk");
+    data.app = { ...app, releaseTag: rel?.tag_name, releaseSize: asset?.size || 0 };
   }
   for (const def of WORKFLOWS) {
     const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`);
