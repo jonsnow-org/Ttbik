@@ -5,50 +5,14 @@
 The base weights are never overwritten."""
 from __future__ import annotations
 
-import hashlib
-import json
 import os
-import re
+import sys
 
 import torch
 import torch.nn as nn
 
-
-def _norm(task: str) -> str:
-    return re.sub(r"\s+", " ", task.strip().lower())
-
-
-class MemoryStore:
-    def __init__(self, root: str):
-        self.ok_dir, self.err_dir = os.path.join(root, "memory_lora"), os.path.join(root, "memory_errors")
-        os.makedirs(self.ok_dir, exist_ok=True)
-        os.makedirs(self.err_dir, exist_ok=True)
-
-    def _path(self, task: str, success: bool) -> str:
-        return os.path.join(self.ok_dir if success else self.err_dir, hashlib.md5(_norm(task).encode()).hexdigest()[:12] + ".json")
-
-    def save(self, task: str, steps: list, reply: str, success: bool, secs: float = 0.0) -> str:
-        """steps = [(command, result), ...] actually executed."""
-        rec = {"task": task, "steps": steps, "reply": reply, "success": success, "secs": round(secs, 3)}
-        path = self._path(task, success)
-        if not success and os.path.exists(path):                    # a lesson keeps every failed attempt
-            old = json.load(open(path, encoding="utf-8"))
-            rec["steps"] = old.get("steps", []) + steps
-        json.dump(rec, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        return path
-
-    def recall(self, task: str):
-        p = self._path(task, True)
-        return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else None
-
-    def failed_commands(self, task: str) -> set:
-        p = self._path(task, False)
-        if not os.path.exists(p):
-            return set()
-        return {c for c, _ in json.load(open(p, encoding="utf-8")).get("steps", [])}
-
-    def successes(self) -> list:
-        return [json.load(open(os.path.join(self.ok_dir, f), encoding="utf-8")) for f in sorted(os.listdir(self.ok_dir)) if f.endswith(".json")]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from store import MemoryStore, _norm  # noqa: E402,F401  (moved to memory/store.py so the serving path needs no torch; re-exported here for training/evolve.py)
 
 
 class LoRALinear(nn.Module):

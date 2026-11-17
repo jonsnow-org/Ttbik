@@ -22,9 +22,15 @@ from typing import Callable
 
 from sandbox_terminal import SandboxTerminal
 
+try:
+    from app_port import find_secret
+except Exception:                                   # (phase 3 port missing: no credential screen, phase 1 behaviour)
+    find_secret = None
+
 WRITES_HINT = ("mkdir", "touch", "cp", "mv", "rm", "tee")
 
 NEEDS_CHECK = {"shell", "file", "see", "hear", "write", "make", "app_tool"}      # ask_user is its own check (the answer)
+YES = re.compile(r"(?i)^\s*(?:yes|y|ok|okay|sure|go ahead|confirm(?:ed)?|approve(?:d)?|نعم|اي|أي|ايوه|موافق|تمام|نفّذ|نفذ|✅)(?=$|[\s.!,،؛:])")   # the user's yes, read from the app's ask_user answer
 EXTERNAL = {"push", "create_pr", "merge", "send", "delete", "post", "comment"}   # app tools that change the outside world: always confirmed by the user
 
 
@@ -150,6 +156,10 @@ class Coordinator:
             if s.kind in NEEDS_CHECK and not s.check:
                 t.log.append(f"refused {s.id}: no check")
                 continue
+            where = find_secret(s.args) if find_secret else ""
+            if where:                                            # a credential never enters a task file, the terminal or the app call: only {{secret:name}} placeholders
+                t.log.append(f"refused {s.id}: {where} looks like a credential")
+                continue
             out.append(s)
         return out
 
@@ -269,14 +279,28 @@ class Coordinator:
         return True, open(p, encoding="utf-8", errors="replace").read()[:4000]
 
     def _app_tool(self, s: Step) -> tuple[bool, str]:
-        """GitHub, connectors, memory, push: the web app's. Nothing runs here; the call goes out through the runtime port, and a world-changing call needs the user's yes first."""
+        """GitHub, connectors, memory, push: the web app's. Nothing runs here; the call goes out through the runtime port, and a world-changing call needs the user's yes first.
+        A port with its own rule (terminal/app_port.AppPort: the web app's shamNeedsOk, the <tool_call> envelope, no credentials) decides and asks itself;
+        a plain callable keeps the word rule below."""
         name = s.args.get("name", "")
         if self.app_call is None:
             return False, "no runtime attached: app tools are the web app's"
-        if any(w in name.lower() for w in EXTERNAL) and not (self.confirm is not None and self.confirm(f"{name} {json.dumps(s.args.get('arguments', {}), ensure_ascii=False)[:200]}")):
-            return False, "needs the user's confirmation"
-        return True, str(self.app_call(name, s.args.get("arguments", {})))[:4000]
+        if not hasattr(self.app_call, "needs_ok"):
+            if any(w in name.lower() for w in EXTERNAL) and not (self.confirm is not None and self.confirm(f"{name} {json.dumps(s.args.get('arguments', {}), ensure_ascii=False)[:200]}")):
+                return False, "needs the user's confirmation"
+        try:
+            return True, str(self.app_call(name, s.args.get("arguments", {})))[:4000]
+        except PermissionError as e:
+            return False, str(e)[:300]
 
     def _ask_user(self, s: Step) -> tuple[bool, str]:
+        """With an app port that loads ask_user, the question goes to the user through the app's own ask_user tool; otherwise through confirm()."""
         q = s.args.get("question", "")
+        ask = getattr(self.app_call, "ask", None)
+        if ask is not None and "ask_user" in getattr(self.app_call, "tools", ()):
+            try:
+                answer = str(ask(q)).strip()
+            except PermissionError as e:
+                return False, str(e)[:300]
+            return bool(YES.match(answer)), answer[:400]
         return (bool(self.confirm and self.confirm(q)), q)

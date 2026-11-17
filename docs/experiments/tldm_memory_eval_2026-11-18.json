@@ -1,0 +1,34 @@
+{
+ "episodes": 60,
+ "distinct_tasks": 21,
+ "pass0_memory_off": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 130,
+  "recalls": 0,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 13.54
+ },
+ "pass1_memory_on_empty": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 47,
+  "recalls": 39,
+  "recall_wrong": 5,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 28.01
+ },
+ "pass2_memory_on_after_pass1": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 0,
+  "recalls": 60,
+  "recall_wrong": 15,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 62.8
+ }
+}

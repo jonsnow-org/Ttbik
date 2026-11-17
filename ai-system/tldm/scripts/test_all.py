@@ -79,24 +79,30 @@ def writer_writes_the_block_in_the_requested_number_of_passes_and_is_determinist
 
 @test
 def model_learns_the_30_examples_gradients_everywhere_and_generation_depends_on_the_task():
-    torch.manual_seed(0)
-    m = Sham1_TLDM(d=96, layers=2, latents=8, think_steps=3, block=48, heads=4, in_len=48)
-    rows = T.TRAIN[:6]
-    ids = torch.tensor([encode_bytes(t, 48) for t, _ in rows])
-    tgt = torch.tensor([encode_bytes(c, 48) for _, c in rows])
-    opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
-    first = None
-    for step in range(250):
-        opt.zero_grad(); l = m.loss(ids, tgt); l.backward(); opt.step()
-        first = first or l.item()
-    assert all(p.grad is not None for p in m.parameters()), "every parameter must receive a gradient"
-    assert l.item() < first * 0.3, (first, l.item())
-    m.eval()
-    out, _ = m.generate(ids, steps=10)
-    cmds = [decode_bytes(r) for r in out]
-    assert len(set(cmds)) > 1, "different tasks must give different commands"
-    assert sum(c == ref for c, (_, ref) in zip(cmds, rows)) >= 4, cmds
-
+    # Pinned to one thread and 400 steps: with 250 steps the result depended on the thread count (2 threads, the GitHub runner's: 1/6 exact from seed 0; 1 thread: 6/6),
+    # which made the T-LDM workflow fail one run in two. Measured locally, 400 steps: 5-6/6 for seeds 0-2 at 1 and 2 threads.
+    threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        torch.manual_seed(0)
+        m = Sham1_TLDM(d=96, layers=2, latents=8, think_steps=3, block=48, heads=4, in_len=48)
+        rows = T.TRAIN[:6]
+        ids = torch.tensor([encode_bytes(t, 48) for t, _ in rows])
+        tgt = torch.tensor([encode_bytes(c, 48) for _, c in rows])
+        opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
+        first = None
+        for step in range(400):
+            opt.zero_grad(); l = m.loss(ids, tgt); l.backward(); opt.step()
+            first = first or l.item()
+        assert all(p.grad is not None for p in m.parameters()), "every parameter must receive a gradient"
+        assert l.item() < first * 0.3, (first, l.item())
+        m.eval()
+        out, _ = m.generate(ids, steps=10)
+        cmds = [decode_bytes(r) for r in out]
+        assert len(set(cmds)) > 1, "different tasks must give different commands"
+        assert sum(c == ref for c, (_, ref) in zip(cmds, rows)) >= 4, cmds
+    finally:
+        torch.set_num_threads(threads)
 
 def _tiny_sham_body():
     d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
@@ -240,6 +246,14 @@ def hidden_terminal_the_user_sees_only_the_final_reply_and_the_flag_is_off_by_de
     reply, events = chat.respond("tldm_hidden", "save 7 and read it back")
     assert reply == "The number is 7." and "$" not in reply
     assert [e.out for e in events] == ["", "7"] and seen[2] == [("echo 7 > n.txt", ""), ("cat n.txt", "7")], "the terminal's result must come back to the model"
+
+
+@test
+def long_term_file_memory_recall_lessons_and_one_memory_per_model():
+    import unittest
+    suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
+    res = unittest.TextTestRunner(stream=open(os.devnull, "w"), verbosity=0).run(suite)
+    assert res.testsRun >= 7 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
 
 
 if __name__ == "__main__":
