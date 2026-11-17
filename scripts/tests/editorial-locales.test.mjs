@@ -67,7 +67,7 @@ test("the APEC event remains current through its final day in both locales", () 
 test("English covers fall back to the site's editorial image when a slug has no custom cover", () => {
   const root = process.cwd();
   const component = readFileSync(path.join(root, "src/components/EnglishStoryCard.tsx"), "utf8");
-  assert.match(component, /COVERS\\[slug\\] \\|\\| \`\\$\\{SITE_URL\\}\\/og\\/news\\.jpg\`/);
+  assert.ok(component.includes("return COVERS[slug] || `${SITE_URL}/og/news.jpg`;"));
 });
 
 test("English editorial detail pages render source links and matching locale alternates", () => {
