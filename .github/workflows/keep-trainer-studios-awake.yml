@@ -26,6 +26,9 @@ jobs:
           python3 - <<'PY'
           import json, os, urllib.request, urllib.error
           TRAINERS = [("cn", "www.modelscope.cn", "novaai2026", "sham-trainer-1", "T_CN"),
+                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-qwen35-9b-test", "T_CN"),
+                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-gemma4-e4b-test", "T_CN"),
+                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-minicpmo45-test", "T_CN"),
                       ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-1", "T_AI"),
                       ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI")]
           def call(url, tok, method="GET"):
