@@ -21,7 +21,8 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(__file__))
 from arch_bench import Block, D  # noqa: E402  (gated linear recurrence block, width 128)
 
-N = 64                 # bytes of the instruction and of the code block
+N = int(os.environ.get("TLDM_N", "64"))      # bytes of the instruction and of the code block (TLDM_N=128 for the long regime)
+REGIME = os.environ.get("TLDM_REGIME", "short")   # "short": ~25-byte commands; "long": 60-110 byte one-liners (the report's regime: a block of ~128 tokens)
 PAD, MASK = 0, 256
 M, T_THINK, S_STEPS = 8, 4, 8
 WORDS_TRAIN = ["apple", "table", "green", "water", "house", "light", "stone", "river", "cloud", "bread", "music", "paper", "chair", "plant"]
@@ -29,7 +30,27 @@ WORDS_NEW = ["ocean", "tiger", "smile", "dream", "night", "happy"]
 
 
 # ---------------------------------------------------------------- data: terminal tasks with a checkable result
+def make_long(rng: random.Random, words):
+    a, b, m = rng.randrange(1, 30), rng.randrange(8, 25), rng.randrange(2, 9)
+    lst = [rng.randrange(1, 90) for _ in range(rng.randrange(4, 7))]
+    w = rng.choice(words) + rng.choice(words)
+    k = rng.randrange(6)
+    if k == 0:
+        return f"even numbers from {a} to {a + b} each times {m}", f"[x*{m} for x in range({a},{a + b + 1}) if x%2==0]"
+    if k == 1:
+        return f"sum of squares from {a} to {a + b} plus {m}", f"sum(x*x for x in range({a},{a + b + 1}))+{m}"
+    if k == 2:
+        return f"the three largest of {lst} from big to small", f"sorted({lst})[::-1][:3]"
+    if k == 3:
+        return f"alternate upper and lower case in {w}", f"''.join(c.upper() if i%2==0 else c for i,c in enumerate('{w}'))"
+    if k == 4:
+        return f"length of {w} times {m} plus the sum of {lst}", f"len('{w}')*{m}+sum({lst})"
+    return f"numbers in {lst} greater than {a} doubled", f"[x*2 for x in {lst} if x>{a}]"
+
+
 def make(rng: random.Random, words):
+    if REGIME == "long":
+        return make_long(rng, words)
     k = rng.randrange(13)
     a, b = rng.randrange(1, 50), rng.randrange(2, 20)
     lst = [rng.randrange(1, 90) for _ in range(rng.randrange(3, 6))]
@@ -242,17 +263,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=float, default=240)
     ap.add_argument("--evolve_seconds", type=float, default=60)
+    ap.add_argument("--steps", type=int, default=0, help="train both models for exactly this many steps (equal-steps comparison); 0 = use --seconds")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
     torch.manual_seed(0)
-    res = {"budget_s": a.seconds, "threads": torch.get_num_threads(), "latents": M, "think_steps": T_THINK, "diffusion_steps": S_STEPS}
+    res = {"regime": REGIME, "N": N, "equal_steps": a.steps, "budget_s": a.seconds, "threads": torch.get_num_threads(), "latents": M, "think_steps": T_THINK, "diffusion_steps": S_STEPS}
 
     # ---- T-LDM
     model = TLDM()
     res["tldm_params"] = sum(p.numel() for p in model.parameters())
     opt = torch.optim.AdamW(model.parameters(), lr=1.5e-3, weight_decay=0.01)
     rng, t0, steps = random.Random(1), time.time(), 0
-    while time.time() - t0 < a.seconds:
+    while (steps < a.steps) if a.steps else (time.time() - t0 < a.seconds):
         for g in opt.param_groups:
             g["lr"] = 1.5e-3 * min(1.0, (steps + 1) / 100)
         ins, code, _ = batch(rng, WORDS_TRAIN, 64)
@@ -299,7 +321,7 @@ def main():
     res["ar_params"] = sum(p.numel() for p in base.parameters())
     opt = torch.optim.AdamW(base.parameters(), lr=1.5e-3, weight_decay=0.01)
     rng, t0, steps = random.Random(1), time.time(), 0
-    while time.time() - t0 < a.seconds:
+    while (steps < a.steps) if a.steps else (time.time() - t0 < a.seconds):
         for g in opt.param_groups:
             g["lr"] = 1.5e-3 * min(1.0, (steps + 1) / 100)
         x, m = ar_batch(rng, WORDS_TRAIN, 64)
