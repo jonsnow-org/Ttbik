@@ -17,7 +17,7 @@ STUDIO=${STUDIO:-novaai2026/sham-trainer-1}   # the deployed trainer Studio repo
 
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "no GPU: training on the notebook CPU ($(nproc) cores); sham_live picks the device by itself"
 [ -n "${MS_TOKEN:-}" ] || read -rsp "ModelScope cn token: " MS_TOKEN; echo
-[ -n "${KAGGLE_USERNAME:-}" ] || read -rp "Kaggle username: " KAGGLE_USERNAME
+KAGGLE_USERNAME=${KAGGLE_USERNAME:-jonsnowjonsnow}
 [ -n "${KAGGLE_API_TOKEN:-}" ] || read -rsp "Kaggle API token: " KAGGLE_API_TOKEN; echo
 export KAGGLE_USERNAME KAGGLE_API_TOKEN
 
@@ -36,6 +36,9 @@ import torch; print("torch", torch.__version__, "cuda", torch.cuda.is_available(
 PY
 export SHAM_TRAINER_WORKERS=${WORKERS:-$(( $(nproc) > 16 ? 16 : $(nproc) ))}
 export SHAM_TRAINER_NAME=$NAME SHAM_TRAINER_HOURS=$HOURS SHAM_TRAINER_JOB=$JOB SHAM_LIVE_WORK=$W/sham_live_work PORT=7861
+if [ "${FG:-0}" = "1" ]; then   # run by the notebook runner: stay in the foreground (the runner kills background children when the job ends) for HOURS plus 20 minutes to publish
+  timeout "$(python3 -c "print(int(($HOURS+0.34)*3600))")" python app.py 2>&1 | grep -v -i -E "token|secret|password|bearer"; exit 0
+fi
 nohup python app.py > "$W/train.log" 2>&1 &
 echo "started pid $! : lineage sham-crawl-$NAME, job $JOB, $HOURS h. Follow: tail -f $W/train.log"
 sleep 20; tail -n 15 "$W/train.log"
