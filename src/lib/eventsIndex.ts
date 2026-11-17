@@ -6,6 +6,7 @@ export type EventItem = {
   slug: string;
   title: string;
   dateIso: string;
+  endDateIso?: string;
   dateLabel: string;
   category: string;
   imageUrl?: string;
