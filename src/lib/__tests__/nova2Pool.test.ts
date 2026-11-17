@@ -1,4 +1,4 @@
-import { coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { agentsAllowedFor, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
@@ -17,6 +17,13 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     delete process.env.NOVA2_STUDIO_TOKEN;
   });
   afterAll(() => { process.env = keep; });
+
+  test("Nova 2 works alone: no agents, and never the cn token on its international Studio", () => {
+    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(false);
+    expect(withEngineModel("coder", () => agentsAllowedFor())).toBe(true);
+    delete process.env.NOVA2_STUDIO_TOKEN;
+    expect(tokenFor(N2)).not.toContain("cn-token");
+  });
 
   test("Nova keeps its Studios and Nova 2 has its own", () => {
     expect(withEngineModel("coder", () => coderStudioUrls())).toEqual(OLD);

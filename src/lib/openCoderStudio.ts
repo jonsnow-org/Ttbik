@@ -74,12 +74,12 @@ export function nova2Urls(): string[] {
 export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim());
 /** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
 export function tokenFor(base: string): string {
-  if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || coderToken()).trim();
+  if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim();   // never the cn (Nova) token on an international Studio
   return coderToken();
 }
 /** Same as tokenFor, but WAITS for the stored secret: the first call in a cold server instance used to see "" and sent the cn token to an international Studio (HTTP 401, read 2026-11-17). */
 export async function tokenForAsync(base: string): Promise<string> {
-  if (/\.modelscope\.ai(\/|$)/i.test(base)) return ((process.env.NOVA2_STUDIO_TOKEN || (await getSecret("AI_NOVA2_TOKEN")) || coderToken()) as string).trim();
+  if (/\.modelscope\.ai(\/|$)/i.test(base)) return ((process.env.NOVA2_STUDIO_TOKEN || (await getSecret("AI_NOVA2_TOKEN")) || "") as string).trim();
   return coderToken();
 }
 function novaStudioUrls(): string[] {
@@ -93,6 +93,9 @@ function oldNovaStudioUrls(): string[] {
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
 }
+/** Nova 2 is its own model on its own Studio: its task stays on that one Studio (one warm cache) and it starts NO agents (agents queue and slow a task down, owner 2026-11-17),
+ *  and it never hands work to Nova's cn Studios. Other models keep their own rules. */
+export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean => model !== "nova2";
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
   const nova = oldNovaStudioUrls();
