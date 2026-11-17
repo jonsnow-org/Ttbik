@@ -13,7 +13,7 @@
 2. `ai-system/distill/prompts/pack_ar.jsonl`: **210 سؤالًا عربيًا** (شرح، لماذا، مثال، خطوات، أخطاء شائعة، وحقائق). كل سطر: `{"prompt","task","topic","accept"}`. `accept` يكون `first` (أسلوب) أو `agree` (حقيقة: تُقبل إن وافقتَ أنت ومعلّم آخر).
 3. `ai-system/distill/import_chat_export.py`: يحوّل ملفك إلى سجلات شام، ويحذف الأزواج التي فيها بريد/رقم هاتف/مفتاح، أو التي يذكر الجواب فيها اسمك أو اسم شركتك («أنا ChatGPT…»)، لأن ذلك يعلّم شامًا هوية خاطئة.
 4. `ai-system/distill/distill_gen.py` و`publish_pool.py` و`registry.json`: الشبكة الآلية (معلّمون مفتوحون Apache-2.0 على الدفتر وعبر واجهات مجانية).
-5. `ai-system/colab/sham_small/sham_sil_bridge.py` (`teacher_pairs`): يقرأ المجموعة الخاصة `sham-teacher-records` على Kaggle ويضمّها إلى تدريب **كل** مدرّب تلقائيًا (حصة ≤ 0.5، لا سؤال من المجموعة المحجوزة، بلا تكرار). ما عليك تعديل شيء للتدريب نفسه.
+5. `ai-system/colab/sham_small/sham_sil_bridge.py` (`teacher_pairs`): يقرأ المجموعة الخاصة `distill-teacher-records` على Kaggle ويضمّها إلى تدريب **كل** مدرّب تلقائيًا (حصة ≤ 0.5، لا سؤال من المجموعة المحجوزة، بلا تكرار). ما عليك تعديل شيء للتدريب نفسه.
 6. `docs/FREE_COMPUTE.md`: الحوسبة المجانية (دفتر ModelScope CPU/GPU، الاستوديوهات).
 
 ## مهمتك (بالترتيب)

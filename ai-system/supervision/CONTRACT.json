@@ -1023,6 +1023,14 @@
       "writes": [
         "sham-v2-candidate-checkpoint"
       ]
+    },
+    "distill_network": {
+      "file": ".github/workflows/sham-distill.yml",
+      "title": "شبكة التقطير: معلّمون مفتوحون → سجلات مُتحقَّق منها → المجموعة الخاصة التي يقرؤها كل مدرّب",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [

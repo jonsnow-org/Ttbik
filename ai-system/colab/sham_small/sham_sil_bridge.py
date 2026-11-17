@@ -6,7 +6,7 @@ Shams already train on (v1: sham_chat._chat_plan source "sil"; v2: sham_v2_train
   * only synthetic records the lab's own verifier PASSED (an arithmetic/evidence/repair answer is checked, not trusted);
   * the lab's own teacher records are held back unless SHAM_SIL_ALLOW_TEACHER=1 AND the record is reviewed=true and verification_status=passed (quality gate: an unchecked answer can
     teach a tiny model to sound sure and be wrong);
-  * the owner's own teacher pool (the Kaggle dataset `sham-teacher-records`, or the JSONL named by SHAM_TEACHER_JSONL) is read by `teacher_pairs`: records the owner accepted
+  * the owner's own teacher pool (the Kaggle dataset `distill-teacher-records`, or the JSONL named by SHAM_TEACHER_JSONL) is read by `teacher_pairs`: records the owner accepted
     (metadata reviewed=true, verification_status passed | owner_accepted), at most SHAM_TEACHER_SHARE (default 0.5) of the pairs; SHAM_TEACHER_DATASET=off turns it off;
   * plain arithmetic direct-answer pairs are skipped by default (sham_reasoning_data already teaches worked arithmetic with steps; an answer-only pair would teach guessing):
     SHAM_SIL_ARITH=1 brings them back; `uncertainty` pairs wait for the owner's wording review (SHAM_SIL_TASKS=reasoning,evidence,repair,uncertainty);
@@ -74,9 +74,9 @@ _TEACHER_CACHE: dict = {}
 
 
 def _teacher_rows() -> list[dict]:
-    """Accepted records of the owner's teacher pool: a local JSONL (SHAM_TEACHER_JSONL) or the latest version of the Kaggle dataset sham-teacher-records."""
+    """Accepted records of the owner's teacher pool: a local JSONL (SHAM_TEACHER_JSONL) or the latest version of the Kaggle dataset distill-teacher-records."""
     path = os.environ.get("SHAM_TEACHER_JSONL", "").strip()
-    name = os.environ.get("SHAM_TEACHER_DATASET", "sham-teacher-records").strip()
+    name = os.environ.get("SHAM_TEACHER_DATASET", "distill-teacher-records").strip()
     key = path or name
     if key in _TEACHER_CACHE:
         return _TEACHER_CACHE[key]

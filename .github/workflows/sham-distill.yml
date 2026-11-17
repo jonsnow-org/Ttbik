@@ -1,7 +1,7 @@
 name: Sham distillation network (teachers -> verified records -> the Kaggle pool every trainer reads)
 # Owner's rule (2026-11-17): Sham is our model with our rights; no one's rights may enter it; any training path is fine while it works.
 # Teachers are open-weight models under Apache-2.0 reached through the free APIs (ai-system/distill/registry.json). Records with a verifier must pass the lab's verifier,
-# facts need two teachers to agree, style prompts take one teacher's answer. New accepted records are appended to the PRIVATE dataset <account>/sham-teacher-records,
+# facts need two teachers to agree, style prompts take one teacher's answer. New accepted records are appended to the PRIVATE dataset <account>/distill-teacher-records,
 # which sham_sil_bridge.teacher_pairs mixes into every Sham trainer's chat pairs (share <= 0.5, never a held-out prompt). Merge gate unchanged.
 on:
   schedule:
