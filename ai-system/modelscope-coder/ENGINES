@@ -3,5 +3,6 @@
 # and lfm25-inference-server (LFM's own Studio).
 # Measured (nova-prefill-probe.yml, 2 cores, Qwen3.5-4B): decode 6.7 tokens/s against 5.0 on mainline, prompt reading about the same (13.9 vs 13.3), tools 6/6 code 6/6, saved conversation state works (ik writes `.checkpoints` and `.tokens.json` next to it).
 # Roll-out 2026-11-17: first only the Studios named below; the rest are added after the first one is verified live.
-coder-inference-server-4 ik
 coder-inference-server-16 ik
+# 2026-11-17 live test on Studio 4 (nova-base-warm.yml, 4B): ik -rtr read the 9520-token start in 420 s against 273 s on mainline (Studio 1) and a NEW conversation read 915 tokens in 54 s against 18 tokens in 4 s (ik did not reuse the saved start fully).
+# Studio 4 was therefore put back on mainline (owner's rule: test live, if it fails restore the previous). Only the 35B Studio is still on trial.
