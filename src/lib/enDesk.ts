@@ -11,6 +11,24 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    slug: "japan-russian-airspace-incident-2026",
+    title: "Japan protests after two suspected Russian aircraft enter its airspace",
+    dek: "Japan’s Defense Ministry said two aircraft believed to be Russian entered airspace above territorial waters northwest of Okinoshima on 17 November. Fighters were scrambled and warnings issued; Tokyo said it lodged a strong protest. The ministry did not identify the aircraft types or explain their purpose.",
+    date: "2026-11-17",
+    body: [
+      "Japan’s Defense Ministry said on 17 November 2026 that one aircraft suspected of being Russian entered the airspace above territorial waters northwest of Okinoshima, Fukuoka Prefecture, from about 4:07 to 4:10 a.m. Japan Standard Time. A second suspected Russian aircraft entered from about 4:09 to 4:12 a.m. These are the incident times reported by the ministry, not the publication time of this article.",
+      "The ministry said the Japan Self-Defense Forces scrambled fighters from the Western Air Defense Force and issued notices and warnings. It said the aircraft later crossed the Tsushima Strait, passed between Yonaguni Island and Taiwan, and continued toward the Pacific. The statement did not identify the aircraft types.",
+      "Tokyo said it lodged a strong diplomatic protest with Russia and demanded measures to prevent a recurrence. Reuters and the Associated Press independently reported the incursion, the fighter response and Japan’s protest.",
+      "Japan’s Defense Ministry said the last confirmed violation of its airspace by a Russian aircraft was near Rebun Island in Hokkaido in September 2024. The ministry did not establish the purpose of the 17 November flight, so the incident alone does not prove a wider escalation.",
+      "Sham AI publication date: 17 November 2026. Incident date: early 17 November in Japan Standard Time."
+    ],
+    sources: [
+      { href: "https://www.mod.go.jp/j/press/news/2026/11/17c.html", label: "Japan Ministry of Defense — official statement on the aircraft" },
+      { href: "https://www.reuters.com/business/aerospace-defense/tokyo-lodges-protest-after-aircraft-believed-be-russian-violate-japan-airspace-2026-11-17/", label: "Reuters — Japan’s protest and incident details" },
+      { href: "https://apnews.com/article/japan-russia-china-military-airspace-a07dac6180c1cd4d6b7bd2c0389d9f6d", label: "Associated Press — incident and Japanese statements" }
+    ],
+  },
+  {
     slug: "china-mexico-cooperation-apec-2026",
     title: "China and Mexico seek deeper cooperation ahead of APEC leaders' meeting",
     dek: "Xi Jinping and Claudia Sheinbaum met in Shenzhen on 17 November, discussing technology, agriculture, water, trade and other areas. The sources reviewed do not report a new trade agreement signed at the meeting.",
