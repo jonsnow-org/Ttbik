@@ -21,3 +21,9 @@ def load_config(path: str) -> dict:
             except ValueError:
                 cfg[k] = float(v)
     return cfg
+
+
+def make_tokenizer(cfg: dict, texts):
+    from sham_tldm import BPETokenizer, ByteTokenizer
+    n = int(cfg.get("bpe_merges", 0))
+    return BPETokenizer.train(list(texts), n) if n > 0 else ByteTokenizer()

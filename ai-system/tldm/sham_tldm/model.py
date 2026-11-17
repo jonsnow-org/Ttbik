@@ -36,11 +36,11 @@ def decode_bytes(tokens) -> str:
 
 
 class _Core(nn.Module):
-    def __init__(self, d: int, latents: int, think_steps: int, block: int, writer_layers: int, heads: int):
+    def __init__(self, d: int, latents: int, think_steps: int, block: int, writer_layers: int, heads: int, vocab: int = VOCAB):
         super().__init__()
         self.compressor = Compressor(d, latents, heads)
         self.thinker = LatentThinker(d, think_steps, heads)
-        self.writer = DiffusionWriter(d, block, VOCAB, writer_layers, heads)
+        self.writer = DiffusionWriter(d, block, vocab, writer_layers, heads)
 
     def latents(self, h, pad_mask=None, early_exit=False):
         z, used = self.thinker(self.compressor(h, pad_mask), early_exit=early_exit)
@@ -57,13 +57,13 @@ class _Core(nn.Module):
 
 
 class Sham1_TLDM(nn.Module):
-    def __init__(self, d: int = 640, layers: int = 8, latents: int = 16, think_steps: int = 5, block: int = 64, writer_layers: int = 3, heads: int = 4, bitnet: bool = False, in_len: int = 64):
+    def __init__(self, d: int = 640, layers: int = 8, latents: int = 16, think_steps: int = 5, block: int = 64, writer_layers: int = 3, heads: int = 4, bitnet: bool = False, in_len: int = 64, vocab: int = VOCAB):
         super().__init__()
-        self.cfg = dict(d=d, layers=layers, latents=latents, think_steps=think_steps, block=block, writer_layers=writer_layers, heads=heads, bitnet=bitnet, in_len=in_len)
-        self.embed = nn.Embedding(VOCAB, d)
+        self.cfg = dict(vocab=vocab, d=d, layers=layers, latents=latents, think_steps=think_steps, block=block, writer_layers=writer_layers, heads=heads, bitnet=bitnet, in_len=in_len)
+        self.embed = nn.Embedding(vocab, d)
         self.reader = nn.ModuleList(MambaBlock(d, bitnet) for _ in range(layers))
         self.norm = nn.LayerNorm(d)
-        self.core = _Core(d, latents, think_steps, block, writer_layers, heads)
+        self.core = _Core(d, latents, think_steps, block, writer_layers, heads, vocab)
 
     def read(self, ids):
         h = self.embed(ids)

@@ -11,7 +11,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
 from common import ROOT  # noqa: E402
 import torch  # noqa: E402
-from sham_tldm import Sham1_TLDM, encode_bytes, decode_bytes, bitnet_size_bytes  # noqa: E402
+from sham_tldm import Sham1_TLDM, bitnet_size_bytes, from_state  # noqa: E402
 import terminal_tasks as T  # noqa: E402
 
 
@@ -23,7 +23,8 @@ def main():
     a = ap.parse_args()
     ck = torch.load(a.ckpt, map_location="cpu")
     cfg = ck["cfg"]
-    model = Sham1_TLDM(d=cfg["d"], layers=cfg["layers"], latents=cfg["latents"], think_steps=cfg["think_steps"], block=cfg["block"], writer_layers=cfg["writer_layers"], heads=cfg["heads"], bitnet=cfg["bitnet"], in_len=cfg["in_len"])
+    model = Sham1_TLDM(d=cfg["d"], layers=cfg["layers"], latents=cfg["latents"], think_steps=cfg["think_steps"], block=cfg["block"], writer_layers=cfg["writer_layers"], heads=cfg["heads"], bitnet=cfg["bitnet"], in_len=cfg["in_len"], vocab=cfg.get("vocab", 257))
+    tok = from_state(ck.get("tokenizer", {"kind": "byte"}))
     model.load_state_dict(ck["model"])
     model.eval()
     torch.set_num_threads(max(1, torch.get_num_threads()))
@@ -32,7 +33,7 @@ def main():
     for passes in (cfg["diffusion_steps"], max(1, cfg["diffusion_steps"] // 2), 2):
         lat, useful = [], []
         for task, ref in rows:
-            ids = torch.tensor([encode_bytes(task, cfg["in_len"])])
+            ids = torch.tensor([tok.encode(task, cfg["in_len"])])
             model.generate(ids, steps=passes)                                   # warm-up
             ts = []
             for _ in range(a.reps):
@@ -41,7 +42,8 @@ def main():
                 ts.append(time.time() - t0)
             t = statistics.median(ts)
             lat.append(t)
-            useful.append(max(len(decode_bytes(out[0]).encode("utf-8")), 1) / t)
+            useful.append(max(len([i for i in out[0].tolist() if i]), 1) / t)
+            # (tokens of the command actually written; with the byte tokenizer these are bytes)
         med = statistics.median(lat)
         print(f"writer passes {passes:2d}: latency {med*1000:7.1f} ms/command | block tokens/s {cfg['block']/med:8.0f} | command tokens/s {statistics.median(useful):8.0f}")
     size = bitnet_size_bytes(model)
