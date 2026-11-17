@@ -23,13 +23,13 @@
       "key_env": "GROQ_API_KEY"
     },
     {
-      "id": "groq-qwen3-32b",
+      "id": "groq-llama33-70b",
       "class": "open",
-      "license": "Apache-2.0",
+      "license": "Llama-3.3-Community",
       "enabled": true,
       "host": "groq-free-api",
       "endpoint": "https://api.groq.com/openai/v1/chat/completions",
-      "model": "qwen/qwen3-32b",
+      "model": "llama-3.3-70b-versatile",
       "key_env": "GROQ_API_KEY"
     },
     {

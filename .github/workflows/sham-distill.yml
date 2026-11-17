@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -q kaggle
+      - run: pip install -q kaggle six
       - name: Generate
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -34,7 +34,7 @@ jobs:
         run: |
           echo "::add-mask::$GROQ_API_KEY"; echo "::add-mask::$OPENROUTER_API_KEY"; echo "::add-mask::$MODELSCOPE_AI_TOKEN"
           python3 ai-system/distill/distill_gen.py --prompts ai-system/distill/prompts/seed_ar.jsonl --out /tmp/new.jsonl \
-            --teachers groq-gpt-oss-120b,groq-qwen3-32b --expand "${{ inputs.expand || '8' }}" --limit 120
+            --teachers groq-gpt-oss-120b,groq-llama33-70b --expand "${{ inputs.expand || '8' }}" --limit 120
       - name: Publish to the pool
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
