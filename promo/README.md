@@ -33,8 +33,7 @@
 | فيديو الشرائح القديم | نسخة بسيطة لتلجرام/فيسبوك | يدوي | `promo/render.py`, `promo/build.sh` | Release `promo-N` |
 | أرشفة محركات البحث | IndexNow لكل صفحة عامة | لم أجد workflow يستدعيه؛ يُستدعى يدوياً بـ `?secret=` (للمنظِّم أن يتحقق من الجدولة) | `src/app/api/cron/indexnow` | — |
 | إعلانات الموقع | بانرات ومنع الظهور على صفحات المال | — | `src/lib/siteAds.ts`, `adsterraKeys.ts`, `monetagGate.ts` | **لا إعلانات** في `/admin /match-app /pay /order /service /fadaa /verify /api /zenobia` |
-| المشرف الآلي | تقرير صحة يومي واحد (مرتين يومياً) لكل أنظمة الترويج، يُكتب في Issue واحد دائم بعلامة `promo-supervisor` | 09:05 و21:05 إسطنبول (`.github/workflows/promo-supervisor.yml`، ويعمل من الفرع الافتراضي) | `scripts/promo/supervise.mjs` (+ `supervise.test.mjs`) | افتح الـ Issue ذا العلامة `promo-supervisor`؛ العلامة `needs-attention` تعني مشكلة |
-| بلاغات الأخطاء | أي فشل في هذه الأنظمة ينشئ Issue بعلامة `auto-error` | كل ساعة (`error-triage.yml`) | `src/lib/errorLog.ts` | قائمة Issues |
+| المراقب الموحد | تقرير صحة واحد لكل أقسام الموقع والبوتات والنشر، يُحدّث Issue واحداً دائماً بعنوان `Monitoring: all systems`؛ وبلاغات `auto-error` تُنشأ عند تكرار الخطأ 10 مرات أو أكثر | كل ساعة عند الدقيقة 11 UTC (`11 * * * *` في `monitor.yml`) | `scripts/supervisors/run.mjs` و`.github/workflows/monitor.yml` | راجع Issue `Monitoring: all systems`؛ العلامة `needs-attention` تعني مراجعة مطلوبة |
 
 ## 2.1 حزمة حملات المشاريع والبوتات (مراجعة قبل النشر)
 - workflow `promo-projects.yml` يبني فيديوهات عمودية/أفقية من صفحات الموقع الحية، وبطاقات بثلاثة مقاسات (مربع، ستوري، ومعاينة رابط)، وحزمة نصوص جاهزة لتيليجرام وإنستغرام/فيسبوك وتيك توك/ريلز ويوتيوب شورتس.
@@ -87,7 +86,7 @@
 **التصعيد:** فشل متكرر مرتين متتاليتين، أو سبب غير معروف، أو أي شيء في خانة «يحتاج موافقة»: يُعلَّق على الـ Issue بعلامة `needs-owner` وتُترك المسألة للمالك أو للمنظِّم.
 
 ## 5.1 قائمة المشرف (يومياً، للمتابعة فقط)
-1. **التقرير:** افتح الـ Issue ذا العلامة `promo-supervisor` (يتحدّث تلقائياً مرتين يومياً). ثم تحقق يدوياً مما يلي:
+1. **التقرير:** افتح Issue `Monitoring: all systems` (يحدّثه `monitor.yml` كل ساعة) وراجع العلامة `needs-attention` عند وجودها. ثم تحقق يدوياً مما يلي:
 2. **التنفيذ:** في GitHub Actions: آخر تشغيل لكلٍّ من `channel-post`, `coins-channel-post`, `promo-remotion` ناجح (أخضر). فشل = Issue `auto-error` يُحل أو يُبلَّغ.
 3. **الظهور:** افتح القناتين وتأكد أن آخر منشور حديث (العامة: خلال ~3 ساعات نهاراً، العملات: خلال ~6 ساعات نهاراً). قناة العملات بلا حرف عربي.
 4. **الفيديو:** آخر Release `promo-ep-N` موجود ومفتوح، وإن كان `PUBLISH_ON` موجوداً وصل إلى القناة المقصودة.
