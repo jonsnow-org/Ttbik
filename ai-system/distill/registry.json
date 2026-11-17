@@ -1,0 +1,86 @@
+{
+  "_note": "Teachers of Sham's distillation network. The owner's only rule (2026-11-17): Sham is our model with our rights, and no one's rights may enter it; any training path is fine while it works. Open-weight models under a permissive licence (Apache-2.0) are teachers whose outputs carry no restriction: class=open, whether we host them (notebook) or call them through a free API. class=owner_export: the owner's own chat-app data export, imported by import_chat_export.py (no live access to the app exists). class=restricted: a source whose terms restrict using its outputs to train a model: used only when owner_approved is true AND the env var SHAM_DISTILL_ALLOW_RESTRICTED lists its id. No keys here: key_env names an environment variable.",
+  "teachers": [
+    {
+      "id": "qwen36-35b-a3b",
+      "class": "open",
+      "license": "Apache-2.0",
+      "enabled": true,
+      "host": "notebook",
+      "endpoint": "http://127.0.0.1:8080/v1/chat/completions",
+      "model": "nova-ai",
+      "key_env": "",
+      "note": "served by scripts/notebook-node/teachers_up.sh (GPU)"
+    },
+    {
+      "id": "groq-gpt-oss-120b",
+      "class": "open",
+      "license": "Apache-2.0",
+      "enabled": true,
+      "host": "groq-free-api",
+      "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+      "model": "openai/gpt-oss-120b",
+      "key_env": "GROQ_API_KEY"
+    },
+    {
+      "id": "groq-qwen3-32b",
+      "class": "open",
+      "license": "Apache-2.0",
+      "enabled": true,
+      "host": "groq-free-api",
+      "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+      "model": "qwen/qwen3-32b",
+      "key_env": "GROQ_API_KEY"
+    },
+    {
+      "id": "openrouter-gpt-oss-20b",
+      "class": "open",
+      "license": "Apache-2.0",
+      "enabled": true,
+      "host": "openrouter-free-api",
+      "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "model": "openai/gpt-oss-20b:free",
+      "key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "chatgpt-app-export",
+      "class": "owner_export",
+      "license": "the owner's own data export",
+      "enabled": true,
+      "note": "no live access: the owner exports his data, uploads conversations.json to the notebook inbox, scripts/notebook-node/distill_publish.sh imports it"
+    },
+    {
+      "id": "nova-qwen35-4b",
+      "class": "open",
+      "license": "Apache-2.0",
+      "enabled": true,
+      "host": "notebook",
+      "endpoint": "http://127.0.0.1:8081/v1/chat/completions",
+      "model": "nova-ai",
+      "key_env": "",
+      "note": "Nova's own model (Qwen3.5-4B), served on the notebook GPU: fast and it does not touch the live Nova Studios"
+    },
+    {
+      "id": "lfm25-8b-a1b",
+      "class": "open",
+      "license": "LFM Open License v1.0",
+      "enabled": true,
+      "host": "notebook",
+      "endpoint": "http://127.0.0.1:8082/v1/chat/completions",
+      "model": "lfm",
+      "key_env": "",
+      "note": "LFM2.5-8B-A1B on the notebook CPU (1B active parameters: fast on CPU); check the licence terms before trusting it for style data"
+    },
+    {
+      "id": "sham-v2",
+      "class": "own",
+      "license": "ours",
+      "enabled": false,
+      "host": "notebook",
+      "endpoint": "http://127.0.0.1:8083/v1/chat/completions",
+      "model": "sham-v2",
+      "key_env": "",
+      "note": "our own model: weak answers, so only ever a second voter for agreement, never the sole source; serve its GGUF on port 8083 to enable"
+    }
+  ]
+}

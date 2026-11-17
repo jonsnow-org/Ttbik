@@ -36,11 +36,15 @@ RUN_ALLOW = [re.compile(p) for p in (
     r"^node scripts/[\w./-]+\.mjs\b", r"^npx (tsc|jest|eslint)\b", r"^npm (test|run (lint|build|test))\b", r"^cd [\w./-]+$",
     r"^git (status|diff|log|show|ls-files|branch)\b", r"^ls\b", r"^cat [\w./-]+$", r"^wc\b", r"^head\b", r"^tail\b", r"^grep\b",
 )]
+# The owner's order is to CARRY OUT, not to ask (2026-11-17 review: the live run on #1059 read 18 files and ended with "the owner must decide"; Nova had the same fault, fixed there in #1021).
+ASKS = re.compile(r"[؟?]\s*$|هل تريد|هل ترغب|أي (?:خطوة|خيار|واحد|مسار)|ما رأيك|المطلوب قرار|would you like|which (?:one|option|step)|do you want|waiting for your decision", re.I)
+ACTION = re.compile(r"أصلح|اصلح|طوّر|طور|عدّل|عدل|نفّذ|نفذ|ادمج|أضف|اضف|ابنِ|حسّن|حسن|\b(fix|implement|develop|build|add|merge|improve|refactor|change|update)\b", re.I)
+MAX_NUDGES = 2
 META = re.compile(r"[;|`<>\n]|\$\(")
 
 SYSTEM = """You are free i, the owner's agent. The owner commands you through Telegram and you CARRY OUT the command with tools, like a coding assistant; you do not just advise.
 Reply to EVERY step with exactly ONE JSON object and nothing else: {"tool": "<name>", "args": {...}}. When the work is done (or the message was only a question or a greeting), call
-{"tool": "final", "args": {"message": "<what you did, in the owner's language, short, honest>"}}. Answer greetings and plain questions with "final" at once. Write only in the owner's language (Arabic by default); never mix in Chinese or other scripts.
+{"tool": "final", "args": {"message": "<what you did, in the owner's language, short, honest>"}}. Answer greetings and plain questions with "final" at once. When the owner COMMANDS a change (fix, develop, add, merge) do the work: pick the best option yourself, edit, test, open_pr; never end by asking the owner which step to take. Write only in the owner's language (Arabic by default); never mix in Chinese or other scripts.
 
 Tools (args):
 - list_files {path?}: tracked files under a folder (default root).
@@ -363,7 +367,7 @@ def run_agent(issue: dict, comments: list[dict], model: str, default: str, root:
     task = A._HTML_COMMENT.sub("", issue.get("body") or issue["title"]).strip()
     history = "\n\n".join(f"{c['user']['login']}: {c['body']}" for c in comments if A.MARK not in c["body"])[-3000:]
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": f"The owner's command:\n{task}" + (f"\n\nEarlier comments:\n{history}" if history else "")}]
-    started, bad = now(), 0
+    started, bad, nudges = now(), 0, 0
     for step in range(MAX_STEPS):
         if now() - started > MAX_SECONDS:
             return wrap_up(messages, model, f"حدّ الوقت ({int((now() - started) // 60)} دقيقة)", ag.trace), ag.trace
@@ -379,7 +383,18 @@ def run_agent(issue: dict, comments: list[dict], model: str, default: str, root:
             messages += [{"role": "assistant", "content": clip(out, 1500)}, {"role": "user", "content": 'Reply with ONE JSON object only: {"tool": "...", "args": {...}}'}]
             continue
         if act["tool"] == "final":
-            return str(act["args"].get("message") or "(no message)"), ag.trace
+            msg = str(act["args"].get("message") or "(no message)")
+            unfinished = bool(ag.written)                                       # edits that never reached a pull request
+            gave_up = bool(ACTION.search(task)) and "open_pr" not in ag.trace and not ag.written and bool(ASKS.search(msg))
+            if (unfinished or gave_up) and nudges < MAX_NUDGES and MAX_STEPS - step > 3:
+                nudges += 1
+                why = ("You wrote edits but did not open a pull request: run the tests with `run`, then call open_pr, then final."
+                       if unfinished else
+                       "The owner ordered you to carry the work out; do not ask him which option. Choose the best one yourself now: edit_file/write_file, run the tests, open_pr, then final.")
+                messages += [{"role": "assistant", "content": json.dumps(act, ensure_ascii=False)[:1500]}, {"role": "user", "content": why}]
+                ag.trace.append("nudge")
+                continue
+            return msg, ag.trace
         result = ag.call(act["tool"], act["args"])
         ag.trace.append(act["tool"])
         left = MAX_STEPS - step - 1

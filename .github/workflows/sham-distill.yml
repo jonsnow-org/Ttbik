@@ -1,0 +1,43 @@
+name: Sham distillation network (teachers -> verified records -> the Kaggle pool every trainer reads)
+# Owner's rule (2026-11-17): Sham is our model with our rights; no one's rights may enter it; any training path is fine while it works.
+# Teachers are open-weight models under Apache-2.0 reached through the free APIs (ai-system/distill/registry.json). Records with a verifier must pass the lab's verifier,
+# facts need two teachers to agree, style prompts take one teacher's answer. New accepted records are appended to the PRIVATE dataset <account>/distill-teacher-records,
+# which sham_sil_bridge.teacher_pairs mixes into every Sham trainer's chat pairs (share <= 0.5, never a held-out prompt). Merge gate unchanged.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      expand:
+        description: "new questions per topic written by the first teacher"
+        default: "8"
+permissions:
+  contents: read
+concurrency:
+  group: sham-distill
+  cancel-in-progress: false
+jobs:
+  distill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q kaggle
+      - name: Generate
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "::add-mask::$GROQ_API_KEY"; echo "::add-mask::$OPENROUTER_API_KEY"
+          python3 ai-system/distill/distill_gen.py --prompts ai-system/distill/prompts/seed_ar.jsonl --out /tmp/new.jsonl \
+            --teachers groq-gpt-oss-120b,groq-qwen3-32b,openrouter-gpt-oss-20b --expand "${{ inputs.expand || '8' }}" --limit 120
+      - name: Publish to the pool
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          echo "::add-mask::$KAGGLE_API_TOKEN"
+          python3 ai-system/distill/publish_pool.py /tmp/new.jsonl

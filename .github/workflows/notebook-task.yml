@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh)"
+        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh | distill_publish.sh | distill_local.sh)"
         default: "train_sham_gpu.sh"
       args:
         description: "argument for the script (gpu_node.sh: setup | bench | serve)"
@@ -22,7 +22,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: notebook-task
+  group: notebook-task-${{ inputs.script }}-${{ inputs.name }}   # different scripts/names run side by side when the notebook has more than one runner
   cancel-in-progress: false
 jobs:
   run:
@@ -43,5 +43,5 @@ jobs:
           ARGS: ${{ inputs.args }}
         run: |
           echo "::add-mask::$MS_TOKEN"; echo "::add-mask::$KAGGLE_API_TOKEN"
-          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh) ;; *) echo "script not allowed"; exit 1;; esac
+          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh|distill_publish.sh|distill_local.sh) ;; *) echo "script not allowed"; exit 1;; esac
           bash "scripts/notebook-node/$SCRIPT" $ARGS

@@ -57,3 +57,38 @@ class Bridge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TeacherPoolTests(unittest.TestCase):
+    def setUp(self):
+        import json
+        import tempfile
+        self.json = json
+        self.d = tempfile.mkdtemp()
+        rows = [
+            {"prompt": "ما عاصمة مصر؟", "target": "القاهرة", "metadata": {"reviewed": True, "verification_status": "owner_accepted"}},
+            {"prompt": "سؤال لم يُقبل", "target": "جواب", "metadata": {"reviewed": False, "verification_status": "pending"}},
+            {"prompt": "سؤال بحالة أخرى", "target": "جواب", "metadata": {"reviewed": True, "verification_status": "failed"}},
+            {"prompt": "ما عاصمة مصر؟", "target": "مكرر", "metadata": {"reviewed": True, "verification_status": "passed"}},
+        ]
+        self.f = os.path.join(self.d, "r.jsonl")
+        open(self.f, "w", encoding="utf-8").write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\nnot json\n")
+        os.environ["SHAM_TEACHER_JSONL"] = self.f
+        B._TEACHER_CACHE.clear()
+
+    def tearDown(self):
+        os.environ.pop("SHAM_TEACHER_JSONL", None)
+        B._TEACHER_CACHE.clear()
+
+    def test_only_accepted_records_enter_and_duplicates_are_dropped(self):
+        self.assertEqual(B.teacher_pairs(10, 1), [("ما عاصمة مصر؟", "القاهرة")])
+
+    def test_a_held_out_prompt_never_enters(self):
+        self.assertEqual(B.teacher_pairs(10, 1, {B._key("ما عاصمة مصر؟")}), [])
+
+    def test_train_pairs_mixes_the_pool_in_and_respects_the_off_switch(self):
+        pairs = B.train_pairs(20, 3)
+        self.assertIn(("ما عاصمة مصر؟", "القاهرة"), pairs)
+        os.environ["SHAM_TEACHER_JSONL"] = os.path.join(self.d, "missing.jsonl")
+        B._TEACHER_CACHE.clear()
+        self.assertEqual(B.teacher_pairs(5, 1), [])
