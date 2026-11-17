@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """python training/train_0.3b.py --config configs/experiment_0.3b.yaml  ->  checkpoints/0.3b/final.pt  (trains on the 30 terminal examples, then runs them in the sandbox)"""
 import argparse
+import math
 import os
+import random
 import sys
 import time
 
@@ -20,6 +22,27 @@ def batch(rows, cfg, tok):
     ids = torch.tensor([tok.encode(t, cfg["in_len"]) for t, _ in rows])
     tgt = torch.tensor([tok.encode(c, cfg["block"]) for _, c in rows])
     return ids, tgt
+
+
+FILLER = ["please", "now", "can you", "quickly"]
+
+
+def noisy(task: str, rng: random.Random) -> str:
+    """Training-time robustness only (nothing from the held-out set is used): drop a word, add a filler word, change case. A one-word task is never emptied."""
+    w = task.split()
+    if len(w) > 2 and rng.random() < 0.4:
+        w.pop(rng.randrange(len(w)))
+    if rng.random() < 0.3:
+        w.insert(rng.randrange(len(w) + 1), rng.choice(FILLER))
+    t = " ".join(w)
+    return t.lower() if rng.random() < 0.3 else t
+
+
+def lr_at(step: int, total: int, peak: float, warm: int = 30, floor: float = 0.05) -> float:
+    """Warm-up, then a cosine decay to floor*peak (the first run kept 1e-3 flat and its loss rose again after step 250)."""
+    if step < warm:
+        return peak * (step + 1) / warm
+    return peak * (floor + (1 - floor) * 0.5 * (1 + math.cos(math.pi * (step - warm) / max(1, total - warm))))
 
 
 def evaluate(model, rows, cfg, steps, tok):
@@ -57,17 +80,25 @@ def main():
     print(f"params: {model.count_params()/1e6:.1f}M (the name '0.3B' is the book's; this configuration really has this many)", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=0.01)
     ids, tgt = batch(T.TRAIN, cfg, tok)
+    rng = random.Random(0)
+    augment, every = bool(cfg.get("augment", False)), int(cfg.get("eval_every", 0))
     t0 = time.time()
     for step in range(cfg["steps"]):
         for g in opt.param_groups:
-            g["lr"] = cfg["lr"] * min(1.0, (step + 1) / 30)
+            g["lr"] = lr_at(step, cfg["steps"], cfg["lr"]) if cfg.get("cosine", False) else cfg["lr"] * min(1.0, (step + 1) / 30)
+        if augment:
+            ids, tgt = batch([(noisy(t, rng), c) for t, c in T.TRAIN], cfg, tok)
         opt.zero_grad(set_to_none=True)
         loss = model.loss(ids, tgt)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         if step % 50 == 0 or step == cfg["steps"] - 1:
-            print(f"step {step} loss {loss.item():.4f} ({time.time()-t0:.0f}s)", flush=True)
+            print(f"step {step} loss {loss.item():.4f} lr {opt.param_groups[0]['lr']:.2e} ({time.time()-t0:.0f}s)", flush=True)
+        if every and (step + 1) % every == 0:
+            r, _ = evaluate(model, T.TRAIN, cfg, cfg["diffusion_steps"], tok)     # logged only: nothing is selected on the held-out set
+            print(f"   [train-set check @ {step+1}] same-effect {r['same_effect']} exact {r['exact_text']}", flush=True)
+            model.train()
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     torch.save({"cfg": cfg, "model": model.state_dict(), "tokenizer": tok.state()}, a.out)
     print("saved", a.out)
