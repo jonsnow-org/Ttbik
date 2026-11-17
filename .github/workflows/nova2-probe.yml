@@ -2,6 +2,8 @@ name: "Nova 2 probe (one-off, read-only)"
 # Asks the international Studio coder-inference-server-16 for its status page with the repo's international token, and compares with a Studio known to answer.
 on:
   workflow_dispatch:
+  push:
+    branches: [claude/nova2-probe]
 permissions:
   contents: read
 jobs:
