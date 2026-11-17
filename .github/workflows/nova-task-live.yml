@@ -12,6 +12,10 @@ on:
         description: "engine model: coder (Nova) or lfm25 (LFM2.5)"
         required: false
         default: "coder"
+      studio_url:
+        description: "empty = Nova's production Studio 1. An address = run this task against THAT Studio only (Nova's pool untouched): a cn Studio (studio-novaai2026-<name>.api-inference.modelscope.net, account token) or an international one (...jonjithup...api-inference.modelscope.ai, international token)."
+        required: false
+        default: ""
       drop_continue:
         description: "1 = lose the first hand-off (simulated disconnect) and check that the orphan sweep resumes the task"
         required: false
@@ -23,7 +27,7 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,7 +46,8 @@ jobs:
           PROBE_TEXT: ${{ inputs.text }}
           PROBE_MODEL: ${{ inputs.model }}
           PROBE_DROP_CONTINUE: ${{ inputs.drop_continue }}
-          OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
+          OPEN_CODER_STUDIO_URL: ${{ inputs.studio_url || 'https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net' }}
+          OPEN_CODER_STUDIO_TOKEN: ${{ contains(inputs.studio_url, 'jonjithup') && secrets.MODELSCOPE_AI_TOKEN || '' }}
           PROBE_OUT: ${{ runner.temp }}
         run: |
           cd athar
