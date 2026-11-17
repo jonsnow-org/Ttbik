@@ -16,6 +16,10 @@ on:
         description: "empty = Nova's production Studio 1. An address = run this task against THAT Studio only (Nova's pool untouched): a cn Studio (studio-novaai2026-<name>.api-inference.modelscope.net, account token) or an international one (...jonjithup...api-inference.modelscope.ai, international token)."
         required: false
         default: ""
+      stall_ms:
+        description: "CODER_JOB_STALL_MS for this run (ms without any progress before the step is cancelled; default 180000). A slow Studio (the 35B reads ~9 tokens/s) needs a long one, e.g. 1500000."
+        required: false
+        default: ""
       drop_continue:
         description: "1 = lose the first hand-off (simulated disconnect) and check that the orphan sweep resumes the task"
         required: false
@@ -49,6 +53,7 @@ jobs:
           OPEN_CODER_STUDIO_URL: ${{ inputs.studio_url || 'https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net' }}
           OPEN_CODER_STUDIO_TOKEN: ${{ contains(inputs.studio_url, 'jonjithup') && secrets.MODELSCOPE_AI_TOKEN || '' }}
           PROBE_OUT: ${{ runner.temp }}
+          CODER_JOB_STALL_MS: ${{ inputs.stall_ms }}
         run: |
           cd athar
           set -o pipefail
