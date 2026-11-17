@@ -1,15 +1,15 @@
 {
-  "_note": "Teachers for Sham's distillation network. class=open: open-weight model with a permissive licence that WE host (allowed). class=commercial: a service whose terms restrict training on its outputs: refused unless owner_approved is true AND the env var SHAM_DISTILL_ALLOW_COMMERCIAL lists its id; the owner's standing policy (2026-11) is no training on commercial-model outputs. No keys live here: key_env names an environment variable.",
+  "_note": "Teachers of Sham's distillation network. The owner's only rule (2026-11-17): Sham is our model with our rights, and no one's rights may enter it; any training path is fine while it works. Open-weight models under a permissive licence (Apache-2.0) are teachers whose outputs carry no restriction: class=open, whether we host them (notebook) or call them through a free API. class=owner_export: the owner's own chat-app data export, imported by import_chat_export.py (no live access to the app exists). class=restricted: a source whose terms restrict using its outputs to train a model: used only when owner_approved is true AND the env var SHAM_DISTILL_ALLOW_RESTRICTED lists its id. No keys here: key_env names an environment variable.",
   "teachers": [
-    {"id": "qwen36-35b-a3b", "class": "open", "license": "Apache-2.0", "enabled": true, "host": "notebook",
-     "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "nova-ai", "key_env": "NODE_KEY"},
-    {"id": "qwen35-4b", "class": "open", "license": "Apache-2.0", "enabled": false, "host": "nova-studio",
-     "endpoint": "", "model": "nova-ai", "key_env": "", "note": "Nova's own model; second opinion for agreement checks once a second open teacher is hosted"},
-    {"id": "gpt-oss-20b", "class": "open", "license": "Apache-2.0", "enabled": false, "host": "notebook",
-     "endpoint": "http://127.0.0.1:8081/v1/chat/completions", "model": "gpt-oss-20b", "key_env": "NODE_KEY"},
-    {"id": "chatgpt-free-app", "class": "commercial", "license": "provider terms", "enabled": false, "owner_approved": false,
-     "note": "No API for the free app; automating it breaks its terms and risks the account. Manual copy does not scale. Do not enable."},
-    {"id": "groq-or-openrouter-free", "class": "commercial", "license": "provider terms + each model's licence", "enabled": false, "owner_approved": false,
-     "note": "free i's models: not used for training (some free tiers train on prompts; some model licences restrict output use)."}
+    {"id": "qwen36-35b-a3b", "class": "open", "license": "Apache-2.0", "enabled": false, "host": "notebook",
+     "endpoint": "http://127.0.0.1:8080/v1/chat/completions", "model": "nova-ai", "key_env": "NODE_KEY", "note": "enable while gpu_node.sh serve runs on the notebook"},
+    {"id": "groq-gpt-oss-120b", "class": "open", "license": "Apache-2.0", "enabled": true, "host": "groq-free-api",
+     "endpoint": "https://api.groq.com/openai/v1/chat/completions", "model": "openai/gpt-oss-120b", "key_env": "GROQ_API_KEY"},
+    {"id": "groq-qwen3-32b", "class": "open", "license": "Apache-2.0", "enabled": true, "host": "groq-free-api",
+     "endpoint": "https://api.groq.com/openai/v1/chat/completions", "model": "qwen/qwen3-32b", "key_env": "GROQ_API_KEY"},
+    {"id": "openrouter-gpt-oss-20b", "class": "open", "license": "Apache-2.0", "enabled": true, "host": "openrouter-free-api",
+     "endpoint": "https://openrouter.ai/api/v1/chat/completions", "model": "openai/gpt-oss-20b:free", "key_env": "OPENROUTER_API_KEY"},
+    {"id": "chatgpt-app-export", "class": "owner_export", "license": "the owner's own data export", "enabled": true,
+     "note": "no live access: the owner exports his data, uploads conversations.json to the notebook inbox, scripts/notebook-node/distill_publish.sh imports it"}
   ]
 }

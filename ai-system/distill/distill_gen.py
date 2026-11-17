@@ -6,7 +6,7 @@ Nothing here trains Sham: records go to quarantine (reviewed=false) and reach tr
 
     python distill_gen.py --prompts prompts.jsonl --out records.jsonl [--teachers a,b] [--limit 200]
 A prompt row: {"prompt": "...", "task": "reasoning|natural_sft|...", "verifier": "safe_arithmetic|numeric_match|normalized_exact|none", "verification": {...}}
-Rules: (1) a teacher must be enabled; a commercial one also needs owner_approved + SHAM_DISTILL_ALLOW_COMMERCIAL=<id>; (2) a record with a verifier is accepted only when the lab verifier passes;
+Rules: (1) a teacher must be enabled and of class open (a restricted one also needs owner_approved + SHAM_DISTILL_ALLOW_RESTRICTED=<id>); (2) a record with a verifier is accepted only when the lab verifier passes;
 (3) a record WITHOUT a verifier is accepted only when two different teachers agree; otherwise it stays pending in quarantine. Stdlib only; no secrets are read except the key named by key_env.
 """
 from __future__ import annotations
@@ -35,12 +35,12 @@ def teacher_allowed(t: dict, env=None) -> tuple[bool, str]:
         return False, "disabled"
     if t.get("class") == "open":
         return (True, "") if t.get("endpoint") else (False, "no endpoint")
-    if t.get("class") == "commercial":
-        listed = {x.strip() for x in env.get("SHAM_DISTILL_ALLOW_COMMERCIAL", "").split(",") if x.strip()}
+    if t.get("class") == "restricted":      # terms restrict training on the outputs: only with the owner's explicit switch
+        listed = {x.strip() for x in env.get("SHAM_DISTILL_ALLOW_RESTRICTED", "").split(",") if x.strip()}
         if t.get("owner_approved") is True and t["id"] in listed:
             return True, ""
-        return False, "commercial source without owner approval (policy: no training on commercial-model outputs)"
-    return False, "unknown class"
+        return False, "restricted source without the owner's switch"
+    return False, "not an API teacher (class " + str(t.get("class")) + ")"
 
 
 def clean_answer(text: str) -> str:
@@ -111,6 +111,12 @@ def run(rows: list[dict], teachers: list[dict], ask_fn=ask, env=None) -> tuple[l
                 rec["metadata"]["verification_status"] = "passed" if res.get("passed") is True else "failed"
                 stats["passed" if res.get("passed") is True else "failed"] += 1
                 out.append(rec)
+        elif row.get("accept") == "first":
+            t0, a0 = answers[0]                       # open-ended style prompts (explain / code / advice): agreement between free texts is meaningless; one open teacher's answer is taken
+            rec = make_record(t0, row, a0, "passed")
+            rec["metadata"]["accept_mode"] = "single_teacher"
+            stats["passed"] += 1
+            out.append(rec)
         else:
             t0, a0 = answers[0]
             if len(answers) >= 2 and agree(a0, answers[1][1]):
@@ -125,17 +131,45 @@ def run(rows: list[dict], teachers: list[dict], ask_fn=ask, env=None) -> tuple[l
     return out, stats
 
 
+def expand(rows: list[dict], teacher: dict, n: int, ask_fn=ask) -> list[dict]:
+    """New prompts: the teacher writes n fresh questions per topic in the style of three examples (self-instruct); the seeds stay in."""
+    by: dict[str, list[dict]] = {}
+    for r in rows:
+        by.setdefault(r.get("topic", ""), []).append(r)
+    out = list(rows)
+    seen = {" ".join(r["prompt"].split()) for r in rows}
+    for topic, group in by.items():
+        ex = "\n".join(f"- {g['prompt']}" for g in group[:3])
+        try:
+            text = ask_fn(teacher, f"اكتب {n} أسئلة عربية جديدة ومتنوعة من النوع نفسه، سؤال واحد في كل سطر، بلا ترقيم ولا شرح:\n{ex}")
+        except Exception:
+            continue
+        for line in text.splitlines():
+            q = line.strip().lstrip("-•*0123456789.) ").strip()
+            k = " ".join(q.split())
+            if 6 <= len(q) <= 300 and k not in seen:
+                seen.add(k)
+                out.append({**{x: group[0][x] for x in ("task", "topic", "accept") if x in group[0]}, "prompt": q})
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompts", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--teachers", default="")
     ap.add_argument("--limit", type=int, default=200)
+    ap.add_argument("--expand", type=int, default=0, help="new questions per topic written by the first teacher")
     a = ap.parse_args(argv)
     reg = load_registry()
     names = [x for x in a.teachers.split(",") if x] or [k for k, v in reg.items() if v.get("enabled")]
     rows = [json.loads(l) for l in Path(a.prompts).read_text(encoding="utf-8").splitlines() if l.strip()][: a.limit]
-    recs, stats = run(rows, [reg[n] for n in names if n in reg])
+    chosen = [reg[n] for n in names if n in reg]
+    if a.expand:
+        first = next((t for t in chosen if teacher_allowed(t)[0]), None)
+        if first:
+            rows = expand(rows, first, a.expand)
+    recs, stats = run(rows[: a.limit * 3], chosen)
     Path(a.out).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
     print(json.dumps(stats, ensure_ascii=False))
     return 0

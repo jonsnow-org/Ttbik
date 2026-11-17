@@ -29,6 +29,8 @@ jobs:
           python -m unittest discover -s ai-system/supervision -p 'test_media_video_jobs.py' -v
           python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py' -v
           python -m unittest discover -s ai-system/distill -p 'test_distill_gen.py' -v
+          python -m unittest discover -s ai-system/distill -p 'test_import_chat_export.py' -v
+          python -m unittest discover -s ai-system/distill -p 'test_publish_pool.py' -v
           PYTHONPATH=ai-agent python -m unittest discover -s ai-agent -p 'test_agent_loop.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_media_backend_selection.py' -v
           python -m unittest discover -s ai-system/modelscope-sham -p 'test_bank_search.py' -v       # the Studio's bank_search over the central knowledge bank

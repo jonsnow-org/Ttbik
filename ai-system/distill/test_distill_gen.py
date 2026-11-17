@@ -7,20 +7,20 @@ import distill_gen as D  # noqa: E402
 
 OPEN = {"id": "t1", "class": "open", "enabled": True, "endpoint": "http://x", "model": "m", "license": "Apache-2.0"}
 OPEN2 = {**OPEN, "id": "t2"}
-COM = {"id": "c1", "class": "commercial", "enabled": True, "owner_approved": False, "endpoint": "http://y", "model": "m"}
+COM = {"id": "c1", "class": "restricted", "enabled": True, "owner_approved": False, "endpoint": "http://y", "model": "m"}
 
 
 class Rules(unittest.TestCase):
-    def test_commercial_is_refused_without_owner_approval_and_env(self):
+    def test_restricted_is_refused_without_owner_approval_and_env(self):
         self.assertFalse(D.teacher_allowed(COM, {})[0])
         self.assertFalse(D.teacher_allowed({**COM, "owner_approved": True}, {})[0])
-        self.assertFalse(D.teacher_allowed(COM, {"SHAM_DISTILL_ALLOW_COMMERCIAL": "c1"})[0])
-        self.assertTrue(D.teacher_allowed({**COM, "owner_approved": True}, {"SHAM_DISTILL_ALLOW_COMMERCIAL": "c1"})[0])
+        self.assertFalse(D.teacher_allowed(COM, {"SHAM_DISTILL_ALLOW_RESTRICTED": "c1"})[0])
+        self.assertTrue(D.teacher_allowed({**COM, "owner_approved": True}, {"SHAM_DISTILL_ALLOW_RESTRICTED": "c1"})[0])
 
-    def test_the_shipped_registry_keeps_every_commercial_source_off(self):
+    def test_the_shipped_registry_has_no_restricted_source_switched_on(self):
         for t in D.load_registry().values():
-            if t["class"] == "commercial":
-                self.assertFalse(t.get("enabled")); self.assertFalse(t.get("owner_approved"))
+            if t["class"] == "restricted":
+                self.assertFalse(t.get("owner_approved"))
 
     def test_think_blocks_are_removed(self):
         self.assertEqual(D.clean_answer("<think>x</think>102"), "102")
@@ -47,6 +47,15 @@ class Rules(unittest.TestCase):
         def boom(t, p): raise OSError("down")
         recs, st = D.run([{"prompt": "x"}], [OPEN, COM], ask_fn=boom)
         self.assertEqual(recs, []); self.assertIn("c1", st["refused"])
+
+    def test_style_prompts_take_one_open_teachers_answer_and_expansion_adds_new_questions(self):
+        recs, st = D.run([{"prompt": "اشرح الجاذبية", "task": "natural_sft", "accept": "first"}], [OPEN], ask_fn=lambda t, p: "الجاذبية قوة تجذب الأجسام")
+        self.assertEqual(recs[0]["metadata"]["verification_status"], "passed")
+        self.assertEqual(recs[0]["metadata"]["accept_mode"], "single_teacher")
+        rows = [{"prompt": "ما عاصمة مصر؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}]
+        out = D.expand(rows, OPEN, 3, ask_fn=lambda t, p: "- ما عاصمة اليابان؟\n2. ما عاصمة إسبانيا؟\nما عاصمة مصر؟\nx")
+        self.assertEqual([r["prompt"] for r in out], ["ما عاصمة مصر؟", "ما عاصمة اليابان؟", "ما عاصمة إسبانيا؟"])
+        self.assertEqual(out[1]["accept"], "agree")
 
 
 if __name__ == "__main__":
