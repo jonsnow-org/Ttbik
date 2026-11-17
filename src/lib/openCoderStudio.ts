@@ -7,7 +7,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
-import { secretCached } from "@/lib/hostedSecrets";
+import { getSecret, secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
@@ -75,6 +75,11 @@ export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TO
 /** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
 export function tokenFor(base: string): string {
   if (/\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || coderToken()).trim();
+  return coderToken();
+}
+/** Same as tokenFor, but WAITS for the stored secret: the first call in a cold server instance used to see "" and sent the cn token to an international Studio (HTTP 401, read 2026-11-17). */
+export async function tokenForAsync(base: string): Promise<string> {
+  if (/\.modelscope\.ai(\/|$)/i.test(base)) return ((process.env.NOVA2_STUDIO_TOKEN || (await getSecret("AI_NOVA2_TOKEN")) || coderToken()) as string).trim();
   return coderToken();
 }
 function novaStudioUrls(): string[] {
@@ -366,7 +371,7 @@ async function callOne(base: string, api: string, payload: Record<string, unknow
 async function callOnce(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = tokenFor(base);
+  const tok = await tokenForAsync(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {
@@ -506,7 +511,7 @@ async function studioStatusRaw(base: string, timeoutMs: number): Promise<Record<
 async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
   const name = apiName("status");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = tokenFor(base);
+  const tok = await tokenForAsync(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const deadline = Date.now() + timeoutMs;
   try {

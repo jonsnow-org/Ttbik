@@ -3,12 +3,19 @@ const x = jest.fn(async (sql: string, ...a: unknown[]) => { if (/INSERT INTO hos
 const q = jest.fn(async (sql: string, ...a: unknown[]) => (/value_enc/.test(sql) ? (rows.has(String(a[0])) ? [{ value_enc: rows.get(String(a[0])) }] : []) : [...rows.keys()].map((name) => ({ name }))));
 jest.mock("@/lib/prisma", () => ({ prisma: { $executeRawUnsafe: (...a: [string, ...unknown[]]) => x(...a), $queryRawUnsafe: (...a: [string, ...unknown[]]) => q(...a) } }));
 jest.mock("@/lib/coderAuth", () => ({ tierFor: (id: number) => (id === 42 ? "owner" : "user") }));
-import { ALLOWED, getSecret, handleSecretUpdate, open, parseSecretCommand, seal } from "../hostedSecrets";
+import { ALLOWED, cleanSecret, getSecret, handleSecretUpdate, open, parseSecretCommand, seal } from "../hostedSecrets";
 
 beforeEach(() => { rows.clear(); x.mockClear(); process.env.CRON_SECRET = "test-key"; delete process.env.CODER_TOKEN_KEY; delete process.env.AI_GITHUB_TOKEN; });
 const mkBot = () => { const sent: string[] = []; const deleted: number[] = []; return { sent, deleted, api: { sendMessage: async (_c: number, t: string) => { sent.push(t); }, deleteMessage: async (_c: number, m: number) => { deleted.push(m); } } }; };
 
 describe("hosted secrets", () => {
+  test("a value pasted with the template's <> or quotes is cleaned, on write and on read", async () => {
+    expect(cleanSecret("<ms-abc>")).toBe("ms-abc");
+    expect(cleanSecret("  \"ms-abc\" ")).toBe("ms-abc");
+    expect(cleanSecret("ms-abc")).toBe("ms-abc");
+    rows.set("AI_X_TOKEN", seal("<ms-abc>"));   // an old value stored with the brackets
+    expect(await getSecret("AI_X_TOKEN")).toBe("ms-abc");
+  });
   test("seal/open round trip; a wrong key or a tampered blob gives null", () => {
     const b = seal("ghp_secretvalue");
     expect(b).not.toContain("secretvalue");
