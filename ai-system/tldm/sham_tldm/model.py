@@ -1,7 +1,7 @@
 """The two assemblies of the project book.
 
   Sham1_TLDM    from scratch: byte embedding -> Mamba reader -> Compressor -> Latent Thinker -> Diffusion Writer   (the 0.3B decisive experiment, and Sham 1)
-  ShamBodyTLDM  the Sham 2 recipe on a COPY of an existing Sham body (ShamSmall: v1, or v2 = Qwen3-1.7B donor): the body is the frozen reader (its LoRA adapters may train), and only the
+  ShamBodyTLDM  the Sham 2 recipe on a COPY of an existing Sham body (ShamSmall: v1, or v2 = a donated body): the body is the frozen reader (its LoRA adapters may train), and only the
                 Compressor + Latent Thinker + Diffusion Writer are new. The writer writes BYTES (vocab 257), not the body's 152k-token vocabulary: with that vocabulary one writer pass would cost
                 64 x 151,936 x 2,048 multiplications, slower than writing token by token; commands are ASCII and bytes keep them exact.
 Nothing here edits ai-system/colab/sham_small/model.py: the body is only read through a hook on its final norm.
