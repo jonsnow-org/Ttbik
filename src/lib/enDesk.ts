@@ -18,7 +18,7 @@ export const EN_NEWS: DeskItem[] = [
     body: [
       "OpenAI announced OpenAI for Chile on 17 November 2026, a partnership with the Chilean government led by its Ministry of Science, Technology, Knowledge and Innovation. The company says the memorandum of understanding was signed on the sidelines of Semafor's Silicon Valley & The World conference in California.",
       "The announcement says the partners will explore AI use in the ministry's administrative processes, practical training for civil servants, and support for local startups. Training topics include checking AI outputs, protecting sensitive information and keeping human oversight in place.",
-      "Chilean coverage describes the document as a non-binding memorandum rather than a procurement contract or an exclusive agreement. OpenAI's announcement does not specify a final budget, implementation timetable or a particular public service that has already gone live.",
+      "Chilean coverage describes the document as a memorandum of understanding, not a procurement award or an exclusive agreement. OpenAI's announcement does not specify a final budget, implementation timetable or a particular public service that has already gone live.",
       "The partnership builds on Chile's national AI policy. Its practical impact will depend on later decisions about use cases, data governance, human review and how public-service outcomes are measured.",
       "This is a report on OpenAI's announcement and Chilean coverage, not an independent evaluation or a guarantee of project results."
     ],
