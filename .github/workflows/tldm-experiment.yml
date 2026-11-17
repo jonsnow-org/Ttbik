@@ -36,6 +36,7 @@ jobs:
         run: |
           set -o pipefail
           python ai-system/terminal/test_mesh.py 2>&1 | tee /tmp/test_mesh.log
+          python ai-system/terminal/test_tasks.py 2>&1 | tee /tmp/test_tasks.log
       - name: Decisive experiment (train, run the 30 + 12 tasks in the sandbox, benchmark)
         if: always()
         run: |
