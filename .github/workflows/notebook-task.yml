@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh | distill_publish.sh | distill_local.sh)"
+        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh | distill_publish.sh | distill_local.sh | infer_bench.sh)"
         default: "train_sham_gpu.sh"
       args:
         description: "argument for the script (gpu_node.sh: setup | bench | serve)"
@@ -43,5 +43,5 @@ jobs:
           ARGS: ${{ inputs.args }}
         run: |
           echo "::add-mask::$MS_TOKEN"; echo "::add-mask::$KAGGLE_API_TOKEN"
-          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh|distill_publish.sh|distill_local.sh) ;; *) echo "script not allowed"; exit 1;; esac
+          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh|distill_publish.sh|distill_local.sh|infer_bench.sh) ;; *) echo "script not allowed"; exit 1;; esac
           bash "scripts/notebook-node/$SCRIPT" $ARGS
