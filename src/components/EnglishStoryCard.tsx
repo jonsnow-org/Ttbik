@@ -1,5 +1,6 @@
 import Link from "next/link";
 import CoverImage from "@/components/CoverImage";
+import { SITE_URL } from "@/lib/siteUrl";
 
 const COVERS: Record<string, string> = {
   "china-mexico-cooperation-apec-2026": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
@@ -30,7 +31,7 @@ const COVERS: Record<string, string> = {
 };
 
 export function englishCover(slug: string) {
-  return COVERS[slug];
+  return COVERS[slug] || `${SITE_URL}/og/news.jpg`;
 }
 
 export default function EnglishStoryCard({
