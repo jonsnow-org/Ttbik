@@ -305,12 +305,17 @@ def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only
     with open(os.path.join(ROOT, "configs", "sham2.yaml")) as f, open(cfg, "w") as g:
         g.write(f.read().replace("loop_episodes: 500", "loop_episodes: 6").replace("loop_steps: 900", "loop_steps: 2") + "\nloop_eval_episodes: 3\n")
     out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
-    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "2", "--loop", "--out", out, "--json", res]) == 0
+    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "2", "--loop", "--identity", "--identity_steps", "2",
+                             "--out", out, "--json", res]) == 0
     r = _json.load(open(res))
     assert r["donor_weights_unchanged"] and len(r["writer"]) == 2 and r["loop"][0]["all"]["n"] == 3 and "heldout2" in r
     assert r["loop"][0]["terminal"] == "computer_terminal", "Sham 2 runs its terminal through its own embedded computer"
     heads = torch.load(out)["heads"]
-    assert set(heads) == {"writer", "loop_seed0"} and all(k.startswith(("proj.", "core.")) for k in heads["writer"]), "heads only, never a body weight"
+    assert set(r["identity"]["after"]) == {"identity", "general_nll"} and len(r["identity"]["after"]["identity"]["answers"]) == 8
+    import identity as ID
+    assert ID.identity_ok("I am Sham 2.") and ID.identity_ok("أنا شام 2") and not ID.identity_ok("I am Qwen, made by Alibaba Cloud") and not ID.identity_ok("I am Sham, not Qwen")
+    assert heads["identity_lora"] and all(".adapter_" in k for k in heads["identity_lora"]), "identity: only LoRA adapters are saved"
+    assert set(heads) == {"writer", "loop_seed0", "identity_lora"} and all(k.startswith(("proj.", "core.")) for k in heads["writer"]), "heads only, never a body weight"
     body, _ = train_sham2.tiny_body(4)
     from sham_tldm import ShamBodyTLDM
     m = ShamBodyTLDM(body, latents=4, think_steps=2, block=8, writer_layers=1, heads=2).eval()

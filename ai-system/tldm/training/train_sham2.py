@@ -33,6 +33,7 @@ import terminal_tasks as T  # noqa: E402
 import rewordings as RW  # noqa: E402
 import trajectories as J  # noqa: E402
 import augment as AUG  # noqa: E402
+import identity as ID  # noqa: E402
 from sham_tldm.donor import FeatureTLDM  # noqa: E402
 
 SHAM_SMALL = next((p for p in (os.path.join(ROOT, "..", "colab", "sham_small"), os.path.join(ROOT, "..", "sham_small")) if os.path.isdir(p)),
@@ -69,7 +70,7 @@ def _sham_small_module(name):
 
 def tiny_body(rank):
     mod = _sham_small_module("model")
-    cfg = mod.ShamSmallConfig(vocab_size=400, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=128)
+    cfg = mod.ShamSmallConfig(vocab_size=400, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=512)
     body = mod.ShamSmall(cfg)
     body.enable_adapters(rank)
     return body, (lambda text, n: [(b % 390) + 5 for b in text.encode("utf-8")][:n] + [0] * max(0, n - len(text.encode("utf-8"))))
@@ -82,7 +83,88 @@ def donor_body(path, tokenizer, rank):
     from tokenizers import Tokenizer
     tk = Tokenizer.from_file(tokenizer)
     pad = getattr(body.cfg, "pad_token_id", 0) or 0
-    return body, (lambda text, n: (tk.encode(text).ids[:n] + [pad] * n)[:n])
+    encode = lambda text, n: (tk.encode(text).ids[:n] + [pad] * n)[:n]       # noqa: E731
+    encode.chat = ChatTok(lambda t: tk.encode(t).ids, lambda ids: tk.decode(ids, skip_special_tokens=True), (tk.encode("<|im_end|>").ids or [None])[-1])
+    return body, encode
+
+
+class ChatTok:
+    """enc(text) -> ids, dec(ids) -> text, end = the end-of-turn id (Qwen3 layout <|im_end|>, the layout Sham 2's serving uses)."""
+    def __init__(self, enc, dec, end):
+        self.enc, self.dec, self.end = enc, dec, end
+
+    def prompt(self, q):
+        return self.enc(f"<|im_start|>user\n{q}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+
+
+@torch.no_grad()
+def chat_answer(body, ct, q, max_new=40):
+    """Greedy answer of the body itself (KV cache), as the donor chat writes it: the identity check reads the MODEL, never a rewritten reply."""
+    body.eval()
+    ids = torch.tensor([ct.prompt(q)])
+    logits, _, past = body(ids, use_cache=True)
+    out = []
+    for _ in range(max_new):
+        nxt = int(logits[0, -1].float().argmax())
+        if nxt == ct.end:
+            break
+        out.append(nxt)
+        logits, _, past = body(torch.tensor([[nxt]]), past_key_values=past, use_cache=True)
+    return ct.dec(out)
+
+
+def identity_eval(body, ct):
+    rows = [(q, chat_answer(body, ct, q)) for q in ID.HELDOUT]
+    return {"ok": round(sum(ID.identity_ok(a) for _, a in rows) / len(rows), 3), "answers": [[q, a[:200]] for q, a in rows]}
+
+
+@torch.no_grad()
+def general_nll(body, ct):
+    """Retention: mean next-token loss of the body on a few general texts (must not jump after the identity LoRA)."""
+    texts = ["The capital of France is Paris, and the river that runs through it is the Seine.", "def add(a, b):\n    return a + b\n",
+             "دمشق هي عاصمة سوريا، وهي من أقدم المدن المأهولة في العالم.", "Water boils at one hundred degrees Celsius at sea level."]
+    tot = 0.0
+    for t in texts:
+        ids = torch.tensor([ct.enc(t)])
+        _, loss = body(ids, labels=ids)
+        tot += float(loss)
+    return round(tot / len(texts), 4)
+
+
+def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
+    """Train ONLY the body's LoRA adapters on data/identity.py (loss on the answer), on the in-memory copy. -> results; the adapters stay in `body`."""
+    torch.manual_seed(seed)
+    rng = random.Random(seed)
+    ad = [p for n, p in body.named_parameters() if ".adapter_" in n]
+    for n, p in body.named_parameters():
+        p.requires_grad = ".adapter_" in n
+    ex = []
+    for q, a in ID.TRAIN:
+        pr, t = ct.prompt(q), ct.enc(a) + ([ct.end] if ct.end is not None else [])
+        ex.append((pr + t, [-100] * len(pr) + t))
+    before = {"identity": identity_eval(body, ct), "general_nll": general_nll(body, ct)}
+    log(f"identity before LoRA: {before['identity']['ok']} (general nll {before['general_nll']})")
+    opt = torch.optim.AdamW(ad, lr=lr, weight_decay=0.0)
+    body.train()
+    t0 = time.time()
+    for step in range(steps):
+        pick = rng.sample(ex, min(batch, len(ex)))
+        n = max(len(x) for x, _ in pick)
+        ids = torch.tensor([x + [0] * (n - len(x)) for x, _ in pick])
+        lab = torch.tensor([y + [-100] * (n - len(y)) for _, y in pick])
+        opt.zero_grad(set_to_none=True)
+        _, loss = body(ids, labels=lab)
+        loss.float().backward()
+        torch.nn.utils.clip_grad_norm_(ad, 1.0)
+        opt.step()
+        if step % 10 == 0 or step == steps - 1:
+            log(f"  identity LoRA step {step} loss {float(loss):.4f} ({time.time() - t0:.0f}s)")
+    body.eval()
+    for p in body.parameters():
+        p.requires_grad = False
+    after = {"identity": identity_eval(body, ct), "general_nll": general_nll(body, ct)}
+    log(f"identity after LoRA: {after['identity']['ok']} (general nll {after['general_nll']})")
+    return {"steps": steps, "lr": lr, "train_pairs": len(ex), "lora_params": sum(p.numel() for p in ad), "secs": round(time.time() - t0), "before": before, "after": after}
 
 
 def gate_ok(path, need):
@@ -276,6 +358,10 @@ def head_args(cfg, d_in, block):
 def run_cached(body, encode, cfg, a, log=print):
     """CPU mode: frozen body (bf16 by default), features read once per text, T-LDM head trained on them over --seeds seeds; optional agent loop + full-task benchmark."""
     dtype = torch.bfloat16 if a.dtype == "bf16" else torch.float32
+    ident = None
+    if a.identity:
+        ct = getattr(encode, "chat", None) or ChatTok(lambda t: [i for i in encode(t, 256) if i], lambda ids: "", None)
+        ident = identity_lora(body, ct, steps=int(a.identity_steps), log=log)
     reader = BodyReader(body, a.device, dtype)
     n = int(cfg["in_len"])
     rows = list(T.TRAIN) + (RW.generate() if cfg.get("rewordings", False) else [])
@@ -285,7 +371,7 @@ def run_cached(body, encode, cfg, a, log=print):
     reader.feats(xs, n)                                   # every training text through the body once
     log(f"body features: {len(reader.cache)} texts in {time.time() - t0:.0f}s ({a.dtype}, {a.device})")
     res = {"mode": "donor-cached" if a.donor else "tiny-cached", "body_params_M": round(sum(p.numel() for p in body.parameters()) / 1e6, 1), "dtype": a.dtype,
-           "device": a.device, "lora": "none in cached mode (body fully frozen)", "writer": [], "loop": []}
+           "device": a.device, "lora": "identity LoRA only (adapters; base weights frozen)" if a.identity else "none in cached mode (body fully frozen)", "writer": [], "loop": []}
     best = None
     for seed in range(int(a.seeds)):
         head = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["block"])))
@@ -315,6 +401,10 @@ def run_cached(body, encode, cfg, a, log=print):
             res["loop"].append({"seed": seed, **b})
             heads[f"loop_seed{seed}"] = {k: v.detach().cpu() for k, v in head.state_dict().items()}
     res["body_read_secs"] = round(reader.secs, 1)
+    if ident is not None:
+        res["identity"] = ident
+        heads["identity_lora"] = {k: v.detach().cpu() for k, v in body.state_dict().items() if ".adapter_" in k}
+        res["note_identity"] = "LoRA trained first on the copy; the T-LDM head then read the body WITH this LoRA (the final Sham 2)"
     return res, heads
 
 
@@ -335,6 +425,8 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=1)
     ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
     ap.add_argument("--loop_seeds", type=int, default=1)
+    ap.add_argument("--identity", action="store_true", help="(--cached) train the body's LoRA on data/identity.py first; check identity before/after")
+    ap.add_argument("--identity_steps", type=int, default=60)
     ap.add_argument("--terminal", default="computer", help="computer = Sham's own embedded computer (default, owner 2026-11-18) | sandbox = the test sandbox")
     a = ap.parse_args(argv)
     if a.device == "auto":

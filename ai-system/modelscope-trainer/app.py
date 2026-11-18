@@ -392,6 +392,12 @@ def sham2_flatten(res: dict) -> dict:
         out["loop_simple"] = lp[0]["simple"]["success"]
         out["loop_multi"] = lp[0]["multi_step"]["success"]
         out["loop_s_per_task"] = lp[0]["all"]["median_s_per_task"]
+    idn = res.get("identity") or {}
+    if idn:
+        out["identity_before"] = idn["before"]["identity"]["ok"]
+        out["identity_after"] = idn["after"]["identity"]["ok"]
+        out["nll_before"] = idn["before"]["general_nll"]
+        out["nll_after"] = idn["after"]["general_nll"]
     for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
         if k in res:
             out[k] = res[k]
@@ -473,7 +479,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         root = tldm_root()
         cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(root / "configs" / "sham2.yaml"),
                "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
-               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1",
+               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
                "--out", str(heads), "--json", str(report)]
         if runner is not None:
             code = int(runner(cmd=cmd, report=report, heads=heads))
@@ -573,7 +579,8 @@ def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
             "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
-            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged")
+            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
+            "identity_before", "identity_after", "nll_before", "nll_after")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -954,7 +961,7 @@ if __name__ == "__main__":
 
         def fake_sham2(cmd, report, heads):
             ran.append(cmd)
-            assert "--cached" in cmd and "--loop" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
+            assert "--cached" in cmd and "--loop" in cmd and "--identity" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
             heads.write_bytes(b"h")
             report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "donor_weights_unchanged": True,
                                           "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],
