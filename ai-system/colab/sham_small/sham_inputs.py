@@ -268,8 +268,7 @@ def _head_from_modelscope(dest: Path) -> bool:
         tok = os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
         if tok:
             try:
-                from modelscope.hub.api import HubApi
-                HubApi().login(tok)
+                _ms_api()
             except Exception:       # the cached login / public access may still work
                 pass
         cache = dest.parent / "ms_cache"
@@ -302,8 +301,29 @@ def _ms_token() -> str:
     return os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
 
 
+def _ms_hub_endpoint() -> str | None:
+    """Host for HubApi. The SDK default is modelscope.cn; the international account must use modelscope.ai.
+    Explicit MODELSCOPE_DOMAIN / MODELSCOPE_HUB_ENDPOINT always wins; otherwise SITE=ai or owner Jonjithup select .ai."""
+    raw = (os.environ.get("MODELSCOPE_DOMAIN") or os.environ.get("MODELSCOPE_HUB_ENDPOINT") or "").strip()
+    if raw:
+        return raw.replace("https://", "").replace("http://", "").strip("/") or None
+    if (os.environ.get("SITE") or "").strip().lower() == "ai":
+        return "www.modelscope.ai"
+    if (os.environ.get("SHAM_MS_OWNER") or os.environ.get("MS_OWNER") or "").strip().lower() == "jonjithup":
+        return "www.modelscope.ai"
+    return None
+
+
+def _apply_ms_hub_endpoint() -> str | None:
+    endpoint = _ms_hub_endpoint()
+    if endpoint:
+        os.environ["MODELSCOPE_DOMAIN"] = endpoint
+    return endpoint
+
+
 def _ms_api():
     from modelscope.hub.api import HubApi
+    _apply_ms_hub_endpoint()
     api = HubApi()
     tok = _ms_token()
     if tok:
@@ -387,6 +407,7 @@ def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str |
                         shutil.copy2(f, stage / f.name)
             (stage / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
             model_id = f"{_ms_owner()}/{name}"
+            print(f"ModelScope publish host: {os.environ.get('MODELSCOPE_DOMAIN') or 'sdk-default (cn)'} -> {model_id}", flush=True)
             # 2026-11-14: from the cn trainer Studio the create call answered "400 Bad Request" (body cut off by the log). The variants below differ in what the hub validates when the repo
             # is CREATED (license spelling, display name): the scripts that create repos elsewhere in this project use "Apache License 2.0" + a short display name.
             errors: list[str] = []
