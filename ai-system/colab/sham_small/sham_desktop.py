@@ -230,7 +230,7 @@ class Desktop:
         if app == "browser":
             exe = next((self._which(n) for n in ("chromium", "chromium-browser", "google-chrome", "chrome") if self._which(n)), None) or _playwright_chrome()
             if not exe:
-                return {"ok": False, "error": "no Chromium installed here (run install_desktop.sh)"}
+                return chrome_missing_reply()
             profile = os.path.join(self.home, "chrome-profile")
             os.makedirs(profile, mode=0o700, exist_ok=True)
             argv = [exe, "--no-sandbox", "--no-first-run", "--disable-extensions", "--disable-smooth-scrolling", f"--user-data-dir={profile}", f"--window-size={self.width - 24},{self.height - 90}", url or "about:blank"]
@@ -301,10 +301,52 @@ def _pil_grab(display: str, quality: int) -> bytes | None:
         return None
 
 
-def _playwright_chrome() -> str | None:
+def _playwright_roots() -> list[str]:
+    roots = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), os.path.expanduser("~/.cache/ms-playwright"), "/root/.cache/ms-playwright"]
+    return [r for i, r in enumerate(roots) if r and r != "0" and r not in roots[:i]]
+
+
+def _playwright_chrome(glob_fn=None) -> str | None:
+    """The full (windowed) Chromium Playwright downloaded: `chrome-linux` up to Playwright 1.56, `chrome-linux64` (Chrome for Testing) since 1.57. Newest first.
+    The headless shell is skipped on purpose: it cannot draw a window on the desktop."""
     import glob
-    hits = glob.glob(os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")) + glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome")
-    return hits[0] if hits else None
+    g = glob_fn or glob.glob
+    hits: list[str] = []
+    for root in _playwright_roots():
+        for sub in ("chrome-linux64", "chrome-linux"):
+            hits += g(os.path.join(root, "chromium-*", sub, "chrome"))
+    return sorted(set(hits), reverse=True)[0] if hits else None
+
+
+_CHROME_INSTALL = {"started": False, "note": ""}
+
+
+def _install_playwright_chrome(run=subprocess.run) -> None:
+    """Fetch the windowed Chromium once per process with Playwright (no root needed); the desktop browser then opens like any app."""
+    import sys
+    try:
+        done = run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True, text=True, timeout=900, check=False)
+        _CHROME_INSTALL["note"] = "installed" if done.returncode == 0 else "playwright install failed: " + (done.stderr or "")[-160:]
+    except Exception as exc:  # noqa: BLE001
+        _CHROME_INSTALL["note"] = f"install failed: {type(exc).__name__}"
+
+
+def chrome_missing_reply(start=None) -> dict:
+    """No windowed Chromium yet: start fetching it in the background (once) and tell the caller to retry, instead of a dead end."""
+    try:
+        import importlib.util
+        can = importlib.util.find_spec("playwright") is not None
+    except Exception:  # noqa: BLE001
+        can = False
+    if not can:
+        return {"ok": False, "error": "no Chromium installed here (run install_desktop.sh)"}
+    if not _CHROME_INSTALL["started"]:
+        _CHROME_INSTALL["started"] = True
+        (start or (lambda: threading.Thread(target=_install_playwright_chrome, daemon=True).start()))()
+    note = _CHROME_INSTALL["note"]
+    if note and note != "installed":
+        return {"ok": False, "error": "Chromium could not be installed: " + note}
+    return {"ok": False, "phase": "installing", "error": "installing Chromium for the desktop (one time, about a minute); launch the browser again shortly"}
 
 
 # ---- the registry: one display per session, a watchdog that stops idle ones

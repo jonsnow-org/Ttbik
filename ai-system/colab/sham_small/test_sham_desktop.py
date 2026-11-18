@@ -42,5 +42,29 @@ class DesktopTests(unittest.TestCase):
             del os.environ["SHAM_DESKTOP_TOKEN"]
 
 
+class ChromeForDesktopTest(unittest.TestCase):
+    def test_finds_chrome_for_testing_and_old_layout_newest_first(self):
+        import sham_desktop as d
+        fake = {"chrome-linux64": ["/r/chromium-1200/chrome-linux64/chrome"], "chrome-linux": ["/r/chromium-1100/chrome-linux/chrome"]}
+        hit = d._playwright_chrome(lambda pat: next((v for k, v in fake.items() if f"/{k}/" in pat), []))
+        self.assertEqual(hit, "/r/chromium-1200/chrome-linux64/chrome")
+        self.assertIsNone(d._playwright_chrome(lambda pat: []))
+
+    def test_missing_chrome_starts_one_background_install(self):
+        import sham_desktop as d
+        d._CHROME_INSTALL.update(started=False, note="")
+        calls = []
+        r = d.chrome_missing_reply(start=lambda: calls.append(1))
+        if r.get("phase") == "installing":            # playwright importable here
+            self.assertEqual(len(calls), 1)
+            d.chrome_missing_reply(start=lambda: calls.append(1))
+            self.assertEqual(len(calls), 1)             # once per process
+            d._CHROME_INSTALL["note"] = "playwright install failed: x"
+            self.assertIn("could not be installed", d.chrome_missing_reply()["error"])
+        else:
+            self.assertIn("no Chromium", r["error"])
+        d._CHROME_INSTALL.update(started=False, note="")
+
+
 if __name__ == "__main__":
     unittest.main()

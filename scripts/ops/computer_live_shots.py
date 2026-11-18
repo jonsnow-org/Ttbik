@@ -44,6 +44,11 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
             print(f"{name}: NOT RUNNING: {json.dumps(r)[:300]}")
             return False
         launched = do(base, token, session, action="launch", app="browser", url=PAGE)
+        t1 = time.time()
+        while not launched.get("ok") and launched.get("phase") == "installing" and time.time() - t1 < 900:   # the desktop fetches its browser once
+            print(f"{name}: browser -> {str(launched.get('error') or '')[:120]}", flush=True)
+            time.sleep(30)
+            launched = do(base, token, session, action="launch", app="browser", url=PAGE)
         print(f"{name}: browser launch -> ok={launched.get('ok')} {str(launched.get('error') or '')[:160]}", flush=True)
         best = b""
         for _ in range(6):
@@ -58,7 +63,7 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
             with open(path, "wb") as f:
                 f.write(best)
             print(f"{name}: saved {path} ({len(best)} bytes) windows={state.get('windows')}", flush=True)
-        ok = len(best) > 5000
+        ok = bool(launched.get("ok")) and len(best) > 5000        # a picture of an empty screen is not a working browser
     except Exception as exc:  # noqa: BLE001
         print(f"{name}: failed {type(exc).__name__}: {str(exc)[:200]}")
     finally:
