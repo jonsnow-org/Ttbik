@@ -152,7 +152,7 @@ def main():
         fetcher = WL.WebFetcher(a.webcache, offline=a.offline)
         pages = fetcher.fetch_sources(list(dict.fromkeys(gaps + WL.SANDBOX_COMMANDS)), se_queries=3)
         cands = WL.extract(pages)
-        kept, rep = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=eng.P.fits)
+        kept, rep = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=eng.P.fits_chain)
         evo = {"families": eng.learn_web(kept)}                       # the gate-passing web recipe (engine.WEB_RECIPE)
         return {"gaps": gaps[:8], "pages": len(pages), "candidates": len(cands), "filter": rep, "licences": sorted({k["license"] for k in kept}),
                 "sources": sorted({k["source"] for k in kept}), "examples": [(k["task"], k["command"]) for k in kept[:6]], "evolve": evo}

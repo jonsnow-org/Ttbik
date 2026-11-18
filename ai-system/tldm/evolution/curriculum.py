@@ -63,10 +63,16 @@ def variants(task: str, rng: random.Random, k: int = 4, too_close=None) -> list:
 class WriterPolicy:
     """The single-command writer (DonorTLDM or Sham1_TLDM head) as a policy: greedy/sampled commands for task texts, and training pairs."""
 
+    # Multi-block writing (2026-11-18): a command longer than one block is written as a CHAIN of blocks. Every block but the last ends with CONT (shell
+    # line-continuation style); the next block is written for the input "<task> SEP <previous block>". At most `max_blocks` blocks (cfg "max_blocks", 4).
+    CONT = " \\"
+    SEP = " \u27eb "
+
     def __init__(self, model, cfg, tok):
         self.model, self.cfg, self.tok = model, cfg, tok
         self.delex = bool(cfg.get("delex", False))
         self.donor = bool(cfg.get("donor"))
+        self.max_blocks = int(cfg.get("max_blocks", 4))
 
     def _inputs(self, tasks):
         dl = [AUG.delex(t) if self.delex else (t, None, {}) for t in tasks]
@@ -75,16 +81,75 @@ class WriterPolicy:
         return torch.tensor([self.tok.encode(d[0], self.cfg["in_len"]) for d in dl]), dl
 
     @torch.no_grad()
+    def _blocks(self, texts, temperature: float = 0.0) -> list:
+        out_all = []
+        for i in range(0, len(texts), 64):
+            ids, dl = self._inputs(texts[i:i + 64])
+            out, _ = self.model.generate(ids, steps=self.cfg["diffusion_steps"], temperature=temperature)
+            out_all += [AUG.relex(self.tok.decode(row), d[2]) for row, d in zip(out, dl)]
+        return out_all
+
+    @torch.no_grad()
     def commands(self, tasks, temperature: float = 0.0) -> list:
         if not tasks:
             return []
         self.model.eval()
-        out_all = []
-        for i in range(0, len(tasks), 64):
-            ids, dl = self._inputs(tasks[i:i + 64])
-            out, _ = self.model.generate(ids, steps=self.cfg["diffusion_steps"], temperature=temperature)
-            out_all += [AUG.relex(self.tok.decode(row), d[2]) for row, d in zip(out, dl)]
+        out_all = self._blocks(list(tasks), temperature)
+        parts = {i: [c[:-len(self.CONT)]] for i, c in enumerate(out_all) if c.endswith(self.CONT)}
+        pending = list(parts)
+        for _ in range(self.max_blocks - 1):                         # continue the chains that asked for another block
+            if not pending:
+                break
+            nxt = self._blocks([self.cont_input(tasks[i], parts[i][-1]) for i in pending], temperature)
+            still = []
+            for i, c in zip(pending, nxt):
+                if c.endswith(self.CONT):
+                    parts[i].append(c[:-len(self.CONT)])
+                    still.append(i)
+                else:
+                    parts[i].append(c)
+            pending = still
+        for i, ps in parts.items():
+            out_all[i] = " ".join(p for p in ps if p)
         return out_all
+
+    def cont_input(self, task: str, prev_block: str) -> str:
+        return f"{task}{self.SEP}{prev_block}"
+
+    def chunks(self, command: str):
+        """-> [block texts] (one block = [command]) or None when the command cannot be written in <= max_blocks blocks (split at spaces only)."""
+        if self.fits(command):
+            return [command]
+        out, cur = [], None
+        for w in command.split(" "):
+            cand = w if cur is None else cur + " " + w
+            if self.fits(cand + self.CONT):
+                cur = cand
+            elif cur is None:
+                return None                                          # one word longer than a block
+            else:
+                out.append(cur)
+                cur = w
+        if cur is None or not self.fits(cur):
+            return None
+        out.append(cur)
+        if len(out) > self.max_blocks or " ".join(out) != command:
+            return None
+        return out
+
+    def fits_chain(self, command: str) -> bool:
+        return self.chunks(command) is not None
+
+    def chain_rows(self, rows) -> list:
+        """[(task, command)] -> [(input text, block target)]: one row per block (a single-block command stays as it is; unwritable ones are dropped)."""
+        out = []
+        for t, c in rows:
+            ch = self.chunks(c)
+            if not ch:
+                continue
+            for j, b in enumerate(ch):
+                out.append((t if j == 0 else self.cont_input(t, ch[j - 1]), b + (self.CONT if j < len(ch) - 1 else "")))
+        return out
 
     def sample(self, task: str, n: int = 8, temps=(0.3, 0.6, 1.0), seed: int = 0) -> list:
         """-> [(command, temperature, seed)] distinct commands, greedy first."""
@@ -101,7 +166,9 @@ class WriterPolicy:
         return out
 
     def pairs(self, rows):
-        """[(task, command)] -> (inputs, targets) in the model's training format."""
+        """[(task, command)] -> (inputs, targets) in the model's training format. A command longer than one block becomes its chain of blocks."""
+        if any(not self.fits(c) for _, c in rows):
+            rows = [r for row in rows for r in (self.chain_rows([row]) if not self.fits(row[1]) else [row])] or list(rows)
         dl = [AUG.delex(t, c) if self.delex else (t, c, {}) for t, c in rows]
         tgt = torch.tensor([self.tok.encode(d[1], self.cfg["block"]) for d in dl])
         if self.donor:

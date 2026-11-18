@@ -64,7 +64,7 @@ class EvolutionEngine:
         self.log = EX.ExperienceLog(os.path.join(workdir, "experience"))
         self.lessons = LS.LessonStore(os.path.join(workdir, "lessons.json"))
         self.registry = AD.AdapterRegistry(os.path.join(workdir, "adapters"))
-        self.replay = [(t, c) for t, c in replay_rows if self.P.fits(c)]
+        self.replay = [(t, c) for t, c in replay_rows if self.P.fits_chain(c)]
         self.heldout = list(heldout_tasks)
         self.rank, self.steps, self.lr, self.seed = rank, steps, lr, seed
         self.min_consensus, self.max_lost, self.defences, self.use_lessons = min_consensus, max_lost, defences, use_lessons
@@ -164,7 +164,7 @@ class EvolutionEngine:
         else:                                                        # ablation only: trust the user's claim, no consensus, no deny list
             pairs = list(dict.fromkeys((r["intent"], r["command"], r["family"]) for r in self.log.records if (r.get("claim") if "claim" in r else r.get("verdict")) is True))
             why = {"admitted": len(pairs), "defences": "OFF"}
-        pairs = [(t, c, f) for t, c, f in pairs if self.P.fits(c) and not self.too_close(t)]
+        pairs = [(t, c, f) for t, c, f in pairs if self.P.fits_chain(c) and not self.too_close(t)]
         return pairs, why
 
     def repair_failures(self, user: str = "curriculum") -> dict:
@@ -220,7 +220,7 @@ class EvolutionEngine:
         for k in kept:
             ok, out, _ = self.ex.run(k["command"]) if self.ex else (True, "", "")
             self.observe("web", k["task"], k["command"], 0 if ok else 1, out, "", True, source="web", meta={"url": k["url"], "license": k["license"]})
-        rows = [(k["task"], k["command"], k["family"]) for k in kept if self.P.fits(k["command"]) and not self.too_close(k["task"])]
+        rows = [(k["task"], k["command"], k["family"]) for k in kept if self.P.fits_chain(k["command"]) and not self.too_close(k["task"])]
         known_tpl = {AUG.delex(t, c)[1] for t, c in self.replay}
         tier = {(t, c): ("known" if AUG.delex(t, c)[1] in known_tpl else "new") for t, c, _ in rows}
         self.web_router = WT.WebRouter(self._embed)                    # both tiers ROUTED: an adapter only serves requests whose nearest examples are its web rows

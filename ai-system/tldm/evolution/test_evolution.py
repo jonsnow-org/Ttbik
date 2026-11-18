@@ -210,6 +210,48 @@ class Guard(unittest.TestCase):
         self.assertEqual(G.too_close("convert the png to a jpg with imagemagick"), "")
 
 
+class MultiBlock(unittest.TestCase):
+    def test_chain_split_train_rows_and_write(self):
+        """Commands longer than one writer block are split into chained blocks for training and written back block by block at inference."""
+        import torch
+        import curriculum as CU
+
+        class Tok:
+            def encode(self, text, n):
+                ids = [ord(ch) for ch in text][:n]
+                return ids + [0] * (n - len(ids))
+
+            def decode(self, ids):
+                return "".join(chr(int(i)) for i in ids if int(i))
+
+        tok = Tok()
+        answers = {}
+
+        class Model:
+            def eval(self):
+                return self
+
+            def generate(self, texts, steps=1, temperature=0.0):
+                return torch.tensor([tok.encode(answers.get(t, "ls"), 16) for t in texts]), None
+
+        P = CU.WriterPolicy(Model(), {"block": 16, "diffusion_steps": 1, "donor": True}, tok)
+        long_cmd = "grep -rn ERROR app.log | sort | uniq -c"
+        self.assertFalse(P.fits(long_cmd))
+        ch = P.chunks(long_cmd)
+        self.assertGreater(len(ch), 1)
+        self.assertEqual(" ".join(ch), long_cmd)
+        rows = P.chain_rows([("count error kinds", long_cmd), ("list", "ls")])
+        self.assertEqual(rows[0], ("count error kinds", ch[0] + P.CONT))
+        self.assertEqual(rows[-2][1], ch[-1])
+        self.assertEqual(rows[-1], ("list", "ls"))
+        x, y = P.pairs([("count error kinds", long_cmd)])                # training targets are the blocks, never a truncated command
+        self.assertEqual(len(x), len(ch))
+        for inp, tgt in rows[:-1]:
+            answers[inp] = tgt
+        self.assertEqual(P.commands(["count error kinds", "list"]), [long_cmd, "ls"])
+        self.assertIsNone(P.chunks("x" * 40))                          # one word longer than a block: not writable
+
+
 class Adapters(unittest.TestCase):
     def test_lora_merge_registry_gate(self):
         try:

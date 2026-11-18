@@ -83,7 +83,7 @@ def main():
     held1, held2 = list(T.HELDOUT), list(RW.HELDOUT2)
     rng = random.Random(778)
     bench = [J.make_episode(rng, True)[0] for _ in range(60)]
-    replay = [(t, c) for t, c in list(T.TRAIN) + RW.generate(seed=a.train_seed, per_command=int(cfg.get("rewordings_per_command", 24))) if P.fits(c)]
+    replay = [(t, c) for t, c in list(T.TRAIN) + RW.generate(seed=a.train_seed, per_command=int(cfg.get("rewordings_per_command", 24))) if P.fits_chain(c)]
     rng = random.Random(999)                                         # the same dev set as eval/self_evolution_benchmark.py
     dev_rows = rng.sample(RW.generate(seed=999, per_command=40), 120)
     dev_rows += [(v, c) for t, c in rng.sample(dev_rows, 30) for v in CU.variants(t, rng, 1, RW.too_close)]
@@ -96,14 +96,14 @@ def main():
     fetcher = WL.WebFetcher(a.webcache, offline=a.offline)
     pages = fetcher.fetch_sources(list(dict.fromkeys(gaps + WL.SANDBOX_COMMANDS)), se_queries=3)     # failure-driven first, then every sandbox command
     cands = WL.extract(pages)
-    kept, filt = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=P.fits)
+    kept, filt = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=P.fits_chain)
     web = [(k["task"], k["command"], k["family"]) for k in kept]
     print(f"web set: {len(web)} pairs from {len(pages)} pages; filter {filt}", flush=True)
 
     import augment as AUG
     known_tpl = {AUG.delex(t, c)[1] for t, c in replay}
     tier = {(t, c): ("known" if AUG.delex(t, c)[1] in known_tpl else "new") for t, c, _ in web}
-    print("web tiers:", {k: sum(1 for v in tier.values() if v == k) for k in ("known", "new")}, flush=True)
+    print("web tiers:", {k: sum(1 for v in tier.values() if v == k) for k in ("known", "new")}, "multi-block:", sum(1 for _, c, _ in web if not P.fits(c)), flush=True)
     fam_router = AD.Router(lambda texts: _embed(model, texts))
     fam_router.fit([t for t, _ in replay] + [t for t, _, _ in web], [EX.family(c) for _, c in replay] + [f for _, _, f in web])
     web_router = WT.WebRouter(lambda texts: _embed(model, texts))
@@ -144,7 +144,7 @@ def main():
     def report(accepted, mode):
         r = {}
         for name, rows in (("heldout", held1), ("heldout2", held2), ("train30", T.TRAIN), ("replay150", replay150), ("dev", dev_rows), ("guard", G.GUARD), ("web", [(t, c) for t, c, _ in web]),
-                           ("web_known", [(t, c) for t, c, _ in web if tier[(t, c)] == "known"]), ("web_new", [(t, c) for t, c, _ in web if tier[(t, c)] == "new"])):
+                           ("web_long", [(t, c) for t, c, _ in web if not P.fits(c)]), ("web_known", [(t, c) for t, c, _ in web if tier[(t, c)] == "known"]), ("web_new", [(t, c) for t, c, _ in web if tier[(t, c)] == "new"])):
             if not rows:
                 continue
             d = items(rows, accepted, mode)
