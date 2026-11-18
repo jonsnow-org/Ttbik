@@ -22,8 +22,8 @@ export default function Page() {
       <p className="mt-3"><Link href="/en/events/upcoming" className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white">Upcoming only</Link></p>
       <div className="mt-6"><AdSlot position="in-content" label="English events" /></div>
       <div className="mt-6 grid gap-4">
-        {EN_EVENTS.map((item) => (
-          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date} badge="Date" />
+        {[...EN_EVENTS].sort((a, b) => b.date.localeCompare(a.date)).map((item) => (
+          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.dateLabel ?? (item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date)} badge="Date" />
         ))}
       </div>
     </main>

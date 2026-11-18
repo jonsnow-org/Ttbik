@@ -3,6 +3,8 @@ export type DeskItem = {
   title: string;
   dek: string;
   date: string;
+  dateLabel?: string;
+  contextDateLabel?: string;
   body: string[];
   tool?: string;
   sources?: { href: string; label: string }[];
@@ -10,6 +12,110 @@ export type DeskItem = {
 };
 
 export const EN_NEWS: DeskItem[] = [
+  {
+    "slug": "apec-shenzhen-leaders-trade-2026",
+    "title": "Xi calls for open trade in Shenzhen as a leaders’ meeting is awaited",
+    "date": "18 November 2026",
+    "contextDateLabel": "Xi’s speech: 18 November 2026; trilateral meeting scheduled for 19 November 2026 at publication",
+    "dek": "Chinese President Xi Jinping called for open trade and investment at the APEC CEO Summit in Shenzhen. Reuters reported that a trilateral meeting with Donald Trump and Vladimir Putin was scheduled for the following day; it had not taken place when this story was prepared.",
+    "body": [
+      "Xi Jinping delivered a keynote at the opening of the APEC CEO Summit in Shenzhen on 18 November, calling for deeper regional integration and open trade and investment across the Asia-Pacific. China’s government published an account of the speech through Xinhua.",
+      "Reuters reported that U.S. President Donald Trump had arrived in Shenzhen and that Xi and Vladimir Putin had delivered remarks criticizing protectionism and sanctions. The news agency said a trilateral meeting among the leaders was scheduled for Thursday, 19 November.",
+      "The APEC CEO Summit should be distinguished from the formal APEC Economic Leaders’ Meeting. They are related events, but they are not the same session. China’s foreign ministry lists the leaders’ meeting for 18–19 November in Shenzhen.",
+      "At the time this story was prepared, the trilateral meeting scheduled for 19 November was still in the future. No agreement or outcome from that meeting is claimed here.",
+      "Sham AI publication date: 18 November 2026. Xi’s speech took place on 18 November; the announced trilateral meeting was scheduled for 19 November."
+    ],
+    "sources": [
+      {
+        "href": "https://english.www.gov.cn/news/202611/18/content_WS6afd950fc6d00ca5f9a0e696.html",
+        "label": "China’s government/Xinhua — Xi’s APEC CEO Summit speech"
+      },
+      {
+        "href": "https://www.reuters.com/world/chinas-xi-calls-free-open-trade-apec-summit-2026-11-18/",
+        "label": "Reuters — Trump’s arrival, Xi and Putin’s remarks, and planned talks"
+      },
+      {
+        "href": "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html",
+        "label": "China’s Foreign Ministry — APEC leaders’ meeting dates"
+      }
+    ]
+  },
+  {
+    "slug": "gao-ai-safety-covert-tests-2026",
+    "title": "GAO report finds covert tests bypassed safeguards on four AI platforms",
+    "date": "18 November 2026",
+    "contextDateLabel": "Report dated 16 October 2026; publicly released 18 November 2026",
+    "dek": "The U.S. Government Accountability Office said tests conducted in spring 2026 produced information that could help plan harmful acts after safeguards were bypassed. The report concerns versions available at the time of testing and does not necessarily describe current models.",
+    "body": [
+      "The U.S. Government Accountability Office (GAO) made report GAO-27-108814 public on 18 November 2026, although the report itself is dated 16 October. It examines how generative AI could be misused in ways that threaten national security and economic infrastructure.",
+      "According to the official summary, GAO covertly tested four widely used platforms in spring 2026: ChatGPT, Claude, Gemini and Grok. The agency said outputs from all four contained information that could assist attack planning; operational details that could make replication easier are not reproduced here.",
+      "GAO said safeguards initially activated, including refusals, content removal or account suspensions, but investigators eventually bypassed them using common techniques. This report does not repeat those techniques, targets or other sensitive details.",
+      "The findings need context: the tests reflect versions available in spring 2026 and do not establish that every harmful request will succeed or that current versions behave in the same way. The report describes specific covert tests, not every possible use of the platforms.",
+      "Report date: 16 October 2026. Public release and Sham AI publication date: 18 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://www.gao.gov/products/gao-27-108814",
+        "label": "U.S. Government Accountability Office — official report summary"
+      },
+      {
+        "href": "https://files.gao.gov/reports/GAO-27-108814/index.html",
+        "label": "Full text of GAO-27-108814"
+      },
+      {
+        "href": "https://apnews.com/article/fd36b9004c00259aa2f7b871a61aeb8c",
+        "label": "Associated Press — independent coverage and company responses"
+      }
+    ]
+  },
+  {
+    "slug": "gaza-winter-rains-shelter-crisis-2026",
+    "title": "Winter rains deepen Gaza’s shelter and food crisis as tents are damaged",
+    "date": "18 November 2026",
+    "contextDateLabel": "Recent rainfall: the preceding week; UN update: 18 November 2026",
+    "dek": "The United Nations said winter rain damaged tens of thousands of makeshift shelters in Gaza. The World Food Programme and the International Organization for Migration warned of funding shortfalls and restricted aid access amid continued displacement and acute hunger.",
+    "body": [
+      "In an update published on 18 November, the United Nations said winter rain had flooded makeshift shelters and damaged food stored in tents, worsening conditions for heating, cooking and sanitation at displacement sites.",
+      "The UN update quoted the International Organization for Migration as saying tens of thousands of shelters were damaged or destroyed after one day of rain. It also said more than 1.7 million people remained displaced and 1.4 million faced acute hunger.",
+      "The World Food Programme said assistance that had provided one hot meal a day in some camps had fallen to one hot meal every two days. It warned that funding gaps and access restrictions threatened the continuity of humanitarian operations.",
+      "Reuters had reported an IOM warning on 17 November about cold-related risks and shortages of winter shelter supplies. Figures here are attributed to the named agencies and their respective update dates; they are not presented as a new independent census.",
+      "Sham AI publication date and the UN update: 18 November 2026. The rainfall and field damage described in the update occurred before publication."
+    ],
+    "sources": [
+      {
+        "href": "https://palestine.un.org/en/326353-winter-rains-deepen-gaza-crisis-amid-restricted-access-and-aid-cuts",
+        "label": "United Nations in Palestine — 18 November update"
+      },
+      {
+        "href": "https://www.wfp.org/stories/hunger-crisis-looms-winter-hits-gaza",
+        "label": "World Food Programme — hunger crisis as winter hits Gaza"
+      },
+      {
+        "href": "https://www.reuters.com/world/middle-east/un-agency-warns-gaza-hypothermia-deaths-without-more-supplies-2026-11-17/",
+        "label": "Reuters — warning on shelter and winter supplies"
+      }
+    ]
+  },
+  {
+    "slug": "us-considers-disclosure-of-chinese-ai-use-2026",
+    "title": "Reuters: U.S. weighs disclosure requirement for companies using Chinese AI",
+    "date": "18 November 2026",
+    "contextDateLabel": "Reuters report: 18 November 2026; no formal rule announced at publication",
+    "dek": "Reuters reported that the U.S. Treasury Department and the White House discussed a proposal requiring companies to disclose their use of Chinese AI models. The proposal was not an enacted rule or a publicly announced regulatory process when the report appeared.",
+    "body": [
+      "In an exclusive report dated 18 November, Reuters said the U.S. Treasury Department and the White House Office of Science and Technology Policy had discussed requiring U.S. companies to publicly disclose their use of Chinese AI models.",
+      "According to three people cited by the news agency, the proposal would aim to increase transparency and discourage reliance on the models without directly imposing new restrictions on companies. Reuters said it was unclear whether the idea had enough support or would enter a formal rulemaking process.",
+      "Reuters reported that the White House, Treasury Department and companies involved had not responded to its requests for comment at publication. The article also included Airbnb’s statement about the limited scope of its use of China-origin models.",
+      "These are discussions attributed to Reuters sources, not a government decision or a binding legal requirement. The report should not be read as evidence that a disclosure rule is already in force."
+    ],
+    "sources": [
+      {
+        "href": "https://www.reuters.com/world/china/trump-administration-weighs-forcing-us-firms-disclose-chinese-ai-use-2026-11-18/",
+        "label": "Reuters — exclusive report on the proposal under discussion"
+      }
+    ]
+  },
+
   {
     slug: "japan-russian-airspace-incident-2026",
     title: "Japan protests after two suspected Russian aircraft enter its airspace",
@@ -202,11 +308,119 @@ export const EN_NEWS: DeskItem[] = [
 
 export const EN_EVENTS: DeskItem[] = [
   {
+    "slug": "cop31-antalya-2026",
+    "title": "UN Climate Change Conference COP31 in Antalya",
+    "date": "2026-11-09",
+    "dateLabel": "9–20 November 2026",
+    "endDate": "2026-11-20",
+    "dek": "Antalya hosts the 31st UN Climate Change Conference through 20 November, bringing together governments, negotiators and stakeholders working on climate action.",
+    "body": [
+      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) is taking place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. It brings together national delegations, negotiators, observers, civil society and private-sector representatives to advance implementation of the Paris Agreement.",
+      "The session also includes the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
+      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment is scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
+      "The venue is the Antalya Expo Center in Antalya, Türkiye, and local time is UTC+3. Access to the Blue Zone is for accredited participants; Green Zone activities are subject to arrangements set by the host country.",
+      "Event dates: 9–20 November 2026. Status on 18 November: the conference is ongoing, and not all final outcomes have been announced."
+    ],
+    "sources": [
+      {
+        "href": "https://unfccc.int/cop31/about",
+        "label": "UNFCCC — COP31 overview and dates"
+      },
+      {
+        "href": "https://unfccc.int/cop31/ifp",
+        "label": "UNFCCC — participant information and venue"
+      },
+      {
+        "href": "https://unfccc.int/sites/default/files/resource/updated_resumed_hls_2026.pdf",
+        "label": "UNFCCC — resumed high-level segment schedule"
+      }
+    ]
+  },
+  {
+    "slug": "world-toilet-day-2026",
+    "title": "World Toilet Day 2026: Safe toilets, equal futures",
+    "date": "2026-11-19",
+    "dateLabel": "19 November 2026",
+    "dek": "World Toilet Day falls on 19 November. The 2026 campaign focuses on sanitation and gender equality under the theme “Safe toilets. Equal futures.”",
+    "body": [
+      "World Toilet Day is observed every year on 19 November. Coordinated by UN-Water, it promotes action on the global sanitation crisis and progress toward safe water and sanitation for all.",
+      "The 2026 campaign, “Safe toilets. Equal futures.”, focuses on the connection between sanitation and gender equality, including the health, safety and dignity of women and girls.",
+      "The United Nations notes that access to safe toilets, water, soap and hygiene facilities affects whether women and girls can attend school, work and participate fully in public life.",
+      "Event date: 19 November 2026. It is a global awareness and action day, not a single worldwide public holiday."
+    ],
+    "sources": [
+      {
+        "href": "https://www.un.org/en/observances/toilet-day",
+        "label": "United Nations — World Toilet Day 2026"
+      },
+      {
+        "href": "https://www.unwater.org/our-work/world-toilet-day",
+        "label": "UN-Water — campaign theme and observance"
+      },
+      {
+        "href": "https://desapublications.un.org/un-desa-voice/more-from-undesa/november-2026/world-toilet-day-2026-safe-toilets-equal-futures",
+        "label": "UN Department of Economic and Social Affairs — 2026 campaign"
+      }
+    ]
+  },
+  {
+    "slug": "world-childrens-day-2026",
+    "title": "World Children’s Day 2026: My day, my rights, my future",
+    "date": "2026-11-20",
+    "dateLabel": "20 November 2026",
+    "dek": "World Children’s Day takes place on 20 November. UNICEF’s 2026 campaign calls for children to be heard and involved in decisions that affect their rights and future.",
+    "body": [
+      "World Children’s Day is observed on 20 November each year. The date marks the UN General Assembly’s adoption of the Declaration of the Rights of the Child in 1959 and the Convention on the Rights of the Child in 1989.",
+      "UNICEF describes the day as a global day of action for children, by children. Its 2026 campaign is titled “My Day. My Rights. My Future.” and asks decision-makers to listen to children’s views about the choices shaping their lives.",
+      "The observance highlights rights to education, health, protection, non-discrimination and participation, as well as the responsibility of institutions and adults to create safe environments where children can be heard.",
+      "Event date: 20 November 2026. Activities take place locally around the world; there is no single global start time."
+    ],
+    "sources": [
+      {
+        "href": "https://www.un.org/en/observances/world-childrens-day/background",
+        "label": "United Nations — World Children’s Day background"
+      },
+      {
+        "href": "https://www.unicef.org/take-action/campaigns/world-childrens-day",
+        "label": "UNICEF — World Children’s Day 2026 campaign"
+      },
+      {
+        "href": "https://www.unicef.org/parenting/world-childrens-day-toolkit",
+        "label": "UNICEF — 2026 campaign toolkit"
+      }
+    ]
+  },
+  {
+    "slug": "world-television-day-2026",
+    "title": "World Television Day 2026: visual media and public dialogue",
+    "date": "2026-11-21",
+    "dateLabel": "21 November 2026",
+    "dek": "World Television Day is observed on 21 November. The UN General Assembly proclaimed it in recognition of television’s role in communication, information and public debate.",
+    "body": [
+      "World Television Day is observed on 21 November each year. The UN General Assembly proclaimed it through resolution 51/205, adopted on 17 December 1996, commemorating the first World Television Forum held at the United Nations on 21–22 November 1996.",
+      "The observance is not simply about the television set. It recognizes the role of visual media in informing the public, drawing attention to social, economic and political issues, and supporting cultural exchange across borders.",
+      "In today’s media environment, the discussion also includes the relationship between traditional broadcasting and digital platforms, and the need to verify information and distinguish journalism from misleading content.",
+      "Event date: 21 November 2026. There is no single global start time; activities are organized locally."
+    ],
+    "sources": [
+      {
+        "href": "https://www.un.org/en/observances/world-television-day",
+        "label": "United Nations — World Television Day background"
+      },
+      {
+        "href": "https://digitallibrary.un.org/record/232071/files/A_RES_51_205-EN.pdf",
+        "label": "UN General Assembly — resolution 51/205"
+      }
+    ]
+  },
+
+  {
     slug: "apec-economic-leaders-meeting-shenzhen-2026",
     title: "33rd APEC Economic Leaders' Meeting in Shenzhen",
     dek: "APEC leaders are scheduled to meet in Shenzhen on 18–19 November under China's 2026 host-year theme, with trade, regional connectivity and AI among the issues discussed during Leaders' Week.",
     date: "2026-11-18",
     endDate: "2026-11-19",
+    dateLabel: "18–19 November 2026",
     body: [
       "The 33rd APEC Economic Leaders' Meeting is scheduled for 18–19 November 2026 in Shenzhen, Guangdong, China. China's Foreign Ministry says President Xi Jinping will chair the meeting under the theme “Building an Asia-Pacific Community to Prosper Together.”",
       "APEC said senior officials met in Shenzhen ahead of Leaders' Week to advance work on trade integration, connectivity and artificial intelligence. Those topics form part of the forum's regional cooperation agenda; they should not be read as binding decisions before leaders publish their outcomes.",
@@ -302,6 +516,35 @@ export const EN_EVENTS: DeskItem[] = [
 ];
 
 export const EN_ARTICLES: DeskItem[] = [
+  {
+    "slug": "superconductivity-pairing-vs-room-temperature-2026",
+    "title": "Room-temperature electron pairs do not mean a room-temperature superconductor: what the Science study shows",
+    "date": "18 November 2026",
+    "dek": "A Science study examines electron pairing in a cuprate material at unusually high temperatures. This explainer shows why pairing alone does not establish zero-resistance superconductivity at room temperature.",
+    "body": [
+      "The paper “Equivalence of pseudogap and pairing energy in a cuprate high-temperature superconductor” appeared in the 5 November 2026 issue of Science. Researchers from Utrecht, Leiden, Munich and other institutions investigated a central question in high-temperature superconductivity.",
+      "The team used specialized equipment developed for the study to distinguish current carried by individual electrons from current carried by electron pairs in a cuprate material. The results indicate that the energy scale associated with pairing remains high, up to temperatures near room temperature, in the material studied.",
+      "Superconductivity requires two conditions, not one: electrons must form Cooper pairs, and those pairs must behave in a coordinated quantum state known as phase coherence. The existence of pairs alone does not guarantee electrical current with zero resistance.",
+      "The study points to phase coherence as a possible bottleneck in high-temperature cuprates. That shifts attention toward understanding how electron pairs coordinate, rather than only proving that pairing can persist at higher temperatures.",
+      "The result does not mean the researchers built a superconductor that operates at room temperature, nor does it demonstrate zero electrical resistance under ordinary conditions. It is evidence about a physical mechanism in a specific material, not a practical device or a market-ready material.",
+      "The next questions are whether the measurements can be independently reproduced, how phase coherence develops, and whether a material can be shown to enter a true superconducting state at a higher critical temperature. The paper was published on 5 November 2026; this Sham AI explainer was published on 18 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://www.uu.nl/en/news/new-research-offers-hope-for-room-temperature-superconductivity",
+        "label": "Utrecht University — research explanation"
+      },
+      {
+        "href": "https://www.sciencedaily.com/releases/2026/11/261116023358.htm",
+        "label": "ScienceDaily — Utrecht University release dated 18 November"
+      },
+      {
+        "href": "https://doi.org/10.1126/science.adt3444",
+        "label": "Science — original research paper"
+      }
+    ]
+  },
+
   {
     slug: "government-ai-partnership-checklist",
     title: "How to assess government AI partnerships: six questions before deployment",

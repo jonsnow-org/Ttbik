@@ -101,7 +101,10 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
             <img src={image} alt={item.title} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
           </div>
           <div className="p-5">
-            <p className="mb-1 text-xs font-bold text-indigo-700">خبر اليوم · {item.dateLabel}</p>
+            <p className="mb-1 text-xs font-bold text-indigo-700">تاريخ النشر · {item.dateLabel}</p>
+            {item.contextDateLabel ? (
+              <p className="mb-3 text-xs leading-6 text-slate-500">تاريخ الحدث أو الوثيقة · {item.contextDateLabel}</p>
+            ) : null}
             <h1 className="mb-4 text-2xl font-extrabold text-slate-900">{item.title}</h1>
             {item.paragraphs.map((p) => (
               <p key={p.slice(0, 28)} className="mb-3 text-sm leading-7 text-slate-700">
