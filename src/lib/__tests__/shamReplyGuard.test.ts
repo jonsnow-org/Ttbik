@@ -5,10 +5,9 @@ import { shamVariant } from "@/lib/shamStudio";
 import type { ShamCtx } from "@/lib/shamExec";
 
 describe("visibleShamReply duplicate sentence protection", () => {
-  it("removes an identical repeated introduction sentence without replacing the model wording", () => {
-    const first = "أنا شام برو، مساعد ذكاء اصطناعي من فريق المشروع، وأساعدك في الكتابة والبرمجة والبحث.";
-    const reply = "مرحباً! " + first + " " + first;
-    expect(visibleShamReply(reply).text).toBe("مرحباً! " + first);
+  it("removes a repeated greeting-plus-identity block without replacing the model's wording", () => {
+    const block = "مرحباً! أنا شام برو، مساعد ذكاء اصطناعي من فريق المشروع، وأساعدك في الكتابة والبرمجة والبحث.";
+    expect(visibleShamReply(block + " " + block).text).toBe(block);
   });
 });
 

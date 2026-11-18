@@ -65,6 +65,38 @@ describe("Sham 2 T-LDM owner path", () => {
     }
   });
 
+  it("resumes an app read-only tool request on the same T-LDM Studio", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const payloads: any[] = [], urls: string[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      urls.push(String(input));
+      if (init?.body) payloads.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
+      const body = payloads.some((p) => p.resume_tool_request_id === "req-9")
+        ? 'data: [{"type":"text","text":"تم البحث والتلخيص","tldm":true}]\n'
+        : 'data: [{"type":"tool_request","tool_name":"web_search","tool_arguments":{"query":"test"},"tool_request_id":"req-9","tldm":true}]\n';
+      return sseFetch(body);
+    }) as any;
+    try {
+      const messages = [{ role: "user" as const, content: "ابحث في الويب عن test" }];
+      const first = await shamVariant.run("v2", () => shamGenerateTldm(messages, "tldm-sham_v2-9"));
+      expect(first).toMatchObject({ type: "tool_request", tool_name: "web_search", tool_request_id: "req-9" });
+      expect(first?.tldmBase).toContain("sham-v2");
+      const second = await shamVariant.run("v2", () => shamGenerateTldm(messages, "tldm-sham_v2-9", 180000, {
+        resumeTool: { requestId: "req-9", name: "web_search", arguments: { query: "test" }, result: "result: test page", routeBase: first?.tldmBase },
+      }));
+      expect(second).toMatchObject({ type: "text", text: "تم البحث والتلخيص" });
+      expect(payloads[1]).toMatchObject({ resume_tool_name: "web_search", resume_tool_request_id: "req-9", resume_tool_arguments_json: JSON.stringify({ query: "test" }), resume_tool_result: "result: test page" });
+      const resultUrls = urls.filter((u) => !u.includes("/call/v2/"));
+      expect(resultUrls).toHaveLength(2);
+      expect(resultUrls[0].split("/gradio_api/")[0]).toBe(resultUrls[1].split("/gradio_api/")[0]);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
   it("returns a clear no-fallback error if the T-LDM endpoint does not answer", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const real = global.fetch;
