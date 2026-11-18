@@ -1,0 +1,117 @@
+name: sham-mesh
+# The terminal mesh ("every new user adds compute and knowledge"): cloudflare/sham-mesh-worker.js (relay, Durable Object on the free plan) +
+# ai-system/terminal/mesh_net.py (client). Every run: worker auth unit test + Python tests + the multi-process e2e against a local `wrangler dev`.
+# On the default branch (or by hand): deploy https://sham-mesh.jonsnowx1r.workers.dev with the existing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID
+# secrets (the Worker has no secrets of its own) and run the same multi-process e2e against the REAL Worker from this runner.
+# workflow_dispatch helper_mesh=<name>: keep one honest helper node online on this runner for helper_secs (a second host for cross-host checks).
+on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - cloudflare/sham-mesh-worker.js
+      - cloudflare/sham-mesh-worker.test.mjs
+      - cloudflare/sham-mesh.wrangler.jsonc
+      - ai-system/terminal/mesh*.py
+      - ai-system/terminal/test_mesh*.py
+      - .github/workflows/sham-mesh.yml
+  pull_request:
+    paths:
+      - cloudflare/sham-mesh-worker.js
+      - cloudflare/sham-mesh-worker.test.mjs
+      - cloudflare/sham-mesh.wrangler.jsonc
+      - ai-system/terminal/mesh*.py
+      - ai-system/terminal/test_mesh*.py
+      - .github/workflows/sham-mesh.yml
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "deploy the Worker and run the e2e against it"
+        required: false
+        default: "true"
+      helper_mesh:
+        description: "optional: mesh name for a long-lived helper node on this runner (cross-host check); empty = none"
+        required: false
+        default: ""
+      helper_secs:
+        description: "how long the helper stays online"
+        required: false
+        default: "300"
+permissions:
+  contents: read
+concurrency:
+  group: sham-mesh-${{ github.ref }}-${{ inputs.helper_mesh || 'main' }}
+  cancel-in-progress: false
+jobs:
+  test:
+    if: ${{ !inputs.helper_mesh }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: worker auth unit test
+        run: node cloudflare/sham-mesh-worker.test.mjs
+      - name: python tests (pure-Python ed25519 path, no extra packages)
+        run: |
+          python ai-system/terminal/test_mesh.py
+          python ai-system/terminal/test_mesh_net.py
+          python -m unittest discover -s ai-system/modelscope-sham -p 'test_sham_mesh_node.py' -v
+      - name: multi-process e2e over a local wrangler dev (same Worker code, Durable Object emulated)
+        run: |
+          cd cloudflare
+          npx --yes wrangler@4 dev --config sham-mesh.wrangler.jsonc --port 8799 --local > /tmp/wd.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8799/health && break; sleep 2; done
+          cd ..
+          python ai-system/terminal/mesh_net_e2e.py --url http://127.0.0.1:8799 | tee /tmp/e2e.txt
+          grep -q "passed" /tmp/e2e.txt
+  deploy:
+    needs: test
+    if: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy == 'true')) && !inputs.helper_mesh }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: are the Cloudflare secrets set?
+        id: have
+        env:
+          T: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$T" ] && [ -n "$A" ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "go=0" >> "$GITHUB_OUTPUT"; echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID missing: not deployed"; fi
+      - name: deploy
+        if: steps.have.outputs.go == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: cd cloudflare && npx --yes wrangler@4 deploy --config sham-mesh.wrangler.jsonc
+      - name: multi-process e2e over the REAL Worker
+        if: steps.have.outputs.go == '1'
+        run: |
+          U=https://sham-mesh.jonsnowx1r.workers.dev
+          for i in $(seq 1 30); do curl -fs $U/health && break; sleep 3; done
+          echo
+          python ai-system/terminal/mesh_net_e2e.py --url $U | tee /tmp/e2e.txt
+          { echo '### sham-mesh e2e over the real Worker'; echo '```'; grep -v '^EVIDENCE' /tmp/e2e.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          grep '^EVIDENCE' /tmp/e2e.txt | cut -c10- | python3 -m json.tool | head -c 8000
+  helper:
+    if: ${{ inputs.helper_mesh }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: one honest helper node on this host
+        run: python ai-system/terminal/mesh_net_e2e.py --role helper --url https://sham-mesh.jonsnowx1r.workers.dev --mesh "${{ inputs.helper_mesh }}" --delay 0.05 --hold "${{ inputs.helper_secs }}"

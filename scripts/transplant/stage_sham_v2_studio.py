@@ -111,6 +111,20 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
             shutil.copy2(f, term / name)
 
 
+def stage_mesh(studio: pathlib.Path) -> None:
+    """The terminal mesh node of Sham 2 (sham_mesh_node.py + ai-system/terminal/mesh*.py). Used only on the owner-gated T-LDM path; SHAM_MESH=0 turns it off."""
+    root = ROOT / "ai-system"
+    src = root / "modelscope-sham" / "sham_mesh_node.py"
+    if src.is_file():
+        shutil.copy2(src, studio / "sham_mesh_node.py")
+    term = studio / "terminal"
+    term.mkdir(parents=True, exist_ok=True)
+    for name in ("mesh.py", "mesh_net.py", "mesh_crypto.py"):
+        f = root / "terminal" / name
+        if f.is_file():
+            shutil.copy2(f, term / name)
+
+
 def write_sham_v2_wrapper(studio: pathlib.Path) -> None:
     (studio / "app.py").write_text(SHAM_V2_WRAPPER, encoding="utf-8")
     # status() reports this as "build": the deploy compares it with the commit it pushed (ModelScope's runner can ship a cached old build)
@@ -124,6 +138,7 @@ def stage_sham_v2(studio: pathlib.Path) -> str:
     patch_staged_sham_v2_download(studio)
     write_sham_v2_wrapper(studio)
     stage_tldm_serving(studio)
+    stage_mesh(studio)
     return result
 
 

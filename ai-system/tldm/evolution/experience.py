@@ -7,7 +7,7 @@
     pairs = log.admitted(min_consensus=2)   # [(task, command)] that may be trained on
 
 Record schema (the user's raw text never leaves this function; what is stored is scrubbed):
-    v, ts_day, user (salted hash), source (user|curriculum|web), intent (scrubbed task), intent_key (delexicalised template), command (scrubbed),
+    v, ts_day, user (salted hash), source (user|curriculum|web|mesh), intent (scrubbed task), intent_key (delexicalised template), command (scrubbed),
     exit_code, stdout_sha, stderr_sha, verdict (verifier: True/False/None), latency_s, model, adapter, family (task cluster), rid (record hash)
 
 Defences against poisoning (training admission only):
@@ -210,9 +210,10 @@ class ExperienceLog:
         self.stats[what] += 1
         return what
 
-    def admitted(self, min_consensus: int = 2, sources: tuple = ("user", "curriculum", "web"), return_reasons: bool = False, web_consensus: int = 1):
+    def admitted(self, min_consensus: int = 2, sources: tuple = ("user", "curriculum", "web", "mesh"), return_reasons: bool = False, web_consensus: int = 1):
         """-> [(intent, command, family)] that may enter TRAINING. Consensus counts DISTINCT voters: users (source user), sampling seeds (curriculum),
-        pages (web: the page is only the claim; the sandbox run is the check, so one page is enough by default)."""
+        pages (web: the page is only the claim; the sandbox run is the check, so one page is enough by default), and publishing peers (mesh: a lesson
+        another node ran successfully and THIS node re-ran successfully in its own sandbox; voter = the publisher, ai-system/terminal/mesh_net.py)."""
         why = defaultdict(int)
         groups: dict = defaultdict(lambda: {"voters": set(), "intents": [], "users": set(), "web": False})
         for r in self.records:
