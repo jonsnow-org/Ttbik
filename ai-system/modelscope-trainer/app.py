@@ -4,7 +4,7 @@ Same job as the GitHub CPU trainer and the Oracle one: sham_live.run(...) starts
 (sham-crawl-<SHAM_TRAINER_NAME> + its corpus) to Kaggle; the merge job finds every sham-crawl-* dataset by itself and judges it through the same gate, so nothing else changes.
 Device: sham_live picks CUDA when the Studio has a GPU and CPU otherwise (the free tier is CPU), so the same file serves both.
 
-Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text|codec|motion), HF_ENDPOINT (hf-mirror: huggingface.co is
+Settings come from the Studio's secrets (set by deploy-sham-trainer-studio.yml): KAGGLE_USERNAME, KAGGLE_API_TOKEN, SHAM_TRAINER_NAME, SHAM_TRAINER_HOURS, SHAM_TRAINER_JOB (live|images|audio|chat|tools|text|codec|motion|tldm), HF_ENDPOINT (hf-mirror: huggingface.co is
 blocked from China). Nothing here prints a secret. Offline self-test: python app.py --selftest
 """
 from __future__ import annotations
@@ -29,6 +29,12 @@ if _DISK.is_dir() and os.access(_DISK, os.W_OK):
             os.environ.setdefault(_k, str(_p))
         except OSError:
             pass
+    _tldm = _DISK / "tldm"
+    try:
+        _tldm.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("TLDM_WORK", str(_tldm))
+    except OSError:
+        pass
 
 HERE = Path(__file__).resolve().parent
 SHAM = HERE / "sham_small"                      # the sham_small code the deploy workflow copies next to this file
@@ -52,6 +58,9 @@ PROFILES = {
     "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
     # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
     "motion": {"SHAM_TOK_THREADS": "2"},
+    # T-LDM writer experiments (CPU): trains ai-system/tldm (copied next to this file) with rotating seeds and both frozen held-out sets.
+    # Does not import or change that tree's training code; each cycle is `training/train_0.3b.py`. Results live on /mnt/workspace/tldm and are published to the private model repo tldm-writer-runs.
+    "tldm":   {},
 }
 
 
@@ -78,19 +87,150 @@ def run_motion(hours: float = 3.0, **_ignored) -> dict:
     return {"published": code == 0, "hours": float(hours)}
 
 
+TLDM_REPO = "tldm-writer-runs"
+TLDM_CONFIG_DEFAULT = "writer_small_reword.yaml"
+
+
+def tldm_root() -> Path:
+    """The tldm tree the deploy workflow copies next to this file; the repo layout is the fallback (self-test / checkout)."""
+    here = HERE / "tldm"
+    if (here / "training" / "train_0.3b.py").is_file():
+        return here
+    repo = HERE.parent / "tldm"
+    if (repo / "training" / "train_0.3b.py").is_file():
+        return repo
+    raise FileNotFoundError("tldm tree is missing (training/train_0.3b.py); deploy-sham-trainer-studio.yml must copy ai-system/tldm next to app.py when job=tldm")
+
+
+def tldm_work() -> Path:
+    return Path(os.environ.get("TLDM_WORK") or (Path("/mnt/workspace/tldm") if Path("/mnt/workspace").is_dir() else (HERE / "tldm_work")))
+
+
+def tldm_next_seed(work: Path) -> int:
+    path = work / "seed.txt"
+    try:
+        return int(path.read_text(encoding="utf-8").strip() or "0")
+    except (FileNotFoundError, ValueError):
+        try:
+            return int(os.environ.get("SHAM_TLDM_SEED") or 0)
+        except ValueError:
+            return 0
+
+
+def tldm_store_seed(work: Path, seed: int) -> None:
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "seed.txt").write_text(str(int(seed)), encoding="utf-8")
+
+
+def tldm_flatten(res: dict, seed: int, published) -> dict:
+    """Whitelisted cycle numbers for the status page (nested held-out scores become one number each)."""
+    out = {"seed": int(seed), "published": bool(published)}
+    if isinstance(res, dict):
+        for k in ("config", "train_secs", "params_M"):
+            if k in res and isinstance(res[k], (int, float, str)) and len(str(res[k])) <= 80:
+                out[k] = res[k]
+        for k in ("train", "heldout", "heldout2"):
+            block = res.get(k) or {}
+            if isinstance(block, dict) and isinstance(block.get("same_effect"), (int, float)):
+                out[k] = block["same_effect"]
+            elif isinstance(block, (int, float)):
+                out[k] = block
+    return out
+
+
+def publish_tldm(work: Path, seed: int, ckpt: Path, report: Path) -> str | None:
+    """Publish this cycle's checkpoint and JSON to the private ModelScope repo tldm-writer-runs (owner from SHAM_MS_OWNER)."""
+    sys.path.insert(0, str(SHAM))
+    import shutil
+
+    import sham_inputs
+    snap = work / "publish_snap"
+    shutil.rmtree(snap, ignore_errors=True)
+    snap.mkdir(parents=True)
+    for src, dest in ((ckpt, snap / ckpt.name), (ckpt, snap / "latest.pt"), (report, snap / report.name), (report, snap / "latest.json")):
+        if src.exists():
+            try:
+                os.link(src, dest)
+            except OSError:
+                shutil.copy2(src, dest)
+    jsonl = work / "logs" / "results.jsonl"
+    if jsonl.exists():
+        try:
+            os.link(jsonl, snap / "results.jsonl")
+        except OSError:
+            shutil.copy2(jsonl, snap / "results.jsonl")
+    name = (os.environ.get("SHAM_TLDM_REPO") or TLDM_REPO).strip() or TLDM_REPO
+    got = sham_inputs.publish_modelscope(snap, name, f"writer cycle seed={seed}")
+    shutil.rmtree(snap, ignore_errors=True)
+    return got
+
+
+def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
+    """One writer cycle: train configs/writer_small_reword.yaml (or SHAM_TLDM_CONFIG) at the next seed, evaluate both frozen held-out sets, persist, publish."""
+    work = tldm_work()
+    (work / "checkpoints").mkdir(parents=True, exist_ok=True)
+    (work / "logs").mkdir(parents=True, exist_ok=True)
+    seed = tldm_next_seed(work)
+    cfg_name = (os.environ.get("SHAM_TLDM_CONFIG") or TLDM_CONFIG_DEFAULT).strip() or TLDM_CONFIG_DEFAULT
+    root = tldm_root()
+    config = Path(cfg_name) if Path(cfg_name).is_file() else (root / "configs" / cfg_name)
+    ckpt = work / "checkpoints" / f"seed{seed}.pt"
+    report = work / "logs" / f"seed{seed}.json"
+    cmd = [sys.executable, "-u", str(root / "training" / "train_0.3b.py"),
+           "--config", str(config), "--out", str(ckpt), "--seed", str(seed), "--json", str(report)]
+    extra_steps = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
+    if extra_steps:
+        cmd.extend(["--steps", extra_steps])
+
+    if runner is not None:
+        code = int(runner(cmd=cmd, cwd=str(root), ckpt=ckpt, report=report, seed=seed, work=work))
+    else:
+        import subprocess
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+        print(f"tldm cycle seed={seed} config={config.name} out={ckpt}", flush=True)
+        proc = subprocess.run(cmd, cwd=str(root), env=env, check=False)
+        code = int(proc.returncode)
+
+    res: dict = {}
+    if report.exists():
+        try:
+            res = json.loads(report.read_text(encoding="utf-8"))
+        except ValueError:
+            res = {}
+    if code != 0:
+        raise RuntimeError(f"tldm train exited with code {code} (seed {seed})")
+    tldm_store_seed(work, seed + 1)
+    line = {"seed": seed, **{k: res[k] for k in res if k != "secret"}}
+    with (work / "logs" / "results.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    published = None
+    try:
+        published = publish_tldm(work, seed, ckpt, report)
+    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
+        print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    out = tldm_flatten(res, seed, bool(published))
+    out["hours"] = float(hours)
+    if published:
+        out["published"] = True
+    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
+    return out
+
+
 def settings(env=None) -> dict:
     env = os.environ if env is None else env
     name = re.sub(r"[^a-z0-9]+", "-", (env.get("SHAM_TRAINER_NAME") or "ms1").lower()).strip("-") or "ms1"
+    job = (env.get("SHAM_TRAINER_JOB") or "live").strip().lower()
+    job = job if job in PROFILES else "live"
+    default_hours = 10.0 if job == "tldm" else 5.0
     try:
-        hours = min(10.0, max(0.5, float(env.get("SHAM_TRAINER_HOURS") or 5.0)))
+        hours = min(10.0, max(0.5, float(env.get("SHAM_TRAINER_HOURS") or default_hours)))
     except ValueError:
-        hours = 5.0
+        hours = default_hours
     try:
         workers = min(16, max(1, int(env.get("SHAM_TRAINER_WORKERS") or 2)))
     except ValueError:
         workers = 2
-    job = (env.get("SHAM_TRAINER_JOB") or "live").strip().lower()
-    job = job if job in PROFILES else "live"
     return {"name": name, "hours": hours, "workers": workers, "source_set": env.get("SHAM_TRAINER_SOURCES") or "gh", "job": job}
 
 
@@ -139,7 +279,8 @@ def _set(**kw) -> None:
 
 def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
-    keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours")
+    keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
+            "seed", "config", "train", "heldout", "heldout2", "train_secs")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -156,6 +297,8 @@ def _resolve_run_fn(cfg: dict):
         return run_codec
     if cfg["job"] == "motion":
         return run_motion
+    if cfg["job"] == "tldm":
+        return run_tldm
     sys.path.insert(0, str(SHAM))
     import sham_live
     return sham_live.run
@@ -282,12 +425,16 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
             _set(device="cuda" if torch.cuda.is_available() else "cpu")
         except Exception:
             pass
-    if not (os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_API_TOKEN") or os.environ.get("KAGGLE_KEY"))):
+    if cfg["job"] == "tldm":
+        if not (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN")):
+            _set(phase="blocked", error="no ModelScope token in the Studio secrets (MODELSCOPE_API_TOKEN)")
+            return
+    elif not (os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_API_TOKEN") or os.environ.get("KAGGLE_KEY"))):
         _set(phase="blocked", error="no Kaggle keys in the Studio secrets (KAGGLE_USERNAME + KAGGLE_API_TOKEN)")
         return
     if not isinstance(sys.stdout, _Tee):
         sys.stdout = _Tee(sys.stdout)
-    if not in_process:
+    if not in_process and cfg["job"] != "tldm":
         _set(phase="publishing-leftover")
         publish_leftover_subprocess()
     cycle = 0
@@ -338,7 +485,9 @@ if __name__ == "__main__":
         assert settings({})["name"] == "ms1" and settings({"SHAM_TRAINER_NAME": "MS 2!"})["name"] == "ms-2"
         assert settings({"SHAM_TRAINER_HOURS": "99"})["hours"] == 10.0 and settings({"SHAM_TRAINER_HOURS": "x"})["hours"] == 5.0
         assert settings({"SHAM_TRAINER_JOB": "Images"})["job"] == "images" and settings({"SHAM_TRAINER_JOB": "zzz"})["job"] == "live"
-        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec", "motion"}
+        assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec", "motion", "tldm"}
+        assert settings({"SHAM_TRAINER_JOB": "tldm"})["job"] == "tldm" and settings({"SHAM_TRAINER_JOB": "tldm"})["hours"] == 10.0
+        assert settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_HOURS": "3"})["hours"] == 3.0
         calls = []
 
         def fake(**kw):
@@ -373,6 +522,44 @@ if __name__ == "__main__":
         assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
         child_publish_leftover()                                         # already published: not twice
         assert len(sent) == 1, sent
+        # tldm job: rotating seeds, both held-out numbers, publish to tldm-writer-runs, no real training, no network
+        tldm_tmp = Path(tempfile.mkdtemp())
+        os.environ["TLDM_WORK"] = str(tldm_tmp)
+        os.environ["SHAM_TRAINER_JOB"] = "tldm"
+        os.environ["MODELSCOPE_API_TOKEN"] = "t"
+        os.environ.pop("KAGGLE_API_TOKEN", None)
+        tldm_calls = []
+
+        def fake_tldm(**kw):
+            seed, work = kw["seed"], kw["work"]
+            (work / "checkpoints").mkdir(parents=True, exist_ok=True)
+            (work / "logs").mkdir(parents=True, exist_ok=True)
+            kw["ckpt"].write_bytes(b"w")
+            kw["report"].write_text(json.dumps({"config": "writer_small_reword.yaml", "seed": seed, "train_secs": 1,
+                                                "train": {"same_effect": 0.9, "exact_text": 0.8},
+                                                "heldout": {"same_effect": 0.5, "exact_text": 0.4},
+                                                "heldout2": {"same_effect": 0.4, "exact_text": 0.3}}), encoding="utf-8")
+            tldm_calls.append(seed)
+            return 0
+
+        sent_tldm = []
+        fake_inputs.publish_modelscope = lambda folder, name, message: (sent_tldm.append((name, sorted(p.name for p in Path(folder).iterdir()), message)), "modelscope:Jonjithup/" + name)[1]
+        first = run_tldm(runner=fake_tldm)
+        second = run_tldm(runner=fake_tldm)
+        assert tldm_calls == [0, 1] and first["seed"] == 0 and second["seed"] == 1, (tldm_calls, first, second)
+        assert first["heldout"] == 0.5 and first["heldout2"] == 0.4 and first["train"] == 0.9 and first["published"] is True
+        assert sent_tldm[0][0] == "tldm-writer-runs" and "seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
+        assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
+        assert tldm_next_seed(tldm_tmp) == 2
+        STATE.update(phase="starting", error="")
+        tldm_ok = []
+        train_forever(lambda **kw: (tldm_ok.append(kw), {"seed": 0, "heldout": 0.5, "published": True})[1], sleep=lambda s: None, max_cycles=1)
+        assert tldm_ok and STATE["phase"] == "between-cycles" and STATE["last"]["heldout"] == 0.5, (tldm_ok, STATE)
+        del os.environ["MODELSCOPE_API_TOKEN"]
+        train_forever(lambda **kw: {"seed": 0}, sleep=lambda s: None, max_cycles=1)
+        assert STATE["phase"] == "blocked" and "ModelScope" in STATE["error"], STATE
+        os.environ.pop("SHAM_TRAINER_JOB", None)
+        os.environ.pop("TLDM_WORK", None)
         print("modelscope-trainer app self-test OK")
         sys.exit(0)
     main()

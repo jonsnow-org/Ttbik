@@ -24,7 +24,7 @@ on:
         required: false
         default: "5"
       job:
-        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer) | motion (video motion tokenizer)"
+        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer) | motion (video motion tokenizer) | tldm (T-LDM writer experiments, CPU)"
         required: false
         default: "live"
 
@@ -96,6 +96,12 @@ jobs:
           # the supervision helpers that sham_live may import (kept next to the code)
           mkdir lightning
           rsync -a --exclude __pycache__ "$GITHUB_WORKSPACE/ai-system/lightning/" lightning/     # the codec job (tokenizer_job.py) lives here
+          if [ "${{ inputs.job || 'live' }}" = "tldm" ]; then
+            mkdir tldm
+            # the T-LDM tree only: checkpoints and caches stay out (the Studio repo has a size limit). The tree is copied as-is; this workflow does not edit it.
+            rsync -a --exclude __pycache__ --exclude checkpoints --exclude '*.pt' --exclude .gitignore "$GITHUB_WORKSPACE/ai-system/tldm/" tldm/
+            du -sh tldm | cut -f1
+          fi
           du -sh sham_small | cut -f1
           git config user.name "Sham CI"; git config user.email "ci@sham.local"
           date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
@@ -128,6 +134,10 @@ jobs:
           set_secret SHAM_TRAINER_HOURS "$HOURS"
           set_secret SHAM_TRAINER_JOB "$JOB"
           set_secret HF_ENDPOINT https://hf-mirror.com
+          set_secret SHAM_MS_OWNER "$OWNER"          # cn = novaai2026, ai = Jonjithup (publish_modelscope would otherwise default to novaai2026)
+          if [ "$JOB" = "tldm" ]; then
+            set_secret SHAM_TLDM_REPO tldm-writer-runs
+          fi
           rm -f secret.json secret-response.json
 
       - name: Deploy and wait until the app answers
