@@ -79,24 +79,30 @@ def writer_writes_the_block_in_the_requested_number_of_passes_and_is_determinist
 
 @test
 def model_learns_the_30_examples_gradients_everywhere_and_generation_depends_on_the_task():
-    torch.manual_seed(0)
-    m = Sham1_TLDM(d=96, layers=2, latents=8, think_steps=3, block=48, heads=4, in_len=48)
-    rows = T.TRAIN[:6]
-    ids = torch.tensor([encode_bytes(t, 48) for t, _ in rows])
-    tgt = torch.tensor([encode_bytes(c, 48) for _, c in rows])
-    opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
-    first = None
-    for step in range(250):
-        opt.zero_grad(); l = m.loss(ids, tgt); l.backward(); opt.step()
-        first = first or l.item()
-    assert all(p.grad is not None for p in m.parameters()), "every parameter must receive a gradient"
-    assert l.item() < first * 0.3, (first, l.item())
-    m.eval()
-    out, _ = m.generate(ids, steps=10)
-    cmds = [decode_bytes(r) for r in out]
-    assert len(set(cmds)) > 1, "different tasks must give different commands"
-    assert sum(c == ref for c, (_, ref) in zip(cmds, rows)) >= 4, cmds
-
+    # Pinned to one thread and 400 steps: with 250 steps the result depended on the thread count (2 threads, the GitHub runner's: 1/6 exact from seed 0; 1 thread: 6/6),
+    # which made the T-LDM workflow fail one run in two. Measured locally, 400 steps: 5-6/6 for seeds 0-2 at 1 and 2 threads.
+    threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        torch.manual_seed(0)
+        m = Sham1_TLDM(d=96, layers=2, latents=8, think_steps=3, block=48, heads=4, in_len=48)
+        rows = T.TRAIN[:6]
+        ids = torch.tensor([encode_bytes(t, 48) for t, _ in rows])
+        tgt = torch.tensor([encode_bytes(c, 48) for _, c in rows])
+        opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
+        first = None
+        for step in range(400):
+            opt.zero_grad(); l = m.loss(ids, tgt); l.backward(); opt.step()
+            first = first or l.item()
+        assert all(p.grad is not None for p in m.parameters()), "every parameter must receive a gradient"
+        assert l.item() < first * 0.3, (first, l.item())
+        m.eval()
+        out, _ = m.generate(ids, steps=10)
+        cmds = [decode_bytes(r) for r in out]
+        assert len(set(cmds)) > 1, "different tasks must give different commands"
+        assert sum(c == ref for c, (_, ref) in zip(cmds, rows)) >= 4, cmds
+    finally:
+        torch.set_num_threads(threads)
 
 def _tiny_sham_body():
     d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
@@ -163,6 +169,13 @@ def the_30_terminal_examples_all_run_and_are_logged():
     rows = [r for r in (T.execute(c) for _, c in T.TRAIN)]
     assert all(ok for ok, _, _ in rows), [c for (_, c), (ok, _, _) in zip(T.TRAIN, rows) if not ok]
     assert len(T.TRAIN) == 30 and len(T.HELDOUT) >= 10
+
+
+@test
+def same_effect_masks_the_sandbox_folder_and_the_clock_but_still_tells_wrong_commands_apart():
+    assert T.same_effect("pwd", "pwd") and T.same_effect("date", "date")      # each run has its own temp folder / second
+    assert not T.same_effect("pwd", "ls") and not T.same_effect("date", "touch date.txt")
+    assert not T.same_effect("pwd", "echo '<sandbox>'"), "the mask must not be writable by the command itself"
 
 
 def _sham_computer(session):
@@ -240,6 +253,30 @@ def hidden_terminal_the_user_sees_only_the_final_reply_and_the_flag_is_off_by_de
     reply, events = chat.respond("tldm_hidden", "save 7 and read it back")
     assert reply == "The number is 7." and "$" not in reply
     assert [e.out for e in events] == ["", "7"] and seen[2] == [("echo 7 > n.txt", ""), ("cat n.txt", "7")], "the terminal's result must come back to the model"
+
+
+@test
+def owner_policy_2026_11_18_shams_computer_plus_approval_before_a_sensitive_command():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend
+    import uuid
+    b = ShamEmbeddedBackend("tldm_policy_" + uuid.uuid4().hex[:8], "sham", separate=False)
+    assert b.policy == "model_computer_approvals", b.policy
+    calls = []
+    orig = b._exec
+    b._exec = lambda c: (calls.append(c), orig(c))[1]
+    assert b.run("echo kept > k.txt").ok and b.run("echo $HOME").out.startswith("/"), "the base is the computer as it is"
+    r = b.run("rm k.txt")
+    assert r.needs_confirmation and not r.ok and "rm k.txt" not in calls, "without the owner's allow it never reaches the computer"
+    assert b.run("rm k.txt", confirm=True).ok and calls[-1] == "rm k.txt"
+
+
+@test
+def long_term_file_memory_recall_lessons_and_one_memory_per_model():
+    import unittest
+    suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
+    res = unittest.TextTestRunner(stream=open(os.devnull, "w"), verbosity=0).run(suite)
+    assert res.testsRun >= 8 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
 
 
 if __name__ == "__main__":

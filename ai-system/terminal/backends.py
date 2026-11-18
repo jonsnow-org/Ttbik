@@ -4,6 +4,8 @@ files the model's own tools and the Mini App's computer tab see, and no tool is 
   SandboxBackend      the isolated local sandbox of sandbox_terminal.py (strict policy): tests, offline use, public demos.
   ComputerBackend     any object with `execute("computer_run", {"command": ...}) -> "exit code N\\n<output>"` - Sham's embedded Computer (ai-system/colab/sham_small/sham_computer.py) exactly as it is.
                       `policy="model_computer"` (default): the computer's own policy, unchanged (the owner's order of 2026-11-08 for Sham's computer).
+                      `policy="model_computer_approvals"` (owner decision 2026-11-18; the default of the T-LDM binding, sham_binding.py): the same unrestricted base, PLUS
+                      a sensitive command (approvals.sensitive) runs only after the owner's allow; until then it never reaches the computer.
                       `policy="strict"`: the book's safety rules (allowlist, forbidden list, confirmation, workspace-confined paths) are applied BEFORE the command reaches the computer.
 Nothing here edits the computer; it only calls the tool the model already has (`computer_run`).
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 import re
 import time
 
+from approvals import POLICIES, sensitive
 from sandbox_terminal import Result, SandboxTerminal
 
 SandboxBackend = SandboxTerminal                     # same interface: run(command, confirm=False) -> Result
@@ -19,8 +22,8 @@ SandboxBackend = SandboxTerminal                     # same interface: run(comma
 
 class ComputerBackend:
     def __init__(self, computer, policy: str = "model_computer", log_path: str | None = None, trusted: dict | None = None):
-        if policy not in ("model_computer", "strict"):
-            raise ValueError("policy must be 'model_computer' or 'strict'")
+        if policy not in POLICIES:
+            raise ValueError(f"policy must be one of {POLICIES}")
         self.computer, self.policy, self.task = computer, policy, ""
         home = getattr(computer, "home", None)
         self._vetter = SandboxTerminal(workdir=str(home), log_path=log_path, trusted=trusted) if policy == "strict" else None
@@ -41,6 +44,10 @@ class ComputerBackend:
                 return self._done(Result(command, False, "", 126, refused=why), t0)
             if needs and not confirm:
                 return self._done(Result(command, False, "", 0, refused="needs the user's confirmation", needs_confirmation=True), t0)
+        if self.policy == "model_computer_approvals" and not confirm:
+            why = sensitive(command, self.dir)
+            if why:
+                return self._done(Result(command, False, "", 0, refused=f"needs the owner's approval: {why}", needs_confirmation=True), t0)
         text = self._exec(command)
         m = re.match(r"exit code (-?\d+)\n?(.*)", text, re.S)
         if m:
