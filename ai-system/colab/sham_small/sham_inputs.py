@@ -156,6 +156,26 @@ def _has(root: Path, pattern: str | None) -> bool:
     return pattern is None or any(root.rglob(pattern))
 
 
+# What a CACHED copy of a checkpoint dataset must hold to be reused (only for the cache check: REQUIRED_FILE also drives the walk-back / repair of foreign
+# publications, which these datasets must not get). Found 2026-11-18 on the ai Studio sham-trainer-tools: a copy left half-written on the Studio's persistent
+# disk (a cycle killed mid-download, or a failed ModelScope pull) was returned as-is by every later cycle -- no final_*.pt in it, nothing re-downloaded -- so
+# resolve_start found no start point at all and the trainer failed 8 cycles in a row ("لا توجد نقطة حفظ...").
+CACHE_EXPECT = {
+    "sham-merged-checkpoint": "final_merged.pt",
+    "sham-grown-checkpoint": "final_grown.pt",
+    "sham-chat-checkpoint": "final_chat.pt",
+    "sham-multimodal-checkpoint": "final_multimodal.pt",
+}
+
+
+def _cache_ok(root: Path, need: str | None, base: str) -> bool:
+    """A cached copy is reused only when it holds the file this dataset is fetched for, and that file is not empty (a truncated copy)."""
+    want = need or CACHE_EXPECT.get(base)
+    if want is None:
+        return True
+    return any(p.is_file() and p.stat().st_size > 0 for p in root.rglob(want))
+
+
 def _rest_auth() -> dict:
     """requests kwargs authenticating to Kaggle's REST API: the classic username+key, or the new-style API token."""
     tok = os.environ.get("KAGGLE_API_TOKEN")
@@ -276,9 +296,12 @@ def _head_from_modelscope(dest: Path) -> bool:
         src = Path(snapshot_download(repo, cache_dir=str(cache)))
         got = 0
         dest.mkdir(parents=True, exist_ok=True)
-        for f in src.iterdir():
+        # the weights go in LAST and through a temporary name: a copy cut half-way (a killed cycle) never leaves a final_merged.pt that looks complete
+        for f in sorted(src.iterdir(), key=lambda f: f.name == "final_merged.pt"):
             if f.is_file() and (f.name in ("final_merged.pt", "sham_small_tokenizer.json") or f.name.endswith("_tokenizer.pt")):
-                shutil.copy2(f, dest / f.name)
+                part = dest / (f.name + ".part")
+                shutil.copy2(f, part)
+                os.replace(part, dest / f.name)
                 got += 1
         shutil.rmtree(cache, ignore_errors=True)
         ok = (dest / "final_merged.pt").exists() and (dest / "sham_small_tokenizer.json").exists()
@@ -448,11 +471,18 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
     if fresh:
         shutil.rmtree(dest, ignore_errors=True)
     elif dest.exists() and any(dest.iterdir()):
-        if _has(dest, need):
+        if _cache_ok(dest, need, base):
             return dest
-        older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _has(d, need)),
+        older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _cache_ok(d, need, base)),
                        key=lambda d: int(d.name.rsplit("__v", 1)[1]))
-        return older[-1] if older else (None if name != base else dest)
+        if older:
+            return older[-1]
+        if need is not None or base in CACHE_EXPECT:
+            # a stale / half-written copy: never hand it back again (it would fail every cycle); drop it and download afresh below
+            print(f"  ⚠ {base}: النسخة المخزّنة ناقصة (لا {need or CACHE_EXPECT[base]}) — تُحذف ويُعاد التنزيل")
+            shutil.rmtree(dest, ignore_errors=True)
+        else:
+            return None if name != base else dest
     if base == "sham-merged-checkpoint" and not fresh and (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope":
         if _head_from_modelscope(dest):
             return dest
