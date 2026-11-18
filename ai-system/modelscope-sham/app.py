@@ -441,7 +441,7 @@ def _tldm_user_text(messages_json: str) -> str:
     return last["content"]
 
 
-def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0) -> str:
+def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0, deny_list: str = "") -> str:
     """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used.
 
     Public generate_chat never enters this path. The owner-gated client calls this endpoint
@@ -470,6 +470,7 @@ def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float =
             text,
             confirm_cmd=str(confirm_cmd or ""),
             confirm_ok=bool(float(confirm_ok or 0)),
+            deny_list=str(deny_list or ""),
         )
     except Exception as exc:
         print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
@@ -952,10 +953,11 @@ def build_ui():
             generate_tldm,
             [gr.Textbox(label="messages_json"), gr.Textbox(label="session", value=""),
              gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
-             gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0)],
-            gr.Textbox(label="Sham 2 T-LDM result"), api_name="generate_tldm", flagging_mode="never")
+             gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0),
+             gr.Textbox(label="deny_list", value="")],
+            gr.Textbox(label="Sham Pro T-LDM result"), api_name="generate_tldm", flagging_mode="never")
         interfaces.insert(1, tldm_chat)
-        labels.insert(1, "محادثة T-LDM (شام 2)")
+        labels.insert(1, "محادثة T-LDM (شام برو)")
     # the live (token-by-token) chat is exposed by BOTH Shams now: v2 streams Qwen3, the legacy Sham streams its own chat path (owner 2026-11-08)
     chat_stream = gr.Interface(
         generate_chat_stream,

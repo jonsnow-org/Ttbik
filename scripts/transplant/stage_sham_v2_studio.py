@@ -81,6 +81,9 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
     src = root / "modelscope-sham" / "sham_tldm_serve.py"
     if src.is_file():
         shutil.copy2(src, studio / "sham_tldm_serve.py")
+    exp = root / "modelscope-sham" / "sham_tldm_experience.py"
+    if exp.is_file():
+        shutil.copy2(exp, studio / "sham_tldm_experience.py")
     tldm_src = root / "tldm"
     dest = studio / "tldm"
     dest.mkdir(parents=True, exist_ok=True)
@@ -103,6 +106,15 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
                 f = src_dir / name
                 if f.is_file():
                     shutil.copy2(f, out / name)
+    evo_src = tldm_src / "evolution"
+    evo_out = dest / "evolution"
+    if evo_src.is_dir():
+        evo_out.mkdir(parents=True, exist_ok=True)
+        # Serving ingest only (record/hints). Training engine, adapters and curriculum stay out.
+        for name in ("__init__.py", "api.py", "experience.py", "lessons.py"):
+            f = evo_src / name
+            if f.is_file():
+                shutil.copy2(f, evo_out / name)
     term = studio / "terminal"
     term.mkdir(parents=True, exist_ok=True)
     for name in ("approvals.py", "sham_binding.py", "backends.py", "sandbox_terminal.py"):

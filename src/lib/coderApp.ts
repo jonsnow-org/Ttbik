@@ -121,12 +121,16 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
+      const P = await import("@/lib/tldmPolicy");
+      const tldmPolicy = await P.refreshTldmPolicy(db).catch(() => ({ open: P.tldmOpenToAll(), deny: P.tldmOwnerDenyList() }));
+      const tldmAllowed = P.tldmAllowedFor(user.tier);
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
-        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), tldm: (await import("@/lib/coderModels")).tldmAllowedFor(user.tier) && (await import("@/lib/coderModels")).tldmEnabled(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), tldm: tldmAllowed && (await import("@/lib/coderModels")).tldmEnabled(st, st.model), tldmOpen: tldmPolicy.open, perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
-        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)) },
+        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)), tldm: tldmAllowed },
+        tldmPolicy: owner ? tldmPolicy : { open: tldmPolicy.open, deny: [] },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
@@ -155,8 +159,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
       if (typeof body.tldm === "boolean") {
-        const { setTldmEnabled, tldmAllowedFor } = await import("@/lib/coderModels");
-        if (!tldmAllowedFor(user.tier)) throw new AppError(403, "T-LDM for Sham 2 is owner only");
+        const { setTldmEnabled } = await import("@/lib/coderModels");
+        const P = await import("@/lib/tldmPolicy");
+        await P.refreshTldmPolicy(db).catch(() => null);
+        if (!P.tldmAllowedFor(user.tier)) throw new AppError(403, "T-LDM for Sham Pro is owner only");
         setTldmEnabled(st, body.tldm);
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save
@@ -559,6 +565,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (body.clear === true) await L.clearLessons(db);
       const stats = await L.lessonStats(db);
       return body.export === true ? { ...stats, ...(await L.exportLessons(db, Number(body.limit) || 200)) } : stats;
+    }
+    case "tldm_policy": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/tldmPolicy");
+      if (typeof body.open === "boolean") await P.setTldmOpen(body.open, db);
+      if (body.deny !== undefined) await P.setTldmOwnerDenyList(body.deny, db);
+      return { policy: await P.refreshTldmPolicy(db, true) };
     }
     case "model_update": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
