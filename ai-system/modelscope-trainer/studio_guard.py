@@ -36,6 +36,8 @@ STUDIOS = [
     ("cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"),
     ("cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"),
     ("cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"),
+    ("cn", "novaai2026", "sham-v2-server", "warm"),                  # chat Studios of keep-warm-chat-studios.yml: woken when Sleeping only
+    ("cn", "novaai2026", "lfm25-inference-server", "warm"),
     ("ai", "Jonjithup", "sham-trainer-1", "train"),
     ("ai", "Jonjithup", "sham-trainer-2", "train"),
     ("ai", "Jonjithup", "sham-trainer-tools", "train"),

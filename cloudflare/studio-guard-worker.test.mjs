@@ -12,6 +12,8 @@ assert.equal(decide("RunFailed", "runner", 35), "");
 assert.equal(decide("Running", "train", 0), "");
 assert.equal(decide("Building", "train", 0), "");
 assert.ok(!STUDIOS.some(([, , n]) => /nova-inference-server|athar/i.test(n)));
+for (const n of ["sham2-tldm", "sham-v2-server", "lfm25-inference-server"]) assert.ok(STUDIOS.some(([s, , m]) => s === "cn" && m === n), n);
+assert.equal(STUDIOS.find(([, , m]) => m === "sham-v2-server")[3], "warm");
 const seen = [];
 globalThis.fetch = async (url, opt) => {
   seen.push([opt.method, url]);
