@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Live proof that each model's OWN computer shows a working screen: for every target (Sham's own Studio, Sham Pro's own Studio, Nova's mini-app
+"""Live proof of each configured model's OWN computer: Nova 1/LFM use the shared hub,
+Nova 2 uses NOVA2_COMPUTER_STUDIO_URL, and Sham/Sham Pro use embedded model Studios.
+Each target is checked through its own endpoint and user+model session; tokens are never printed.
+Offline self-test: --selftest
+"""
 computer hub) start that model's desktop in a dedicated verification session, open the browser on a page, save the picture the live view shows,
 then stop the session. Each model is reached only through its own endpoint and its own session key; nothing is shared or redeployed.
 Prints facts only; the token comes from the environment (T) and is never printed. Offline self-test: --selftest

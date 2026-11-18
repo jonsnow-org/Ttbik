@@ -33,7 +33,7 @@ The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to 
 
 ## Router
 
-\`src/lib/browserComputer.ts\` routes supported model IDs to \`COMPUTER_STUDIO_URL\`, defaulting to the private \`nova-inference-server\` endpoint. The existing session key continues to include both the verified user and selected model. Media generation does not use this endpoint; it remains on the selected model's separate media Studio.
+`src/lib/browserComputer.ts` routes Nova 1/LFM to `COMPUTER_STUDIO_URL`; Nova 2 uses only `NOVA2_COMPUTER_STUDIO_URL` and fails closed until its separate computer-only Studio is provisioned. Each session key includes the verified user and selected model. Media generation always uses the selected model's separate media Studio, never a computer endpoint.
 
 ## Verification
 
@@ -45,5 +45,5 @@ Nova AI and LFM2.5 can hand their own configured computer screen to the user for
 
 - Nova AI / LFM2.5: the run waits like `ask_user` (`run.asking.kind = "handoff"`), a `screen` task event carries `{model, handoff, resume:"run", slot}`, and the Mini App opens that model's live screen with the **You have control** bar (`ComputerHandoffBar.tsx`). Nova 2 is excluded until its own computer Studio is provisioned. Done / Not now call `handoff_done` and resume only the selected model's waiting run.
 - Sham / Sham Pro: the round ends with the handoff; Done sends a short `[الحاسوب] …` follow-up message that continues the chat.
-- Each model is reached only through its own computer (Nova hub session `user:model`, Sham's own Studio desktop). The login the user typed stays in that model's session only.
+- Each model is reached only through its own computer endpoint (Nova 1/LFM hub session user:model; Nova 2's dedicated computer Studio once provisioned; Sham's own Studio desktop). The login the user typed stays in that model's session only.
 - Live proof: `.github/workflows/computer-live-shots.yml` opens the browser on each model's own desktop in a verification session and uploads the pictures.

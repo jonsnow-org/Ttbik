@@ -1,7 +1,7 @@
 "use client";
 // The Mini App Computer tab: the computer of the SELECTED model only (owner 2026-11-18: every model is independent; no picker that opens another
-// model's computer). Nova 1 / Nova 2 work on the Mini App computer (each in its own private session); Sham / Sham Pro on their own embedded
-// computer inside their own Studio. Everything (terminal, files, browser, the model's own commands) lives INSIDE that desktop's screen and is
+// model's computer). Nova 1 uses the shared Mini App computer hub; Nova 2 uses a separate computer Studio when provisioned.
+// Sham / Sham Pro use their own embedded computer inside their own Studio. Everything (terminal, files, browser, the model's own commands) lives INSIDE that desktop's screen and is
 // driven by touching the screen. Owner only (the server refuses everyone else).
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./parts";
