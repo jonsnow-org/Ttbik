@@ -58,8 +58,8 @@ PROFILES = {
     "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
     # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
     "motion": {"SHAM_TOK_THREADS": "2"},
-    # T-LDM on the Studio (CPU): the kept pretrained-reader head (DonorTLDM, writer_donor.yaml) plus the self-evolution loop (train_loop + evolve + lora_failed).
-    # Does not edit that tree's training code; scripts are invoked as subprocesses. Results live on /mnt/workspace/tldm and are published to tldm-writer-runs.
+    # T-LDM on the Studio (CPU): the kept pretrained-reader head (DonorTLDM, writer_donor.yaml) — train + held-out benchmark each cycle.
+    # evolve / LoRA-on-failures is optional (SHAM_TLDM_EVOLVE=1): always mixed with replay, and an adapter is kept only if held-out and previously-correct scores do not regress.
     "tldm":   {},
 }
 
@@ -221,15 +221,12 @@ def tldm_flatten(res: dict, seed: int, published) -> dict:
     v = _num(after, "episode_success")
     if v is not None:
         out["evo_after"] = v
-    lf = res.get("lora_failed") or {}
-    if isinstance(lf, dict):
-        se = lf.get("self_evolution") or {}
-        v = _num((se.get("after") or {}).get("eval60_778") if isinstance(se, dict) else None, "episode_success")
-        if v is not None:
-            out["lora_eval"] = v
-        v = _num((se.get("after") or {}).get("A") if isinstance(se, dict) else None, "rate")
-        if v is not None:
-            out["lora_A"] = v
+    if "evolve_kept" in res:
+        out["evolve_kept"] = bool(res["evolve_kept"])
+    se = (res.get("safe_evolve") or {}).get("after") if isinstance(res.get("safe_evolve"), dict) else None
+    v = _num((se or {}).get("eval60_778") if isinstance(se, dict) else None, "episode_success")
+    if v is not None:
+        out["evo_after"] = v
     return out
 
 
@@ -270,20 +267,12 @@ def publish_tldm(work: Path, seed: int, artifacts: list) -> str | None:
     return got
 
 
-def _parse_evolve_log(text: str) -> dict:
-    out: dict = {}
-    for label, key in (("before evolution (names never seen):", "before"), ("after the LoRA (same episodes)      :", "after"), ("after the LoRA (same episodes):", "after")):
-        for line in text.splitlines():
-            if label.split(":")[0] in line and "{" in line:
-                try:
-                    out[key] = json.loads(line[line.index("{"):].replace("'", '"'))
-                except ValueError:
-                    pass
-    return out
-
-
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
-    """One cycle: train the frozen-reader head (writer_donor.yaml), keep/train the slot-aware loop, run evolve + lora_failed, persist, publish."""
+    """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
+    Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on failed loop tasks, kept only if held-out and previously-correct do not regress."""
+    sys.path.insert(0, str(HERE))
+    from safe_evolve import run_safe_evolve
+
     work = tldm_work()
     (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
     (work / "logs").mkdir(parents=True, exist_ok=True)
@@ -295,20 +284,13 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     ensure_donor(work, download=runner is None)
     cfg_name = (os.environ.get("SHAM_TLDM_CONFIG") or TLDM_CONFIG_DEFAULT).strip() or TLDM_CONFIG_DEFAULT
     config = Path(cfg_name) if Path(cfg_name).is_file() else (root / "configs" / cfg_name)
-    loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
-    loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
     donor_ckpt = work / "checkpoints" / f"donor_seed{seed}.pt"
     donor_json = work / "logs" / f"donor_seed{seed}.json"
-    loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
-    evo_adapter = work / "checkpoints" / "loop" / f"evolution_adapter_seed{seed}.pt"
-    evo_log = work / "logs" / f"evolve_seed{seed}.log"
-    lora_json = work / "logs" / f"lora_failed_seed{seed}.json"
     report = work / "logs" / f"cycle_seed{seed}.json"
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(root) + os.pathsep + str(HERE) + os.pathsep + env.get("PYTHONPATH", "")
     env["TLDM_DONOR"] = os.environ.get("TLDM_DONOR") or str(work / "donor" / "minilm")
     extra = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
-    loop_steps = (os.environ.get("SHAM_TLDM_LOOP_STEPS") or "").strip()
     artifacts: list = []
     res: dict = {"seed": seed, "config": config.name}
 
@@ -329,76 +311,50 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     if donor_ckpt.exists():
         artifacts.append(donor_ckpt)
 
-    retrained = False
-    if (os.environ.get("SHAM_TLDM_RETRAIN_LOOP") or "").strip() == "1" or not loop_ckpt.exists():
-        loop_cmd = [sys.executable, "-u", str(root / "training" / "train_loop.py"),
-                    "--config", str(loop_config), "--out", str(loop_ckpt), "--seed", str(seed)]
-        if loop_steps:
-            loop_cmd.extend(["--steps", loop_steps])
-        print(f"tldm loop train config={loop_config.name} out={loop_ckpt}", flush=True)
-        code = tldm_run(loop_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="loop")
-        if code != 0:
-            raise RuntimeError(f"tldm loop train exited with code {code} (seed {seed})")
-        retrained = True
-    res["loop_trained"] = retrained
-    if loop_ckpt.exists():
-        artifacts.append(loop_ckpt)
-
-    evo_cmd = [sys.executable, "-u", str(root / "training" / "evolve.py"),
-               "--ckpt", str(loop_ckpt), "--adapter", str(evo_adapter),
-               "--memory", str(work / "memory" / f"evo_seed{seed}")]
-    print(f"tldm evolve ckpt={loop_ckpt} adapter={evo_adapter}", flush=True)
-    if runner is not None:
-        code = tldm_run(evo_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="evolve", adapter=evo_adapter)
-    else:
-        import subprocess
-        proc = subprocess.run(evo_cmd, cwd=str(root), env=env, check=False, text=True, capture_output=True)
-        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        evo_log.write_text(log[-20000:], encoding="utf-8")
-        try:
-            sys.__stdout__.write(log)
-        except Exception:
-            pass
-        code = int(proc.returncode)
-        res["evolve"] = _parse_evolve_log(log)
-    if runner is not None and evo_log.exists():
-        res["evolve"] = _parse_evolve_log(evo_log.read_text(encoding="utf-8"))
-    if code != 0:
-        print(f"tldm evolve exited {code} (continuing to lora_failed)", flush=True)
-    if evo_adapter.exists():
-        artifacts.append(evo_adapter)
-    if evo_log.exists():
-        artifacts.append(evo_log)
-
-    lora_cmd = [sys.executable, "-u", str(root / "training" / "lora_failed.py"),
-                "--ckpt", str(loop_ckpt), "--json", str(lora_json), "--seed", str(seed)]
-    print(f"tldm lora_failed ckpt={loop_ckpt}", flush=True)
-    code = tldm_run(lora_cmd, str(root), env, runner, ckpt=loop_ckpt, report=lora_json, seed=seed, work=work, arm="lora_failed")
-    if code != 0:
-        print(f"tldm lora_failed exited {code}", flush=True)
-    if lora_json.exists():
-        try:
-            res["lora_failed"] = json.loads(lora_json.read_text(encoding="utf-8"))
-        except ValueError:
-            pass
-        artifacts.append(lora_json)
+    evolve_on = (os.environ.get("SHAM_TLDM_EVOLVE") or "").strip().lower() in ("1", "true", "yes")
+    if evolve_on:
+        loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
+        loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
+        loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
+        loop_steps = (os.environ.get("SHAM_TLDM_LOOP_STEPS") or "").strip()
+        retrained = False
+        if (os.environ.get("SHAM_TLDM_RETRAIN_LOOP") or "").strip() == "1" or not loop_ckpt.exists():
+            loop_cmd = [sys.executable, "-u", str(root / "training" / "train_loop.py"),
+                        "--config", str(loop_config), "--out", str(loop_ckpt), "--seed", str(seed)]
+            if loop_steps:
+                loop_cmd.extend(["--steps", loop_steps])
+            print(f"tldm loop train (optional evolve) config={loop_config.name} out={loop_ckpt}", flush=True)
+            code = tldm_run(loop_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="loop")
+            if code != 0:
+                print(f"tldm loop train exited {code}; skipping optional evolve", flush=True)
+                loop_ckpt = Path()
+            else:
+                retrained = True
+        res["loop_trained"] = retrained
+        if loop_ckpt and loop_ckpt.exists():
+            artifacts.append(loop_ckpt)
+            ev = run_safe_evolve(root, work, loop_ckpt, seed, runner=runner)
+            res["safe_evolve"] = ev
+            ev_json = work / "logs" / f"safe_evolve_seed{seed}.json"
+            if ev_json.exists():
+                artifacts.append(ev_json)
+            if ev.get("kept") and ev.get("adapter"):
+                artifacts.append(Path(ev["adapter"]))
+            res["evolve_kept"] = bool(ev.get("kept"))
 
     tldm_store_seed(work, seed + 1)
     report.write_text(json.dumps({k: v for k, v in res.items() if k != "secret"}, ensure_ascii=False, indent=1), encoding="utf-8")
     artifacts.append(report)
     try:
         latest = work / "logs" / "latest.json"
-        if latest.exists() or True:
-            latest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
-            artifacts.append(latest)
+        latest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+        artifacts.append(latest)
     except OSError:
         pass
     with (work / "logs" / "results.jsonl").open("a", encoding="utf-8") as f:
-        slim = {k: res[k] for k in res if k not in ("lora_failed", "evolve", "secret") and not str(k).startswith("_")}
-        if isinstance(res.get("lora_failed"), dict):
-            slim["lora_self"] = (res["lora_failed"].get("self_evolution") or {})
-        if isinstance(res.get("evolve"), dict):
-            slim["evolve"] = res["evolve"]
+        slim = {k: res[k] for k in res if k not in ("safe_evolve", "lora_failed", "evolve", "secret")}
+        if isinstance(res.get("safe_evolve"), dict):
+            slim["evolve_kept"] = res["safe_evolve"].get("kept")
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     try:
@@ -407,7 +363,7 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
         print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
     out = tldm_flatten(res, seed, bool(published))
     out["hours"] = float(hours)
-    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} evo={out.get('evo_after')} lora_eval={out.get('lora_eval')} published={out['published']}", flush=True)
+    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
     return out
 
 
@@ -474,7 +430,7 @@ def _set(**kw) -> None:
 def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
-            "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "lora_eval", "lora_A", "loop_trained", "params_M")
+            "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -717,7 +673,7 @@ if __name__ == "__main__":
         assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
         child_publish_leftover()                                         # already published: not twice
         assert len(sent) == 1, sent
-        # tldm job: donor head + loop/evolve/lora_failed, rotating seeds, publish to tldm-writer-runs, no real training, no network
+        # tldm job: donor head is the main cycle; optional evolve is off by default; publish to tldm-writer-runs; no network
         tldm_tmp = Path(tempfile.mkdtemp())
         os.environ["TLDM_WORK"] = str(tldm_tmp)
         os.environ["SHAM_TRAINER_JOB"] = "tldm"
@@ -725,15 +681,17 @@ if __name__ == "__main__":
         os.environ["SHAM_MS_OWNER"] = "Jonjithup"
         os.environ["SITE"] = "ai"
         os.environ.pop("KAGGLE_API_TOKEN", None)
+        os.environ.pop("SHAM_TLDM_EVOLVE", None)
         tldm_arms = []
 
         def fake_tldm(**kw):
-            cmd, seed, work = kw["cmd"], kw["seed"], kw["work"]
+            seed, work = kw["seed"], kw["work"]
+            cmd = kw.get("cmd") or []
             (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
             (work / "logs").mkdir(parents=True, exist_ok=True)
-            script = tldm_script(cmd)
+            script = tldm_script(cmd) if cmd else (kw.get("arm") or "")
             tldm_arms.append((seed, script, kw.get("arm")))
-            if script == "train_0.3b.py":
+            if script == "train_0.3b.py" or kw.get("arm") == "donor":
                 Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"w")
                 Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
                     "config": "writer_donor.yaml", "seed": seed, "train_secs": 1,
@@ -741,19 +699,13 @@ if __name__ == "__main__":
                     "heldout": {"same_effect": 0.5, "exact_text": 0.4},
                     "heldout2": {"same_effect": 0.4, "exact_text": 0.3},
                 }), encoding="utf-8")
-            elif script == "train_loop.py":
+            elif script == "train_loop.py" or kw.get("arm") == "loop":
                 Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"loop")
-            elif script == "evolve.py":
-                Path(tldm_cmd_opt(cmd, "--adapter") or kw.get("adapter")).write_bytes(b"ad")
-                (work / "logs" / f"evolve_seed{seed}.log").write_text(
-                    "before evolution (names never seen): {'episode_success': 0.6, 'final_state_correct': 0.7, 'episodes_per_s': 1}\n"
-                    "after the LoRA (same episodes)      : {'episode_success': 0.8, 'final_state_correct': 0.85, 'episodes_per_s': 1}\n",
-                    encoding="utf-8")
-            elif script == "lora_failed.py":
-                Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
-                    "self_evolution": {"retries_verified_success": 8, "of_failed": 14,
-                                       "after": {"A": {"rate": 0.7}, "eval60_778": {"episode_success": 0.85}}}
-                }), encoding="utf-8")
+            elif kw.get("arm") == "safe_evolve":
+                ev = {"kept": False, "reason": "no verified successes among retries (nothing safe to learn); adapter not kept",
+                      "before": {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}}, "verified_pairs": 0}
+                Path(kw["report"]).write_text(json.dumps(ev), encoding="utf-8")
+                return ev
             return 0
 
         sent_tldm = []
@@ -762,25 +714,39 @@ if __name__ == "__main__":
         second = run_tldm(runner=fake_tldm)
         assert first["seed"] == 0 and second["seed"] == 1, (first, second)
         assert first["heldout"] == 0.5 and first["heldout2"] == 0.4 and first["train"] == 0.9 and first["published"] is True
-        assert first["evo_after"] == 0.8 and first["lora_eval"] == 0.85 and first["config"] == "writer_donor.yaml"
-        assert [a[1] for a in tldm_arms if a[0] == 0] == ["train_0.3b.py", "train_loop.py", "evolve.py", "lora_failed.py"], tldm_arms
-        assert "train_loop.py" not in [a[1] for a in tldm_arms if a[0] == 1], tldm_arms  # later cycles keep the loop checkpoint and only evolve
+        assert first["config"] == "writer_donor.yaml"
+        assert [a[1] for a in tldm_arms] == ["train_0.3b.py", "train_0.3b.py"], tldm_arms  # evolve is off; only the donor head
         assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
         assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
         assert tldm_next_seed(tldm_tmp) == 2
-        # international hub host is selected from SITE / owner (no network)
+        # optional evolve: 0 verified pairs -> adapter not kept; previously-correct regression is refused
+        from safe_evolve import no_regress
+        assert no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
+                          {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}})[0]
+        assert not no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
+                              {"C": {"rate": 0.182}, "eval60_778": {"episode_success": 0.8}})[0]
+        os.environ["SHAM_TLDM_EVOLVE"] = "1"
+        tldm_arms.clear()
+        ev_tmp = Path(tempfile.mkdtemp())
+        os.environ["TLDM_WORK"] = str(ev_tmp)
+        ev_cycle = run_tldm(runner=fake_tldm)
+        assert ev_cycle["published"] is True and ev_cycle.get("evolve_kept") is False
+        assert "train_loop.py" in [a[1] for a in tldm_arms] and any(a[2] == "safe_evolve" for a in tldm_arms), tldm_arms
+        os.environ.pop("SHAM_TLDM_EVOLVE", None)
+        os.environ["TLDM_WORK"] = str(tldm_tmp)
+        # international hub host lives in the shared ms_hub helper
         sys.modules.pop("sham_inputs", None)
         sys.path.insert(0, str(HERE.parent / "colab" / "sham_small"))
-        import sham_inputs as real_inputs  # noqa: E402
+        import ms_hub  # noqa: E402
         saved_env = {k: os.environ.pop(k, None) for k in ("MODELSCOPE_DOMAIN", "SITE", "SHAM_MS_OWNER", "MODELSCOPE_HUB_ENDPOINT")}
-        assert real_inputs._ms_hub_endpoint() is None
+        assert ms_hub.ms_hub_endpoint() is None
         os.environ["SHAM_MS_OWNER"] = "Jonjithup"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.ai"
         os.environ.pop("SHAM_MS_OWNER")
         os.environ["SITE"] = "ai"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.ai"
         os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.cn"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.cn"  # explicit wins
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.cn"
         for k, v in saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
