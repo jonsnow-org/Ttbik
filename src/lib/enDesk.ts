@@ -420,6 +420,7 @@ export const EN_EVENTS: DeskItem[] = [
     dek: "APEC leaders are scheduled to meet in Shenzhen on 18–19 November under China's 2026 host-year theme, with trade, regional connectivity and AI among the issues discussed during Leaders' Week.",
     date: "2026-11-18",
     endDate: "2026-11-19",
+    dateLabel: "18–19 November 2026",
     body: [
       "The 33rd APEC Economic Leaders' Meeting is scheduled for 18–19 November 2026 in Shenzhen, Guangdong, China. China's Foreign Ministry says President Xi Jinping will chair the meeting under the theme “Building an Asia-Pacific Community to Prosper Together.”",
       "APEC said senior officials met in Shenzhen ahead of Leaders' Week to advance work on trade integration, connectivity and artificial intelligence. Those topics form part of the forum's regional cooperation agenda; they should not be read as binding decisions before leaders publish their outcomes.",
