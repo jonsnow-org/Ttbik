@@ -463,9 +463,32 @@ def sham2_donor(work: Path, fetch=None) -> tuple[Path, Path]:
             print(f"sham2: downloading a copy of {repo} from {SHAM2_DONOR_HOST}", flush=True)
             snapshot_download(repo, cache_dir=str(dest))
         ck, tk = find()
+        if fetch is None and ck is not None:
+            sham2_check_sizes(repo, dest)
     if ck is None or tk is None:
         raise FileNotFoundError("sham2: the donor copy has no checkpoint (*.pt) or sham_small_tokenizer.json")
     return ck, tk
+
+
+def sham2_check_sizes(repo: str, dest: Path, files=None) -> None:
+    """A killed download must not pass as the donor (auditor, 2026-11-18): every repo file's local size must equal the hub's. Raises on a mismatch or a missing file."""
+    if files is None:
+        try:
+            from modelscope.hub.api import HubApi
+            files = [(f.get("Path"), f.get("Size")) for f in HubApi().get_model_files(repo, recursive=True) if f.get("Type") != "tree"]
+        except Exception as exc:                                      # listing unavailable: say so; train_sham2's NLL guard still stops a random body
+            print(f"sham2: hub size check unavailable ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
+            return
+    bad = []
+    for path, size in files:
+        if not path or size is None:
+            continue
+        hit = next(iter(sorted(dest.rglob(Path(path).name))), None)
+        if hit is None or hit.stat().st_size != int(size):
+            bad.append(f"{path}: hub {size} local {hit.stat().st_size if hit else 'missing'}")
+    if bad:
+        raise RuntimeError("sham2: donor copy incomplete: " + "; ".join(bad[:5]))
+    print(f"sham2: donor copy complete ({len(files)} files match the hub sizes)", flush=True)
 
 
 def sham2_gate(root: Path) -> Path:
@@ -1239,6 +1262,16 @@ if __name__ == "__main__":
             fetched.append(repo)
             (dest / "final_merged.pt").write_bytes(b"x")
             (dest / "sham_small_tokenizer.json").write_text("{}", encoding="utf-8")
+
+        _cd = Path(tempfile.mkdtemp()) / "donor"
+        (_cd / "novaai2026").mkdir(parents=True)
+        (_cd / "novaai2026" / "final_merged.pt").write_bytes(b"x" * 10)
+        sham2_check_sizes("r", _cd, files=[("final_merged.pt", 10)])
+        try:
+            sham2_check_sizes("r", _cd, files=[("final_merged.pt", 11), ("sham_small_tokenizer.json", 5)])
+            raise AssertionError("a truncated donor copy must not pass")
+        except RuntimeError as exc:
+            assert "incomplete" in str(exc) and "missing" in str(exc)
 
         def fake_sham2(cmd, report, heads):
             ran.append(cmd)

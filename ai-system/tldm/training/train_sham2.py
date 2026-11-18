@@ -131,6 +131,9 @@ def general_nll(body, ct):
     return round(tot / len(texts), 4)
 
 
+NLL_RANDOM = 6.0      # a real donor reads general text at ~2; a random-init 150k-vocab body sits near ln(151936) = 11.9
+
+
 def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
     """Train ONLY the body's LoRA adapters on data/identity.py (loss on the answer), on the in-memory copy. -> results; the adapters stay in `body`."""
     torch.manual_seed(seed)
@@ -143,6 +146,8 @@ def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
         pr, t = ct.prompt(q), ct.enc(a) + ([ct.end] if ct.end is not None else [])
         ex.append((pr + t, [-100] * len(pr) + t))
     before = {"identity": identity_eval(body, ct), "general_nll": general_nll(body, ct)}
+    if ct.end is not None and before["general_nll"] > NLL_RANDOM:
+        raise RuntimeError(f"body looks random (general nll {before['general_nll']} > {NLL_RANDOM}): incomplete donor weights? stopping before training on noise")
     log(f"identity before LoRA: {before['identity']['ok']} (general nll {before['general_nll']})")
     opt = torch.optim.AdamW(ad, lr=lr, weight_decay=0.0)
     body.train()
