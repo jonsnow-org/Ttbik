@@ -1027,6 +1027,31 @@ def status_json() -> str:
     return json.dumps({**state, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet, "heartbeat": heartbeat()}, ensure_ascii=False)
 
 
+def studio_launch_kwargs() -> dict:
+    return {"server_name": "0.0.0.0", "server_port": int(os.environ.get("PORT") or 7860), "share": False, "ssr_mode": False}
+
+
+def launch_studio(demo, launch=None) -> None:
+    """Bind the Gradio app on the Studio port. Never use share=True (that would publish a public link).
+    Some Studio sandboxes cannot open 127.0.0.1, so Gradio's post-bind health check raises even though the
+    server is already listening on 0.0.0.0 — keep the process alive instead of crashing the deploy."""
+    for key in ("NO_PROXY", "no_proxy"):
+        cur = os.environ.get(key) or ""
+        extra = "127.0.0.1,localhost,::1"
+        if "127.0.0.1" not in cur.replace(" ", ""):
+            os.environ[key] = (cur + "," + extra).strip(",") if cur else extra
+    fn = launch or getattr(demo, "launch")
+    try:
+        fn(**studio_launch_kwargs())
+    except ValueError as exc:
+        if "localhost is not accessible" not in str(exc):
+            raise
+        print("gradio localhost check failed; app already listening on 0.0.0.0:" + str(studio_launch_kwargs()["server_port"]), flush=True)
+        if launch is None:
+            while True:
+                time.sleep(3600)
+
+
 def main() -> None:
     import gradio as gr
     threading.Thread(target=supervise, daemon=True, name="sham-supervisor").start()
@@ -1046,7 +1071,7 @@ def main() -> None:
         gr.Button("heartbeat", visible=False).click(lambda: json.dumps(heartbeat()), None, out, api_name="heartbeat")
         gr.Button("kill cycle", visible=False).click(kill_cycle, None, out, api_name="kill_cycle")
         gr.Button("publish", visible=False).click(lambda: publish_leftover_subprocess(), None, out, api_name="publish_now")   # retry the leftover publish without a redeploy
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT") or 7860))
+    launch_studio(demo)
 
 
 if __name__ == "__main__":
@@ -1291,6 +1316,20 @@ if __name__ == "__main__":
         rounds = []
         supervise(sleep=lambda s: rounds.append(s), run=lambda: (_ for _ in ()).throw(RuntimeError("x")), max_rounds=3)
         assert rounds == [60, 120, 240] and STATE["restarts"] >= 3, rounds
+        # Gradio on the Studio must stay private (share=False) and must not crash the process if 127.0.0.1 is blocked
+        assert studio_launch_kwargs()["share"] is False and studio_launch_kwargs()["server_name"] == "0.0.0.0"
+        launched = []
+        def boom(**kw):
+            launched.append(kw)
+            raise ValueError("When localhost is not accessible, a shareable link must be created. Please set share=True")
+        launch_studio(object(), launch=boom)
+        assert launched and launched[0]["share"] is False and launched[0]["ssr_mode"] is False
+        try:
+            launch_studio(object(), launch=lambda **kw: (_ for _ in ()).throw(ValueError("other")))
+            raise SystemExit("launch_studio must re-raise unknown ValueError")
+        except ValueError as exc:
+            assert "other" in str(exc)
         print("modelscope-trainer app self-test OK")
+
         sys.exit(0)
     main()
