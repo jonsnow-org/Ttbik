@@ -36,8 +36,9 @@ def tldm_episode(model, cfg, tok, task, max_steps=5):
         for _ in range(max_steps):
             t0 = time.perf_counter()
             with torch.no_grad():
-                out, _ = model.generate(torch.tensor([J.view_ids(tok, task, hist, cfg["in_len"])]), steps=cfg["diffusion_steps"])
-            text = tok.decode(out[0])
+                dtask, dhist, slots = J.delex_view(task, hist, cfg.get("delex", False))
+                out, _ = model.generate(torch.tensor([J.view_ids(tok, dtask, dhist, cfg["in_len"])]), steps=cfg["diffusion_steps"])
+            text = J.AUG.relex(tok.decode(out[0]), slots)
             t_model += time.perf_counter() - t0
             if not text.startswith("$ "):
                 return text, T.snapshot(term), t_model, t_exec, len(hist)

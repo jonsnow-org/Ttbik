@@ -332,6 +332,40 @@ def inference_speed_options_keep_results_bitlinear_cache_bf16_confident_exit_thi
 
 
 @test
+def argument_slots_copy_unseen_names_and_numbers_into_the_command():
+    import augment as AUG
+    t, c, slots = AUG.delex("write the count in zqx.txt then show 7 lines", "echo 3 > zqx.txt && head -n 7 app.log")
+    assert t == "write the count in @F1 then show @N1 lines" and c == "echo 3 > @F1 && head -n @N1 app.log", (t, c)
+    assert AUG.relex(c, slots) == "echo 3 > zqx.txt && head -n 7 app.log"
+    import trajectories as J
+    dt, dh, sl = J.delex_view("save it to tally.txt", [("ls | wc -l", "5")], True)
+    assert dt == "save it to @F1" and AUG.relex("$ echo 5 > @F1", sl) == "$ echo 5 > tally.txt"
+
+
+@test
+def donor_head_trains_only_the_head_on_a_frozen_encoder():
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        print("   (skipped: transformers not installed)")
+        return
+    import tempfile
+    from transformers import BertConfig, BertModel, BertTokenizerFast
+    from sham_tldm.donor import DonorTLDM
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "vocab.txt"), "w") as f:
+        f.write("\n".join(["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + list("abcdefghijklmnopqrstuvwxyz")))
+    BertTokenizerFast(os.path.join(d, "vocab.txt")).save_pretrained(d)
+    BertModel(BertConfig(vocab_size=31, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32)).save_pretrained(d)
+    m = DonorTLDM(d, d=16, latents=4, think_steps=2, block=6, writer_layers=1, heads=2, vocab=20, in_len=10)
+    loss = m.loss(["list files", "show date"], torch.randint(1, 20, (2, 6)))
+    loss.backward()
+    assert all(p.grad is None for p in m.donor.parameters()) and m.proj.weight.grad is not None
+    assert not any(k.startswith("donor.") for k in m.head_state())
+    assert m.generate(["list files"], steps=2)[0].shape == (1, 6)
+
+
+@test
 def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     import unittest
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))

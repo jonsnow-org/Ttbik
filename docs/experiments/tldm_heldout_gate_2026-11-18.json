@@ -1,0 +1,198 @@
+{
+ "date": "2026-11-18",
+ "metric": "same_effect on HELDOUT (12) and HELDOUT2 (14); never trained on; 3 seeds per arm; CPU",
+ "gate": 0.6,
+ "chosen_arm": "donor (configs/writer_donor.yaml: T-LDM head on frozen paraphrase-multilingual-MiniLM-L12-v2)",
+ "heldout": {
+  "same_effect": 0.778
+ },
+ "heldout2": {
+  "same_effect": 0.81
+ },
+ "gate_passed": true,
+ "earlier_arms_3seed_means": {
+  "small_base (7.7M, earlier PR)": [
+   [
+    0.556,
+    0.191
+   ]
+  ],
+  "small_reword24 (earlier PR)": [
+   [
+    0.528,
+    0.476
+   ]
+  ],
+  "small_reword48 (earlier PR)": [
+   [
+    0.417,
+    0.548
+   ]
+  ]
+ },
+ "arms": {
+  "donor": {
+   "config": "writer_donor.yaml",
+   "params_M_trained": 4.5,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.967,
+   "heldout_mean": 0.778,
+   "heldout2_mean": 0.81,
+   "heldout_min": 0.667,
+   "heldout2_min": 0.786,
+   "per_seed": [
+    [
+     0.917,
+     0.857
+    ],
+    [
+     0.667,
+     0.786
+    ],
+    [
+     0.75,
+     0.786
+    ]
+   ]
+  },
+  "donor_slots": {
+   "config": "writer_donor_slots.yaml",
+   "params_M_trained": 4.5,
+   "seeds": [
+    0,
+    1
+   ],
+   "train": 0.967,
+   "heldout_mean": 0.917,
+   "heldout2_mean": 0.607,
+   "heldout_min": 0.917,
+   "heldout2_min": 0.571,
+   "per_seed": [
+    [
+     0.917,
+     0.571
+    ],
+    [
+     0.917,
+     0.643
+    ]
+   ]
+  },
+  "names_syn": {
+   "config": "writer_small_names_syn.yaml",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.822,
+   "heldout_mean": 0.528,
+   "heldout2_mean": 0.405,
+   "heldout_min": 0.417,
+   "heldout2_min": 0.357,
+   "per_seed": [
+    [
+     0.583,
+     0.5
+    ],
+    [
+     0.417,
+     0.357
+    ],
+    [
+     0.583,
+     0.357
+    ]
+   ]
+  },
+  "slots_names": {
+   "config": "writer_small_slots_names.yaml",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.9,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.31,
+   "heldout_min": 0.417,
+   "heldout2_min": 0.286,
+   "per_seed": [
+    [
+     0.5,
+     0.357
+    ],
+    [
+     0.5,
+     0.286
+    ],
+    [
+     0.417,
+     0.286
+    ]
+   ]
+  },
+  "slots_names_syn": {
+   "config": "writer_small_slots_names_syn.yaml",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.734,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.167,
+   "heldout_min": 0.333,
+   "heldout2_min": 0.143,
+   "per_seed": [
+    [
+     0.5,
+     0.214
+    ],
+    [
+     0.333,
+     0.143
+    ],
+    [
+     0.583,
+     0.143
+    ]
+   ]
+  },
+  "slots": {
+   "config": "writer_small_slots.yaml",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.956,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.357,
+   "heldout_min": 0.333,
+   "heldout2_min": 0.286,
+   "per_seed": [
+    [
+     0.583,
+     0.5
+    ],
+    [
+     0.333,
+     0.286
+    ],
+    [
+     0.5,
+     0.286
+    ]
+   ]
+  }
+ }
+}

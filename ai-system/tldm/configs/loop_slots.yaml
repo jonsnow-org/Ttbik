@@ -1,0 +1,17 @@
+# loop.yaml + argument slots (2026-11-18): task file names/numbers become @F1/@N1 in task, history and target; relexed before running.
+d: 256
+layers: 4
+latents: 16
+think_steps: 5
+block: 32
+in_len: 96
+writer_layers: 3
+heads: 4
+bitnet: false
+steps: 900
+batch: 64
+lr: 0.001
+diffusion_steps: 10
+episodes: 500
+bpe_merges: 200
+delex: true
