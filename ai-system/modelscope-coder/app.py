@@ -210,6 +210,26 @@ def _wait_health(timeout: float = 900) -> bool:
 
 
 _SPEC = {"on": False, "bad": False}
+_LOCK = {"on": False, "bad": False, "mode": "", "refused": False, "log_at": 0}
+
+
+def _load_mode(model: Path) -> str:
+    """llama.cpp's --load-mode for this box. A model that fills most of the memory (Nova 2: a 12.3 GiB file on a 15.35 GiB Studio) is locked in RAM.
+    Measured 2026-11-18 (nova-speed run 44258832132, Studio 16): with plain mmap llama-server took ~2,000 major page faults per short request and its resident
+    size fell 12.89 -> 12.09 GB (weights evicted and read back from disk), and the Studio wrote 2-3 tok/s / read 7-8 tok/s against 5.0 / 15.3 for the same file
+    on 2 runner cores. CODER_LOAD_MODE overrides it (auto | none | mmap | mlock | mmap+mlock | off); a server that does not start with it is restarted without it."""
+    want = os.environ.get("CODER_LOAD_MODE", "auto").strip().lower()
+    if want in ("", "off", "default"):
+        return ""
+    if want != "auto":
+        return want
+    try:
+        total = int(next(l for l in open("/proc/meminfo") if l.startswith("MemTotal")).split()[1]) * 1024
+        if model.stat().st_size <= 0.6 * total:
+            return ""
+        return "none" if _LOCK["refused"] else "mmap+mlock"      # mlock refused by the box: read the weights into the process's own memory instead (no page cache to evict them from)
+    except Exception:
+        return ""
 # Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
 # A Studio is a vision Studio when the deploy put a `vision.on` file next to app.py (deploy-modelscope-coder.yml, from ai-system/modelscope-coder/VISION_STUDIOS) or CODER_VISION=on.
 # If the server does not come up with it, or it dies while it is on (memory), the next start goes without it (_VIS["bad"]) so a picture never takes a Studio down for good.
@@ -261,6 +281,11 @@ def _start_server(model: Path, bindir: Path) -> None:
         spec = "--spec-type ngram-mod"
     if spec.lower() == "off":
         spec = ""
+    lm = "" if _LOCK["bad"] else _load_mode(model)
+    if lm:
+        cmd += ["--load-mode", lm]
+    _LOCK.update(on=bool(lm), mode=lm)
+    STATE["load_mode"] = lm or "default"
     if spec and not _SPEC["bad"]:
         cmd += spec.split()
         _SPEC["on"] = True
@@ -277,6 +302,10 @@ def _start_server(model: Path, bindir: Path) -> None:
             _VIS["bad"] = True
     STATE["vision"] = bool(_VIS["on"])
     _PATHS.update(model=str(model), bindir=str(bindir))
+    try:
+        _LOCK["log_at"] = (HERE / "_llama_server.log").stat().st_size
+    except OSError:
+        _LOCK["log_at"] = 0
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
@@ -289,6 +318,9 @@ def _supervisor() -> None:
                 if _PROC["p"] is not None and _VIS["on"]:
                     _VIS["bad"] = True                    # the server died while the vision file was loaded (most likely memory): start again without it
                     _log("server exited with vision on; restarting without it")
+                if _PROC["p"] is not None and _LOCK["on"]:
+                    _LOCK["bad"] = True                   # the server died with the weights locked in RAM (most likely memory): start again with the plain loading
+                    _log("server exited with load mode", _LOCK["mode"], "; restarting without it")
                 STATE.update(phase="loading", error="")
                 bindir = _llama_dir()
                 model = _download_model()
@@ -301,12 +333,29 @@ def _supervisor() -> None:
                     except Exception:
                         pass
                     raise RuntimeError("llama-server did not become healthy: " + tail)
+                if _LOCK["mode"] == "mmap+mlock" and not _LOCK["refused"]:
+                    try:
+                        with open(HERE / "_llama_server.log", "rb") as fh:
+                            fh.seek(_LOCK["log_at"])
+                            refused = b"failed to mlock" in fh.read()
+                    except OSError:
+                        refused = False
+                    if refused:                           # llama.cpp only warns: the weights stay evictable. Start once more reading them into its own memory
+                        _LOCK["refused"] = True
+                        _log("mlock refused; restarting with --load-mode none")
+                        _PROC["p"].kill()
+                        _PROC["p"].wait(30)
+                        _PROC["p"] = None                 # a deliberate restart, not a death: the "died with the load mode" fallback must not fire
+                        continue
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
         except Exception as exc:
             if _VIS["on"]:
                 _VIS["bad"] = True
                 _log("vision failed to start; restarting without it")
+            if _LOCK["on"]:
+                _LOCK["bad"] = True                      # the weights could not be locked in RAM: next start goes with the plain loading, at once
+                _log("load mode", _LOCK["mode"], "failed; restarting without it")
             if _SPEC["on"]:
                 _SPEC["bad"] = True                      # the experimental flags were on: next start goes without them, at once
                 _log("speculative flags failed; restarting without them")
@@ -316,7 +365,7 @@ def _supervisor() -> None:
             if p is not None and p.poll() is None:
                 p.kill()
             _PROC["p"] = None
-            time.sleep(5 if _SPEC["bad"] and _SPEC["on"] else 60)
+            time.sleep(5 if (_SPEC["bad"] and _SPEC["on"]) or (_LOCK["bad"] and _LOCK["on"]) else 60)
             continue
         time.sleep(10)
 
