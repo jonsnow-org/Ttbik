@@ -41,7 +41,8 @@ def _log(root: str, model_id: str) -> EX.ExperienceLog:
 
 def record(root: str, model_id: str, user: str, task: str, command: str, exit_code: int, stdout: str = "", stderr: str = "", verdict=None,
            latency_s: float = 0.0, adapter: str = "base", names: tuple = (), source: str = "user") -> str:
-    """-> "added" | "duplicate" | "rate_limited" | "rejected:...". verdict: True/False from the VERIFIER (None = unknown; stored, never learned)."""
+    """-> "added" | "duplicate" | "rate_limited" | "rejected:...". verdict: True/False from the VERIFIER (None = unknown; stored, never learned).
+    source="owner" tags the record as owner-trusted (skip user intake filters at admission; no per-user rate limit)."""
     rec = EX.make_record(user, task, command, exit_code, stdout, stderr, verdict, latency_s, model=model_id, adapter=adapter, source=source, names=names)
     st = _log(root, model_id).add(rec)
     if st == "added" and verdict in (True, False):

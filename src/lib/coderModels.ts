@@ -26,7 +26,7 @@ export const DEFAULT_MODELS: CoderModel[] = [
   // Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studio, beside Nova (the 4B), which stays as it is. Stronger and slower; owner-only until the owner opens it.
   { id: "nova2", name: { ar: "Nova 2", en: "Nova 2" }, desc: { ar: "Nova بنموذج أكبر وأقوى (Qwen3.6-35B-A3B) على استوديو الحساب الدولي: أبطأ وأعمق. نوفا الأصلي يبقى كما هو.", en: "Nova with a bigger, stronger model (Qwen3.6-35B-A3B) on the international Studio: slower and deeper. The original Nova stays as it is." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "", sort: 0.5 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
-  { id: "sham_v2", name: { ar: "شام 2", en: "Sham 2" }, desc: { ar: "نسخة شام 2 من شام 1، بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham 2, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
+  { id: "sham_v2", name: { ar: "شام برو", en: "Sham Pro" }, desc: { ar: "شام برو، نسخة من شام 1 بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham Pro, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
   // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
   // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
@@ -59,9 +59,9 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
       const base = byId.get(r.id);
       if (!base) continue;                                    // only known models (a new one is added here in code)
       const name = { ar: String(d.name?.ar || base.name.ar).slice(0, 40), en: String(d.name?.en || base.name.en).slice(0, 40) };
-      if (r.id === "sham_v2") {          // identity fix: stock "Sham v2" labels become "Sham 2"; a custom name the owner typed is kept
-        const stockAr = new Set(["", "شام v2", "شام v2 (الجديد)", "شام (الجديد)"]);
-        const stockEn = new Set(["", "Sham v2", "Sham v2 (new)", "Sham (new)"]);
+      if (r.id === "sham_v2") {          // stock labels become "Sham Pro" / «شام برو»; a custom name the owner typed is kept
+        const stockAr = new Set(["", "شام v2", "شام v2 (الجديد)", "شام (الجديد)", "شام 2", "شام ٢"]);
+        const stockEn = new Set(["", "Sham v2", "Sham v2 (new)", "Sham (new)", "Sham 2"]);
         if (stockAr.has(name.ar.trim())) name.ar = base.name.ar;
         if (stockEn.has(name.en.trim())) name.en = base.name.en;
       }
@@ -233,17 +233,8 @@ export function setMemorySettings(st: MemoryState, id: string, patch: Partial<Me
 }
 
 // ---------------------------------------------------------------- Sham 2 T-LDM
-/** Who may use the Sham 2 T-LDM path. Default is owner-only (testing phase).
- *  A single later switch — SHAM_TLDM_OPEN=1, or a stored owner control that sets it — opens
- *  the path to every user. All gates must go through tldmAllowedFor, not scattered owner checks.
- *  Follow-up (not this PR): stored owner switch in the panel, owner deny-list that users cannot
- *  override, and self-evolution logs of verified successes/failures with no personal data. */
-export function tldmOpenToAll(): boolean {
-  return (process.env.SHAM_TLDM_OPEN || "").trim() === "1";
-}
-export function tldmAllowedFor(tier: string | undefined): boolean {
-  return tldmOpenToAll() || tier === "owner";
-}
+/** Audience gates live in src/lib/tldmPolicy.ts (env SHAM_TLDM_OPEN or the stored owner switch). */
+export { tldmOpenToAll, tldmAllowedFor } from "@/lib/tldmPolicy";
 /** Per-chat T-LDM switch on Sham 2 only. It never applies to Sham 1. Enabling it still requires tldmAllowedFor. */
 export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
 export function tldmEnabled(st: TldmState, id?: string): boolean {
