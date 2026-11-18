@@ -32,17 +32,18 @@ def explore(model, cfg, tok, store, n, seed, temperature):
         try:
             reply, steps = "", []
             for _ in range(5):
-                ids = torch.tensor([J.view_ids(tok, task, hist, cfg["in_len"])])
+                v, slots = J.step_view(tok, task, hist, cfg)
                 with torch.no_grad():
-                    out, _ = model.generate(ids, steps=cfg["diffusion_steps"], temperature=temperature)
-                text = tok.decode(out[0])
+                    out, _ = model.generate(torch.tensor([v]), steps=cfg["diffusion_steps"], temperature=temperature)
+                raw = tok.decode(out[0])
+                text = J.AUG.relex(raw, slots)
                 if text.startswith("$ "):
                     cmd = text[2:].strip()
                     r = term.run(cmd, confirm=True)
-                    steps.append((J.view_ids(tok, task, hist, cfg["in_len"]), text))
+                    steps.append((v, raw))
                     hist.append((cmd, (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")))
                 else:
-                    steps.append((J.view_ids(tok, task, hist, cfg["in_len"]), text)); reply = text
+                    steps.append((v, raw)); reply = text
                     break
             good = reply == ref_reply and T.snapshot(term) == ref_snap
         finally:
