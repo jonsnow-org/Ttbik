@@ -8,6 +8,7 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import ROOT  # noqa: E402
 import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
 from sham_tldm import (BitLinear, Compressor, LatentThinker, MambaBlock, DiffusionWriter, Sham1_TLDM, ShamBodyTLDM, encode_bytes, decode_bytes,  # noqa: E402
                        pack_ternary, unpack_ternary, bitnet_size_bytes)
 import terminal_tasks as T  # noqa: E402
@@ -512,6 +513,30 @@ def writer_end_exit_is_lossless_and_parallel_threshold_cuts_passes():
         out = mm.generate(ids, steps=4)[0]
         assert out.shape == ref.shape and mm.fast_mode == mode
 
+
+
+@test
+def fast_int8_layers_have_the_same_math_and_cache_the_latent_keys_values():
+    import sham_tldm.fast as F_
+    orig = F_._int8
+    try:
+        F_._int8 = lambda mod: mod                                   # same layer without quantization: must equal PyTorch's own layer
+        torch.manual_seed(0)
+        for L in (nn.TransformerDecoderLayer(32, 4, 64, dropout=0.0, batch_first=True, norm_first=True), nn.TransformerEncoderLayer(32, 4, 64, dropout=0.0, batch_first=True, norm_first=True)):
+            L.eval()
+            x, z = torch.randn(2, 6, 32), torch.randn(2, 3, 32)
+            with torch.no_grad():
+                ref = L(x, z) if isinstance(L, nn.TransformerDecoderLayer) else L(x)
+                fl = F_._FastLayer(L)
+                for _ in range(2):                                   # 2nd call reuses the cached latent keys/values
+                    out = fl(x, z) if fl.dec else fl(x)
+                    assert (out - ref).abs().max() < 1e-5
+            if fl.dec:
+                assert fl.ca._mem is z
+    finally:
+        F_._int8 = orig
+    lin = F_._int8(nn.Linear(8, 8))
+    assert type(lin) is not nn.Linear and hasattr(lin, "_packed_params"), type(lin)     # the root Linear itself is swapped to dynamic INT8
 
 if __name__ == "__main__":
     failed = 0
