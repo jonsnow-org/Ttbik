@@ -56,9 +56,59 @@ export async function keepAwakeOnce(fetchFn: typeof fetch = fetch, env: Record<s
   return out;
 }
 
+/** "https://studio-<owner>-<name>.api-inference.modelscope.ai" (the international site) -> { owner, name, url }. */
+export function parseAiStudioUrl(raw: string): { owner: string; name: string; url: string } | null {
+  const m = /^https:\/\/studio-([a-z0-9]+)-([a-z0-9][a-z0-9_.-]*)\.api-inference\.modelscope\.ai\/?$/i.exec(raw.trim());
+  return m ? { owner: m[1], name: m[2], url: raw.trim().replace(/\/$/, "") } : null;
+}
+
+/** Nova 2's own Studio lives on the international site (modelscope.ai) with its own token; the GitHub cron that wakes it ran only every ~2 h (2026-11-18), and a Studio that
+ *  sleeps comes back with a NEW disk: the 12 GB model downloaded again and nothing held in its cache. Same rule as above: GET when running, POST /deploy only when sleeping. */
+export async function keepNova2AwakeOnce(urls: string[], token: string, fetchFn: typeof fetch = fetch): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!token) return out;
+  const head = { Authorization: `Bearer ${token}` };
+  for (const s of urls.map(parseAiStudioUrl).filter((x): x is NonNullable<typeof x> => Boolean(x))) {
+    try {
+      const r = await fetchFn(`https://www.modelscope.ai/openapi/v1/studios/${s.owner}/${s.name}`, { headers: head, signal: AbortSignal.timeout(15_000) });
+      const d: any = r.ok ? await r.json().catch(() => ({})) : {};
+      const data = d?.data || d?.Data || d || {};
+      const status = String(data?.runtime?.status || data?.status || "");
+      if (/sleep|stop/i.test(status)) {
+        await fetchFn(`https://www.modelscope.ai/openapi/v1/studios/${s.owner}/${s.name}/deploy`, { method: "POST", headers: head, signal: AbortSignal.timeout(20_000) });
+        out[s.name] = `woken (${status})`;
+      } else {
+        const g = await fetchFn(`${s.url}/`, { headers: head, signal: AbortSignal.timeout(20_000) });
+        out[s.name] = `${status || "?"} ${g.status}`;
+      }
+    } catch (e) {
+      out[s.name] = `error ${String((e as Error)?.name || e).slice(0, 40)}`;
+    }
+  }
+  return out;
+}
+
+async function nova2Tick(): Promise<void> {
+  const { nova2Urls, tokenForAsync, NOVA2_DEFAULT } = await import("@/lib/openCoderStudio");
+  const urls = nova2Urls();
+  if (!urls.length) return;
+  await keepNova2AwakeOnce(urls, await tokenForAsync(urls[0] || NOVA2_DEFAULT));
+}
+
+/** After the wake-up: every Nova Studio holds the start texts ready (a Studio that holds them answers at once; one that restarted reads them while idle). */
+async function warmTick(): Promise<void> {
+  const { warmNovaStarts } = await import("@/lib/coderSections");
+  const r = await warmNovaStarts();
+  const cold = Object.entries(r).flatMap(([k, v]) => Object.entries(v).filter(([, t]) => t === "warming").map(([b]) => `${k}@${b}`));
+  if (cold.length) console.log("[nova-start-warm] warming", cold.join(", ").slice(0, 400));
+}
+
 export function startKeepAwake(): void {
   if ((process.env.STUDIO_KEEP_AWAKE || "").trim() === "0") return;
-  const tick = () => { void keepAwakeOnce().catch(() => undefined); };
+  const tick = () => {
+    void keepAwakeOnce().catch(() => undefined);
+    void nova2Tick().catch(() => undefined).then(() => warmTick()).catch(() => undefined);
+  };
   const first = setTimeout(tick, 90_000);
   first.unref?.();
   const timer = setInterval(tick, KEEP_AWAKE_MS);

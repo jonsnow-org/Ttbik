@@ -68,12 +68,14 @@ def one(label: str, messages: list, tools: list, max_tokens: int) -> dict:
     pf = r.get("prefill") or {}
     read_now = tm.get("prompt_n") if tm.get("prompt_n") is not None else pf.get("processed")
     p_ms = tm.get("prompt_ms") or pf.get("time_ms")
-    res = {"step": label, "status": r.get("type"), "ttft_s": round(first, 1) if first is not None else None, "total_s": round(total, 1),
+    # the Studio's own clock when it reports it (app.py since 2026-11-18): time to first token = queue wait + prompt reading; else the 2 s polling clock
+    srv = (r.get("wait_s") or 0) + r["ttft_s"] if r.get("ttft_s") is not None else None
+    res = {"step": label, "status": r.get("type"), "ttft_s": round(srv if srv is not None else first, 1) if (srv is not None or first is not None) else None, "total_s": round(total, 1),
            "prompt_total": pf.get("total"), "prompt_cached": pf.get("cache"), "prompt_read": read_now,
            "prompt_s": round(p_ms / 1000, 1) if p_ms else None,
            "prompt_tok_s": tm.get("prompt_per_second") or (round(read_now / (p_ms / 1000), 1) if read_now and p_ms else None),
            "gen_tokens": tm.get("predicted_n"), "gen_tok_s": round(tm["predicted_per_second"], 2) if tm.get("predicted_per_second") else None,
-           "restored": r.get("slot_restored"), "text": (r.get("text") or "")[:120]}
+           "restored": r.get("restored"), "text": (r.get("text") or "")[:120]}
     print("== " + json.dumps(res, ensure_ascii=False), flush=True)
     if OUT:
         with open(OUT, "a") as f:

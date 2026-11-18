@@ -12,13 +12,13 @@ import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
-import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
+import { prismaDb, coderChatKey, resolveConnections, tierFor, ownerIds, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderWarmStart, nova2TokenSet, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
-import { resolveProfile, requiresProgressCard, type ReqClass } from "@/lib/modes";
+import { resolveProfile, requiresProgressCard, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
 import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -1068,6 +1068,45 @@ async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void
     r = (await coderJobResult(r.job, 0, 8000).catch(() => null))?.reply || null;
   }
   if (r?.job && warming.get(warmKey) === r.job) warming.delete(warmKey);
+}
+/** The START texts a Nova model sends (the owner's full start, a regular user's full start on Nova, and the short greeting starts in English and Arabic), built exactly as
+ *  driveLoop builds them, so a Studio can hold them ready (coderWarmStart). Never a conversation, never a user's text: only the fixed texts every conversation begins with. */
+export async function novaStarts(chatId: number, model: "coder" | "nova2", db: Db = prismaDb): Promise<{ label: string; messages: CoderMessage[]; tools: Parameters<typeof coderWarmStart>[1] }[]> {
+  return withEngineModel(model, async () => {
+    const st = await loadState(chatId, db);
+    const ctx = await toolCtx(chatId, st, db, null);
+    const github = Boolean(ctx.gh);
+    const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+    const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
+    const out: { label: string; messages: CoderMessage[]; tools: Parameters<typeof coderWarmStart>[1] }[] = [];
+    const full = (owner: boolean, gh: boolean, conns: string[], keep: string[]) => {
+      const messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github: gh, owner, connectors: conns, notes: "", date: false }), model) }, { role: "user", content: "." }];
+      return { messages, tools: coderToolsFor(gh, conns.length > 0, messages, keep) };
+    };
+    out.push({ label: "owner", ...full(tierFor(chatId) === "owner", github, connected, sticky) });
+    if (model === "coder") out.push({ label: "user", ...full(false, false, [], []) });           // a regular user's first conversation (no GitHub, no linked accounts): Nova's Studios serve everyone
+    const who = modelDisplayName(model);
+    const example: CoderMessage[] = [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }];
+    const lite = withModelIdentity(NOVA_LITE_SYSTEM, model);
+    out.push({ label: "greeting", messages: [{ role: "system", content: lite }, ...example, { role: "user", content: "." }], tools: [] });
+    out.push({ label: "greeting-ar", messages: [{ role: "system", content: lite + "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English." }, ...example, { role: "user", content: "." }], tools: [] });
+    return out;
+  });
+}
+
+/** Keeps the Nova Studios holding the starts above (called by the always-on server's keep-awake loop). Nova 2 only when its token is set (its Studio is private). */
+export async function warmNovaStarts(db: Db = prismaDb): Promise<Record<string, Record<string, string>>> {
+  const out: Record<string, Record<string, string>> = {};
+  if ((process.env.CODER_START_WARM || "").trim() === "0" || process.env.NODE_ENV === "test") return out;
+  const owner = Number(ownerIds()[0] || 0);
+  if (!owner) return out;
+  for (const model of ["coder", "nova2"] as const) {
+    if (model === "nova2" && !nova2TokenSet()) continue;
+    if (model === "coder" && !coderEnabled()) continue;
+    const starts = await novaStarts(owner, model, db).catch(() => []);
+    for (const s of starts) out[`${model}/${s.label}`] = await coderWarmStart(s.messages, s.tools, model).catch(() => ({}));
+  }
+  return out;
 }
 const warming = new Map<string, string>();                       // model-scoped chat key -> Studio warm-up job
 /** A real request is about to be sent for this chat: its warm-up (if still running) must not stand in front of it. */

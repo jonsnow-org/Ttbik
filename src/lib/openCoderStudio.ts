@@ -430,6 +430,19 @@ export async function coderChat(
   return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it
 }
 
+/** Asks each Studio of `model` to hold this START (system text + tool list) ready: a Studio that already holds it answers "ready" at once; one that does not reads it
+ *  in the background while idle and keeps it (ai-system/modelscope-coder/app.py `warm`). A Studio without the `warm` api (older app) just answers an error: nothing changes.
+ *  Measured 2026-11-18 (nova-speed.yml): a start that is not held costs 253 s before the first word on Nova (9,074 tokens) and ~5 min on Nova 2 (~3k tokens at ~9 tokens/s). */
+export async function coderWarmStart(messages: CoderMessage[], tools: CoderTool[], model: EngineModel, timeoutMs = 15000): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const payload = { messages: JSON.stringify(wireMessages(messages)), tools: tools.length ? JSON.stringify(tools) : "" };
+  await Promise.all(coderStudioUrls(model).map(async (b) => {
+    const o = await callOnce(b, "warm", payload, timeoutMs).catch(() => null);
+    out[b.replace(/^https:\/\/studio-/, "").replace(/\.api-inference.*$/, "")] = o?.reply ? String((o.reply as { type?: string }).type || "?") : `no (${o?.failure || "error"})`;
+  }));
+  return out;
+}
+
 export function coderJobResult(job: string, offset = 0, timeoutMs = 10000): Promise<CoderOutcome> {
   if (job.startsWith(PROVIDER_JOB_PREFIX)) return Promise.resolve({ reply: { type: "gone", job } });   // an API answer is never polled; it was consumed inline
   return coderCall("job_result", { job_id: job, offset }, timeoutMs);
