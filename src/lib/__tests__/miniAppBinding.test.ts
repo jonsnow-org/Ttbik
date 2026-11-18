@@ -93,6 +93,8 @@ describe("server: per-model computer and sessions", () => {
   test("Nova 2 repository picker uses its own GitHub credential, not Nova's", async () => {
     const db: any = pgDb();
     const { bot } = fakeBot();
+    const priorNovaToken = process.env.CODER_GITHUB_TOKEN;
+    const priorNova2Token = process.env.NOVA2_GITHUB_TOKEN;
     process.env.CODER_GITHUB_TOKEN = "nova-private-token";
     process.env.NOVA2_GITHUB_TOKEN = "nova2-private-token";
     let authorization = "";
@@ -105,36 +107,53 @@ describe("server: per-model computer and sessions", () => {
       expect(authorization).toBe("Bearer nova2-private-token");
       expect(result.repos.map((r: any) => r.full_name)).toContain("owner/nova2-only");
     } finally {
-      delete process.env.NOVA2_GITHUB_TOKEN;
-      delete process.env.CODER_GITHUB_TOKEN;
+      if (priorNova2Token === undefined) delete process.env.NOVA2_GITHUB_TOKEN; else process.env.NOVA2_GITHUB_TOKEN = priorNova2Token;
+      if (priorNovaToken === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = priorNovaToken;
     }
   });
-});
-  test("box: Nova and Nova 2 go to the Mini App computer with distinct private sessions; the Shams go to their own embedded computer", async () => {
+  test("box: Nova 2 has its own computer Studio and fails closed until it is configured", async () => {
     const db: any = pgDb(); const { bot } = fakeBot();
     const { seen, fetchImpl } = recorder();
     const d = { db, bot, botRow, fetchImpl } as any;
-    await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "coder", { args: { action: "run", command: "true" } }), d);
-    await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "nova2", { args: { action: "run", command: "true" } }), d);
-    await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "sham_v2", { args: { action: "list" } }), d);
-    expect(seen[0]).toMatchObject({ host: HUB, body: { session: `${OWNER}:coder` } });
-    expect(seen[1]).toMatchObject({ host: HUB, body: { session: `${OWNER}:nova2` } });
-    expect(seen[2].host).toBe(new URL(DEFAULT_V2_URL).origin);
-    expect(seen[2].host).not.toBe(HUB);
-    expect(seen[2].body).toMatchObject({ session: `${OWNER}:sham_v2` });
+    const previous = process.env.NOVA2_COMPUTER_STUDIO_URL;
+    try {
+      delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+      const unavailable = await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "nova2", { args: { action: "run", command: "true" } }), d);
+      expect(unavailable).toMatchObject({ ok: false, error: "this model has no computer Studio" });
+      expect(seen).toHaveLength(0);
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://n2-computer.example.test";
+      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "coder", { args: { action: "run", command: "true" } }), d);
+      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "nova2", { args: { action: "run", command: "true" } }), d);
+      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "sham_v2", { args: { action: "list" } }), d);
+      expect(seen[0]).toMatchObject({ host: HUB, body: { session: `${OWNER}:coder` } });
+      expect(seen[1]).toMatchObject({ host: "https://n2-computer.example.test", body: { session: `${OWNER}:nova2` } });
+      expect(seen[1].host).not.toBe(seen[0].host);
+      expect(seen[2].host).toBe(new URL(DEFAULT_V2_URL).origin);
+      expect(seen[2].host).not.toBe(HUB);
+      expect(seen[2].body).toMatchObject({ session: `${OWNER}:sham_v2` });
+    } finally {
+      if (previous === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = previous;
+    }
   });
 
-  test("desktop: each model's screen is its own (Sham Pro on its own Studio, Nova 2 its own hub session)", async () => {
+  test("desktop: Nova 2 uses its own desktop Studio; Shams keep their embedded desktops", async () => {
     const db: any = pgDb(); const { bot } = fakeBot();
     const { seen, fetchImpl } = recorder();
     const d = { db, bot, botRow, fetchImpl } as any;
-    for (const m of MODELS) await appOp({ chatId: OWNER, tier: "owner" }, "desktop", boundBody("desktop", m, { args: { action: "status" } }), d).catch(() => null);
-    const byModel = Object.fromEntries(seen.map((x) => [String(x.body.session).split(":")[1], x]));
-    expect(byModel.coder.host).toBe(HUB);
-    expect(byModel.nova2.host).toBe(HUB);
-    expect(byModel.sham_v2.host).not.toBe(HUB);
-    expect(byModel.sham.host).not.toBe(HUB);
-    expect(new Set(seen.map((x) => x.body.session)).size).toBe(seen.length);
+    const previous = process.env.NOVA2_COMPUTER_STUDIO_URL;
+    try {
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://n2-computer.example.test";
+      for (const m of MODELS) await appOp({ chatId: OWNER, tier: "owner" }, "desktop", boundBody("desktop", m, { args: { action: "status" } }), d).catch(() => null);
+      const byModel = Object.fromEntries(seen.map((x) => [String(x.body.session).split(":")[1], x]));
+      expect(byModel.coder.host).toBe(HUB);
+      expect(byModel.nova2.host).toBe("https://n2-computer.example.test");
+      expect(byModel.nova2.host).not.toBe(byModel.coder.host);
+      expect(byModel.sham_v2.host).not.toBe(HUB);
+      expect(byModel.sham.host).not.toBe(HUB);
+      expect(new Set(seen.map((x) => x.body.session)).size).toBe(seen.length);
+    } finally {
+      if (previous === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = previous;
+    }
   });
 
   test("Nova 2 keeps its own working state, threads and memory id (not Nova's)", () => {

@@ -14,7 +14,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, ownerIds, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, modelSessionChatKey, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -961,7 +961,7 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
     if (kind === "video") {
       const { novaVideoStart } = await import("@/lib/novaMedia");
       const { ownMediaBase } = await import("@/lib/modelMedia");
-      const started = await novaVideoStart(m.prompt!, m.seconds ?? 10, { base: ownMediaBase(modelId) || undefined });
+      const started = await novaVideoStart(m.prompt!, m.seconds ?? 10, { base: ownMediaBase(modelId) });
       if ("job" in started) { m.job = started.job; m.jobStarted = Date.now(); m.phase = "poll"; m.started ||= Date.now(); await save(); }
       else if (started.reason === "no_job_api") {
         // the Studio predates the background-job API: the old single call is the only way to make the clip (it cannot be resumed, so it is run once inside this leg)
@@ -988,7 +988,7 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
   if (m.phase === "poll") {
     const { novaVideoJob, videoJobCapMs } = await import("@/lib/novaMedia");
     const { ownMediaBase } = await import("@/lib/modelMedia");
-    const base = ownMediaBase(modelId) || undefined;
+    const base = ownMediaBase(modelId);
     m.started ||= Date.now();
     // The ceiling follows the clip's length: a 60/120 s clip needs ~210 s per 4 s pass plus start-up, so a fixed 40 min aborted long clips
     // that were still generating (the Studio's own budget is the same formula, capped at 2 h). The +10 min covers polling and delivery.

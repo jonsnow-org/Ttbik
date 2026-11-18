@@ -5,7 +5,7 @@ Inference and media weights remain isolated by model. The execution host is now 
 | Model | Chat Studio | Image / media | Computer |
 |---|---|---|---|
 | Nova AI (\`coder\`) | \`coder-inference-server\` 1–5 | Nova's own image/speech/video Studios | Mini App computer hub; private \`user:coder\` session |
-| Nova 2 (\`nova2\`) | Its own international Studio | — | Mini App computer hub; its OWN private \`user:nova2\` session (no longer Nova's) |
+| Nova 2 (`nova2`) | Its own international Studio | dedicated `NOVA2_MEDIA_STUDIO_URL` only; otherwise unavailable | dedicated `NOVA2_COMPUTER_STUDIO_URL` only; never Nova's hub |
 | Sham (old) | \`sham-v1-server\` | Its own media route | Its own embedded computer inside its Studio |
 | Sham Pro (\`sham_v2\`) | \`sham-v2-server\` (+ overflow) | Its own image/audio/video Studios | Its own embedded computer (model_computer) inside \`sham-v2-server\` |
 
@@ -13,6 +13,9 @@ Inference and media weights remain isolated by model. The execution host is now 
 
 Every model is independent: its own computer session, tools, chats, working state, memory and data. No routing between models and no silent fallback.
 - Nova 2 keeps its working state, threads and long-term memory under \`<chat>#model:nova2\` (same scheme as LFM2.5), never in Nova's rows.
+- Nova 2's child agents use its own Studio pool; its one current Studio runs one child serially.
+- Nova 2's GitHub access uses `NOVA2_GITHUB_TOKEN` / `AI_NOVA2_GITHUB_TOKEN`. Nova's OAuth connections and MCP servers are unavailable to it.
+- Nova 2's computer/media routers fail closed unless `NOVA2_COMPUTER_STUDIO_URL` / `NOVA2_MEDIA_STUDIO_URL` point to independent Studios; they never reuse Nova's `COMPUTER_STUDIO_URL` or `NOVA_MEDIA_STUDIO_URL`.
 - The Mini App binds every screen to the selected model (\`src/lib/miniAppBinding.ts\`): Chats lists only that model's chats, the Computer tab opens only that model's computer (no picker), running tasks / stop-all / memory are scoped to it, and every tab remounts on a switch. Tests: \`src/lib/__tests__/miniAppBinding.test.ts\`.
 
 ## The computer host

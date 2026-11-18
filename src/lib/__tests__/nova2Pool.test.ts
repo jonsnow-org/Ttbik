@@ -34,7 +34,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     const names = withEngineModel("nova2", () => (coderToolsFor(true, true, msgs) as { function: { name: string } }[]).map((t) => t.function.name));
     expect(names).toContain("load_tools");
     expect(names).toContain("ask_user");
-    expect(names).not.toContain("delegate");
+    expect(names).toContain("delegate");
   });
 
   test("Nova 2 agents use its own pool and only one serial child on its single Studio", () => {
