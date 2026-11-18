@@ -697,6 +697,7 @@ def child_cycle() -> None:
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
     if cfg["job"] in LIVE_JOBS:
+        os.environ.setdefault("SHAM_SAVE_EVERY_MIN", "20")          # a guarded save every 20 min (was 60 on CPU): a kill or a sleep loses at most that
         try:
             got = prepare_resume(WORK)
             if got:
@@ -818,6 +819,8 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
             STATE["start"] = (str(STATE.get("start", "")) + " | " + line.strip())[-700:].lstrip(" |")
         tee.write(line)
         _CYCLE_LINE_AT[0] = time.time()
+        if line.startswith("resume: ") or line.startswith("⏯"):
+            STATE["resume"] = (str(STATE.get("resume", "")) + " | " + line.strip()[:200])[-500:].lstrip(" |")
         try:
             sys.__stdout__.write(line)               # the Studio's own log keeps everything
         except Exception:  # noqa: BLE001
@@ -863,6 +866,7 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
         STATE["start"] = ""
+        STATE["resume"] = ""
         _set(phase="training", cycle=cycle, error="")
         t0 = time.time()
         try:
@@ -944,6 +948,14 @@ def heartbeat() -> dict:
     hb.update(ts=now, job=settings()["job"], name=settings()["name"], stuck_after_min=stuck_minutes(),
               progress_age_min=round((now - progress_ts()) / 60, 1) if training else 0.0,
               supervisor_alive=any(t.name == "sham-supervisor" and t.is_alive() for t in threading.enumerate()))
+    ck = WORK / "checkpoints"
+    try:
+        hb["checkpoint_age_min"] = round((now - (ck / "final.pt").stat().st_mtime) / 60, 1)
+    except OSError:
+        hb["checkpoint_age_min"] = None
+    hb["saved_in_cycle"] = training and _saved_in_running_cycle(ck)
+    hb["checkpoint_step"] = _live_progress(ck).get("step") if hb["saved_in_cycle"] else None
+    hb["resume"] = str(STATE.get("resume") or "")[:500]
     return hb
 
 
@@ -1407,7 +1419,7 @@ if __name__ == "__main__":
         assert got and (got / "final.pt").read_bytes() == b"ms"                          # a reset disk resumes from the ModelScope copy
         assert prepare_resume(WORK, fetch=lambda d: fake_ms(d, running=False)) is None
         hb = heartbeat()
-        assert set(hb) >= {"phase", "progress_age_min", "ts", "restarts", "supervisor_alive"}, hb
+        assert set(hb) >= {"phase", "progress_age_min", "ts", "restarts", "supervisor_alive", "saved_in_cycle", "checkpoint_step", "resume"}, hb
         rounds = []
         supervise(sleep=lambda s: rounds.append(s), run=lambda: (_ for _ in ()).throw(RuntimeError("x")), max_rounds=3)
         assert rounds == [60, 120, 240] and STATE["restarts"] >= 3, rounds
