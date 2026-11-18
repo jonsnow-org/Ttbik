@@ -1,4 +1,4 @@
-import { cleanDesktopArgs, desktopLive } from "@/lib/desktopComputer";
+import { cleanDesktopArgs, desktopDo, desktopLive } from "@/lib/desktopComputer";
 
 describe("the graphical Linux desktop RPC contract", () => {
   test("opens the bounded live stream using the selected model's private session", async () => {
@@ -70,6 +70,82 @@ describe("the graphical Linux desktop RPC contract", () => {
     } finally {
       if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
       else process.env.COMPUTER_STUDIO_URL = previousUrl;
+    }
+  });
+
+  test("retries a transient 412 while opening Sham 2's own live desktop stream, never the hub", async () => {
+    const saved = { hub: process.env.COMPUTER_STUDIO_URL, v2: process.env.SHAM_V2_URL };
+    process.env.COMPUTER_STUDIO_URL = "https://hub.test";
+    process.env.SHAM_V2_URL = "https://sham2.test";
+    try {
+      const calls: Array<{ url: string; method: string }> = [];
+      let submits = 0;
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method || "GET");
+        calls.push({ url, method });
+        if (method === "POST" && ++submits === 1) {
+          return new Response(JSON.stringify({ detail: "Studio is deploying" }), { status: 412 });
+        }
+        if (method === "POST") return new Response(JSON.stringify({ event_id: "sham2-live" }), { status: 200 });
+        return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      const response = await desktopLive("sham_v2", "77:sham_v2", 20, fetchMock);
+      expect(response.ok).toBe(true);
+      expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET"]);
+      expect(calls.every((call) => call.url.includes("sham2.test"))).toBe(true);
+      expect(calls.every((call) => !call.url.includes("hub.test"))).toBe(true);
+    } finally {
+      if (saved.hub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = saved.hub;
+      if (saved.v2 === undefined) delete process.env.SHAM_V2_URL; else process.env.SHAM_V2_URL = saved.v2;
+    }
+  });
+
+  test("does not retry a non-transient 412 for Sham 2 or enable 412 retries for Sham v1", async () => {
+    const saved = { v1: process.env.SHAM_MODELSCOPE_URL, v2: process.env.SHAM_V2_URL };
+    process.env.SHAM_MODELSCOPE_URL = "https://sham1.test";
+    process.env.SHAM_V2_URL = "https://sham2.test";
+    try {
+      for (const model of ["sham_v2", "sham"] as const) {
+        const calls: string[] = [];
+        const fetchMock = (async (input: RequestInfo | URL) => {
+          calls.push(String(input));
+          return new Response(JSON.stringify({ detail: "precondition failed by policy" }), { status: 412 });
+        }) as typeof fetch;
+        await expect(desktopLive(model, "77:" + model, 20, fetchMock)).rejects.toThrow("Studio HTTP 412");
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toContain(model === "sham_v2" ? "sham2.test" : "sham1.test");
+      }
+    } finally {
+      if (saved.v1 === undefined) delete process.env.SHAM_MODELSCOPE_URL; else process.env.SHAM_MODELSCOPE_URL = saved.v1;
+      if (saved.v2 === undefined) delete process.env.SHAM_V2_URL; else process.env.SHAM_V2_URL = saved.v2;
+    }
+  });
+
+  test("translates the Mini App frame fallback to Sham 2's supported state read only", async () => {
+    const saved = { hub: process.env.COMPUTER_STUDIO_URL, v2: process.env.SHAM_V2_URL };
+    process.env.COMPUTER_STUDIO_URL = "https://hub.test";
+    process.env.SHAM_V2_URL = "https://sham2.test";
+    try {
+      const calls: Array<{ url: string; args?: Record<string, unknown> }> = [];
+      const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "POST") {
+          const wire = JSON.parse(String(init.body)).data[0] as string;
+          calls.push({ url, args: JSON.parse(Buffer.from(wire.slice(4), "base64").toString("utf8")) });
+          return new Response(JSON.stringify({ event_id: "frame-fallback" }), { status: 200 });
+        }
+        return new Response('event: complete\ndata: ["{\\\"ok\\\":true,\\\"phase\\\":\\\"running\\\",\\\"width\\\":640,\\\"height\\\":1000}"]\n\n', {
+          status: 200, headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+      const reply = await desktopDo("sham_v2", "77:sham_v2", { action: "frame" }, fetchMock);
+      expect(reply).toMatchObject({ ok: true, phase: "running" });
+      expect(calls[0].url).toBe("https://sham2.test/gradio_api/call/desktop_do");
+      expect(calls[0].args).toMatchObject({ action: "state", session: "77:sham_v2" });
+    } finally {
+      if (saved.hub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = saved.hub;
+      if (saved.v2 === undefined) delete process.env.SHAM_V2_URL; else process.env.SHAM_V2_URL = saved.v2;
     }
   });
 

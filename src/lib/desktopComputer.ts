@@ -106,7 +106,14 @@ export async function desktopLive(
   const base = target.base;
   if (!session || session.length > 240) throw new Error("invalid desktop session");
   const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
-  if (target.own) return studioStream(base, "desktop_live", { session, seconds: duration }, fetchImpl, (duration + 15) * 1000);
+  if (target.own) return studioStream(
+    base,
+    "desktop_live",
+    { session, seconds: duration },
+    fetchImpl,
+    (duration + 15) * 1000,
+    modelId === "sham_v2", // only Sham 2 retries 412 when the Studio explicitly reports a transient warm-up/deploy state
+  );
   return studioStream(base, "live", {
     session,
     seconds: duration,
@@ -127,11 +134,17 @@ export async function desktopDo(
   const base = target.base;
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
+  // Sham 2's own Studio viewer API accepts "state" for a screen read; "frame"
+  // is the Nova hub's action name. Translate only this viewer fallback, never
+  // the model's learned desktop tool or any other model's computer path.
+  const studioArgs = modelId === "sham_v2" && clean.action === "frame"
+    ? { ...clean, action: "state" }
+    : clean;
   try {
     return await studioCall(
       base,
       "desktop_do",
-      { ...clean, session },
+      { ...studioArgs, session },
       fetchImpl,
       45000,
     );

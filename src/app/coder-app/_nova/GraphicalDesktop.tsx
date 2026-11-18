@@ -28,7 +28,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const screenRef = useRef<{ w: number; h: number } | null>(null);
   const running = status?.phase === "running";
   const preparing = status?.phase === "installing" || status?.phase === "starting";
-  const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
+  const availableMb = model === "sham_v2" && typeof status?.free_mb === "number" ? status.free_mb : status?.available_mb;
+  const available = typeof availableMb === "number" ? availableMb + " MB" : (ar ? "غير معروف" : "unknown");
   // The live stream reconnects every ~20 s; a plain `streaming` flag made this line blink. The mode keeps it steady.
   // It is computed in an effect (a ref and the clock are read there, not during render).
   const [mode, setMode] = useState<DesktopStreamMode>("stopped");
@@ -71,7 +72,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     void (async () => {
       try {
         const first = await call({ action: "status" });
-        const roomy = typeof first?.available_mb !== "number" || first.available_mb >= 3072;
+        const availableMb = model === "sham_v2" && typeof first?.free_mb === "number" ? first.free_mb : first?.available_mb;
+        const roomy = typeof availableMb !== "number" || availableMb >= 3072;
         if (!cancelled && first?.ok !== false && first?.phase === "stopped" && roomy && autoStarted.current !== model) {
           autoStarted.current = model;
           await call({ action: "start", ...desktopSize() });
@@ -182,7 +184,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             const message = String(e?.message || e);
             setError(message);
             const transient = /\b(?:402|408|409|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
-            if (!transient) break;
+            const transient412 = model === "sham_v2"
+              && /\b412\b/.test(message)
+              && /deploy(?:ing|ment)|starting|warming(?: up)?|temporarily unavailable|runtime not ready|studio not ready|retry-after/i.test(message);
+            if (!transient && !transient412) break;
             const delay = Math.min(8000, 1000 * (2 ** Math.min(retryAttempt, 3)));
             retryAttempt = Math.min(retryAttempt + 1, 4);
             await pause(delay);
@@ -442,7 +447,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       </div>
       {!running ? (
         <div className="n-meta" style={{ marginBottom: 8 }}>
-          {ar ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Computer hub memory available: " + available + ". Start requires at least 3072 MB."}
+          {model === "sham_v2"
+            ? (ar ? "الذاكرة المتاحة في استوديو شام 2: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Memory available in Sham 2's own Studio: " + available + ". Start requires at least 3072 MB.")
+            : (ar ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Computer hub memory available: " + available + ". Start requires at least 3072 MB.")}
           {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
         </div>
       ) : null}
@@ -466,7 +473,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <div className="n-meta">
             {preparing
               ? (ar ? "يتم تجهيز خادم الشاشة ومدير النوافذ والطرفية. ستظهر الشاشة عند اكتمال التشغيل." : "Preparing the display server, window manager and terminal. The screen appears when startup completes.")
-              : (ar ? "هذا سطح مكتب Linux رسومي على الحاسوب المركزي؛ لكل مستخدم ونموذج جلسة وملفات منفصلة. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux session on the shared computer hub, isolated by user and selected model. Start it to view and control the screen.")}
+              : (model === "sham_v2"
+                ? (ar ? "هذا سطح مكتب Linux رسومي يعمل داخل استوديو شام 2 نفسه؛ جلسة المستخدم وملفاته محفوظة هناك. شغّله لعرض الشاشة والتحكم بها." : "This Linux desktop runs inside Sham 2's own Studio; the user's session and files stay there. Start it to view and control it.")
+                : (ar ? "هذا سطح مكتب Linux رسومي على الحاسوب المركزي؛ لكل مستخدم ونموذج جلسة وملفات منفصلة. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux session on the shared computer hub, isolated by user and selected model. Start it to view and control the screen."))}
           </div>
         </div>
       )}
