@@ -74,6 +74,8 @@ def role_helper(a):
     end = time.time() + a.hold
     while time.time() < end:
         time.sleep(1)
+        if a.until_served and net.stats["proposals_served"] >= 1 and net.stats["jobs_served"] >= 1:     # cross-host: the other host is done with us
+            end = min(end, time.time() + 15)
     emit({"role": "helper", "served": net.stats, "files_in_my_sandbox": sorted(os.listdir(net.me.term.dir))})
     net.stop()
 
@@ -176,6 +178,31 @@ def main(a):
         ev["relay_health_before"] = h
         ev["auth"] = relay_auth_checks(a)
         check("0 relay refuses unsigned, forged and replayed requests", ev["auth"] == {"unsigned": 401, "forged": 401, "replayed": 409, "signed": 200}, ev["auth"])
+        if a.remote_peer:                                              # FIRST, before the local roles (their hold would run out while we wait):
+            xme = node(a.url, a.mesh, {}).start()                       # a helper started on ANOTHER machine (CI: a second runner, which can be queued minutes later)
+            end = time.time() + a.remote_wait
+            remote = []
+            while time.time() < end:
+                remote = [k for k in xme.nodes if k != xme.ident.id and isinstance(xme.nodes[k], MN.RemotePeer) and xme.nodes[k].caps.get("propose")]
+                if remote:
+                    break
+                time.sleep(3)
+                xme._join()
+            ev["remote_peers"] = remote
+            ev["remote_waited_s"] = round(a.remote_wait - max(0.0, end - time.time()), 1)
+            check("1b a peer on ANOTHER host is present", bool(remote), ev)
+            if remote:
+                rp = xme.nodes[remote[0]]
+                cmd = rp.propose("show errors")
+                res = xme.me.term.run(cmd) if cmd else None
+                ev["cross_host"] = {"peer": remote[0][:12], "proposed": cmd, "ran_here_ok": bool(res and res.ok), "out": (res.out if res else "")[:80]}
+                check("1c the other host proposed a command; it ran in THIS host's sandbox", bool(res and res.ok and "ERROR" in res.out), ev["cross_host"])
+                xc = [base64.b64encode(os.urandom(128)).decode() for _ in range(6)]
+                xj = xme.submit_job("sha256", {"chunks": xc}, peers=[remote[0]], timeout=30)
+                ev["cross_host"]["job"] = {"shards": xj["shards"], "correct": xj["result"] == MN._job_sha256({"chunks": xc})}
+                check("1d a sha256 job computed on the other host was spot-checked and accepted here",
+                      xj["result"] == MN._job_sha256({"chunks": xc}) and any(sh["ok"] and remote[0] in sh["peers"] for sh in xj["shards"]), ev["cross_host"]["job"])
+            xme.stop()
         fast, slow, evil = spawn(a, "helper", "--delay", "0.05", "--adapter"), spawn(a, "helper", "--delay", "6"), spawn(a, "evil")
         procs += [fast, slow, evil]
         f_info, s_info, e_info = first_result(fast), first_result(slow), first_result(evil)
@@ -194,30 +221,6 @@ def main(a):
         check("2 hedged race: fast peer wins, slow tail cut, evil `sudo ls` refused", r["ok"] and r["via"] == "race" and r["command"] == "ls" and el < 4, ev["race"])
         r2 = me.ask("count the lines in the log")
         ev["local"] = {"via": r2["via"], "ok": r2["ok"]}
-        if a.remote_peer:                                              # a helper started on ANOTHER machine (CI: a second runner) with --role helper
-            end = time.time() + a.remote_wait
-            remote = []
-            while time.time() < end:
-                remote = [k for k in me.nodes if k not in want and k != me.ident.id and isinstance(me.nodes[k], MN.RemotePeer)
-                          and me.nodes[k].caps.get("propose")]
-                if remote:
-                    break
-                time.sleep(2)
-                me._join()
-            ev["remote_peers"] = remote
-            check("1b a peer on ANOTHER host is present", bool(remote), ev)
-            if remote:
-                rp = me.nodes[remote[0]]
-                cmd = rp.propose("show errors")
-                res = me.me.term.run(cmd) if cmd else None
-                ev["cross_host"] = {"peer": remote[0][:12], "proposed": cmd, "ran_here_ok": bool(res and res.ok), "out": (res.out if res else "")[:80]}
-                check("1c the other host proposed a command; it ran in THIS host's sandbox", bool(res and res.ok and "ERROR" in res.out), ev["cross_host"])
-                xc = [base64.b64encode(os.urandom(128)).decode() for _ in range(6)]
-                xj = me.submit_job("sha256", {"chunks": xc}, peers=[remote[0]], timeout=30)
-                ev["cross_host"]["job"] = {"shards": xj["shards"], "correct": xj["result"] == MN._job_sha256({"chunks": xc})}
-                check("1d a sha256 job computed on the other host was spot-checked and accepted here",
-                      xj["result"] == MN._job_sha256({"chunks": xc}) and any(sh["ok"] and remote[0] in sh["peers"] for sh in xj["shards"]), ev["cross_host"]["job"])
-
         time.sleep(2)
 
         nc = spawn(a, "newcomer")
@@ -307,7 +310,8 @@ if __name__ == "__main__":
     ap.add_argument("--hold", type=float, default=150.0)
     ap.add_argument("--adapter", action="store_true")
     ap.add_argument("--remote-peer", action="store_true")
-    ap.add_argument("--remote-wait", type=float, default=150.0)
+    ap.add_argument("--until-served", action="store_true", help="helper: leave 15 s after it served a proposal and a job (cross-host CI)")
+    ap.add_argument("--remote-wait", type=float, default=540.0)
     ap.add_argument("--device", default="auto", help="auto|yes|no: also run a device node with the Mini App's code (needs node >= 22)")
     a = ap.parse_args()
     a.device = a.device == "yes" or (a.device == "auto" and bool(shutil.which("node")) and os.path.isfile(os.path.join(HERE, "..", "..", "scripts", "mesh", "device_node.mts")))
