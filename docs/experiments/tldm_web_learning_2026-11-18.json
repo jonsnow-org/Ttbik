@@ -1,0 +1,1183 @@
+{
+ "date": "2026-11-18",
+ "what": "T-LDM web learning vs the no-regression gate (writer, donor head; 3 seeds; CPU; offline web cache). Gate = no net loss and <=2% lost items on previously-correct replay rows and the dev set, plus a gain on the adapter's own web rows. Held-out 1+2 are never seen by the gate (reported only).",
+ "reproduce": "TLDM_DONOR=<MiniLM dir> python ai-system/tldm/eval/web_learning_benchmark.py --ckpt d_S.pt --train-seed S --arms old_1to1_lr1e-3_120,tiered_l2,tiered_l2_routed --webcache DIR --json out.json; end-to-end: python ai-system/tldm/eval/self_evolution_benchmark.py --ckpt d_S.pt --train-seed S --arms web --webcache DIR --offline",
+ "web_set": [
+  {
+   "pairs": 189,
+   "pages": 47,
+   "filter": {
+    "did not run / non-zero exit in the sandbox": 52,
+    "decontamination: too close to a held-out/benchmark task": 51,
+    "needs stdin / shell variables (not a self-contained task)": 76,
+    "command longer than the writer's block": 14,
+    "no output and no change": 10,
+    "not deterministic": 3,
+    "personal data / empty task": 6,
+    "deny: credential or personal data in the command": 3,
+    "licence CC-BY-SA-4.0 not permissive": 23,
+    "kept": 189
+   },
+   "by_source": {
+    "awesome-cheatsheets": 18,
+    "cheat/cheatsheets": 44,
+    "tldr-pages": 127
+   },
+   "licences": [
+    "CC-BY-4.0",
+    "CC0-1.0",
+    "MIT"
+   ],
+   "examples": [
+    [
+     "list files one per line",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "list all files, including hidden files",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "list files with a trailing symbol to indicate file type (directo",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "إدراج كل الملفات في أسطر منفصلة",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات بما فيها الملفات المخفية",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "print the contents of names.txt to stdout",
+     "cat names.txt",
+     "tldr-pages"
+    ],
+    [
+     "print the contents of README.md to stdout",
+     "cat README.md",
+     "tldr-pages"
+    ],
+    [
+     "طباعة محتوي app.log إلى stdout",
+     "cat app.log",
+     "tldr-pages"
+    ],
+    [
+     "طباعة محتوي names.txt إلى stdout",
+     "cat names.txt",
+     "tldr-pages"
+    ],
+    [
+     "طباعة محتوي README.md إلى stdout",
+     "cat README.md",
+     "tldr-pages"
+    ],
+    [
+     "display each line once in names.txt",
+     "sort names.txt | uniq",
+     "tldr-pages"
+    ]
+   ]
+  },
+  {
+   "pairs": 189,
+   "pages": 47,
+   "filter": {
+    "did not run / non-zero exit in the sandbox": 52,
+    "decontamination: too close to a held-out/benchmark task": 51,
+    "needs stdin / shell variables (not a self-contained task)": 76,
+    "command longer than the writer's block": 14,
+    "no output and no change": 10,
+    "not deterministic": 3,
+    "personal data / empty task": 6,
+    "deny: credential or personal data in the command": 3,
+    "licence CC-BY-SA-4.0 not permissive": 23,
+    "kept": 189
+   },
+   "by_source": {
+    "awesome-cheatsheets": 18,
+    "cheat/cheatsheets": 44,
+    "tldr-pages": 127
+   },
+   "licences": [
+    "CC-BY-4.0",
+    "CC0-1.0",
+    "MIT"
+   ],
+   "examples": [
+    [
+     "list files one per line",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "list all files, including hidden files",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "list files with a trailing symbol to indicate file type (directo",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "إدراج كل الملفات في أسطر منفصلة",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات بما فيها الملفات المخفية",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "print the current directory, and resolve all symlinks (i.e. show",
+     "pwd -P",
+     "tldr-pages"
+    ],
+    [
+     "display help",
+     "pwd --help",
+     "tldr-pages"
+    ],
+    [
+     "اطبع اسم الدليل الحالي و حل جميع الروابط اللينة (وبمعنى آخر إظها",
+     "pwd -P",
+     "tldr-pages"
+    ],
+    [
+     "print the contents of names.txt to stdout",
+     "cat names.txt",
+     "tldr-pages"
+    ],
+    [
+     "print the contents of README.md to stdout",
+     "cat README.md",
+     "tldr-pages"
+    ],
+    [
+     "طباعة محتوي app.log إلى stdout",
+     "cat app.log",
+     "tldr-pages"
+    ]
+   ]
+  },
+  {
+   "pairs": 188,
+   "pages": 47,
+   "filter": {
+    "did not run / non-zero exit in the sandbox": 53,
+    "needs stdin / shell variables (not a self-contained task)": 76,
+    "deny: credential or personal data in the command": 3,
+    "decontamination: too close to a held-out/benchmark task": 51,
+    "command longer than the writer's block": 13,
+    "no output and no change": 10,
+    "not deterministic": 4,
+    "personal data / empty task": 6,
+    "licence CC-BY-SA-4.0 not permissive": 20,
+    "kept": 188
+   },
+   "by_source": {
+    "awesome-cheatsheets": 18,
+    "cheat/cheatsheets": 44,
+    "tldr-pages": 126
+   },
+   "licences": [
+    "CC-BY-4.0",
+    "CC0-1.0",
+    "MIT"
+   ],
+   "examples": [
+    [
+     "list files one per line",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "list all files, including hidden files",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "list files with a trailing symbol to indicate file type (directo",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "إدراج كل الملفات في أسطر منفصلة",
+     "ls -1",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات بما فيها الملفات المخفية",
+     "ls -a",
+     "tldr-pages"
+    ],
+    [
+     "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+     "ls -F",
+     "tldr-pages"
+    ],
+    [
+     "print the current directory, and resolve all symlinks (i.e. show",
+     "pwd -P",
+     "tldr-pages"
+    ],
+    [
+     "display help",
+     "pwd --help",
+     "tldr-pages"
+    ],
+    [
+     "اطبع اسم الدليل الحالي و حل جميع الروابط اللينة (وبمعنى آخر إظها",
+     "pwd -P",
+     "tldr-pages"
+    ],
+    [
+     "display each line once in names.txt",
+     "sort names.txt | uniq",
+     "tldr-pages"
+    ],
+    [
+     "display only unique lines in names.txt",
+     "sort names.txt | uniq -u",
+     "tldr-pages"
+    ],
+    [
+     "display only duplicate lines in names.txt",
+     "sort names.txt | uniq -d",
+     "tldr-pages"
+    ]
+   ]
+  }
+ ],
+ "base": {
+  "per_seed": [
+   {
+    "heldout": 0.917,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.085,
+    "web_known": 0.241,
+    "web_new": 0.056,
+    "heldout_routed_to_web": 0
+   },
+   {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.101,
+    "web_known": 0.345,
+    "web_new": 0.056,
+    "heldout_routed_to_web": 0
+   },
+   {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.074,
+    "web_known": 0.207,
+    "web_new": 0.05,
+    "heldout_routed_to_web": 0
+   }
+  ],
+  "mean": {
+   "heldout": 0.778,
+   "heldout2": 0.81,
+   "train30": 0.967,
+   "replay150": 1.0,
+   "dev": 0.96,
+   "web": 0.087,
+   "web_known": 0.264,
+   "web_new": 0.054,
+   "heldout_routed_to_web": 0
+  }
+ },
+ "before_old_recipe_1to1_lr1e-3_120_global": {
+  "per_seed": [
+   {
+    "heldout": 0.917,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.084,
+    "web_known": 0.241,
+    "web_new": 0.056,
+    "heldout_routed_to_web": 0
+   },
+   {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.102,
+    "web_known": 0.345,
+    "web_new": 0.057,
+    "heldout_routed_to_web": 0
+   },
+   {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.074,
+    "web_known": 0.207,
+    "web_new": 0.05,
+    "heldout_routed_to_web": 0
+   }
+  ],
+  "mean": {
+   "heldout": 0.778,
+   "heldout2": 0.81,
+   "train30": 0.967,
+   "replay150": 1.0,
+   "dev": 0.96,
+   "web": 0.087,
+   "web_known": 0.264,
+   "web_new": 0.054,
+   "heldout_routed_to_web": 0
+  },
+  "accepted_per_seed": [
+   [],
+   [],
+   []
+  ],
+  "families_per_seed": [
+   {
+    "web_inspect": {
+     "pairs": 84,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      5,
+      8
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 71,
+     "accepted": false,
+     "why": "no gain on target target (8 -> 7)",
+     "target": [
+      8,
+      7
+     ]
+    },
+    "web_count": {
+     "pairs": 33,
+     "accepted": false,
+     "why": "regression on dev: 2 previously-correct item(s) lost (144 -> 142)",
+     "target": [
+      3,
+      10
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "regression on prev: 13 previously-correct item(s) lost (150 -> 137)",
+     "target": [
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "web_inspect": {
+     "pairs": 81,
+     "accepted": false,
+     "why": "regression on prev: 1 previously-correct item(s) lost (150 -> 149)",
+     "target": [
+      4,
+      7
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 71,
+     "accepted": false,
+     "why": "no gain on target target (12 -> 6)",
+     "target": [
+      12,
+      6
+     ]
+    },
+    "web_count": {
+     "pairs": 33,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      3,
+      15
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "regression on prev: 8 previously-correct item(s) lost (150 -> 142)",
+     "target": [
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "web_inspect": {
+     "pairs": 83,
+     "accepted": false,
+     "why": "regression on prev: 3 previously-correct item(s) lost (150 -> 147)",
+     "target": [
+      2,
+      9
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 71,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      9,
+      4
+     ]
+    },
+    "web_count": {
+     "pairs": 33,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      3,
+      8
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "regression on prev: 10 previously-correct item(s) lost (150 -> 140)",
+     "target": [
+      0,
+      0
+     ]
+    }
+   }
+  ]
+ },
+ "tiered_l2_known_global (rejected design: held-out loss on seed 0)": {
+  "per_seed": [
+   {
+    "heldout": 0.75,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.232,
+    "web_known": 0.241,
+    "web_new": 0.23,
+    "heldout_routed_to_web": 12
+   },
+   {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.967,
+    "web": 0.294,
+    "web_known": 0.483,
+    "web_new": 0.259,
+    "heldout_routed_to_web": 18
+   },
+   {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.201,
+    "web_known": 0.207,
+    "web_new": 0.2,
+    "heldout_routed_to_web": 0
+   }
+  ],
+  "mean": {
+   "heldout": 0.722,
+   "heldout2": 0.81,
+   "train30": 0.967,
+   "replay150": 1.0,
+   "dev": 0.962,
+   "web": 0.242,
+   "web_known": 0.31,
+   "web_new": 0.23,
+   "heldout_routed_to_web": 10
+  },
+  "accepted_per_seed": [
+   [
+    "kn_inspect",
+    "web_count",
+    "web_inspect",
+    "web_search_sort",
+    "web_write"
+   ],
+   [
+    "kn_inspect",
+    "kn_search_sort",
+    "web_count",
+    "web_inspect",
+    "web_search_sort",
+    "web_write"
+   ],
+   [
+    "web_count",
+    "web_inspect",
+    "web_write"
+   ]
+  ],
+  "families_per_seed": [
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": true,
+     "why": "gain on target 3 -> 4, no regression on prev, dev",
+     "target": [
+      3,
+      4
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      1,
+      4
+     ]
+    },
+    "web_inspect": {
+     "pairs": 74,
+     "accepted": true,
+     "why": "gain on target 0 -> 10, no regression on prev, dev",
+     "target": [
+      0,
+      10
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": true,
+     "why": "gain on target 7 -> 10, no regression on prev, dev",
+     "target": [
+      7,
+      10
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 15, no regression on prev, dev",
+     "target": [
+      0,
+      15
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 2, no regression on prev, dev",
+     "target": [
+      0,
+      2
+     ]
+    }
+   },
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": true,
+     "why": "gain on target 4 -> 5, no regression on prev, dev",
+     "target": [
+      4,
+      5
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 3 -> 4, no regression on prev, dev",
+     "target": [
+      3,
+      4
+     ]
+    },
+    "web_inspect": {
+     "pairs": 71,
+     "accepted": true,
+     "why": "gain on target 0 -> 14, no regression on prev, dev",
+     "target": [
+      0,
+      14
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": true,
+     "why": "gain on target 7 -> 9, no regression on prev, dev",
+     "target": [
+      7,
+      9
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 16, no regression on prev, dev",
+     "target": [
+      0,
+      16
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 2, no regression on prev, dev",
+     "target": [
+      0,
+      2
+     ]
+    }
+   },
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      2,
+      5
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": false,
+     "why": "regression on prev: 1 previously-correct item(s) lost (150 -> 149)",
+     "target": [
+      1,
+      3
+     ]
+    },
+    "web_inspect": {
+     "pairs": 73,
+     "accepted": true,
+     "why": "gain on target 0 -> 7, no regression on prev, dev",
+     "target": [
+      0,
+      7
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": false,
+     "why": "no gain on target target (8 -> 8)",
+     "target": [
+      8,
+      8
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 15, no regression on prev, dev",
+     "target": [
+      0,
+      15
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 2, no regression on prev, dev",
+     "target": [
+      0,
+      2
+     ]
+    }
+   }
+  ]
+ },
+ "after_tiered_l2_routed (engine.WEB_RECIPE)": {
+  "per_seed": [
+   {
+    "heldout": 0.917,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.148,
+    "web_known": 0.31,
+    "web_new": 0.119,
+    "heldout_routed_to_web": 0
+   },
+   {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.233,
+    "web_known": 0.31,
+    "web_new": 0.219,
+    "heldout_routed_to_web": 1
+   },
+   {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 1.0,
+    "dev": 0.96,
+    "web": 0.25,
+    "web_known": 0.276,
+    "web_new": 0.245,
+    "heldout_routed_to_web": 0
+   }
+  ],
+  "mean": {
+   "heldout": 0.778,
+   "heldout2": 0.81,
+   "train30": 0.967,
+   "replay150": 1.0,
+   "dev": 0.96,
+   "web": 0.21,
+   "web_known": 0.299,
+   "web_new": 0.194,
+   "heldout_routed_to_web": 0.333
+  },
+  "accepted_per_seed": [
+   [
+    "kn_search_sort",
+    "web_inspect",
+    "web_write"
+   ],
+   [
+    "kn_search_sort",
+    "web_count",
+    "web_inspect",
+    "web_search_sort"
+   ],
+   [
+    "kn_inspect",
+    "kn_search_sort",
+    "web_count",
+    "web_inspect"
+   ]
+  ],
+  "families_per_seed": [
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 1 -> 3, no regression on prev, dev",
+     "target": [
+      1,
+      3
+     ]
+    },
+    "web_inspect": {
+     "pairs": 73,
+     "accepted": true,
+     "why": "gain on target 2 -> 10, no regression on prev, dev",
+     "target": [
+      2,
+      10
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": false,
+     "why": "no gain on target target (7 -> 5)",
+     "target": [
+      7,
+      5
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": false,
+     "why": "regression on dev: 1 previously-correct item(s) lost (144 -> 143)",
+     "target": [
+      0,
+      16
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 2, no regression on prev, dev",
+     "target": [
+      0,
+      2
+     ]
+    }
+   },
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": false,
+     "why": "no gain on target target (4 -> 4)",
+     "target": [
+      4,
+      4
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 3 -> 4, no regression on prev, dev",
+     "target": [
+      3,
+      4
+     ]
+    },
+    "web_inspect": {
+     "pairs": 73,
+     "accepted": true,
+     "why": "gain on target 0 -> 11, no regression on prev, dev",
+     "target": [
+      0,
+      11
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": true,
+     "why": "gain on target 9 -> 10, no regression on prev, dev",
+     "target": [
+      9,
+      10
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 14, no regression on prev, dev",
+     "target": [
+      0,
+      14
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "no gain on target target (0 -> 0)",
+     "target": [
+      0,
+      0
+     ]
+    }
+   },
+   {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)",
+     "target": [
+      3,
+      3
+     ]
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": true,
+     "why": "gain on target 2 -> 3, no regression on prev, dev",
+     "target": [
+      2,
+      3
+     ]
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 1 -> 2, no regression on prev, dev",
+     "target": [
+      1,
+      2
+     ]
+    },
+    "web_inspect": {
+     "pairs": 72,
+     "accepted": true,
+     "why": "gain on target 0 -> 14, no regression on prev, dev",
+     "target": [
+      0,
+      14
+     ]
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": false,
+     "why": "no gain on target target (8 -> 4)",
+     "target": [
+      8,
+      4
+     ]
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 17, no regression on prev, dev",
+     "target": [
+      0,
+      17
+     ]
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "no gain on target target (0 -> 0)",
+     "target": [
+      0,
+      0
+     ]
+    }
+   }
+  ]
+ },
+ "engine_end_to_end": [
+  {
+   "base": {
+    "heldout": 0.917,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 0.987,
+    "dev": 0.96
+   },
+   "after_web": {
+    "heldout": 0.917,
+    "heldout2": 0.857,
+    "train30": 0.967,
+    "replay150": 0.987,
+    "dev": 0.96,
+    "round": "web"
+   },
+   "families": {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)"
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)"
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 1 -> 2, no regression on prev_correct, dev"
+    },
+    "web_inspect": {
+     "pairs": 74,
+     "accepted": true,
+     "why": "gain on target 2 -> 13, no regression on prev_correct, dev"
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": true,
+     "why": "gain on target 7 -> 9, no regression on prev_correct, dev"
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 15, no regression on prev_correct, dev"
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 2, no regression on prev_correct, dev"
+    }
+   }
+  },
+  {
+   "base": {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 0.973,
+    "dev": 0.96
+   },
+   "after_web": {
+    "heldout": 0.667,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 0.973,
+    "dev": 0.96,
+    "round": "web"
+   },
+   "families": {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)"
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": false,
+     "why": "no gain on target target (4 -> 4)"
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)"
+    },
+    "web_inspect": {
+     "pairs": 75,
+     "accepted": true,
+     "why": "gain on target 0 -> 13, no regression on prev_correct, dev"
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": false,
+     "why": "no gain on target target (9 -> 8)"
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 16, no regression on prev_correct, dev"
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": false,
+     "why": "no gain on target target (0 -> 0)"
+    }
+   }
+  },
+  {
+   "base": {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 0.973,
+    "dev": 0.96
+   },
+   "after_web": {
+    "heldout": 0.75,
+    "heldout2": 0.786,
+    "train30": 0.967,
+    "replay150": 0.973,
+    "dev": 0.96,
+    "round": "web"
+   },
+   "families": {
+    "kn_count": {
+     "pairs": 11,
+     "accepted": false,
+     "why": "no gain on target target (3 -> 3)"
+    },
+    "kn_inspect": {
+     "pairs": 10,
+     "accepted": true,
+     "why": "gain on target 2 -> 3, no regression on prev_correct, dev"
+    },
+    "kn_search_sort": {
+     "pairs": 8,
+     "accepted": true,
+     "why": "gain on target 1 -> 2, no regression on prev_correct, dev"
+    },
+    "web_inspect": {
+     "pairs": 75,
+     "accepted": true,
+     "why": "gain on target 0 -> 5, no regression on prev_correct, dev"
+    },
+    "web_search_sort": {
+     "pairs": 63,
+     "accepted": false,
+     "why": "no gain on target target (8 -> 5)"
+    },
+    "web_count": {
+     "pairs": 22,
+     "accepted": true,
+     "why": "gain on target 0 -> 16, no regression on prev_correct, dev"
+    },
+    "web_write": {
+     "pairs": 2,
+     "accepted": true,
+     "why": "gain on target 0 -> 1, no regression on prev_correct, dev"
+    }
+   }
+  }
+ ]
+}

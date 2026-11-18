@@ -32,6 +32,10 @@ UA = "Sham2-TLDM-learner/1.0 (+https://github.com/jonsnow-org/Ttbik; training-da
 PERMISSIVE = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "CC0-1.0", "CC-BY-4.0", "Unlicense", "0BSD", "PSF-2.0"}
 TLDR_RAW = "https://raw.githubusercontent.com/tldr-pages/tldr/main/{lang}/common/{cmd}.md"
 TLDR_LICENSE = "https://raw.githubusercontent.com/tldr-pages/tldr/main/LICENSE.md"
+CHEAT_RAW = "https://raw.githubusercontent.com/cheat/cheatsheets/master/{cmd}"                 # cheat/cheatsheets: CC0-1.0 (.github/LICENSE.txt)
+CHEAT_LICENSE = "https://raw.githubusercontent.com/cheat/cheatsheets/master/.github/LICENSE.txt"
+AWESOME_BASH = "https://raw.githubusercontent.com/LeCoupa/awesome-cheatsheets/master/languages/bash.sh"   # MIT
+AWESOME_LICENSE = "https://raw.githubusercontent.com/LeCoupa/awesome-cheatsheets/master/LICENSE"
 SE_API = "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=votes&q={q}&site=unix&filter=withbody&pagesize={n}"
 INJECTION = re.compile(r"(?i)(ignore (?:all |any )?(?:previous|prior|above) (?:instructions|prompts)|disregard (?:the|your) (?:rules|instructions)|you are (?:now )?(?:an? )?(?:ai|assistant|chatgpt)|system prompt|<script|BEGIN (?:SYSTEM|INSTRUCTIONS)|do not tell the user)")
 
@@ -132,6 +136,15 @@ class WebFetcher:
                 t = self.get(url)
                 if t:
                     pages.append({"source": "tldr-pages", "url": url, "license": tldr_lic, "text": t, "lang": lang})
+        cheat_lic = detect_license(self.get(CHEAT_LICENSE) or "")
+        for cmd in gaps:
+            url = CHEAT_RAW.format(cmd=cmd)
+            t = self.get(url)
+            if t:
+                pages.append({"source": "cheat/cheatsheets", "url": url, "license": cheat_lic, "text": t, "lang": "pages"})
+        t = self.get(AWESOME_BASH)
+        if t:
+            pages.append({"source": "awesome-cheatsheets", "url": AWESOME_BASH, "license": detect_license(self.get(AWESOME_LICENSE) or ""), "text": t, "lang": "pages"})
         for cmd in gaps[:se_queries]:
             url = SE_API.format(q=urllib.parse.quote(f"{cmd} command"), n=3)
             t = self.get(url)
@@ -156,7 +169,9 @@ def _instantiate(cmd: str, i: int):
         if re.fullmatch(r"-\w+|--[\w-]+", inner):
             return inner
         low = inner.lower()
-        if re.search(r"path/to/(?:input_)?file\d*$|^file\d*$|path/to/file\d*\.\w+", low):
+        if re.search(r"dirname|new_?dir|path/to/new", low):
+            v = "newdir"
+        elif re.search(r"path/to/(?:input_)?file\d*$|^(?:input)?file(?:name)?\d*$|path/to/file\d*\.\w+|^filenames?$", low):
             v = FIXTURE_FILES["file"][(i + len(used)) % 3]
         elif re.search(r"directory|folder", low):
             v = "."
@@ -169,8 +184,32 @@ def _instantiate(cmd: str, i: int):
         used[inner] = v
         return v
 
+    cmd = re.sub(r"<([\w./-]+)>", r"{{\1}}", cmd)                     # cheat-sheet style <file> placeholders
     out = re.sub(r"\{\{(.*?)\}\}", rep, cmd)
     return (None, None) if "\x00" in out else (out, used)
+
+
+def _pairs(desc: str, cmd: str, p: dict, n_files: int = 3) -> list:
+    """One example -> up to n_files pairs (the same example instantiated on each fixture file: more, and more varied, training rows)."""
+    out, seen = [], set()
+    for i in range(n_files):
+        c, used = _instantiate(cmd, i)
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        task = re.sub(r"`", "", desc).strip().rstrip(":")
+        for ph, v in (used or {}).items():                          # placeholders written in the description itself (<file>, <number>)
+            task = task.replace("<" + ph + ">", v).replace("{{" + ph + "}}", v)
+        task = re.sub(r"<(?:number|n|count|num)>", "3", task)
+        if re.search(r"<[\w./-]+>", task):
+            continue
+        task = task[0].lower() + task[1:] if task[:1].isupper() and not task[:2].isupper() else task
+        files = [v for v in (used or {}).values() if "." in v and v != "."]
+        for f in files:                                             # the argument goes into the task, as a user would say it
+            task2 = re.sub(r"\b(?:a|the|given|specific|your) (?:file|text file|filename)\b|\bملف\b", f, task, count=1)
+            task = task2 if task2 != task else task + f" in {f}"
+        out.append({"task": task[:64], "command": c, "url": p["url"], "license": p["license"], "source": p["source"]})
+    return out
 
 
 def extract(pages: list) -> list:
@@ -182,16 +221,16 @@ def extract(pages: list) -> list:
             out.append({"rejected": "prompt-injection text in the page", "url": p["url"]})
             continue
         if p["source"] == "tldr-pages":
-            for i, (desc, cmd) in enumerate(re.findall(r"^- (.+?):?\s*\n\s*\n`([^`\n]+)`", text, re.M)):
-                c, used = _instantiate(cmd, i)
-                if not c:
-                    continue
-                task = re.sub(r"`", "", desc).strip().rstrip(":")
-                files = [v for v in (used or {}).values() if "." in v and v != "."]
-                for f in files:                                     # the argument goes into the task, as a user would say it
-                    task2 = re.sub(r"\b(?:a|the|given|specific) (?:file|text file)\b|\bملف\b", f, task, count=1)
-                    task = task2 if task2 != task else task + f" in {f}"
-                out.append({"task": task[:64], "command": c, "url": p["url"], "license": p["license"], "source": p["source"]})
+            for desc, cmd in re.findall(r"^- (.+?):?\s*\n\s*\n`([^`\n]+)`", text, re.M):
+                out += _pairs(desc, cmd, p)
+        elif p["source"] == "cheat/cheatsheets":
+            for desc, block in re.findall(r"^# (?:To )?(.+?):?[ \t]*\n((?:[^#\n][^\n]*\n?)+)", text, re.M):
+                for cmd in block.strip().splitlines()[:2]:
+                    out += _pairs(desc, re.sub(r"\s+#.*$", "", cmd).strip(), p)
+        elif p["source"] == "awesome-cheatsheets":
+            for cmd, desc in re.findall(r"^(\S[^#\n]*?)\s+#\s+([^\n]+)$", text, re.M):
+                if cmd.split()[0] in SANDBOX_COMMANDS:
+                    out += _pairs(desc.split(",")[0].split(". ")[0], cmd.strip(), p)
         elif p["source"] == "unix.stackexchange":
             try:
                 items = json.loads(text).get("items", [])
