@@ -465,6 +465,8 @@ def sham2_flatten(res: dict) -> dict:
         out["identity_after"] = idn["after"]["identity"]["ok"]
         out["nll_before"] = idn["before"]["general_nll"]
         out["nll_after"] = idn["after"]["general_nll"]
+        if "retention" in idn["after"]:
+            out["retention_after"] = idn["after"]["retention"]["ok"]
     for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
         if k in res:
             out[k] = res[k]
@@ -550,7 +552,7 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]
@@ -687,7 +689,7 @@ def _short(res) -> dict:
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
             "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
             "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
-            "identity_before", "identity_after", "nll_before", "nll_after")
+            "identity_before", "identity_after", "nll_before", "nll_after", "retention_after")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
