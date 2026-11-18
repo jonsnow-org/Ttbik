@@ -47,6 +47,7 @@ from mesh_crypto import Identity, canon, verify_obj, sha256_file  # noqa: E402
 from sandbox_terminal import SandboxTerminal  # noqa: E402
 
 DEFAULT_URL = os.environ.get("SHAM_MESH_URL", "https://sham-mesh.jonsnowx1r.workers.dev")
+UA = {"user-agent": "sham-mesh-client/1"}         # Cloudflare answers 403 to the default Python-urllib agent
 CHUNK = 96 * 1024
 
 
@@ -115,7 +116,7 @@ class RelayClient:
             raise MeshError(f"offline: {type(e).__name__}") from None
 
     def health(self) -> dict:
-        with urllib.request.urlopen(self.base + "health", timeout=self.timeout) as r:
+        with urllib.request.urlopen(urllib.request.Request(self.base + "health", headers=UA), timeout=self.timeout) as r:
             return json.loads(r.read())
 
     def hello(self, slots: int, caps: dict) -> dict:
@@ -710,7 +711,7 @@ class NetMesh(Mesh):
         h = hashlib.sha256()
         with open(tmp, "wb") as f:
             if entry.get("url"):
-                with urllib.request.urlopen(entry["url"], timeout=timeout) as r:
+                with urllib.request.urlopen(urllib.request.Request(entry["url"], headers=UA), timeout=timeout) as r:
                     for chunk in iter(lambda: r.read(1 << 20), b""):
                         f.write(chunk)
                         h.update(chunk)

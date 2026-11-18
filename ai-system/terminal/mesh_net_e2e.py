@@ -122,7 +122,7 @@ def relay_auth_checks(a) -> dict:
 
     def call(headers):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, data=body, method="POST", headers={"content-type": "application/json", **headers}), timeout=20) as r:
+            with urllib.request.urlopen(urllib.request.Request(url, data=body, method="POST", headers={"content-type": "application/json", **MN.UA, **headers}), timeout=20) as r:
                 return r.status
         except urllib.error.HTTPError as e:
             return e.code
