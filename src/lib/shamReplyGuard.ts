@@ -79,15 +79,15 @@ export const STALE_REPLY_USER = "تعذّر تكوين جواب مناسب له�
 
 /** Remove only an immediately repeated, identical sentence; never synthesize or rewrite the model's wording. */
 export function collapseAdjacentDuplicateSentences(text: string): string {
-  const chunks = [...String(text || "").matchAll(/[^.!?؟\\n]+[.!?؟]?/gu)];
+  const chunks = [...String(text || "").matchAll(/[^.!?؟\n]+[.!?؟]?/gu)];
   const remove: Array<[number, number]> = [];
   let previousKey = "";
   for (const chunk of chunks) {
     const value = chunk[0];
     const key = value.normalize("NFKC")
-      .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, "")
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
       .toLocaleLowerCase("ar")
-      .replace(/[\\p{P}\\p{S}\\s]+/gu, " ")
+      .replace(/[\p{P}\p{S}\s]+/gu, " ")
       .trim();
     if (key.length >= 28 && key === previousKey) {
       const start = chunk.index ?? 0;
