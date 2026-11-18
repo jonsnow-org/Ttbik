@@ -301,6 +301,37 @@ def rewordings_never_copy_or_come_close_to_a_held_out_task():
 
 
 @test
+def inference_speed_options_keep_results_bitlinear_cache_bf16_confident_exit_thinker_confidence():
+    from sham_tldm.bitlinear import BitLinear
+    torch.manual_seed(0)
+    lin = BitLinear(16, 8)
+    x = torch.randn(3, 16)
+    ref = lin(x)                                                    # training path
+    lin.eval()
+    with torch.inference_mode():
+        assert torch.allclose(lin(x), ref, atol=1e-6) and torch.allclose(lin(x), ref, atol=1e-6)    # cached ternary weight = same result
+    with torch.no_grad():
+        lin.weight.mul_(-1)                                          # a weight update must drop the cache
+    with torch.inference_mode():
+        assert torch.allclose(lin(x), -ref, atol=1e-5)
+    m = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+    ids = torch.tensor([encode_bytes("ls", 12)])
+    out, info = m.generate(ids, steps=4)
+    assert info["writer_passes"] == 4
+    out2, info2 = m.generate(ids, steps=4, confident=1e-9)          # everything "confident": one pass fills the block
+    assert info2["writer_passes"] == 1 and out2.shape == out.shape
+    mb = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval().to(torch.bfloat16)
+    assert mb.generate(ids, steps=4)[0].shape == (1, 8), "bf16 inference runs (the reader's scan keeps the dtype)"
+    mc = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=20, block=8, writer_layers=1, heads=2, in_len=12, think_exit="confidence", think_min_steps=7).eval()
+    with torch.no_grad():
+        mc.core.thinker.conf.bias.fill_(10.0)                        # confidence ~1: the book's rule exits at step 7
+    assert mc.generate(ids, steps=2, early_exit=True)[1]["latent_steps_used"] == 7
+    with torch.no_grad():
+        mc.core.thinker.conf.bias.fill_(-10.0)
+    assert mc.generate(ids, steps=2, early_exit=True)[1]["latent_steps_used"] == 20
+
+
+@test
 def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     import unittest
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))

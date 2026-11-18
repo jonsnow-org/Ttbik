@@ -1,0 +1,11 @@
+# A configuration that is really ~0.3B parameters (d=1280, 12 reader layers, 4 writer layers): for SPEED measurement (eval/speed.py, random init). Not trained.
+d: 1280
+layers: 12
+latents: 16
+think_steps: 5
+block: 128
+in_len: 64
+writer_layers: 4
+heads: 8
+bitnet: false
+diffusion_steps: 10

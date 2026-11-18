@@ -36,10 +36,10 @@ def decode_bytes(tokens) -> str:
 
 
 class _Core(nn.Module):
-    def __init__(self, d: int, latents: int, think_steps: int, block: int, writer_layers: int, heads: int, vocab: int = VOCAB):
+    def __init__(self, d: int, latents: int, think_steps: int, block: int, writer_layers: int, heads: int, vocab: int = VOCAB, think_exit: str = "change", think_min_steps: int = 2):
         super().__init__()
         self.compressor = Compressor(d, latents, heads)
-        self.thinker = LatentThinker(d, think_steps, heads)
+        self.thinker = LatentThinker(d, think_steps, heads, min_steps=think_min_steps, exit_rule=think_exit)
         self.writer = DiffusionWriter(d, block, vocab, writer_layers, heads)
 
     def latents(self, h, pad_mask=None, early_exit=False):
@@ -51,19 +51,21 @@ class _Core(nn.Module):
         return self.writer.loss(z, target)
 
     @torch.no_grad()
-    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False, temperature: float = 0.0):
+    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
         z, used = self.latents(h, pad_mask, early_exit)
-        return self.writer.generate(z, steps, temperature), {"latent_steps_used": used, "latents": z.shape[1]}
+        out = self.writer.generate(z, steps, temperature, confident)
+        return out, {"latent_steps_used": used, "latents": z.shape[1], "writer_passes": self.writer.last_passes}
 
 
 class Sham1_TLDM(nn.Module):
-    def __init__(self, d: int = 640, layers: int = 8, latents: int = 16, think_steps: int = 5, block: int = 64, writer_layers: int = 3, heads: int = 4, bitnet: bool = False, in_len: int = 64, vocab: int = VOCAB):
+    def __init__(self, d: int = 640, layers: int = 8, latents: int = 16, think_steps: int = 5, block: int = 64, writer_layers: int = 3, heads: int = 4, bitnet: bool = False, in_len: int = 64, vocab: int = VOCAB,
+                 think_exit: str = "change", think_min_steps: int = 2):
         super().__init__()
         self.cfg = dict(vocab=vocab, d=d, layers=layers, latents=latents, think_steps=think_steps, block=block, writer_layers=writer_layers, heads=heads, bitnet=bitnet, in_len=in_len)
         self.embed = nn.Embedding(vocab, d)
         self.reader = nn.ModuleList(MambaBlock(d, bitnet) for _ in range(layers))
         self.norm = nn.LayerNorm(d)
-        self.core = _Core(d, latents, think_steps, block, writer_layers, heads, vocab)
+        self.core = _Core(d, latents, think_steps, block, writer_layers, heads, vocab, think_exit, think_min_steps)
 
     def read(self, ids):
         h = self.embed(ids)
@@ -75,8 +77,8 @@ class Sham1_TLDM(nn.Module):
         return self.core.loss(self.read(ids), ids == PAD, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False, temperature: float = 0.0):
-        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit, temperature)
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
+        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit, temperature, confident)
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters())

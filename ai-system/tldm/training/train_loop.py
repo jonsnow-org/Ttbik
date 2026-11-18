@@ -17,7 +17,7 @@ import terminal_tasks as T  # noqa: E402
 
 
 def build(cfg):
-    return Sham1_TLDM(d=cfg["d"], layers=cfg["layers"], latents=cfg["latents"], think_steps=cfg["think_steps"], block=cfg["block"], writer_layers=cfg["writer_layers"], heads=cfg["heads"], bitnet=cfg["bitnet"], in_len=cfg["in_len"], vocab=cfg.get("vocab", 257))
+    return Sham1_TLDM(d=cfg["d"], layers=cfg["layers"], latents=cfg["latents"], think_steps=cfg["think_steps"], block=cfg["block"], writer_layers=cfg["writer_layers"], heads=cfg["heads"], bitnet=cfg["bitnet"], in_len=cfg["in_len"], vocab=cfg.get("vocab", 257), think_exit=cfg.get("think_exit", "change"), think_min_steps=int(cfg.get("think_min_steps", 2)))
 
 
 def run_agent(model, cfg, tok, task, hide=False, max_steps=5):
