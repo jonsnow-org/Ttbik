@@ -12,7 +12,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import sham_inputs
+import train_audio_tokenizer
+import train_image_tokenizer
+
+_KEEP = (train_image_tokenizer.train_vqvae, train_audio_tokenizer.train_vqvae)
+import sham_inputs  # noqa: E402  (importing it swaps the tokenizer trainers process-wide: put them back so later tests see the originals)
+
+train_image_tokenizer.train_vqvae, train_audio_tokenizer.train_vqvae = _KEEP
 
 
 class StaleCacheTest(unittest.TestCase):
