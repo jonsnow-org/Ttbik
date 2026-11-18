@@ -34,7 +34,7 @@ export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): nu
 }
 
 export { stripThinkTags };
-import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -398,7 +398,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   // The model picker must stay reachable even when Nova's own coding Studio is switched off.
   const incomingChatId = update.message?.chat?.id;
   const preloadedOwnerState = owner && incomingChatId ? await loadStateStrict(incomingChatId, db) : null;
-  const modelPickerAction = Boolean(update.callback_query && String(update.callback_query.data || "").startsWith("model_pick|")) || Boolean(update.message?.text && /^\/models?(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
+  const modelPickerAction = Boolean(update.callback_query && (String(update.callback_query.data || "").startsWith("model_pick|") || String(update.callback_query.data || "") === "tldm_toggle")) || Boolean(update.message?.text && /^\/(models?|tldm)(?:@\w+)?(?:\s|$)/i.test(String(update.message.text)));
   // Telegram re-sends an update it found slow (same update_id): the copy must not start or queue a second answer to the same message
   if (fromId !== undefined && update.update_id && !(await claimTelegramUpdate("coder", fromId, update.update_id, db))) return true;
   // "free i" (owner only): while it is picked, plain messages and the /ai /build /fix /full commands go to the AI Agent (GitHub + OpenRouter) and never reach Nova.
@@ -445,6 +445,22 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
+    if (data === "tldm_toggle") {
+      if (!tldmAllowedFor(tierFor(chatId))) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "للمالك فقط.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const stT = await loadStateStrict(chatId, db);
+      const next = !tldmEnabled(stT, "sham_v2");
+      setTldmEnabled(stT, next);
+      await saveState(chatId, stT, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: next ? "T-LDM لشام 2 يعمل" : "T-LDM لشام 2 توقف" }).catch(() => null);
+      const keyboard = new InlineKeyboard().text(next ? "✓ T-LDM لشام 2: يعمل" : "T-LDM لشام 2: متوقف", "tldm_toggle").row();
+      await send(bot, chatId, next
+        ? "مسار T-LDM لشام 2 مفعّل. اختر شام 2 من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+        : "مسار T-LDM لشام 2 متوقف.", { reply_markup: keyboard });
+      return true;
+    }
     if (data.startsWith("model_pick|")) {
       const id = data.slice("model_pick|".length);
       // The selected model is account-level routing state; persist it in Nova's shared selector row even when this callback came from LFM2.5.
@@ -532,6 +548,20 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (!chatId) return false;
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
+  if (cmd === "/tldm" && tldmAllowedFor(tierFor(chatId))) {
+    const stTldm = preloadedOwnerState || await loadStateStrict(chatId, db);
+    const arg = text.split(/\s+/)[1] || "";
+    if (/^(on|1|off|0)$/i.test(arg)) {
+      setTldmEnabled(stTldm, /^(on|1)$/i.test(arg));
+      await saveState(chatId, stTldm, db);
+    }
+    const now = tldmEnabled(stTldm, "sham_v2");
+    const keyboard = new InlineKeyboard().text(now ? "✓ T-LDM لشام 2: يعمل" : "T-LDM لشام 2: متوقف", "tldm_toggle").row();
+    await send(bot, chatId, now
+      ? "مسار T-LDM لشام 2 مفعّل لهذا الحساب. اختر شام 2 من /model ثم أرسل رسالة. إن لم يكن رأس التدريب جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+      : "مسار T-LDM لشام 2 متوقف. لتفعيله أرسل /tldm on ثم اختر شام 2 من /model. يبقى شام 1 كما هو.", { reply_markup: keyboard });
+    return true;
+  }
   if (cmd === "/model" || cmd === "/models") {
     const ownerOnly = tierFor(chatId) === "owner";
     const models = await listModels(db);
@@ -2886,7 +2916,7 @@ export async function cancelAgents(chatId: number, slots: string[], db: Db = pri
 
 
 /** What Sham's own path needs to know about this chat: which Sham (old / new) and the user's thinking / accuracy settings. */
-export async function shamContextFor(update: any, db: Db = prismaDb, modelOverride?: "sham" | "sham_v2"): Promise<{ variant: "v1" | "v2"; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean } } | null> {
+export async function shamContextFor(update: any, db: Db = prismaDb, modelOverride?: "sham" | "sham_v2"): Promise<{ variant: "v1" | "v2"; tldm: boolean; mode: { memory?: MemorySettings; accuracy?: "fast" | "balanced" | "precise"; auto?: boolean; policy?: "adaptive" | "always" | "never"; think?: boolean; thinkCap?: number; media?: boolean; tldm?: boolean } } | null> {
   const chatId: number | undefined = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   if (!chatId) return null;
   // State selection is routing-critical. Do not use the forgiving reader here: a transient read failure must never silently pick another model.
@@ -2897,5 +2927,6 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
   if (!selected) return null;
   const set = modelSettings(st, selected);
-  return { variant: selected === "sham_v2" ? "v2" : "v1", mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected) } };
+  const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId)) && tldmEnabled(st, "sham_v2");
+  return { variant: selected === "sham_v2" ? "v2" : "v1", tldm, mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected), tldm } };
 }

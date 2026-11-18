@@ -160,6 +160,22 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
             and tokenizer_fingerprint(aa[0]) == tokenizer_fingerprint(ab[0]))
 
 
+def _resume_dir():
+    """(checkpoint, folder, progress, origin) from SHAM_RESUME_DIR when it holds this trainer's interrupted cycle (final.pt + crawl_progress.json by sham_live + the tokenizer); else None.
+    The weights there are the guard's best of that cycle, which itself started from the head, so the merge gate judges the result exactly as before."""
+    d = Path(os.environ.get("SHAM_RESUME_DIR") or "")
+    if not str(d).strip() or str(d) == "." or not (d / "final.pt").is_file() or not (d / "sham_small_tokenizer.json").is_file():
+        return None
+    try:
+        progress = json.loads((d / "crawl_progress.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(progress, dict) or progress.get("by") != "sham_live":
+        return None
+    print(f"⏯ استئناف الدورة المنقطعة من آخر حفظ لها (الخطوة {progress.get('step')}) — {d}")
+    return d / "final.pt", d, progress, f"{d.name} (استئناف دورة منقطعة)"
+
+
 def resolve_start(model_dataset: str = MODEL_DATASET):
     """(checkpoint path, its folder, progress dict, origin label). The start is the MEASURED best among the main line (chat stage, stage 2) and
     this trainer's own previous output (sham_base_select): a lineage is only continued while it is not clearly worse than another one
@@ -167,6 +183,9 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     from sham_base_select import choose_base, make_probe
     from sham_inputs import fetch_dataset
 
+    resumed = _resume_dir()
+    if resumed:   # 2026-11-18: a cycle that was interrupted (crash, stuck kill, Studio sleep/restart) continues from its own last guarded save, set by the Studio supervisor
+        return resumed
     mains = []
     anchor_on = (os.environ.get("SHAM_START_ANCHOR") or "merged").lower() != "off"
     fast = anchor_on and (os.environ.get("SHAM_START_FAST") or "1").strip().lower() not in ("0", "off", "false", "no")
@@ -802,7 +821,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                          "weights": guard.best_flavor, "guard_score": guard.best_score, "rollbacks": guard.rollbacks,
                          "seen_total": len(kept), "sources": {s.name: s.items for s in spider.sources},
                          "sessions": int(progress.get("sessions", 0)) + (1 if tag == "final" else 0)})
-        (out / "crawl_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
+        (out / "crawl_progress.json.tmp").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
+        os.replace(out / "crawl_progress.json.tmp", out / "crawl_progress.json")     # whole or not at all: a killed cycle must leave a readable progress for the resume
         print(f"💾 حفظ الخطوة {step:,} — {guard.line(r)}\n   تحقق (أفضل نقطة): "
               + ", ".join(f"{k} {guard.base.get(k, float('nan')):.3f}→{v:.3f}" for k, v in chosen.items()))
         return chosen
@@ -924,9 +944,18 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         corpus = publish_dataset(WORK / "crawl_corpus", corpus_ds, f"live corpus to step {step:,}")
     try:
         from kaggle_secrets import UserSecretsClient
-        from telegram_report import send_telegram_message
+        from telegram_report import send_training_report
         sec = UserSecretsClient()
-        send_telegram_message(sec.get_secret("TELEGRAM_BOT_TOKEN"), sec.get_secret("TELEGRAM_CHAT_ID"), report[:4000])
+        token = sec.get_secret("TELEGRAM_BOT_TOKEN")
+        admin = ""
+        for key in ("TELEGRAM_ADMIN_CHAT_ID", "TELEGRAM_OWNER_CHAT_ID", "SHAM_TRAINING_REPORT_CHAT_ID", "SUPER_ADMIN_TELEGRAM_ID"):
+            try:
+                admin = sec.get_secret(key) or ""
+            except Exception:
+                admin = ""
+            if admin:
+                break
+        send_training_report(token, report[:4000], chat_id=admin or None)
     except Exception:
         pass
     return {"steps": step - start_step, "published": published, "corpus": corpus, "holdout": final,

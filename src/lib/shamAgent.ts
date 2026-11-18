@@ -8,7 +8,9 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
+import { shamAdminNotice } from "@/lib/shamAdminNotice";
 import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -124,6 +126,37 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
+  // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
+  // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
+  if (v2 && shamTldmOn()) {
+    const session = shamTldmSessionId(opts.ctx.chatId);
+    const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
+    const chatMessages = messages
+      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
+        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
+    if (await isStopped()) return { kind: "stopped", used, steps: 0 };
+    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    if (await isStopped()) return { kind: "stopped", used, steps: 1 };
+    if (direct?.type === "confirm") {
+      const command = String(direct.command || "");
+      return {
+        kind: "confirm",
+        call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
+        used,
+        steps: 1,
+      };
+    }
+    if (direct?.type === "text") {
+      const answer = String(direct.text || "").trim();
+      return answer ? { kind: "text", text: answer, used, steps: 1 } : { kind: "none", used, steps: 1 };
+    }
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
+    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
+    return { kind: "none", used, steps: 0 };
+  }
+
   // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,
   // prompt rewriting, echo detector, content-triggered retry or canned answer is applied.
   // Tool/code/fresh-fact work stays in the separate permission-checked agent route.
@@ -144,19 +177,19 @@ export async function shamAgentRun(opts: {
   const directChatIntent = !requiresWorkspaceAgent &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
   if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
-    const chatMessages = messages
-      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
-        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
-      .slice(-12)
-      .map((message) => ({ role: message.role, content: message.content }));
+    const chatMessages = shamDirectChatMessages(opts.history, opts.text);
+    if (lastUserContent(chatMessages) !== opts.text) {
+      chatMessages.push({ role: "user", content: opts.text });
+    }
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
     // Streaming is v2-only (its Studio has the endpoint); v1 has no stream, so it must still take the one-shot chat.
     const stream = variant === "v2" ? opts.onDelta : undefined;
-    const directAsk = () => opts.ask
-      ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => stream
-        ? shamGenerateChatStream(chatMessages, maxNew, timeout, stream, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
-        : shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const runDirect = (turns: typeof chatMessages, onDelta = stream) => opts.ask
+      ? ask(turns[turns.length - 1]?.content || opts.text, maxNew, timeout)
+      : shamModeCtx.run(effMode, () => onDelta
+        ? shamGenerateChatStream(turns, maxNew, timeout, onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
+        : shamGenerateChat(turns, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const directAsk = () => runDirect(chatMessages);
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
@@ -172,7 +205,27 @@ export async function shamAgentRun(opts: {
     }
     if (await isStopped()) return { kind: "stopped", used, steps: 1 + waited };
     if (direct?.type === "text") {
-      const answer = String(direct.text || "").trim();
+      let answer = String(direct.text || "").trim();
+      const prior = [...(opts.history || []), ...historyFromTurns(chatMessages.slice(0, -1))];
+      const stale = isTrainingStatusReply(answer) || isEchoedPriorReply(answer, prior);
+      if (stale && answer && left() > 8000) {
+        // The new user turn was ignored (copied previous reply) or the body recited a training report.
+        // Retry once with only this question so a cached/truncated prompt cannot be reused.
+        opts.onEvent?.("info", isTrainingStatusReply(answer) ? "dropped a training-status reply; retrying the current question only" : "dropped a copied previous reply; retrying the current question only");
+        if (isTrainingStatusReply(answer)) void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        const retry = await runDirect([{ role: "user", content: opts.text }], undefined);
+        const again = String(retry?.type === "text" ? retry.text || "" : "").trim();
+        if (again && !isTrainingStatusReply(again) && !isEchoedPriorReply(again, prior)) {
+          if (stream) stream(again);
+          answer = again;
+        } else {
+          if (isTrainingStatusReply(again)) void shamAdminNotice(again, opts.ctx.chatId).catch(() => null);
+          answer = STALE_REPLY_USER;
+        }
+      } else if (isTrainingStatusReply(answer)) {
+        void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        answer = STALE_REPLY_USER;
+      }
       return answer
         ? { kind: "text", text: answer, used, steps: 1 + waited }
         : { kind: "none", used, steps: 1 + waited };

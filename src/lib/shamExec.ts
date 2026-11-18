@@ -519,12 +519,13 @@ export function shamConfirmText(call: CoderToolCall): string {
     : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
     : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
+    : call.function.name === "tldm_confirm" ? `أمر على حاسوب شام 2 الداخلي يحتاج موافقتك:\n${String(a.command || a.question || "").slice(0, 400)}`
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;
   return `🔐 شام يريد أن ينفّذ:\n${what}\n\nهل أسمح له؟`;
 }
 
 // ---------------------------------------------------------------- a long task between legs (the shared background runner: coderRuntime later() + the signed continue route)
-export type ShamRun = { chatId: number; botId: string; runId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown>; card?: { msgId?: number; startedAt?: number; ack?: string; steps?: unknown[]; lines?: string[]; at?: number }; media?: ShamMediaJob };
+export type ShamRun = { chatId: number; botId: string; runId: string; request: string; messages: unknown[]; leg: number; variant: "v1" | "v2"; mode: Record<string, unknown>; card?: { msgId?: number; startedAt?: number; ack?: string; steps?: unknown[]; lines?: string[]; at?: number }; media?: ShamMediaJob; live?: import("@/lib/shamLiveReply").ShamLiveState };
 /** A durable Sham media request (owner 2026-11-05: a clip never finished in the bot while the Studio passed the tests). Like a long answer, it is carried across
  *  the signed continuation legs: the webhook only detects the request, the first leg writes the English prompt, and each leg polls the Studio's own clip job and delivers the file. */
 export type ShamMediaJob = {

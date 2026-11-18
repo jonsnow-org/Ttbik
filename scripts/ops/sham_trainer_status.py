@@ -13,7 +13,10 @@ import urllib.request
 
 
 def site() -> str:
-    return (os.environ.get("SITE") or "cn").strip().lower() or "cn"
+    s = (os.environ.get("SITE") or "").strip().lower()
+    if s not in ("cn", "ai"):
+        raise SystemExit("SITE must be set to cn or ai (no default: cn would hit the wrong account for the international trainers)")
+    return s
 
 
 def owner() -> str:
@@ -65,8 +68,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
-        os.environ.pop("SITE", None)
         os.environ.pop("OWNER", None)
+        os.environ["SITE"] = "cn"
         assert api("x") == "https://studio-novaai2026-x.api-inference.modelscope.net"
         assert default_repos().startswith("sham-trainer-1")
         os.environ["SITE"] = "ai"
@@ -76,6 +79,12 @@ if __name__ == "__main__":
         assert api("sham-trainer-1") == "https://studio-jonjithup-sham-trainer-1.api-inference.modelscope.ai"
         os.environ.pop("SITE", None)
         os.environ.pop("OWNER", None)
+        try:
+            site()
+            raise SystemExit("site() must require SITE")
+        except SystemExit as exc:
+            if "SITE must be set" not in str(exc):
+                raise
         print("sham_trainer_status self-test OK")
         raise SystemExit(0)
     raise SystemExit(main())

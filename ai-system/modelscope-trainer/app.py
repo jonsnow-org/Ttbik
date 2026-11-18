@@ -58,8 +58,9 @@ PROFILES = {
     "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
     # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
     "motion": {"SHAM_TOK_THREADS": "2"},
-    # T-LDM on the Studio (CPU): the kept pretrained-reader head (DonorTLDM, writer_donor.yaml) plus the self-evolution loop (train_loop + evolve + lora_failed).
-    # Does not edit that tree's training code; scripts are invoked as subprocesses. Results live on /mnt/workspace/tldm and are published to tldm-writer-runs.
+    # T-LDM on the Studio (CPU): the kept pretrained-reader head (DonorTLDM, writer_donor.yaml) — train + held-out benchmark each cycle.
+    # evolve / LoRA-on-failures is optional (SHAM_TLDM_EVOLVE=1): always mixed with replay, and an adapter is kept only if held-out and previously-correct scores do not regress.
+    # The same gate is the commercial self-evolution path for Sham 2: later it will ingest anonymized, verified execution results from all users' sessions (no personal data, not wired yet).
     "tldm":   {},
 }
 
@@ -221,15 +222,12 @@ def tldm_flatten(res: dict, seed: int, published) -> dict:
     v = _num(after, "episode_success")
     if v is not None:
         out["evo_after"] = v
-    lf = res.get("lora_failed") or {}
-    if isinstance(lf, dict):
-        se = lf.get("self_evolution") or {}
-        v = _num((se.get("after") or {}).get("eval60_778") if isinstance(se, dict) else None, "episode_success")
-        if v is not None:
-            out["lora_eval"] = v
-        v = _num((se.get("after") or {}).get("A") if isinstance(se, dict) else None, "rate")
-        if v is not None:
-            out["lora_A"] = v
+    if "evolve_kept" in res:
+        out["evolve_kept"] = bool(res["evolve_kept"])
+    se = (res.get("safe_evolve") or {}).get("after") if isinstance(res.get("safe_evolve"), dict) else None
+    v = _num((se or {}).get("eval60_778") if isinstance(se, dict) else None, "episode_success")
+    if v is not None:
+        out["evo_after"] = v
     return out
 
 
@@ -270,20 +268,16 @@ def publish_tldm(work: Path, seed: int, artifacts: list) -> str | None:
     return got
 
 
-def _parse_evolve_log(text: str) -> dict:
-    out: dict = {}
-    for label, key in (("before evolution (names never seen):", "before"), ("after the LoRA (same episodes)      :", "after"), ("after the LoRA (same episodes):", "after")):
-        for line in text.splitlines():
-            if label.split(":")[0] in line and "{" in line:
-                try:
-                    out[key] = json.loads(line[line.index("{"):].replace("'", '"'))
-                except ValueError:
-                    pass
-    return out
+def _json_ok(path: Path) -> bool:
+    try:
+        return isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+    except (OSError, ValueError):
+        return False
 
 
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
-    """One cycle: train the frozen-reader head (writer_donor.yaml), keep/train the slot-aware loop, run evolve + lora_failed, persist, publish."""
+    """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
+    Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on verified failures (and, later, anonymized verified session results), kept only if held-out and previously-correct do not regress."""
     work = tldm_work()
     (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
     (work / "logs").mkdir(parents=True, exist_ok=True)
@@ -295,20 +289,13 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     ensure_donor(work, download=runner is None)
     cfg_name = (os.environ.get("SHAM_TLDM_CONFIG") or TLDM_CONFIG_DEFAULT).strip() or TLDM_CONFIG_DEFAULT
     config = Path(cfg_name) if Path(cfg_name).is_file() else (root / "configs" / cfg_name)
-    loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
-    loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
     donor_ckpt = work / "checkpoints" / f"donor_seed{seed}.pt"
     donor_json = work / "logs" / f"donor_seed{seed}.json"
-    loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
-    evo_adapter = work / "checkpoints" / "loop" / f"evolution_adapter_seed{seed}.pt"
-    evo_log = work / "logs" / f"evolve_seed{seed}.log"
-    lora_json = work / "logs" / f"lora_failed_seed{seed}.json"
     report = work / "logs" / f"cycle_seed{seed}.json"
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(root) + os.pathsep + str(HERE) + os.pathsep + env.get("PYTHONPATH", "")
     env["TLDM_DONOR"] = os.environ.get("TLDM_DONOR") or str(work / "donor" / "minilm")
     extra = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
-    loop_steps = (os.environ.get("SHAM_TLDM_LOOP_STEPS") or "").strip()
     artifacts: list = []
     res: dict = {"seed": seed, "config": config.name}
 
@@ -317,7 +304,12 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     if extra:
         donor_cmd.extend(["--steps", extra])
     print(f"tldm cycle seed={seed} donor config={config.name} out={donor_ckpt}", flush=True)
-    code = tldm_run(donor_cmd, str(root), env, runner, ckpt=donor_ckpt, report=donor_json, seed=seed, work=work, arm="donor")
+    if _json_ok(donor_json) and donor_ckpt.is_file() and donor_ckpt.stat().st_size > 0:
+        # 2026-11-18: this seed's head was already trained when the cycle was interrupted (crash, stuck kill, Studio restart): resume after it instead of training it again
+        print(f"tldm resume: seed {seed} head already trained ({donor_ckpt.name}); continuing from it", flush=True)
+        code = 0
+    else:
+        code = tldm_run(donor_cmd, str(root), env, runner, ckpt=donor_ckpt, report=donor_json, seed=seed, work=work, arm="donor")
     if code != 0:
         raise RuntimeError(f"tldm donor train exited with code {code} (seed {seed})")
     if donor_json.exists():
@@ -329,76 +321,52 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     if donor_ckpt.exists():
         artifacts.append(donor_ckpt)
 
-    retrained = False
-    if (os.environ.get("SHAM_TLDM_RETRAIN_LOOP") or "").strip() == "1" or not loop_ckpt.exists():
-        loop_cmd = [sys.executable, "-u", str(root / "training" / "train_loop.py"),
-                    "--config", str(loop_config), "--out", str(loop_ckpt), "--seed", str(seed)]
-        if loop_steps:
-            loop_cmd.extend(["--steps", loop_steps])
-        print(f"tldm loop train config={loop_config.name} out={loop_ckpt}", flush=True)
-        code = tldm_run(loop_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="loop")
-        if code != 0:
-            raise RuntimeError(f"tldm loop train exited with code {code} (seed {seed})")
-        retrained = True
-    res["loop_trained"] = retrained
-    if loop_ckpt.exists():
-        artifacts.append(loop_ckpt)
-
-    evo_cmd = [sys.executable, "-u", str(root / "training" / "evolve.py"),
-               "--ckpt", str(loop_ckpt), "--adapter", str(evo_adapter),
-               "--memory", str(work / "memory" / f"evo_seed{seed}")]
-    print(f"tldm evolve ckpt={loop_ckpt} adapter={evo_adapter}", flush=True)
-    if runner is not None:
-        code = tldm_run(evo_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="evolve", adapter=evo_adapter)
-    else:
-        import subprocess
-        proc = subprocess.run(evo_cmd, cwd=str(root), env=env, check=False, text=True, capture_output=True)
-        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        evo_log.write_text(log[-20000:], encoding="utf-8")
-        try:
-            sys.__stdout__.write(log)
-        except Exception:
-            pass
-        code = int(proc.returncode)
-        res["evolve"] = _parse_evolve_log(log)
-    if runner is not None and evo_log.exists():
-        res["evolve"] = _parse_evolve_log(evo_log.read_text(encoding="utf-8"))
-    if code != 0:
-        print(f"tldm evolve exited {code} (continuing to lora_failed)", flush=True)
-    if evo_adapter.exists():
-        artifacts.append(evo_adapter)
-    if evo_log.exists():
-        artifacts.append(evo_log)
-
-    lora_cmd = [sys.executable, "-u", str(root / "training" / "lora_failed.py"),
-                "--ckpt", str(loop_ckpt), "--json", str(lora_json), "--seed", str(seed)]
-    print(f"tldm lora_failed ckpt={loop_ckpt}", flush=True)
-    code = tldm_run(lora_cmd, str(root), env, runner, ckpt=loop_ckpt, report=lora_json, seed=seed, work=work, arm="lora_failed")
-    if code != 0:
-        print(f"tldm lora_failed exited {code}", flush=True)
-    if lora_json.exists():
-        try:
-            res["lora_failed"] = json.loads(lora_json.read_text(encoding="utf-8"))
-        except ValueError:
-            pass
-        artifacts.append(lora_json)
+    evolve_on = (os.environ.get("SHAM_TLDM_EVOLVE") or "").strip().lower() in ("1", "true", "yes")
+    if evolve_on:
+        sys.path.insert(0, str(HERE))
+        from safe_evolve import run_safe_evolve
+        loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
+        loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
+        loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
+        loop_steps = (os.environ.get("SHAM_TLDM_LOOP_STEPS") or "").strip()
+        retrained = False
+        if (os.environ.get("SHAM_TLDM_RETRAIN_LOOP") or "").strip() == "1" or not loop_ckpt.exists():
+            loop_cmd = [sys.executable, "-u", str(root / "training" / "train_loop.py"),
+                        "--config", str(loop_config), "--out", str(loop_ckpt), "--seed", str(seed)]
+            if loop_steps:
+                loop_cmd.extend(["--steps", loop_steps])
+            print(f"tldm loop train (optional evolve) config={loop_config.name} out={loop_ckpt}", flush=True)
+            code = tldm_run(loop_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="loop")
+            if code != 0:
+                print(f"tldm loop train exited {code}; skipping optional evolve", flush=True)
+                loop_ckpt = Path()
+            else:
+                retrained = True
+        res["loop_trained"] = retrained
+        if loop_ckpt and loop_ckpt.exists():
+            artifacts.append(loop_ckpt)
+            ev = run_safe_evolve(root, work, loop_ckpt, seed, runner=runner)
+            res["safe_evolve"] = ev
+            ev_json = work / "logs" / f"safe_evolve_seed{seed}.json"
+            if ev_json.exists():
+                artifacts.append(ev_json)
+            if ev.get("kept") and ev.get("adapter"):
+                artifacts.append(Path(ev["adapter"]))
+            res["evolve_kept"] = bool(ev.get("kept"))
 
     tldm_store_seed(work, seed + 1)
     report.write_text(json.dumps({k: v for k, v in res.items() if k != "secret"}, ensure_ascii=False, indent=1), encoding="utf-8")
     artifacts.append(report)
     try:
         latest = work / "logs" / "latest.json"
-        if latest.exists() or True:
-            latest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
-            artifacts.append(latest)
+        latest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+        artifacts.append(latest)
     except OSError:
         pass
     with (work / "logs" / "results.jsonl").open("a", encoding="utf-8") as f:
-        slim = {k: res[k] for k in res if k not in ("lora_failed", "evolve", "secret") and not str(k).startswith("_")}
-        if isinstance(res.get("lora_failed"), dict):
-            slim["lora_self"] = (res["lora_failed"].get("self_evolution") or {})
-        if isinstance(res.get("evolve"), dict):
-            slim["evolve"] = res["evolve"]
+        slim = {k: res[k] for k in res if k not in ("safe_evolve", "lora_failed", "evolve", "secret")}
+        if isinstance(res.get("safe_evolve"), dict):
+            slim["evolve_kept"] = res["safe_evolve"].get("kept")
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     try:
@@ -407,7 +375,7 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
         print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
     out = tldm_flatten(res, seed, bool(published))
     out["hours"] = float(hours)
-    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} evo={out.get('evo_after')} lora_eval={out.get('lora_eval')} published={out['published']}", flush=True)
+    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
     return out
 
 
@@ -436,6 +404,12 @@ def sham2_flatten(res: dict) -> dict:
         out["loop_simple"] = lp[0]["simple"]["success"]
         out["loop_multi"] = lp[0]["multi_step"]["success"]
         out["loop_s_per_task"] = lp[0]["all"]["median_s_per_task"]
+    idn = res.get("identity") or {}
+    if idn:
+        out["identity_before"] = idn["before"]["identity"]["ok"]
+        out["identity_after"] = idn["after"]["identity"]["ok"]
+        out["nll_before"] = idn["before"]["general_nll"]
+        out["nll_after"] = idn["after"]["general_nll"]
     for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
         if k in res:
             out[k] = res[k]
@@ -477,8 +451,12 @@ def sham2_donor(work: Path, fetch=None) -> tuple[Path, Path]:
             why = sham2_hub_check()
             if why:
                 raise RuntimeError(why)
-            os.environ["MODELSCOPE_DOMAIN"] = SHAM2_DONOR_HOST          # explicit host, through the shared helper below
             sys.path.insert(0, str(SHAM))
+            from ms_hub import apply_ms_hub_endpoint
+            # Donor lives on modelscope.cn. The shared helper honors an explicit MODELSCOPE_DOMAIN, so this
+            # still talks to cn even if SITE=ai leaked into the environment.
+            os.environ["MODELSCOPE_DOMAIN"] = SHAM2_DONOR_HOST
+            apply_ms_hub_endpoint()
             import sham_inputs
             sham_inputs._ms_api()                                     # login with the cn token on the cn host (raises on a rejected token)
             from modelscope import snapshot_download
@@ -513,7 +491,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         root = tldm_root()
         cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(root / "configs" / "sham2.yaml"),
                "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
-               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1",
+               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
                "--out", str(heads), "--json", str(report)]
         if runner is not None:
             code = int(runner(cmd=cmd, report=report, heads=heads))
@@ -612,8 +590,9 @@ def _set(**kw) -> None:
 def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
-            "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "lora_eval", "lora_A", "loop_trained", "params_M",
-            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged")
+            "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
+            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
+            "identity_before", "identity_after", "nll_before", "nll_after")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -642,12 +621,19 @@ def child_cycle() -> None:
     cfg = settings()
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
+    if cfg["job"] in LIVE_JOBS:
+        try:
+            got = prepare_resume(WORK)
+            if got:
+                os.environ["SHAM_RESUME_DIR"] = str(got)
+        except Exception as exc:  # noqa: BLE001 - a resume problem never blocks the cycle: it starts from the head as before
+            print(f"resume: not used ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
     run_fn = _resolve_run_fn(cfg)
     res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"])
     print(RESULT_MARK + json.dumps(_short(res)), flush=True)
 
 
-LEFTOVER_FILES = ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt")
+LEFTOVER_FILES = ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt", "crawl_progress.json")
 
 
 def child_publish_leftover() -> None:
@@ -676,6 +662,9 @@ def child_publish_leftover() -> None:
                 os.link(ck / name, snap / name)
             except OSError:
                 shutil.copy2(ck / name, snap / name)
+    # 2026-11-18 (owner: training must resume after any stop): resume.json says whether these weights belong to a cycle that was still running, so a Studio whose disk
+    # was reset can continue that cycle (resume_from_modelscope) instead of starting it over.
+    (snap / "resume.json").write_text(json.dumps({"cycle_running": _saved_in_running_cycle(ck), "saved_at": final.stat().st_mtime}), encoding="utf-8")
     slug = "".join(c if c.isalnum() else "-" for c in settings()["name"].lower()).strip("-")
     got = sham_inputs.publish_modelscope(snap, f"sham-crawl-{slug}", "leftover of the previous cycle")
     shutil.rmtree(snap, ignore_errors=True)
@@ -705,22 +694,42 @@ def publish_leftover_subprocess() -> str:
     return out
 
 
-def run_cycle_subprocess(cfg: dict) -> dict:
-    """Run child_cycle in a subprocess; copy its printed lines into the status tail; kill it when it overruns the wall-clock budget (hours + 40 min)."""
+def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20) -> dict:
+    """Run child_cycle in a subprocess (its own process group, so a kill also ends the trainers it started); copy its printed lines into the status tail; kill it when it
+    overruns the wall-clock budget (hours + 40 min), when it shows no progress for SHAM_STUCK_MINUTES (no output line and no checkpoint/log written), or on a kill request."""
+    import signal
     import subprocess
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
-    proc = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
+    _flag_cycle(True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+    _CYCLE_LINE_AT[0] = time.time()
+    _KILL_REQUEST.clear()
+    _set(child_pid=proc.pid, cycle_started=time.time())
     result: dict = {}
-    killed = False
+    killed = ""
+
+    def kill_group():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (OSError, AttributeError):
+            proc.kill()
 
     def watchdog():
         nonlocal killed
         while proc.poll() is None:
+            idle = (time.time() - progress_ts()) / 60
             if time.time() > deadline:
-                killed = True
-                proc.kill()
+                killed = f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget"
+            elif idle >= stuck_minutes():
+                killed = f"cycle stuck: no progress for {idle:.0f} min (limit {stuck_minutes():.0f})"
+            elif _KILL_REQUEST.is_set():
+                killed = "cycle killed on request (kill_cycle)"
+            if killed:
+                print("supervisor: " + killed, flush=True)
+                kill_group()
                 return
-            time.sleep(20)
+            time.sleep(poll_s)
 
     threading.Thread(target=watchdog, daemon=True, name="trainer-watchdog").start()
     tee = _Tee(open(os.devnull, "w"))
@@ -733,15 +742,18 @@ def run_cycle_subprocess(cfg: dict) -> dict:
         if any(k in line for k in ("نقطة الانطلاق", "⚓", "🎯", "الرأس المنشور", "تعذّر اختيار", "تعذّر فحص")):     # where this cycle started from: kept in the status (the log tail loses it within minutes)
             STATE["start"] = (str(STATE.get("start", "")) + " | " + line.strip())[-700:].lstrip(" |")
         tee.write(line)
+        _CYCLE_LINE_AT[0] = time.time()
         try:
             sys.__stdout__.write(line)               # the Studio's own log keeps everything
         except Exception:  # noqa: BLE001
             pass
     code = proc.wait()
+    _set(child_pid=None)
     if killed:
-        raise RuntimeError(f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget")
+        raise RuntimeError(killed)
     if code != 0:
         raise RuntimeError(f"cycle process exited with code {code}" + (" (killed: out of memory?)" if code in (-9, 137) else ""))
+    _flag_cycle(False)                               # a clean end: the next cycle starts fresh from the head (a crash keeps the flag, so the next one resumes)
     return result
 
 
@@ -769,42 +781,303 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
         sys.stdout = _Tee(sys.stdout)
     if not in_process and cfg["job"] != "tldm":
         _set(phase="publishing-leftover")
-        publish_leftover_subprocess()
+        with _PUBLISH_LOCK:
+            publish_leftover_subprocess()
     cycle = 0
+    fails = 0
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
         STATE["start"] = ""
         _set(phase="training", cycle=cycle, error="")
+        t0 = time.time()
         try:
             res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
-            _set(phase="between-cycles", last=_short(res))
+            fails = 0
+            _set(phase="between-cycles", last=_short(res), last_ok=time.time(), fails_in_a_row=0)
             if not in_process and isinstance(res, dict) and res.get("published"):
                 try:                                       # the cycle itself published its best weights: a restart must not push them again
                     (WORK / "checkpoints" / ".published_to_modelscope").write_text(str(res["published"])[:80], encoding="utf-8")
                 except OSError:
                     pass
-        except Exception as exc:   # one failed cycle never stops the next
-            _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        except Exception as exc:   # one failed cycle never stops the next: restarted with a growing pause (1, 2, 4 ... 30 min), from the last checkpoint
+            fails = 1 if time.time() - t0 > 3600 else fails + 1   # a cycle that ran for an hour before failing is not a crash loop
+            wait = backoff_seconds(fails)
+            _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1,
+                 last_failure=time.time(), retry_in_s=wait, fails_in_a_row=int(STATE.get("fails_in_a_row", 0)) + 1)
             traceback.print_exc()
-            sleep(600)
+            sleep(wait)
         sleep(30)
+
+
+# ---- supervision (owner's order 2026-11-18: training never stops silently; anything that stops is found and restarted, and resumes from its last checkpoint) ----
+LIVE_JOBS = ("live", "images", "audio", "chat", "tools", "text")      # the sham_live profiles: they save final.pt + crawl_progress.json while they train
+CYCLE_FLAG = ".cycle_running"
+_CYCLE_LINE_AT = [0.0]
+_KILL_REQUEST = threading.Event()
+_PUBLISH_LOCK = threading.Lock()
+
+
+def stuck_minutes() -> float:
+    try:
+        return max(10.0, float(os.environ.get("SHAM_STUCK_MINUTES") or 120))
+    except ValueError:
+        return 120.0
+
+
+def backoff_seconds(fails: int) -> int:
+    return int(min(1800, 60 * 2 ** max(0, fails - 1)))
+
+
+def _flag_cycle(on: bool) -> None:
+    try:
+        f = WORK / "checkpoints" / CYCLE_FLAG
+        if on:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(str(time.time()), encoding="utf-8")
+        else:
+            f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _progress_dirs() -> list:
+    dirs = [WORK / "checkpoints"]
+    t = os.environ.get("TLDM_WORK")
+    if t:
+        dirs += [Path(t) / "checkpoints", Path(t) / "checkpoints" / "loop", Path(t) / "logs", Path(t) / "sham2"]
+    return dirs
+
+
+def progress_ts() -> float:
+    """When the running cycle last showed life: its last output line, or the newest file it wrote (top level of its checkpoint/log folders only: cheap on a slow mount)."""
+    ts = max(_CYCLE_LINE_AT[0], float(STATE.get("cycle_started") or 0))
+    for d in _progress_dirs():
+        try:
+            for f in d.iterdir():
+                if f.name != CYCLE_FLAG:
+                    ts = max(ts, f.stat().st_mtime)
+        except OSError:
+            continue
+    return ts
+
+
+def heartbeat() -> dict:
+    now = time.time()
+    with _LOCK:
+        hb = {k: STATE.get(k) for k in ("phase", "cycle", "restarts", "fails_in_a_row", "last_failure", "last_ok", "error", "child_pid", "retry_in_s")}
+    training = hb["phase"] == "training"
+    hb.update(ts=now, job=settings()["job"], name=settings()["name"], stuck_after_min=stuck_minutes(),
+              progress_age_min=round((now - progress_ts()) / 60, 1) if training else 0.0,
+              supervisor_alive=any(t.name == "sham-supervisor" and t.is_alive() for t in threading.enumerate()))
+    return hb
+
+
+def heartbeat_path() -> Path:
+    return WORK.parent / "heartbeat.json"
+
+
+def heartbeat_loop(every_s: float = 60) -> None:
+    """heartbeat.json on the persistent disk (atomic replace), read by the status endpoint and by humans; the same data answers the Gradio api `heartbeat` the watchers call."""
+    while True:
+        try:
+            p = heartbeat_path()
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps(heartbeat()), encoding="utf-8")
+            os.replace(tmp, p)
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(every_s)
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    import shutil
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def _saved_in_running_cycle(ck: Path) -> bool:
+    """True when final.pt was saved by the cycle that is (or was, when it died) running: the flag exists and final.pt is newer than the flag. A final.pt left over from an
+    earlier, finished cycle is not resumed (that one already went to the merge; the new cycle must start from the head)."""
+    flag = ck / CYCLE_FLAG
+    try:
+        try:
+            started = float(flag.read_text(encoding="utf-8").strip())
+        except ValueError:
+            started = flag.stat().st_mtime
+        return (ck / "final.pt").stat().st_mtime >= started - 2          # file clocks run a little behind time.time()
+    except OSError:
+        return False
+
+
+def _live_progress(folder: Path) -> dict:
+    try:
+        d = json.loads((folder / "crawl_progress.json").read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) and d.get("by") == "sham_live" else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def resume_max_hours() -> float:
+    try:
+        return float(os.environ.get("SHAM_RESUME_MAX_HOURS") or 24)
+    except ValueError:
+        return 24.0
+
+
+def prepare_resume(work: Path, fetch=None) -> Path | None:
+    """The folder the next sham_live cycle should RESUME from, or None (= start from the published head as always).
+    A cycle that was interrupted (crash, out of memory, stuck kill, Studio sleep or restart) leaves the flag .cycle_running next to its last saved final.pt + crawl_progress.json:
+    those are snapshotted (hard links, else copies) into resume_local/ and the next cycle continues from them. When the Studio's disk was reset, the last weights uploaded to the
+    private ModelScope repo sham-crawl-<name> (resume.json: cycle_running) are fetched instead. Older than SHAM_RESUME_MAX_HOURS: not resumed (the head has moved on)."""
+    import shutil
+    ck = work / "checkpoints"
+    snap = work / "resume_local"
+    if (os.environ.get("SHAM_RESUME") or "1").strip().lower() in ("0", "off", "false", "no"):
+        return None
+    max_age = resume_max_hours() * 3600
+    if _saved_in_running_cycle(ck) and _live_progress(ck):
+        if time.time() - (ck / "final.pt").stat().st_mtime > max_age:
+            print("resume: the interrupted cycle's checkpoint is too old: starting from the head", flush=True)
+            return None
+        shutil.rmtree(snap, ignore_errors=True)
+        snap.mkdir(parents=True)
+        for f in ck.iterdir():
+            if f.is_file() and f.name != CYCLE_FLAG and not f.name.endswith(".tmp"):
+                _link_or_copy(f, snap / f.name)
+        print(f"resume: continuing the interrupted cycle from its last checkpoint on disk (step {_live_progress(snap).get('step')})", flush=True)
+        return snap
+    if (ck / "final.pt").exists():
+        return None                                                            # the disk is there and the last cycle ended cleanly: the head, as always
+    got = (fetch or resume_from_modelscope)(snap)
+    if got and (got / "final.pt").is_file() and _live_progress(got):
+        try:
+            meta = json.loads((got / "resume.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        if meta.get("cycle_running") and time.time() - float(meta.get("saved_at") or 0) <= max_age:
+            print(f"resume: this Studio's disk was empty; continuing from the last checkpoint uploaded to ModelScope (step {_live_progress(got).get('step')})", flush=True)
+            return got
+    shutil.rmtree(snap, ignore_errors=True)
+    return None
+
+
+def resume_from_modelscope(dest: Path) -> Path | None:
+    """Download <owner>/sham-crawl-<name> (private, written by child_publish_leftover) into dest. None when it does not exist or cannot be reached."""
+    import shutil
+    try:
+        from modelscope import snapshot_download
+        owner = os.environ.get("SHAM_MS_OWNER") or "novaai2026"
+        slug = "".join(c if c.isalnum() else "-" for c in settings()["name"].lower()).strip("-")
+        cache = dest.parent / "resume_ms_cache"
+        src = Path(snapshot_download(f"{owner}/sham-crawl-{slug}", cache_dir=str(cache)))
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True)
+        for f in src.iterdir():
+            if f.is_file():
+                shutil.move(str(f), dest / f.name)
+        shutil.rmtree(cache, ignore_errors=True)
+        return dest
+    except Exception as exc:  # noqa: BLE001
+        print(f"resume: no copy on ModelScope ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
+        return None
+
+
+def checkpoint_upload_loop(sleep=time.sleep) -> None:
+    """Every SHAM_CKPT_UPLOAD_HOURS (default 2) the newest saved weights go to the private ModelScope repo sham-crawl-<name> (only when they changed since the last upload),
+    so a rebuilt or reset Studio can resume from them. Same door as the leftover publish; it runs in its own process."""
+    try:
+        every = max(0.25, float(os.environ.get("SHAM_CKPT_UPLOAD_HOURS") or 2)) * 3600
+    except ValueError:
+        every = 7200
+    while True:
+        sleep(every)
+        ck = WORK / "checkpoints"
+        final, marker = ck / "final.pt", ck / ".published_to_modelscope"
+        if not final.exists() or (marker.exists() and marker.stat().st_mtime >= final.stat().st_mtime):
+            continue
+        with _PUBLISH_LOCK:
+            publish_leftover_subprocess()
+
+
+def supervise(sleep=time.sleep, run=None, max_rounds: int | None = None) -> None:
+    """Keeps train_forever alive: if it ever raises (or returns: blocked by missing secrets), it is started again after a pause. The Studio's web page never depends on it."""
+    run = run or train_forever
+    rounds, fails = 0, 0
+    while max_rounds is None or rounds < max_rounds:
+        rounds += 1
+        try:
+            run()
+            fails = 0
+        except Exception as exc:  # noqa: BLE001
+            fails += 1
+            _set(phase="error-retrying", error=f"supervisor: {type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1)
+            traceback.print_exc()
+        sleep(backoff_seconds(fails) if fails else 600)
+
+
+def kill_cycle() -> str:
+    """Hidden, private-Studio API (bearer token): kill the running cycle; the supervisor restarts it and it resumes from its last checkpoint. Used to verify that path."""
+    pid = STATE.get("child_pid")
+    if not pid:
+        return json.dumps({"killed": False, "why": "no cycle running", "phase": STATE.get("phase")})
+    _KILL_REQUEST.set()
+    return json.dumps({"killed": True, "pid": pid})
 
 
 def status_json() -> str:
     with _LOCK:
         quiet = round((time.time() - _LAST_LINE_AT[0]) / 60) if _LAST_LINE_AT[0] else None
-        return json.dumps({**STATE, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet}, ensure_ascii=False)
+        state = dict(STATE)
+    return json.dumps({**state, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet, "heartbeat": heartbeat()}, ensure_ascii=False)
+
+
+def studio_launch_kwargs() -> dict:
+    return {"server_name": "0.0.0.0", "server_port": int(os.environ.get("PORT") or 7860), "share": False, "ssr_mode": False}
+
+
+def launch_studio(demo, launch=None) -> None:
+    """Bind the Gradio app on the Studio port. Never use share=True (that would publish a public link).
+    Some Studio sandboxes cannot open 127.0.0.1, so Gradio's post-bind health check raises even though the
+    server is already listening on 0.0.0.0 — keep the process alive instead of crashing the deploy."""
+    for key in ("NO_PROXY", "no_proxy"):
+        cur = os.environ.get(key) or ""
+        extra = "127.0.0.1,localhost,::1"
+        if "127.0.0.1" not in cur.replace(" ", ""):
+            os.environ[key] = (cur + "," + extra).strip(",") if cur else extra
+    fn = launch or getattr(demo, "launch")
+    try:
+        fn(**studio_launch_kwargs())
+    except ValueError as exc:
+        if "localhost is not accessible" not in str(exc):
+            raise
+        print("gradio localhost check failed; app already listening on 0.0.0.0:" + str(studio_launch_kwargs()["server_port"]), flush=True)
+        if launch is None:
+            while True:
+                time.sleep(3600)
 
 
 def main() -> None:
     import gradio as gr
-    threading.Thread(target=train_forever, daemon=True, name="sham-trainer").start()
+    threading.Thread(target=supervise, daemon=True, name="sham-supervisor").start()
+    threading.Thread(target=heartbeat_loop, daemon=True, name="sham-heartbeat").start()
+    if settings()["job"] in LIVE_JOBS:
+        threading.Thread(target=checkpoint_upload_loop, daemon=True, name="sham-ckpt-upload").start()
+    try:                                                   # watch the other trainer Studios and sham-runner-1 (both sites): any one that sleeps or dies is started again
+        sys.path.insert(0, str(HERE))
+        import studio_guard
+        studio_guard.start_thread()
+    except Exception as exc:  # noqa: BLE001
+        print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
     with gr.Blocks(title="Sham trainer") as demo:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)
         gr.Button("refresh").click(status_json, None, out, api_name="status")
+        gr.Button("heartbeat", visible=False).click(lambda: json.dumps(heartbeat()), None, out, api_name="heartbeat")
+        gr.Button("kill cycle", visible=False).click(kill_cycle, None, out, api_name="kill_cycle")
         gr.Button("publish", visible=False).click(lambda: publish_leftover_subprocess(), None, out, api_name="publish_now")   # retry the leftover publish without a redeploy
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT") or 7860))
+    launch_studio(demo)
 
 
 if __name__ == "__main__":
@@ -853,10 +1126,10 @@ if __name__ == "__main__":
         (WORK / "checkpoints" / "sham_small_tokenizer.json").write_text("{}")
         (WORK / "checkpoints" / "crawl_progress.json").write_text("{}")
         child_publish_leftover()
-        assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
+        assert sent == [("sham-crawl-ms1", ["crawl_progress.json", "final.pt", "resume.json", "sham_small_tokenizer.json"])], sent
         child_publish_leftover()                                         # already published: not twice
         assert len(sent) == 1, sent
-        # tldm job: donor head + loop/evolve/lora_failed, rotating seeds, publish to tldm-writer-runs, no real training, no network
+        # tldm job: donor head is the main cycle; optional evolve is off by default; publish to tldm-writer-runs; no network
         tldm_tmp = Path(tempfile.mkdtemp())
         os.environ["TLDM_WORK"] = str(tldm_tmp)
         os.environ["SHAM_TRAINER_JOB"] = "tldm"
@@ -864,15 +1137,17 @@ if __name__ == "__main__":
         os.environ["SHAM_MS_OWNER"] = "Jonjithup"
         os.environ["SITE"] = "ai"
         os.environ.pop("KAGGLE_API_TOKEN", None)
+        os.environ.pop("SHAM_TLDM_EVOLVE", None)
         tldm_arms = []
 
         def fake_tldm(**kw):
-            cmd, seed, work = kw["cmd"], kw["seed"], kw["work"]
+            seed, work = kw["seed"], kw["work"]
+            cmd = kw.get("cmd") or []
             (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
             (work / "logs").mkdir(parents=True, exist_ok=True)
-            script = tldm_script(cmd)
+            script = tldm_script(cmd) if cmd else (kw.get("arm") or "")
             tldm_arms.append((seed, script, kw.get("arm")))
-            if script == "train_0.3b.py":
+            if script == "train_0.3b.py" or kw.get("arm") == "donor":
                 Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"w")
                 Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
                     "config": "writer_donor.yaml", "seed": seed, "train_secs": 1,
@@ -880,19 +1155,13 @@ if __name__ == "__main__":
                     "heldout": {"same_effect": 0.5, "exact_text": 0.4},
                     "heldout2": {"same_effect": 0.4, "exact_text": 0.3},
                 }), encoding="utf-8")
-            elif script == "train_loop.py":
+            elif script == "train_loop.py" or kw.get("arm") == "loop":
                 Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"loop")
-            elif script == "evolve.py":
-                Path(tldm_cmd_opt(cmd, "--adapter") or kw.get("adapter")).write_bytes(b"ad")
-                (work / "logs" / f"evolve_seed{seed}.log").write_text(
-                    "before evolution (names never seen): {'episode_success': 0.6, 'final_state_correct': 0.7, 'episodes_per_s': 1}\n"
-                    "after the LoRA (same episodes)      : {'episode_success': 0.8, 'final_state_correct': 0.85, 'episodes_per_s': 1}\n",
-                    encoding="utf-8")
-            elif script == "lora_failed.py":
-                Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
-                    "self_evolution": {"retries_verified_success": 8, "of_failed": 14,
-                                       "after": {"A": {"rate": 0.7}, "eval60_778": {"episode_success": 0.85}}}
-                }), encoding="utf-8")
+            elif kw.get("arm") == "safe_evolve":
+                ev = {"kept": False, "reason": "no verified successes among retries (nothing safe to learn); adapter not kept",
+                      "before": {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}}, "verified_pairs": 0}
+                Path(kw["report"]).write_text(json.dumps(ev), encoding="utf-8")
+                return ev
             return 0
 
         sent_tldm = []
@@ -901,25 +1170,47 @@ if __name__ == "__main__":
         second = run_tldm(runner=fake_tldm)
         assert first["seed"] == 0 and second["seed"] == 1, (first, second)
         assert first["heldout"] == 0.5 and first["heldout2"] == 0.4 and first["train"] == 0.9 and first["published"] is True
-        assert first["evo_after"] == 0.8 and first["lora_eval"] == 0.85 and first["config"] == "writer_donor.yaml"
-        assert [a[1] for a in tldm_arms if a[0] == 0] == ["train_0.3b.py", "train_loop.py", "evolve.py", "lora_failed.py"], tldm_arms
-        assert "train_loop.py" not in [a[1] for a in tldm_arms if a[0] == 1], tldm_arms  # later cycles keep the loop checkpoint and only evolve
+        assert first["config"] == "writer_donor.yaml"
+        assert [a[1] for a in tldm_arms] == ["train_0.3b.py", "train_0.3b.py"], tldm_arms  # evolve is off; only the donor head
         assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
         assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
         assert tldm_next_seed(tldm_tmp) == 2
-        # international hub host is selected from SITE / owner (no network)
+        # optional evolve: 0 verified pairs -> adapter not kept; previously-correct regression is refused
+        from safe_evolve import anonymize_record, load_session_pairs, no_regress
+        assert no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
+                          {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}})[0]
+        assert not no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
+                              {"C": {"rate": 0.182}, "eval60_778": {"episode_success": 0.8}})[0]
+        cleaned = anonymize_record({"task": "t", "ref_reply": "ok", "ref_snap": "s", "steps": [[0, "ok"]],
+                                    "user_id": "u1", "email": "a@b.c", "session_id": "s1", "ip": "1.2.3.4", "verified": True})
+        assert cleaned == {"task": "t", "ref_reply": "ok", "ref_snap": "s", "steps": [[0, "ok"]]}
+        assert anonymize_record({"task": "t", "user_id": "u1", "verified": False}) is None
+        sess = Path(tempfile.mkdtemp()) / "sessions.jsonl"
+        sess.write_text(json.dumps({"task": "t", "ref_reply": "ok", "steps": [[0, "ok"]], "user_id": "u1", "verified": True}) + "\n", encoding="utf-8")
+        loaded = load_session_pairs(sess)
+        assert loaded == [{"task": "t", "ref_reply": "ok", "steps": [[0, "ok"]]}] and "user_id" not in loaded[0]
+        os.environ["SHAM_TLDM_EVOLVE"] = "1"
+        tldm_arms.clear()
+        ev_tmp = Path(tempfile.mkdtemp())
+        os.environ["TLDM_WORK"] = str(ev_tmp)
+        ev_cycle = run_tldm(runner=fake_tldm)
+        assert ev_cycle["published"] is True and ev_cycle.get("evolve_kept") is False
+        assert "train_loop.py" in [a[1] for a in tldm_arms] and any(a[2] == "safe_evolve" for a in tldm_arms), tldm_arms
+        os.environ.pop("SHAM_TLDM_EVOLVE", None)
+        os.environ["TLDM_WORK"] = str(tldm_tmp)
+        # international hub host lives in the shared ms_hub helper
         sys.modules.pop("sham_inputs", None)
         sys.path.insert(0, str(HERE.parent / "colab" / "sham_small"))
-        import sham_inputs as real_inputs  # noqa: E402
+        import ms_hub  # noqa: E402
         saved_env = {k: os.environ.pop(k, None) for k in ("MODELSCOPE_DOMAIN", "SITE", "SHAM_MS_OWNER", "MODELSCOPE_HUB_ENDPOINT")}
-        assert real_inputs._ms_hub_endpoint() is None
+        assert ms_hub.ms_hub_endpoint() is None
         os.environ["SHAM_MS_OWNER"] = "Jonjithup"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.ai"
         os.environ.pop("SHAM_MS_OWNER")
         os.environ["SITE"] = "ai"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.ai"
         os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.cn"
-        assert real_inputs._ms_hub_endpoint() == "www.modelscope.cn"  # explicit wins
+        assert ms_hub.ms_hub_endpoint() == "www.modelscope.cn"
         for k, v in saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -951,7 +1242,7 @@ if __name__ == "__main__":
 
         def fake_sham2(cmd, report, heads):
             ran.append(cmd)
-            assert "--cached" in cmd and "--loop" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
+            assert "--cached" in cmd and "--loop" in cmd and "--identity" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
             heads.write_bytes(b"h")
             report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "donor_weights_unchanged": True,
                                           "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],
@@ -963,6 +1254,88 @@ if __name__ == "__main__":
         assert sent2 == [("sham2-tldm-head", ["sham2_heads.pt", "sham2_results.json"])] and r1["published"] and r2["heldout"] == 0.7 and r2["loop_multi"] == 0.8
         assert _short(r1)["heldout_seeds"] == "0.7" and _short(r1)["loop_all"] == 0.9
         os.environ.pop("TLDM_WORK", None)
+        # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
+        assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]
+        import subprocess as _sp
+        WORK = Path(tempfile.mkdtemp())
+        (WORK / "checkpoints").mkdir()
+        os.environ.pop("TLDM_WORK", None)
+        _real_stuck = stuck_minutes
+        stuck_minutes = lambda: 0.02                                                   # noqa: E731  (1.2 s without a line or a file)
+        pidfile = WORK / "grandchild.pid"
+        hang = [sys.executable, "-u", "-c", "import subprocess,sys,time;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(600)']);"
+                f"open({str(pidfile)!r},'w').write(str(p.pid));print('started',flush=True);time.sleep(600)"]
+        t0 = time.time()
+        try:
+            run_cycle_subprocess({"hours": 1.0}, cmd=hang, poll_s=0.2)
+            raise SystemExit("a stuck cycle must be killed")
+        except RuntimeError as exc:
+            assert "stuck" in str(exc), exc
+        assert time.time() - t0 < 30 and (WORK / "checkpoints" / CYCLE_FLAG).exists()   # killed; the flag stays so the next cycle resumes
+        time.sleep(0.3)
+        gpid = int(pidfile.read_text())
+        try:
+            os.kill(gpid, 0)
+            alive = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+            assert alive.startswith("Z") or not alive, f"grandchild {gpid} survived: {alive}"
+        except ProcessLookupError:
+            pass
+        stuck_minutes = _real_stuck
+        chatty = [sys.executable, "-u", "-c", "import time\nwhile True:\n print('step',flush=True); time.sleep(0.1)"]
+        threading.Timer(0.8, kill_cycle).start()
+        try:
+            run_cycle_subprocess({"hours": 1.0}, cmd=chatty, poll_s=0.2)
+            raise SystemExit("kill_cycle must stop the cycle")
+        except RuntimeError as exc:
+            assert "on request" in str(exc), exc
+        assert json.loads(kill_cycle())["killed"] is False
+        ok = run_cycle_subprocess({"hours": 1.0}, cmd=[sys.executable, "-c", f"print({RESULT_MARK!r} + '{{\"steps\": 3}}')"], poll_s=0.2)
+        assert ok == {"steps": 3} and not (WORK / "checkpoints" / CYCLE_FLAG).exists(), ok
+        ck = WORK / "checkpoints"
+        (ck / "final.pt").write_bytes(b"w1")
+        (ck / "sham_small_tokenizer.json").write_text("{}")
+        (ck / "crawl_progress.json").write_text(json.dumps({"by": "sham_live", "step": 77}))
+        assert prepare_resume(WORK, fetch=lambda d: None) is None                       # the last cycle ended cleanly: start from the head
+        _flag_cycle(True)
+        os.utime(ck / "final.pt", (time.time() - 60,) * 2)
+        assert prepare_resume(WORK) is None                                              # final.pt is from the cycle BEFORE: not resumed
+        os.utime(ck / "final.pt", None)
+        snap = prepare_resume(WORK)
+        assert snap and (snap / "final.pt").read_bytes() == b"w1" and _live_progress(snap)["step"] == 77 and not (snap / CYCLE_FLAG).exists()
+        os.utime(ck / "final.pt", (time.time() - 30 * 3600,) * 2)
+        assert prepare_resume(WORK) is None                                              # older than a day: the head has moved on
+        import shutil as _sh
+        _sh.rmtree(ck)
+        ck.mkdir()
+
+        def fake_ms(dest, running=True, age=60):
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "final.pt").write_bytes(b"ms")
+            (dest / "crawl_progress.json").write_text(json.dumps({"by": "sham_live", "step": 5}))
+            (dest / "resume.json").write_text(json.dumps({"cycle_running": running, "saved_at": time.time() - age}))
+            return dest
+        got = prepare_resume(WORK, fetch=fake_ms)
+        assert got and (got / "final.pt").read_bytes() == b"ms"                          # a reset disk resumes from the ModelScope copy
+        assert prepare_resume(WORK, fetch=lambda d: fake_ms(d, running=False)) is None
+        hb = heartbeat()
+        assert set(hb) >= {"phase", "progress_age_min", "ts", "restarts", "supervisor_alive"}, hb
+        rounds = []
+        supervise(sleep=lambda s: rounds.append(s), run=lambda: (_ for _ in ()).throw(RuntimeError("x")), max_rounds=3)
+        assert rounds == [60, 120, 240] and STATE["restarts"] >= 3, rounds
+        # Gradio on the Studio must stay private (share=False) and must not crash the process if 127.0.0.1 is blocked
+        assert studio_launch_kwargs()["share"] is False and studio_launch_kwargs()["server_name"] == "0.0.0.0"
+        launched = []
+        def boom(**kw):
+            launched.append(kw)
+            raise ValueError("When localhost is not accessible, a shareable link must be created. Please set share=True")
+        launch_studio(object(), launch=boom)
+        assert launched and launched[0]["share"] is False and launched[0]["ssr_mode"] is False
+        try:
+            launch_studio(object(), launch=lambda **kw: (_ for _ in ()).throw(ValueError("other")))
+            raise SystemExit("launch_studio must re-raise unknown ValueError")
+        except ValueError as exc:
+            assert "other" in str(exc)
         print("modelscope-trainer app self-test OK")
+
         sys.exit(0)
     main()

@@ -27,6 +27,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
+  const [tldm, setTldm] = useState(false);
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
   const mediaName = (id: string) => name(models.find((x) => x.id === id) || { id });
   const loadMedia = useCallback(async () => {
@@ -36,6 +37,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
+  useEffect(() => { void api<{ settings?: { tldm?: boolean } }>("me").then((r) => setTldm(Boolean(r.settings?.tldm))).catch(() => null); }, [api]);
   const setVisible = async (m: OwnerModel, visible: boolean) => {
     setBusy("vis-" + m.id);
     try { await api("model_update", { id: m.id, visible }); haptic("success"); await reload(); } catch (e: any) { setErr(String(e?.message || e)); haptic("error"); }
@@ -64,6 +66,23 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
               onBlur={async (e) => { try { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); } catch { haptic("error"); } }} />
           </div>
         ))}
+      </Section>
+      <Section
+        header={ar ? "⚡ T-LDM لشام 2 (للمالك فقط)" : "⚡ T-LDM for Sham 2 (owner only)"}
+        footer={ar
+          ? "بعد اختيار شام 2 من /model في البوت أو من قائمة النماذج هنا، هذا المفتاح يشغّل مسار T-LDM على شام 2 فقط (الحاسوب الداخلي نفسه). إن لم يكن رأس التدريب جاهزًا في المستودع الخاص تظهر رسالة خطأ واضحة. شام 1 لا يُستخدم ولا يوجد تحويل صامت. في البوت أيضًا: /tldm on أو /tldm off."
+          : "After picking Sham 2 with /model in the bot or in the model list here, this switch turns on the T-LDM path on Sham 2 only (its existing internal computer). If the trained head is not in the private repo, a clear error is shown. Sham 1 is never used and there is no silent fallback. In the bot: /tldm on or /tldm off."}
+      >
+        <Cell Component="label" multiline
+          subtitle={ar ? (tldm ? "مفعّل: رسائلك على شام 2 تمرّ عبر T-LDM" : "متوقف: شام 2 يرد بمساره الحالي إلى أن تفعّل T-LDM") : (tldm ? "On: your Sham 2 messages use the T-LDM path" : "Off: Sham 2 uses its current path until you turn T-LDM on")}
+          after={<Switch checked={tldm} disabled={busy === "tldm"} onChange={async (e) => {
+            const on = e.currentTarget.checked; setBusy("tldm"); setErr("");
+            try { await api("settings", { for: "sham_v2", tldm: on }); setTldm(on); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy("");
+          }} />}>
+          {ar ? "تفعيل T-LDM لشام 2" : "Enable T-LDM for Sham 2"}
+        </Cell>
       </Section>
       <Section
         header={ar ? "🎨 ماذا يستخدم كل نموذج لتوليد الوسائط؟" : "🎨 What does each model use to make media?"}
@@ -98,7 +117,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             const hash = w.checkpointSha256 ? w.checkpointSha256.slice(0, 12) + "…" : (ar ? "لا توجد بصمة" : "no checkpoint hash");
             const detail = w.detail ? " · " + w.detail : "";
             const subtitle = w.sourceModel + " · " + w.modelRepo + " · " + hash + memory + detail;
-            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham v2" };
+            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham 2" };
             return <Cell key={w.modelId} multiline after={w.ready ? "✅" : "❌"} subtitle={subtitle}>
               {(ar ? (labels[w.modelId] || w.displayName) : w.displayName) + " — " + (ar ? (w.ready ? "جاهز" : "غير جاهز") : w.phase)}
             </Cell>;

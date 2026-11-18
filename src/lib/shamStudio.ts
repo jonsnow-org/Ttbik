@@ -6,6 +6,7 @@ import { stripThinkTags } from "@/lib/thinkTags";
 import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
+import { isRetryableStreamError, mergeResumedStream } from "@/lib/shamLiveReply";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -18,6 +19,22 @@ export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
 
 /** The chat's thinking / accuracy / speed settings for the calls made inside it (set by the bot route around Sham's own handler). */
 export const shamModeCtx = new AsyncLocalStorage<ShamMode>();
+
+/** T-LDM path on Sham 2 (owner-only unless SHAM_TLDM_OPEN=1). Never set for Sham 1. When on, calls go to generate_tldm and must not fall back to Sham 1. */
+export const shamTldmCtx = new AsyncLocalStorage<boolean>();
+/** Isolated workspace key for this chat on Sham 2's existing internal computer. */
+export const shamTldmSession = new AsyncLocalStorage<string>();
+export const shamTldmOn = (): boolean => {
+  if (shamVariant.getStore() !== "v2") return false;
+  if (shamTldmCtx.getStore() === true) return true;
+  return (shamModeCtx.getStore() as { tldm?: boolean } | undefined)?.tldm === true;
+};
+export function shamTldmSessionId(chatId?: number | string | null): string {
+  const fromCtx = shamTldmSession.getStore();
+  if (fromCtx && fromCtx.trim()) return fromCtx.trim();
+  if (chatId !== undefined && chatId !== null && String(chatId).trim()) return `tldm-sham_v2-${chatId}`;
+  return "default";
+}
 
 /** Applies the settings to one call: the answer budget scales with accuracy, and the sampling / thought header goes at the start of the prompt (src/lib/shamModes.ts). */
 function withMode(payload: Record<string, unknown>, variant: "v1" | "v2"): Record<string, unknown> {
@@ -134,7 +151,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
+  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error" | "confirm";
   reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   /** Structured assistant function calls returned by Sham v2's own agent_step endpoint. */
   tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }>;
@@ -145,6 +162,8 @@ export type ShamReply = {
   /** The model chose to show its screen (desktop action=show): the offer rides in its own reply (a picture, its size, the session) for ANY client to display. */
   desktop?: { session?: string; width?: number; height?: number; screenshot_b64?: string };
   raw?: string;
+  /** T-LDM paused a sensitive command for this chat's allow/deny (existing shamok/shamno flow). */
+  command?: string; session?: string; computer?: string; tldm?: boolean;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -241,12 +260,50 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
 
 export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 
+const TLDM_NO_FALLBACK = "تعذّر مسار T-LDM لشام 2. لم يُستخدم شام 1، ولا يوجد تحويل صامت.";
+
+/** Sham 2 T-LDM chat: hidden terminal + the model's existing internal computer. Sham 1 is never used. */
+export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean; resume?: { command: string; approved: boolean } } = {}): Promise<ShamReply | null> {
+  if (shamVariant.getStore() !== "v2") {
+    setFailure("generate_tldm refused outside Sham 2; Sham 1 was not used");
+    return { type: "error", text: "مسار T-LDM متاح لشام 2 فقط. لم يُستخدم شام 1.", reason: "no-fallback" };
+  }
+  const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
+  if (!valid.length || valid[valid.length - 1].role !== "user") {
+    setFailure("generate_tldm requires a final user turn");
+    return { type: "error", text: "generate_tldm requires a final user turn", reason: "no-fallback" };
+  }
+  const sid = session || shamTldmSessionId();
+  const payload: Record<string, unknown> = {
+    messages_json: JSON.stringify(valid.slice(-12)),
+    session: sid,
+    max_new_tokens: 512,
+    tldm_flag: 1,
+  };
+  if (opts.resume?.command) {
+    payload.confirm_cmd = opts.resume.command;
+    payload.confirm_ok = opts.resume.approved ? 1 : 0;
+  }
+  const body = await shamCall("generate_tldm", payload, timeoutMs);
+  if (!body) {
+    setFailure("generate_tldm: no reply; Sham 1 was not used");
+    return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
+  }
+  const reply = await vetShamReply(parseShamReply(body), opts);
+  if (!reply) {
+    setFailure(`generate_tldm: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")}); Sham 1 was not used`);
+    return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
+  }
+  return reply;
+}
+
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
 export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat refused outside the Sham v2 variant");
     return null;
   }
+  if (shamTldmOn()) return shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat requires a final user turn");
@@ -344,6 +401,12 @@ export async function shamGenerateChatStream(
     setFailure("generate_chat_stream refused outside the Sham v2 variant");
     return null;
   }
+  if (shamTldmOn()) {
+    const reply = await shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
+    const text = String(reply?.text || "");
+    if (reply?.type === "text" && text && onDelta) onDelta(text);
+    return reply;
+  }
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat_stream requires a final user turn");
@@ -363,7 +426,7 @@ export async function shamGenerateChatStream(
     if (piece) onDelta?.(piece);
   };
   try {
-    const sub = await fetch(`${base}/gradio_api/call/v2/generate_chat_stream`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+    const sub = await fetch(`${base}/gradio_api/call/v2/generate_chat_stream`, { method: "POST", headers, body: JSON.stringify(payload), cache: "no-store", signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     if (sub.status === 404 || sub.status === 405) {
       // An older Studio has no streaming endpoint: answer with the one-shot chat and hand it over as a single piece.
       const one = await shamGenerateChat(valid, maxNewTokens, timeoutMs, opts);
@@ -373,10 +436,40 @@ export async function shamGenerateChatStream(
     if (!sub.ok) { setFailure(`generate_chat_stream: HTTP ${sub.status} on submit`); return null; }
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) { setFailure("generate_chat_stream: no event id"); return null; }
-    const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
-    if (!res.ok) { setFailure(`generate_chat_stream: HTTP ${res.status} on result`); return null; }
-    const full = await readShamSseDeltas(res, emit);
-    if (!full.trim()) { setFailure("generate_chat_stream: empty answer"); return null; }
+    // The Studio keeps generating under this event id if our GET drops. Reconnect to the same id
+    // (never resubmit) until the deadline, and merge a replay so tokens already shown are not doubled.
+    let full = "";
+    let lastErr = "";
+    const collect = (piece: string) => {
+      const next = mergeResumedStream(full, piece);
+      const extra = next.startsWith(full) ? next.slice(full.length) : "";
+      full = next;
+      if (extra) emit(extra);
+    };
+    while (Date.now() < deadline) {
+      const left = Math.max(1, deadline - Date.now());
+      try {
+        const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, cache: "no-store", signal: AbortSignal.timeout(left) });
+        if (!res.ok) {
+          lastErr = `HTTP ${res.status} on result`;
+          if (res.status === 404 || res.status === 410 || left < 800) break;
+          if (!isRetryableStreamError(new Error(lastErr))) break;
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        const chunk = await readShamSseDeltas(res, collect);
+        full = mergeResumedStream(full, chunk);
+        if (full.trim()) break;
+        lastErr = "empty answer";
+        if (left < 800) break;
+        await new Promise((r) => setTimeout(r, 400));
+      } catch (e) {
+        lastErr = `${(e as { name?: string })?.name || "error"}: ${String((e as Error)?.message || "").slice(0, 80)}`;
+        if (!isRetryableStreamError(e) || Date.now() + 800 >= deadline) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+    if (!full.trim()) { setFailure(`generate_chat_stream: ${lastErr || "empty answer"}`); return null; }
     const reply = await vetShamReply(parseShamReply(full) ?? ({ type: "text", text: full.trim() } as ShamReply), opts);
     if (!reply) setFailure(`generate_chat_stream: unreadable answer (${full.slice(0, 120).replace(/\s+/g, " ")})`);
     return reply;

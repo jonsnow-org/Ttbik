@@ -11,12 +11,16 @@ import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { detectMediaIntent, looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { requiresProgressCard } from "@/lib/modes";
-import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamGenerateTldm, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, shamTldmCtx, shamTldmSession, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun, type ShamRun, type ShamMediaJob } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
+import { createShamTypist, finalizeShamEdit, type ShamTypist } from "@/lib/shamLiveReply";
+import { isTrainingStatusReply, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
+import { shamAdminNotice } from "@/lib/shamAdminNotice";
+import { clearStopped, draftStopped } from "@/lib/liveReply";
 import { postShamContinuation } from "@/lib/shamContinuation";
 import { shamTaskSlot, taskEvent, taskIsActive, taskStart, taskStatus, taskTouch } from "@/lib/coderTasks";
 import { selfUrl, signContinue } from "@/lib/coderSections";
@@ -24,6 +28,7 @@ import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant, setSham
 import { mediaRouteNeeded as shamMediaProbe } from "@/lib/coderMediaFast";
 setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the cheap "is this a media request?" pre-check (Sham modules never import Nova's)
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
+import { tldmAllowedFor } from "@/lib/coderModels";
 import { telegramPhoto } from "@/lib/coderSections";
 
 // Recognized the same way as every other bot template on this platform
@@ -794,6 +799,11 @@ export async function sendShamReply(bot: TelegramBot, chatId: number, reply: Sha
     // a short clip from the model's own image tokens (sham_studio_media, video/mp4); the caption is the Studio's own line
     await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"), reply.text ? { caption: reply.text.slice(0, 1000) } : {}).catch(() => null);
   } else if (reply.text) {
+    if (isTrainingStatusReply(reply.text)) {
+      void shamAdminNotice(reply.text, chatId).catch(() => null);
+      await bot.api.sendMessage(chatId, STALE_REPLY_USER).catch(() => null);
+      return;
+    }
     // a long answer arrives in several messages (Telegram allows ~4096 characters each) instead of being cut
     // (a report beyond ~24000 characters goes as a file: nothing is ever cut; chunks break at line ends and each stays under Telegram's 4096)
     const full = reply.text;
@@ -821,6 +831,47 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
   const edit = (text: string) => bot.api.editMessageText(chatId, cq.message.message_id, text.slice(0, 3500)).catch(() => null);
   const call = chatId ? await shamTakePending(chatId, id || "") : null;
   if (!call) { await done("انتهت صلاحية هذا الطلب."); return; }
+  if (call.function.name === "tldm_confirm") {
+    // Resume on Sham 2's existing internal computer. Do not shamRunTool(computer_run): that path
+    // refuses Sham computer calls in the app (the computer lives inside the model). Ask THIS chat.
+    let args: { command?: string; session?: string; question?: string } = {};
+    try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* keep empty */ }
+    if (!tldmAllowedFor(tierFor(chatId))) {
+      await done("للمالك فقط.");
+      await edit("❌ مسار T-LDM للمالك فقط في هذه المرحلة.");
+      return;
+    }
+    const session = String(args.session || `tldm-sham_v2-${chatId}`);
+    const approved = kind === "shamok";
+    if (!approved) {
+      await done("أُلغي.");
+      const denied = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamTldmSession.run(session, () => shamGenerateTldm(
+        [{ role: "user", content: String(args.question || args.command || ".") }],
+        session,
+        180000,
+        { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: false } },
+      ))));
+      const text = String(denied?.text || "أُلغي الأمر ولم يُنفَّذ.");
+      await edit(`❌ ${text}`.slice(0, 3500));
+      return;
+    }
+    await done("جارٍ التنفيذ…");
+    const out = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamTldmSession.run(session, () => shamGenerateTldm(
+      [{ role: "user", content: String(args.question || args.command || ".") }],
+      session,
+      180000,
+      { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: true } },
+    ))));
+    if (out?.type === "confirm") {
+      const next = { id: "tldm-confirm", type: "function" as const, function: { name: "tldm_confirm", arguments: JSON.stringify({ command: out.command, session: out.session || session, question: out.text }) } };
+      const nid = await shamSavePending(chatId, next);
+      await bot.api.editMessageText(chatId, cq.message.message_id, shamConfirmText(next).slice(0, 3500), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${nid}`).text("❌ ألغِ", `shamno|${nid}`) }).catch(() => null);
+      return;
+    }
+    const text = String(out?.text || (out?.type === "error" ? "تعذّر إكمال الأمر." : "نُفّذ."));
+    await edit(`${out?.type === "error" ? "⚠️" : "✅"} ${text}`.slice(0, 3500));
+    return;
+  }
   if (kind === "shamno") { await done("أُلغي."); await edit("❌ ألغيتَ هذا الإجراء."); return; }
   await done("جارٍ التنفيذ…");
   const ctx = await shamToolCtx(chatId);
@@ -872,7 +923,7 @@ const SHAM_LEGS = 6;                                   // v1 keeps its existing 
 const SHAM_V2_LEGS = 12;                                // v2 can use up to roughly 48 minutes including the initial leg
 
 /** Sends what a leg produced. true = handled (an answer, a question, a picture, a confirmation, or the hand-over to the next leg). */
-async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false, streamed = false): Promise<boolean> {
+async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnType<typeof shamAgentRun>>, request: string, botId: string | undefined, leg: number, runId?: string, card?: Card | null, appOnly = false, streamed = false, typist?: ShamTypist | null): Promise<boolean> {
   if (r.kind === "stopped") {
     if (runId) { await taskEvent(runId, "info", "أُوقفت المهمة بناءً على طلب المستخدم.").catch(() => null); await taskStatus(runId, "stopped").catch(() => null); }
     if (!appOnly) { await cardDrop(bot, chatId, card); await bot.api.sendMessage(chatId, "⏹️ أُوقفت المهمة.").catch(() => null); }
@@ -883,7 +934,7 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
     if (leg === 0 && !appOnly) { if (!(await cardSay(bot, chatId, card, cardRender(card, ["⏳ أكمل العمل في الخلفية، وسأحدّث هذه الرسالة بالنتيجة حين أنتهي."])))) await bot.api.sendMessage(chatId, "⏳ أكمل العمل في الخلفية، وسأرسل النتيجة هنا حين أنتهي.").catch(() => null); }
     const nextRunId = runId || `sham-${chatId}-${Date.now().toString(36)}`;
     try {
-      await shamSaveRun({ chatId, botId: botId || "", runId: nextRunId, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", card: card?.msgId ? cardSnapshot(card) : undefined, mode: (shamModeCtx.getStore() || {}) as Record<string, unknown> });
+      await shamSaveRun({ chatId, botId: botId || "", runId: nextRunId, request, messages: r.messages, leg: leg + 1, variant: shamVariant.getStore() || "v1", card: card?.msgId ? cardSnapshot(card) : undefined, mode: (shamModeCtx.getStore() || {}) as Record<string, unknown>, live: typist?.state() });
     } catch (e) {
       const reason = String((e as Error)?.message || e).slice(0, 140);
       const message = "تعذّر حفظ حالة متابعة شام، لذلك أوقفت الانتظار بدل إبقاء الرسالة معلّقة. أعد إرسال طلبك.";
@@ -916,8 +967,15 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
       await taskStatus(runId, "done", r.steps).catch(() => null);
     }
     if (appOnly) { await cardDrop(bot, chatId, card); if (r.reply?.type === "text" && r.reply.text) await saveChatTurn(chatId, request, r.reply.text); }
-    else if (r.reply?.type === "text" && r.reply.text && card?.msgId) await cardFinish(bot, chatId, card, r.reply.text, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
-    else { await cardPhase(bot, chatId, card, "send", "جاري الإرسال"); await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, r.reply); }
+    else {
+      const live = typist ? await typist.finish() : null;
+      if (live?.mode === "edit" && live.msgId && r.reply?.type === "text" && r.reply.text) {
+        await cardDrop(bot, chatId, card);
+        await finalizeShamEdit(bot, chatId, live.msgId, r.reply.text);
+        await saveChatTurn(chatId, request, r.reply.text);
+      } else if (r.reply?.type === "text" && r.reply.text && card?.msgId) await cardFinish(bot, chatId, card, r.reply.text, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
+      else { await cardPhase(bot, chatId, card, "send", "جاري الإرسال"); await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, r.reply); }
+    }
     return true;
   }
   let out = r.kind === "ask" ? r.question : r.text;
@@ -929,8 +987,14 @@ async function shamDeliver(bot: TelegramBot, chatId: number, r: Awaited<ReturnTy
   }
   if (runId) { if (!streamed) await taskEvent(runId, "text", out).catch(() => null); await taskEvent(runId, "done", "").catch(() => null); await taskStatus(runId, "done", r.steps).catch(() => null); }
   if (appOnly) await cardDrop(bot, chatId, card);
-  else if (card?.msgId && out.trim() && out.length <= 24000) await cardFinish(bot, chatId, card, out, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
-  else { await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, { type: "text", text: out }); }
+  else {
+    const live = typist ? await typist.finish() : null;
+    if (live?.mode === "edit" && live.msgId && out.trim()) {
+      await cardDrop(bot, chatId, card);
+      await finalizeShamEdit(bot, chatId, live.msgId, out);
+    } else if (card?.msgId && out.trim() && out.length <= 24000) await cardFinish(bot, chatId, card, out, (p) => bot.api.sendMessage(chatId, p).catch(() => null));
+    else { await cardDrop(bot, chatId, card); await sendShamReply(bot, chatId, { type: "text", text: out }); }
+  }
   await saveChatTurn(chatId, request, out);
   return true;
 }
@@ -956,18 +1020,46 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
   if (!run) return;
   await shamVariant.run(run.variant, () => shamModeCtx.run(run.mode as never, async () => {
     const card: Card | null = run.card?.msgId ? cardRestore(run.card) : null;
-    // a durable media request carries on in the same legs (its Studio job id is on the run), never through the model agent
-    if (run.media) { await shamMediaJobStep(bot, chatId, botId, run, run.media, card, Date.now(), 230000); return; }
-    const ctx = await shamToolCtx(chatId, botId);
-    ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
-    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-    const last = run.leg >= (run.variant === "v2" ? SHAM_V2_LEGS : SHAM_LEGS);
-    const onEvent = run.runId ? (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
-    const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => !(await taskIsActive(run.runId!)) : undefined });
-    if (run.runId && !(await taskIsActive(run.runId))) return;
-    if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card))) {
-      const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
-      await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
+    const typist = createShamTypist(bot, chatId, { state: run.live });
+    void typist.flush();
+    let lastTouch = 0;
+    const heartbeat = setInterval(() => {
+      const n = Date.now();
+      if (n - lastTouch >= 15000) { lastTouch = n; void taskTouch(run.runId).catch(() => null); }
+      void typist.pulse();
+      void bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    }, 4000);
+    try {
+      // a durable media request carries on in the same legs (its Studio job id is on the run), never through the model agent
+      if (run.media) { await shamMediaJobStep(bot, chatId, botId, run, run.media, card, Date.now(), 230000); return; }
+      const first = !Array.isArray(run.messages) || run.messages.length === 0;
+      if (first) {
+        if (await shamMediaFastLane(bot, chatId, run.request, botId)) {
+          // Fast lane starts its own durable media run; close this chat run so it does not stay "running".
+          await taskEvent(run.runId, "info", "أُحيل الطلب إلى مسار الوسائط.").catch(() => null);
+          await taskStatus(run.runId, "done").catch(() => null);
+          return;
+        }
+        const mem = await loadChatMemory(chatId, run.request);
+        await shamAgentAndSend(bot, chatId, run.request, mem, botId, { runId: run.runId, typist, card, leg: run.leg });
+        return;
+      }
+      const ctx = await shamToolCtx(chatId, botId);
+      ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      const last = run.leg >= (run.variant === "v2" ? SHAM_V2_LEGS : SHAM_LEGS);
+      const onEvent = run.runId ? (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(run.runId!, k, t).catch(() => null); } : undefined;
+      let streamed = false;
+      let acc = typist.text();
+      const onDelta = (t: string) => { streamed = true; acc += t; typist.push(acc); void taskEvent(run.runId, "text", t).catch(() => null); };
+      const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onDelta, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => draftStopped(chatId) || !(await taskIsActive(run.runId!)) : undefined });
+      if (run.runId && !(await taskIsActive(run.runId))) return;
+      if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card, false, streamed, typist))) {
+        const why = tierFor(chatId) === "owner" && shamLastFailure() ? `\n\n🔧 للمالك: ${shamLastFailure()}` : "";
+        await bot.api.sendMessage(chatId, `تعذّر إكمال المهمة الآن (لم يجب شام في الوقت). أعد إرسال طلبك.${why}`).catch(() => null);
+      }
+    } finally {
+      clearInterval(heartbeat);
     }
   }));
 }
@@ -1117,25 +1209,77 @@ async function shamQueueNote(runId: string, attempt: number): Promise<string> {
   return queueLine(await queueInfo(runId, "sham", shamVariant.getStore() === "v2" && overflowBase() ? 2 : 1), attempt);
 }
 
-async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string): Promise<boolean> {
+async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string, opts: { runId?: string; typist?: ShamTypist | null; card?: Card | null; resume?: unknown[]; leg?: number; appOnly?: boolean } = {}): Promise<boolean> {
   await refreshPressure().catch(() => false);
-  const progress = shamProgressCardSteps(bot, chatId, text);
+  const progress = opts.card ? null : shamProgressCardSteps(bot, chatId, text);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
   ctx.sendFile = async (name, bytes, caption) => { await bot.api.sendDocument(chatId, new InputFile(bytes, name), caption ? { caption } : {}); };      // send_file: a file from Sham's own VM goes to this chat
-  await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
-  const runId = `sham-${chatId}-${Date.now().toString(36)}`;
-  await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId }).catch(() => null);      // the shared terminal shows Sham's work too
-  void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
+  const runId = opts.runId || `sham-${chatId}-${Date.now().toString(36)}`;
+  if (!opts.runId) {
+    await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
+    const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, (shamVariant.getStore() || "v1") === "v2" ? "sham_v2" : "sham", prismaDb).catch(() => null);
+    await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId, threadId: threadId || undefined }).catch(() => null);
+  }
+  if (progress) void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
+  const typist = opts.typist !== undefined ? opts.typist : (opts.appOnly ? null : createShamTypist(bot, chatId));
+  if (typist) void typist.flush();                                       // empty draft = Telegram's Thinking… placeholder
   const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
-  // Token-by-token: Sham v2's streamed chat appends each piece as it is written, so the chat grows live (owner: all models live).
+  // Token-by-token: Sham v2's streamed chat grows live in Telegram (draft / edits) and in the mini app (task events / SSE).
   let streamed = false;
-  const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
+  let acc = "";
+  const onDelta = (t: string) => {
+    streamed = true;
+    acc += t;
+    typist?.push(acc);
+    void taskEvent(runId, "text", t).catch(() => null);
+  };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
-  const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onStep: progress.onStep, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true });
-  await progress.flush();
-  return shamDeliver(bot, chatId, r, text, botId, 0, runId, progress.getCard(), false, streamed);
+  let lastTouch = 0;
+  const heartbeat = setInterval(() => {
+    const n = Date.now();
+    if (n - lastTouch >= 15000) { lastTouch = n; void taskTouch(runId).catch(() => null); }
+    void typist?.pulse();
+    void bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  }, 4000);
+  try {
+    const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, resume: opts.resume as never, onEvent, onDelta, onStep: progress?.onStep || (opts.card ? shamCardSteps(bot, chatId, opts.card) : undefined), queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: v2 ? (detailedReply ? 170000 : 125000) : (detailedReply ? 95000 : 50000), askMs: v2 ? (detailedReply ? 150000 : 110000) : (detailedReply ? 85000 : 44000), maxNew: Math.min(shamReplyTokens(), v2 ? (detailedReply ? 768 : 512) : (detailedReply ? 320 : 160)), mode: detailedReply ? { ...(shamModeCtx.getStore() || {}), auto: false } : shamModeCtx.getStore(), continuable: true, shouldStop: async () => draftStopped(chatId) || !(await taskIsActive(runId)) });
+    if (progress) await progress.flush();
+    return shamDeliver(bot, chatId, r, text, botId, opts.leg ?? 0, runId, opts.card || progress?.getCard() || null, Boolean(opts.appOnly), streamed, typist);
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+/** Move Sham work off the 60s Telegram webhook and onto /api/sham/continue (maxDuration 300), the same durable pattern as Nova's coder_tasks legs. */
+export async function startShamDurableTask(bot: TelegramBot, chatId: number, text: string, botId: string | undefined, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
+  clearStopped(chatId);
+  const variant = shamVariant.getStore() || "v1";
+  const mode = (shamModeCtx.getStore() || {}) as Record<string, unknown>;
+  const runId = `sham-${chatId}-${Date.now().toString(36)}`;
+  const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, variant === "v2" ? "sham_v2" : "sham", prismaDb).catch(() => null);
+  await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);
+  await taskStart(chatId, { runId, slot: shamTaskSlot(variant), source: "interactive", title: text.slice(0, 120), botId, threadId: threadId || undefined }).catch(() => null);
+  await taskEvent(runId, "info", "بدأت المهمة في الخلفية؛ يمكنك إعادة فتح المحادثة ومتابعة النص كما يُكتب.").catch(() => null);
+  try {
+    await shamSaveRun({ chatId, botId: botId || "", runId, request: text, messages: [], leg: 0, variant, mode });
+  } catch (e) {
+    await taskEvent(runId, "failed", `could not save Sham task: ${String((e as Error)?.message || e).slice(0, 140)}`).catch(() => null);
+    later(() => shamVariant.run(variant, () => shamModeCtx.run(mode as never, () => shamAgentAndSend(bot, chatId, text, mem, botId, { runId }))));
+    return true;
+  }
+  const handoff = await shamKickNextLeg(botId || "", chatId, runId, 0);
+  if (handoff.ok) {
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    return true;
+  }
+  if (handoff.uncertain) {
+    await taskEvent(runId, "info", `handoff unconfirmed (${handoff.reason}); not starting a second copy`).catch(() => null);
+    return true;
+  }
+  later(() => continueShamRun(bot, chatId, botId || "", runId));
+  return true;
 }
 
 /** Run the selected Sham model for a Mini App task; do not send this request to Nova. */
@@ -1323,10 +1467,8 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram re-delivered this very message (same update id): it is already being handled
           // Telegram gets its answer at once and the work goes on in the background (as the coder does): a slow Studio can no longer make Telegram resend
           const variant = shamVariant.getStore() || "v1", mode = shamModeCtx.getStore() || {};
-          later(() => shamVariant.run(variant, () => shamModeCtx.run(mode, async () => {
-            if (await shamMediaFastLane(bot, chatId, text, _botRow?.id)) return;        // a clear "make a picture / video of X" request never waits for the model to choose a tool
-            if (!(await shamAgentAndSend(bot, chatId, text, mem, _botRow?.id))) await sendShamReply(bot, chatId, null);
-          })));
+          // Off the 60s webhook: save the task and hand it to /api/sham/continue (300s, resumable run id).
+          await startShamDurableTask(bot, chatId, text, _botRow?.id, mem);
           return;
         }
         if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
