@@ -1,15 +1,18 @@
 // studio-guard: the layer of the Sham training watch that does not depend on GitHub at all (owner's order 2026-11-18: training must never stop silently).
 // Cron every 10 minutes: asks ModelScope (both sites) for each trainer Studio's state and calls the deploy API on any that is Sleeping / Stopped / Failed.
 // Same list and rules as ai-system/modelscope-trainer/studio_guard.py (which also runs inside the trainer Studios and sham-runner-1, and in GitHub keep-awake).
-// Nova 2 (coder-inference-server-16) and the cn donor test Studios: only woken when Sleeping. nova-inference-server and Athar are never listed.
+// Nova 2 (coder-inference-server-16), the cn donor test Studios and the cn chat Studios (sham-v2-server, lfm25-inference-server): only woken when Sleeping. nova-inference-server and Athar are never listed.
 // Secrets (Cloudflare, set by deploy-studio-guard-worker.yml from the GitHub secrets): MS_TOKEN_CN, MS_TOKEN_AI. KV binding LOG keeps the last 50 passes (no tokens).
 // GET / with "Authorization: Bearer <MS_TOKEN_AI>": the last passes; ?check=1 runs a pass now without acting, ?act=1 runs a real pass. Anyone else gets 404.
 const HOSTS = { cn: "www.modelscope.cn", ai: "www.modelscope.ai" };
 export const STUDIOS = [
   ["cn", "novaai2026", "sham-trainer-1", "train"],
+  ["cn", "novaai2026", "sham2-tldm", "train"],
   ["cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"],
+  ["cn", "novaai2026", "sham-v2-server", "warm"],            // chat Studios that keep-warm-chat-studios.yml covers (GitHub drops most of its cron runs)
+  ["cn", "novaai2026", "lfm25-inference-server", "warm"],
   ["ai", "Jonjithup", "sham-trainer-1", "train"],
   ["ai", "Jonjithup", "sham-trainer-2", "train"],
   ["ai", "Jonjithup", "sham-trainer-tools", "train"],
