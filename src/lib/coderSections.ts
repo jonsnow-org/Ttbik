@@ -2291,7 +2291,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.queued = rest.slice(batch.length - 1);
       await progressDone(ioBot, chatId, run, outs);
       for (let i = 0; i < batch.length; i++) {
-        await bankAdd(run.id, ctx.chatKey, run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
+        await bankAdd(run.id, ctx.chatKey || coderChatKey(`${chatId}:${ctx.modelId || currentEngineModel()}`), run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
         st.messages.push({ role: "tool", content: outs[i] + (i === batch.length - 1 ? progressNote(run) : ""), tool_call_id: batch[i].id, name: batch[i].function.name });
         const seen = afterCall(run.stall, batch[i], outs[i], run.step);
         if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
