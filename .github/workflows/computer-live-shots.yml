@@ -1,0 +1,38 @@
+name: Computer live shots (each model's own screen)
+
+# Live proof for the computer upgrade: opens the browser on each model's OWN desktop (Sham's Studio, Sham Pro's Studio, Nova's mini-app computer hub)
+# in a dedicated verification session, saves the picture the live view shows as an artifact, then stops that session. Nothing is redeployed.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "comma list of targets (sham_v1,sham_v2,nova,nova2); empty = all"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Shoot each model's own screen
+        env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHOT_ONLY: ${{ inputs.only }}
+          SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+          COMPUTER_STUDIO_URL: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+        run: python3 scripts/ops/computer_live_shots.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: computer-shots
+          path: computer-shots/
+          if-no-files-found: warn

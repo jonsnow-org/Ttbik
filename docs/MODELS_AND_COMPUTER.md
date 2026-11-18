@@ -35,3 +35,12 @@ The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to 
 ## Verification
 
 The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-11-r9-mount-probe\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.
+
+## Handing the computer to the user (2026-11-18)
+
+Every model can hand **its own** screen to the user for a step only the user should do on their own account: sign in, a one-time / 2FA code, a captcha, a payment or a final confirmation. The model calls `computer_handoff{kind, reason}` (Nova / Nova 2 / LFM: `coderAgent.ts` desktop tools; Sham / Sham Pro: `shamExec.ts`).
+
+- Nova-family: the run waits like `ask_user` (`run.asking.kind = "handoff"`), a `screen` task event carries `{model, handoff, resume:"run", slot}`, and the Mini App opens that model's live screen with the **You have control** bar (`ComputerHandoffBar.tsx`). Done / Not now call `handoff_done`, which resumes the waiting run with a note telling the model to look at the screen again. A chat reply ("تم") resumes it the same way.
+- Sham / Sham Pro: the round ends with the handoff; Done sends a short `[الحاسوب] …` follow-up message that continues the chat.
+- Each model is reached only through its own computer (Nova hub session `user:model`, Sham's own Studio desktop). The login the user typed stays in that model's session only.
+- Live proof: `.github/workflows/computer-live-shots.yml` opens the browser on each model's own desktop in a verification session and uploads the pictures.

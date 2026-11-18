@@ -6,6 +6,7 @@
 // percentage; the owner sees "∞" and never a limit. Same server API (/api/coder/app, signed initData, checked on the server).
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
+import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
 import { threadBubbles } from "@/lib/chatBubbles";
@@ -1059,7 +1060,7 @@ export default function NovaApp() {
   const onHero = tab === "home" && !page;
   useEffect(() => { paintTelegram(resolved, onHero && !!me); }, [resolved, onHero, me]);
   // A Sham that chose to show its screen (desktop action=show) leaves a "screen" event; the screen opens by itself here, over whatever page is open (owner only).
-  const [offer, setOffer] = useState<{ id: number; model: string } | null>(null);
+  const [offer, setOffer] = useState<({ id: number; model: string } & Partial<HandoffOffer>) | null>(null);
   const seenOffer = useRef(0);
   const computerOn = Boolean(me?.features?.computer) && me?.tier === "owner";
   useEffect(() => {
@@ -1068,7 +1069,7 @@ export default function NovaApp() {
     const poll = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const r = await api<{ offer: { id: number; model: string } | null }>("screen_offer");
+        const r = await api<{ offer: ({ id: number; model: string } & Partial<HandoffOffer>) | null }>("screen_offer");
         if (r.offer && r.offer.id > seenOffer.current) { seenOffer.current = r.offer.id; try { sessionStorage.setItem("n-screen-seen", String(r.offer.id)); } catch { /* ignore */ } haptic("success"); setOffer(r.offer); }
       } catch { /* the next poll tries again */ }
     };
@@ -1134,6 +1135,7 @@ export default function NovaApp() {
           : <Settings key={`${lang}:${bound}`} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}
       </main>
       <Sheet open={Boolean(offer && offer.model === bound)} onClose={() => setOffer(null)} title={lang === "ar" ? "شاشة النموذج" : "The model's screen"}>
+        {offer && offer.model === bound && offer.handoff ? <ComputerHandoffBar offer={offer as HandoffOffer} ar={lang === "ar"} /> : null}
         {offer && offer.model === bound ? <GraphicalDesktop key={offer.model + offer.id} model={offer.model} ar={lang === "ar"} /> : null}
       </Sheet>
       {!page && ctx && (
