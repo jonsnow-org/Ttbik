@@ -11,7 +11,7 @@
 
 Round: failures of the round -> curriculum repair (best-of-n, verified by execution) -> experience log -> admission (verified, consensus, deny lists, PII,
 per-user caps) -> per-family candidate adapters trained on new pairs + replay (original training rows + earlier admitted pairs) -> gate (no loss on
-previously-correct items and the dev set, gain on the family's failed tasks) -> accept (new version active) or reject (kept on disk, not active)."""
+previously-correct items, the dev set and the GUARD set, gain on the family's failed tasks) -> accept (new version active) or reject (kept on disk, not active)."""
 from __future__ import annotations
 
 import os
@@ -68,19 +68,37 @@ class EvolutionEngine:
         self.heldout = list(heldout_tasks)
         self.rank, self.steps, self.lr, self.seed = rank, steps, lr, seed
         self.min_consensus, self.max_lost, self.defences, self.use_lessons = min_consensus, max_lost, defences, use_lessons
-        self.too_close = too_close
+        self._too_close = too_close
         self.ex = executor
         self.admitted_cache: list = []
         self.rng = random.Random(seed)
         self.pending_failures: list = []                            # (task, wrong command, verify) of the current round
         self.prev_correct: dict = {}                                 # item id -> (task, verify): items the active model got right when first seen
         self.dev: dict = {}                                          # item id -> (task, verify): never trained on
+        self.guard: dict = {}                                        # item id -> (task, verify): natural requests for known commands (data/guard.py);
+        self._guard_texts: list = []                                 # gate-only, disjoint from held-out, decontaminated from training like held-out
         self.trained_on: set = set()
         AD.wrap(model)
         self.router = AD.Router(self._embed)
         self._refit_router([])
         self.events: list = []
         self.web_router = None
+
+    def too_close(self, task: str) -> str:
+        """Training decontamination: '' or why `task` may not be trained on (the caller's held-out/benchmark/dev check, or too close to a GUARD task)."""
+        r = self._too_close(task) if self._too_close else ""
+        if not r and self._guard_texts:
+            w = set(re.findall(r"\w+", task.lower()))
+            for g in self._guard_texts:
+                h = set(re.findall(r"\w+", g.lower()))
+                if task.strip().lower() == g.strip().lower() or (w and len(w & h) / len(w | h) >= 0.5):
+                    return "guard"
+        return r
+
+    def set_guard(self, rows: list):
+        """rows: [(task, reference_command)] -> the gate's GUARD set (needs the executor). Requests a router could misroute to a new adapter."""
+        self.guard = {f"g{i}": (t, (lambda o, c=c: self.ex.same_effect(c, o))) for i, (t, c) in enumerate(rows)}
+        self._guard_texts = [t for t, _ in rows]
 
     # ------------------------------------------------------------ inference
     @torch.no_grad()
@@ -146,7 +164,7 @@ class EvolutionEngine:
         else:                                                        # ablation only: trust the user's claim, no consensus, no deny list
             pairs = list(dict.fromkeys((r["intent"], r["command"], r["family"]) for r in self.log.records if (r.get("claim") if "claim" in r else r.get("verdict")) is True))
             why = {"admitted": len(pairs), "defences": "OFF"}
-        pairs = [(t, c, f) for t, c, f in pairs if self.P.fits(c) and not (self.too_close and self.too_close(t))]
+        pairs = [(t, c, f) for t, c, f in pairs if self.P.fits(c) and not self.too_close(t)]
         return pairs, why
 
     def repair_failures(self, user: str = "curriculum") -> dict:
@@ -202,7 +220,7 @@ class EvolutionEngine:
         for k in kept:
             ok, out, _ = self.ex.run(k["command"]) if self.ex else (True, "", "")
             self.observe("web", k["task"], k["command"], 0 if ok else 1, out, "", True, source="web", meta={"url": k["url"], "license": k["license"]})
-        rows = [(k["task"], k["command"], k["family"]) for k in kept if self.P.fits(k["command"]) and not (self.too_close and self.too_close(k["task"]))]
+        rows = [(k["task"], k["command"], k["family"]) for k in kept if self.P.fits(k["command"]) and not self.too_close(k["task"])]
         known_tpl = {AUG.delex(t, c)[1] for t, c in self.replay}
         tier = {(t, c): ("known" if AUG.delex(t, c)[1] in known_tpl else "new") for t, c, _ in rows}
         self.web_router = WT.WebRouter(self._embed)                    # both tiers ROUTED: an adapter only serves requests whose nearest examples are its web rows
@@ -214,13 +232,15 @@ class EvolutionEngine:
                 fr = [(t, c) for t, c, f in sel if f == fam]
                 name = prefix + fam
                 target = {f"w{i}": (t, (lambda o, ref=c: self.ex.same_effect(ref, o))) for i, (t, c) in enumerate(fr)}
-                before = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "target": self._system_score(target)}
+                before = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "guard": self._system_score(self.guard),
+                          "target": self._system_score(target)}
                 WT.train_adapter(self.P, self.model, name, fr, self.replay, seed=self.seed, **recipe[which])
                 self.registry.m["clusters"].setdefault(name, {"active": None, "history": [], "versions": []})
                 vid = self.registry.propose(name, AD.adapter_state(self.model, name), {})
                 self.registry.accept(name, vid, "candidate")             # tentatively active, so commands() routes to it
-                after = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "target": self._system_score(target)}
-                ok, why = AD.gate(before, after, "target", ("prev_correct", "dev"), self.max_lost)
+                after = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "guard": self._system_score(self.guard),
+                         "target": self._system_score(target)}
+                ok, why = AD.gate(before, after, "target", ("prev_correct", "dev", "guard"), self.max_lost)
                 v = self.registry._v(name, vid)
                 v["metrics"] = {k: [sum(before[k].values()), sum(after[k].values()), len(before[k])] for k in before}
                 if ok:
@@ -261,12 +281,13 @@ class EvolutionEngine:
             target = dict(fails_by_fam.get(fam, {}))
             target.update({f"new{i}": (t, (lambda o, ref=c: self.ex.same_effect(ref, o))) for i, (t, c) in enumerate(rows)})
             before = {"prev_correct": self._score(self.prev_correct, fam if active else None), "dev": self._score(self.dev, fam if active else None),
-                      "target": self._score(target, fam if active else None)}
+                      "guard": self._score(self.guard, fam if active else None), "target": self._score(target, fam if active else None)}
             # the active adapters of OTHER families do not change; the gate compares this family's adapter slot only (items routed elsewhere are unaffected
             # at inference, but are still checked here: a family adapter must not break anything it would be applied to by a router mistake)
             cand = self._train(fam, rows)
-            after = {"prev_correct": self._score(self.prev_correct, cand), "dev": self._score(self.dev, cand), "target": self._score(target, cand)}
-            ok, reason = AD.gate(before, after, "target", ("prev_correct", "dev"), self.max_lost)
+            after = {"prev_correct": self._score(self.prev_correct, cand), "dev": self._score(self.dev, cand), "guard": self._score(self.guard, cand),
+                     "target": self._score(target, cand)}
+            ok, reason = AD.gate(before, after, "target", ("prev_correct", "dev", "guard"), self.max_lost)
             state = AD.adapter_state(self.model, cand)
             metrics = {k: [sum(before[k].values()), sum(after[k].values()), len(before[k])] for k in before}
             vid = self.registry.propose(fam, state, metrics)

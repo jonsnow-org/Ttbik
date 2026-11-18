@@ -196,6 +196,20 @@ class Web(unittest.TestCase):
         self.assertEqual(r.route(["count lines please", "sort names please", "json keys please", "zip archive please"]), [None, None, "web_json", "kn_archive"])
 
 
+class Guard(unittest.TestCase):
+    def test_guard_disjoint_from_heldout(self):
+        """The gate's GUARD set never overlaps held-out (held-out stays evaluation-only) and training text close to it is decontaminated."""
+        import guard as G
+        import rewordings as RW
+        import terminal_tasks as T
+        self.assertEqual(G.check(), [])
+        self.assertGreaterEqual(len(G.GUARD), 40)
+        held = {t.lower() for t, _ in T.HELDOUT + RW.HELDOUT2}
+        self.assertFalse(held & {t.lower() for t, _ in G.GUARD})
+        self.assertTrue(G.too_close(G.GUARD[0][0]))
+        self.assertEqual(G.too_close("convert the png to a jpg with imagemagick"), "")
+
+
 class Adapters(unittest.TestCase):
     def test_lora_merge_registry_gate(self):
         try:

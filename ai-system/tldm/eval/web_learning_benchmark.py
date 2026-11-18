@@ -23,6 +23,7 @@ import torch  # noqa: E402
 from sham_tldm import from_state  # noqa: E402
 import terminal_tasks as T  # noqa: E402
 import rewordings as RW  # noqa: E402
+import guard as G  # noqa: E402
 import trajectories as J  # noqa: E402
 import adapters as AD  # noqa: E402
 import curriculum as CU  # noqa: E402
@@ -67,6 +68,7 @@ def main():
     ap.add_argument("--webcache", default=os.path.join(ROOT, "checkpoints", "webcache"))
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--json", default="")
+    ap.add_argument("--no-guard", dest="guard", action="store_false", help="gate without the GUARD set (data/guard.py), the pre-2026-11-18b gate")
     a = ap.parse_args()
     t0 = time.time()
     torch.manual_seed(a.train_seed)
@@ -94,7 +96,7 @@ def main():
     fetcher = WL.WebFetcher(a.webcache, offline=a.offline)
     pages = fetcher.fetch_sources(list(dict.fromkeys(gaps + WL.SANDBOX_COMMANDS)), se_queries=3)     # failure-driven first, then every sandbox command
     cands = WL.extract(pages)
-    kept, filt = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows], block_fits=P.fits)
+    kept, filt = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=P.fits)
     web = [(k["task"], k["command"], k["family"]) for k in kept]
     print(f"web set: {len(web)} pairs from {len(pages)} pages; filter {filt}", flush=True)
 
@@ -141,7 +143,7 @@ def main():
 
     def report(accepted, mode):
         r = {}
-        for name, rows in (("heldout", held1), ("heldout2", held2), ("train30", T.TRAIN), ("replay150", replay150), ("dev", dev_rows), ("web", [(t, c) for t, c, _ in web]),
+        for name, rows in (("heldout", held1), ("heldout2", held2), ("train30", T.TRAIN), ("replay150", replay150), ("dev", dev_rows), ("guard", G.GUARD), ("web", [(t, c) for t, c, _ in web]),
                            ("web_known", [(t, c) for t, c, _ in web if tier[(t, c)] == "known"]), ("web_new", [(t, c) for t, c, _ in web if tier[(t, c)] == "new"])):
             if not rows:
                 continue
@@ -152,7 +154,7 @@ def main():
 
     prev_items = items(replay150, set(), "global")
     prev_rows = [r for i, r in enumerate(replay150) if prev_items[i]]
-    res = {"ckpt": os.path.basename(a.ckpt), "train_seed": a.train_seed, "web": {"pairs": len(web), "pages": len(pages), "filter": filt,
+    res = {"ckpt": os.path.basename(a.ckpt), "train_seed": a.train_seed, "gate_guard": a.guard, "web": {"pairs": len(web), "pages": len(pages), "filter": filt,
            "by_source": {s: sum(1 for k in kept if k["source"] == s) for s in sorted({k["source"] for k in kept})},
            "licences": sorted({k["license"] for k in kept}), "examples": [(k["task"], k["command"], k["source"]) for k in kept[:12]]},
            "base": report(set(), "global"), "arms": {}}
@@ -173,11 +175,11 @@ def main():
             for f in sorted({w[2] for w in rows_all}, key=lambda f: -sum(1 for w in rows_all if w[2] == f)):
                 rows = [(t, c) for t, c, ff in rows_all if ff == f]
                 name = prefix + f
-                keep = {"prev": prev_rows, "dev": dev_rows, "target": rows}
+                keep = {"prev": prev_rows, "dev": dev_rows, "target": rows, **({"guard": G.GUARD} if a.guard else {})}
                 before = {k: items(v, accepted, mode) for k, v in keep.items()}
                 WT.train_adapter(P, model, name, rows, replay, seed=a.train_seed, **conf)
                 after = {k: items(v, accepted | {name}, mode) for k, v in keep.items()}
-                ok, why = AD.gate(before, after, "target", ("prev", "dev"), 0.02)
+                ok, why = AD.gate(before, after, "target", ("prev", "dev") + (("guard",) if a.guard else ()), 0.02)
                 if ok:
                     accepted.add(name)
                 else:

@@ -29,6 +29,7 @@ import torch  # noqa: E402
 from sham_tldm import from_state  # noqa: E402
 import terminal_tasks as T  # noqa: E402
 import rewordings as RW  # noqa: E402
+import guard as G  # noqa: E402
 import trajectories as J  # noqa: E402
 import curriculum as CU  # noqa: E402
 import engine as EN  # noqa: E402
@@ -67,6 +68,7 @@ def main():
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--work", default="/tmp/tldm_evolve")
     ap.add_argument("--json", default="")
+    ap.add_argument("--no-guard", dest="guard", action="store_false", help="gate without the GUARD set (data/guard.py)")
     a = ap.parse_args()
     t_start = time.time()
     ck = torch.load(a.ckpt, map_location="cpu")
@@ -104,7 +106,7 @@ def main():
         return round(sum(ex.same_effect(c, o) for (_, c), o in zip(rows, outs)) / len(rows), 3)
 
     def evaluate(eng, extra=None):
-        r = {"heldout": score(eng, held1), "heldout2": score(eng, held2), "train30": score(eng, T.TRAIN), "replay150": score(eng, replay150), "dev": score(eng, dev_rows)}
+        r = {"heldout": score(eng, held1), "heldout2": score(eng, held2), "train30": score(eng, T.TRAIN), "replay150": score(eng, replay150), "dev": score(eng, dev_rows), "guard": score(eng, G.GUARD)}
         if extra:
             r.update(extra)
         return r
@@ -122,6 +124,8 @@ def main():
         base_out = eng.commands([t for t, _ in replay150])
         eng.prev_correct = {f"r{i}": (t, (lambda o, c=c: ex.same_effect(c, o))) for i, ((t, c), o) in enumerate(zip(replay150, base_out)) if ex.same_effect(c, o)}
         eng.dev = {f"d{i}": (t, (lambda o, c=c: ex.same_effect(c, o))) for i, (t, c) in enumerate(dev_rows)}
+        if a.guard:
+            eng.set_guard(G.GUARD)                                       # gate-only natural requests (data/guard.py); held-out stays evaluation-only
         return eng
 
     def user_round(eng, r, poison_on):
@@ -148,7 +152,7 @@ def main():
         fetcher = WL.WebFetcher(a.webcache, offline=a.offline)
         pages = fetcher.fetch_sources(list(dict.fromkeys(gaps + WL.SANDBOX_COMMANDS)), se_queries=3)
         cands = WL.extract(pages)
-        kept, rep = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows], block_fits=eng.P.fits)
+        kept, rep = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows] + [t for t, _ in G.GUARD], block_fits=eng.P.fits)
         evo = {"families": eng.learn_web(kept)}                       # the gate-passing web recipe (engine.WEB_RECIPE)
         return {"gaps": gaps[:8], "pages": len(pages), "candidates": len(cands), "filter": rep, "licences": sorted({k["license"] for k in kept}),
                 "sources": sorted({k["source"] for k in kept}), "examples": [(k["task"], k["command"]) for k in kept[:6]], "evolve": evo}
