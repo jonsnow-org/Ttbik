@@ -40,6 +40,15 @@ os.environ.setdefault("SHAM_TLDM_REPO", "novaai2026/sham2-tldm-head")
 _HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SHAM_TLDM_DENYLIST", os.path.join(_HERE, "tldm", "evolution", "owner_denylist.txt"))
 os.environ.setdefault("SHAM_TLDM_EVOLUTION_ROOT", os.path.join("/mnt/workspace/sham2_tldm_evolution") if os.path.isdir("/mnt/workspace") else os.path.join(_HERE, "tldm_evolution"))
+# Terminal mesh presence (sham_mesh_node.start_presence): Sham 2 joins https://sham-mesh.jonsnowx1r.workers.dev as a node as soon as the
+# Studio runs (heartbeat, lesson index, idle pure jobs) in a daemon thread; proposals stay opt-in (SHAM_MESH_SERVE_PEERS=1). SHAM_MESH=0 = off.
+try:
+    import sys as _sys
+    _sys.path.insert(0, _HERE)
+    import sham_mesh_node as _mesh
+    _mesh.start_presence()
+except Exception as _exc:
+    print(f"mesh presence not started ({type(_exc).__name__})", flush=True)
 runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sham_app.py"), run_name="__main__")
 '''
 
@@ -135,7 +144,7 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
 
 
 def stage_mesh(studio: pathlib.Path) -> None:
-    """The terminal mesh node of Sham 2 (sham_mesh_node.py + ai-system/terminal/mesh*.py). Used only on the owner-gated T-LDM path; SHAM_MESH=0 turns it off."""
+    """The terminal mesh node of Sham 2 (sham_mesh_node.py + ai-system/terminal/mesh*.py). Joins at start-up (the wrapper calls start_presence); the chat hooks stay on the owner-gated T-LDM path; SHAM_MESH=0 turns it off."""
     root = ROOT / "ai-system"
     src = root / "modelscope-sham" / "sham_mesh_node.py"
     if src.is_file():
