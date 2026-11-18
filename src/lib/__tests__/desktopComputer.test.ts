@@ -88,7 +88,7 @@ describe("the graphical Linux desktop RPC contract", () => {
           return new Response(JSON.stringify({ detail: "Studio is deploying" }), { status: 412 });
         }
         if (method === "POST") return new Response(JSON.stringify({ event_id: "sham2-live" }), { status: 200 });
-        return new Response("event: generating\\ndata: []\\n\\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+        return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
       }) as typeof fetch;
       const response = await desktopLive("sham_v2", "77:sham_v2", 20, fetchMock);
       expect(response.ok).toBe(true);
@@ -135,7 +135,7 @@ describe("the graphical Linux desktop RPC contract", () => {
           calls.push({ url, args: JSON.parse(Buffer.from(wire.slice(4), "base64").toString("utf8")) });
           return new Response(JSON.stringify({ event_id: "frame-fallback" }), { status: 200 });
         }
-        return new Response('event: complete\\ndata: ["{\\\"ok\\\":true,\\\"phase\\\":\\\"running\\\",\\\"width\\\":640,\\\"height\\\":1000}"]\\n\\n', {
+        return new Response('event: complete\ndata: ["{\\\"ok\\\":true,\\\"phase\\\":\\\"running\\\",\\\"width\\\":640,\\\"height\\\":1000}"]\n\n', {
           status: 200, headers: { "content-type": "text/event-stream" },
         });
       }) as typeof fetch;
