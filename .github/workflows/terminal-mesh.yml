@@ -67,6 +67,7 @@ jobs:
           npx --yes wrangler@4 dev --config sham-mesh.wrangler.jsonc --port 8799 --local > /tmp/wd.log 2>&1 &
           for i in $(seq 1 60); do curl -fs http://127.0.0.1:8799/health && break; sleep 2; done
           cd ..
+          set -o pipefail
           python ai-system/terminal/mesh_net_e2e.py --url http://127.0.0.1:8799 | tee /tmp/e2e.txt
           grep -q "passed" /tmp/e2e.txt
   deploy:
@@ -101,6 +102,7 @@ jobs:
           U=https://sham-mesh.jonsnowx1r.workers.dev
           for i in $(seq 1 30); do curl -fs $U/health && break; sleep 3; done
           echo
+          set -o pipefail
           python ai-system/terminal/mesh_net_e2e.py --url $U | tee /tmp/e2e.txt
           { echo '### sham-mesh e2e over the real Worker'; echo '```'; grep -v '^EVIDENCE' /tmp/e2e.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           grep '^EVIDENCE' /tmp/e2e.txt | cut -c10- | python3 -m json.tool | head -c 8000
