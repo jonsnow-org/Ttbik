@@ -526,6 +526,16 @@ def sham2_check_sizes(repo: str, dest: Path, files=None) -> None:
     print(f"sham2: donor copy complete ({len(files)} files match the hub sizes)", flush=True)
 
 
+def sham2_run_key() -> str:
+    """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
+    import hashlib
+    root, h = tldm_root(), hashlib.sha256()
+    for rel in ("data/identity.py", "configs/sham2.yaml", "training/train_sham2.py"):
+        p = root / rel
+        h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
+    return h.hexdigest()[:16]
+
+
 def sham2_gate(root: Path) -> Path:
     """The merged gate results: docs/experiments/tldm_heldout_gate_2026-11-18.json (repo layout), or the copy the Studio deploy keeps next to the tldm tree."""
     for p in (root.parent.parent / "docs" / "experiments" / "tldm_heldout_gate_2026-11-18.json", root / "gate" / "tldm_heldout_gate_2026-11-18.json"):
@@ -540,6 +550,12 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
     work = tldm_work() / "sham2"
     work.mkdir(parents=True, exist_ok=True)
     report, heads = work / "sham2_results.json", work / "sham2_heads.pt"
+    key, key_file = sham2_run_key(), work / ".run_key"
+    if report.exists() and (not key_file.exists() or key_file.read_text(encoding="utf-8") != key):
+        # the recipe changed (identity data, config or trainer): train again; the donor copy on disk is reused (no re-download)
+        print("sham2: recipe changed since the last run; retraining on the cached donor copy", flush=True)
+        for f in (report, heads, work / ".published"):
+            f.unlink(missing_ok=True)
     if report.exists() and (work / ".published").exists():
         if runner is None:
             time.sleep(1800)                                         # done once: later cycles only report (no retraining, no re-download)
@@ -560,6 +576,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
             code = int(subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode)
         if code != 0 or not report.exists():
             raise RuntimeError(f"sham2 train exited with code {code}")
+        key_file.write_text(key, encoding="utf-8")
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
     try:
@@ -1321,6 +1338,10 @@ if __name__ == "__main__":
         assert fetched == ["novaai2026/sham-v2"] and len(ran) == 1, (fetched, ran)
         assert sent2 == [("sham2-tldm-head", ["sham2_heads.pt", "sham2_results.json"])] and r1["published"] and r2["heldout"] == 0.7 and r2["loop_multi"] == 0.8
         assert _short(r1)["heldout_seeds"] == "0.7" and _short(r1)["loop_all"] == 0.9
+        _w2 = tldm_work() / "sham2"
+        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")                # identity data / config / trainer changed -> retrain, donor copy reused
+        r3 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: "modelscope:novaai2026/" + n)
+        assert len(ran) == 2 and fetched == ["novaai2026/sham-v2"] and r3["published"] and (_w2 / ".run_key").read_text(encoding="utf-8") == sham2_run_key()
         os.environ.pop("TLDM_WORK", None)
         # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
         assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]
