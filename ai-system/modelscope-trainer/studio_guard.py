@@ -32,6 +32,7 @@ APP_DOMAIN = {"cn": "api-inference.modelscope.net", "ai": "api-inference.modelsc
 #         warm   = only woken when Sleeping (what keep-awake did before; the donor test Studios and Nova 2)
 STUDIOS = [
     ("cn", "novaai2026", "sham-trainer-1", "train"),
+    ("cn", "novaai2026", "sham2-tldm", "train"),                     # 2026-11-18: Sham 2's T-LDM training on the cn account
     ("cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"),
     ("cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"),
     ("cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"),
