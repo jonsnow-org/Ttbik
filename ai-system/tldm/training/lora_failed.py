@@ -38,11 +38,12 @@ def play(model, cfg, tok, task, temperature=0.0, max_steps=5):
     term, hist, steps = T.fresh(), [], []
     try:
         for _ in range(max_steps):
-            v = J.view_ids(tok, task, hist, cfg["in_len"])
+            v, slots = J.step_view(tok, task, hist, cfg)
             with torch.no_grad():
                 out, _ = model.generate(torch.tensor([v]), steps=cfg["diffusion_steps"], temperature=temperature)
-            text = tok.decode(out[0])
-            steps.append((v, text))
+            raw = tok.decode(out[0])
+            text = J.AUG.relex(raw, slots)
+            steps.append((v, raw))
             if not text.startswith("$ "):
                 return text, T.snapshot(term), steps
             r = term.run(text[2:].strip(), confirm=True)
@@ -150,8 +151,9 @@ def main():
         print("after self-evolution LoRA:", res["self_evolution"]["after"], flush=True)
 
     # reference arms (upper bound, NOT self-evolution): the reference episodes of A, alone, then mixed with replay of the ORIGINAL training episodes
-    ref_pairs = [(J.view_ids(tok, e["task"], h, cfg["in_len"]), tok.encode(t, cfg["block"])) for e in A for h, t in e["ref_steps"]]
-    xs, ys = J.make_dataset(a.replay, 1, tok, cfg["in_len"], cfg["block"])          # the training distribution (seed 1, training file names): against forgetting
+    ref_pairs = [(J.step_view(tok, e["task"], h, cfg)[0], tok.encode(J.AUG.apply_slots(t, J.delex_view(e["task"], [], cfg.get("delex", False))[2]), cfg["block"]))
+                 for e in A for h, t in e["ref_steps"]]
+    xs, ys = J.make_dataset(a.replay, 1, tok, cfg["in_len"], cfg["block"], delex=cfg.get("delex", False))          # the training distribution (seed 1, training file names): against forgetting
     replay = list(zip(xs, ys))
     for arm, data in (("reference_corrections", ref_pairs), ("reference_corrections_plus_replay", ref_pairs * max(1, len(replay) // max(1, len(ref_pairs))) + replay)):
         if not ref_pairs:

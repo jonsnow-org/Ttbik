@@ -40,6 +40,12 @@ def delex_view(task: str, hist, delex: bool):
     return t, [(AUG.apply_slots(c, slots), AUG.apply_slots(r, slots)) for c, r in hist], slots
 
 
+def step_view(tok, task: str, hist, cfg) -> tuple:
+    """-> (input ids, slots) exactly as in training (argument slots when cfg["delex"]); relex the written block with AUG.relex(text, slots)."""
+    t, h, slots = delex_view(task, hist, cfg.get("delex", False))
+    return view_ids(tok, t, h, cfg["in_len"]), slots
+
+
 def make_episode(rng: random.Random, new_names: bool = False):
     """-> (task, plan, reply_template): plan = commands where {r0},{r1}.. are the stripped results of the earlier steps."""
     f = rng.choice(NEW_FILES if new_names else OUT_FILES)

@@ -1,4 +1,6 @@
 # Multi-step terminal episodes (agent loop): the model sees the task + what the terminal returned, writes "$ command" or the final reply.
+# 2026-11-18: argument slots on (data/augment.py); 3 seeds, unseen-name episodes 0.75 -> 0.983, full-task multi-step 0.391 -> 1.0.
+delex: true
 d: 256
 layers: 4
 latents: 16
