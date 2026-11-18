@@ -7,6 +7,15 @@ hidden terminal through Sham 2's existing embedded computer (ShamEmbeddedBackend
 
 If the head is missing or cannot be loaded, a clear error is returned. Nothing
 here talks to Sham 1, and there is no silent fallback to the old model.
+
+Head files (2026-11-18):
+  * sham2_heads.pt (what the trainer Studio publishes, training/train_sham2.py --cached):
+    {"cfg", "heads": {"writer", "loop_seed<k>", "identity_lora"}}. writer/loop are FeatureTLDM
+    state dicts (proj: body width -> head_d, then the core at head_d) fed the body's final-norm
+    hidden states exactly as training's BodyReader reads them. identity_lora is the body's LoRA
+    (Sham Pro / «شام برو»); apply_identity() puts it into the live body at server start, for every
+    chat, not only T-LDM. No answer is rewritten.
+  * head_and_adapters.pt (legacy full-LoRA mode): {"cfg", "head_and_adapters"}; still accepted.
 """
 from __future__ import annotations
 
@@ -18,7 +27,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_REPO = "novaai2026/sham2-tldm-head"
-HEAD_FILE = "head_and_adapters.pt"
+HEAD_FILE = "sham2_heads.pt"                 # trainer Studio output (modelscope-trainer/app.py run_sham2)
+LEGACY_HEAD_FILE = "head_and_adapters.pt"     # train_sham2.py full-LoRA mode
+HEAD_FILES = (HEAD_FILE, LEGACY_HEAD_FILE)
 MISSING = (
     "مسار T-LDM لشام 2 غير جاهز: لم يُعثر على رأس التدريب في المستودع الخاص "
     "{repo} (أو في SHAM_TLDM_CKPT). لم يُستخدم شام 1، ولا يوجد تحويل صامت."
@@ -67,17 +78,16 @@ def _find_local_head() -> Path | None:
     direct = ckpt_override()
     if direct and os.path.isfile(direct):
         return Path(direct)
-    for cand in (
-        HERE / "tldm_head" / HEAD_FILE,
-        Path("/mnt/workspace/sham2_tldm") / HEAD_FILE,
-    ):
-        if cand.is_file():
-            return cand
+    for folder in (HERE / "tldm_head", Path("/mnt/workspace/sham2_tldm")):
+        for name in HEAD_FILES:
+            cand = folder / name
+            if cand.is_file():
+                return cand
     return None
 
 
 def download_head(token: str | None = None) -> Path | None:
-    """Fetch head_and_adapters.pt from the private ModelScope repo. Returns None if it is not there."""
+    """Fetch the head (sham2_heads.pt, or legacy head_and_adapters.pt) from the private ModelScope repo. None if it is not there."""
     local = _find_local_head()
     if local is not None:
         return local
@@ -93,11 +103,16 @@ def download_head(token: str | None = None) -> Path | None:
         path = Path(snapshot_download(repo, cache_dir=str(cache), token=tok or None))
     except Exception:
         return None
-    hit = path / HEAD_FILE if path.is_dir() else path
-    if hit.is_file():
-        return hit
-    found = next(iter(path.rglob(HEAD_FILE)), None) if path.is_dir() else None
-    return found if found and found.is_file() else None
+    if not path.is_dir():
+        return path if path.is_file() else None
+    for name in HEAD_FILES:
+        hit = path / name
+        if hit.is_file():
+            return hit
+        found = next(iter(sorted(path.rglob(name))), None)
+        if found and found.is_file():
+            return found
+    return None
 
 
 def _encode(tok, text: str, n: int, pad: int = 0) -> list[int]:
@@ -185,17 +200,216 @@ def make_writer(body, tok, cfg: dict, head: dict):
     return writer
 
 
+def read_payload(path) -> dict:
+    """torch.load the head file (tensors + plain cfg only: weights_only) and check it is one of the two known formats."""
+    import torch
+    try:
+        payload = torch.load(str(path), map_location="cpu", weights_only=True)
+    except TypeError:                                   # very old torch without weights_only
+        payload = torch.load(str(path), map_location="cpu")
+    if not isinstance(payload, dict):
+        raise RuntimeError("checkpoint is not a Sham 2 head file")
+    if isinstance(payload.get("heads"), dict):
+        heads = payload["heads"]
+        if not isinstance(heads.get("writer"), dict) and not loop_key(heads):
+            raise RuntimeError("sham2_heads.pt has no writer or loop head")
+        return payload
+    if isinstance(payload.get("head_and_adapters"), dict):
+        return payload
+    raise RuntimeError("checkpoint is not a Sham 2 head file (neither 'heads' nor 'head_and_adapters')")
+
+
+def loop_key(heads: dict) -> str:
+    keys = sorted(k for k in heads if str(k).startswith("loop_seed") and isinstance(heads[k], dict))
+    return keys[0] if keys else ""
+
+
+# ---- identity LoRA: applied to the live body at server start, for every chat ------------------------------------------------
+_IDENTITY: dict = {}
+
+
+def apply_identity(body, path=None, payload: dict | None = None) -> dict:
+    """Load heads['identity_lora'] (the body's LoRA trained on data/identity.py: Sham Pro / «شام برو») into the live body's adapters.
+
+    The adapters stay in the body (AdapterLinear: base + low-rank residual, exactly as trained), so every path that runs the
+    PyTorch body (generate_chat, the stream, agent_step, T-LDM) answers with it. Nothing is rewritten. Missing head or no
+    identity_lora -> the body is unchanged and the status says why. Shapes are all checked before anything is copied."""
+    import torch
+    status = {"identity_lora": False, "identity_lora_path": str(path or ""), "identity_lora_why": ""}
+    try:
+        if payload is None:
+            if path is None:
+                status["identity_lora_why"] = "no head file"
+                return _set_identity(status)
+            payload = read_payload(path)
+        lora = (payload.get("heads") or {}).get("identity_lora") if isinstance(payload.get("heads"), dict) else None
+        if not isinstance(lora, dict) or not lora:
+            status["identity_lora_why"] = "head file has no identity_lora"
+            return _set_identity(status)
+        if _IDENTITY.get("identity_lora") and _IDENTITY.get("identity_lora_path") == str(path or "") and _IDENTITY.get("body") == id(body):
+            return dict(_IDENTITY)
+        downs = [v for k, v in lora.items() if k.endswith(".adapter_down")]
+        if not downs:
+            raise RuntimeError("identity_lora has no adapter_down tensors")
+        rank = int(downs[0].shape[0])
+        cfg = payload.get("cfg") or {}
+        alpha = float(cfg.get("adapter_alpha", 16.0))          # train_sham2 enables adapters with the model's default alpha (16)
+        have = {k for k, _ in body.named_parameters() if ".adapter_" in k}
+        if not have:
+            body.enable_adapters(rank, alpha)                  # new adapters start as a no-op (adapter_up = 0)
+        params = dict(body.named_parameters())
+        bad = [k for k, v in lora.items() if k not in params or tuple(params[k].shape) != tuple(v.shape)]
+        if bad:
+            raise RuntimeError(f"identity_lora does not fit this body ({len(bad)} tensors, e.g. {bad[0]})")
+        scale = {round(float(m.scale), 6) for m in body.modules() if hasattr(m, "adapter_down") and hasattr(m, "scale")}
+        if scale and scale != {round(alpha / rank, 6)}:
+            raise RuntimeError(f"adapter scale {sorted(scale)} != alpha/rank {alpha}/{rank}")
+        with torch.no_grad():
+            for k, v in lora.items():
+                params[k].copy_(v.to(device=params[k].device, dtype=params[k].dtype))
+                params[k].requires_grad = False
+        status.update(identity_lora=True, identity_lora_tensors=len(lora), identity_lora_rank=rank, body=id(body))
+    except Exception as exc:
+        status["identity_lora_why"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+    return _set_identity(status)
+
+
+def _set_identity(status: dict) -> dict:
+    _IDENTITY.clear()
+    _IDENTITY.update(status)
+    return dict(status)
+
+
+def startup_identity(body, token: str | None = None) -> dict:
+    """Server start (app._load, Sham 2 only): fetch the head if it is published and apply its identity LoRA. Never raises."""
+    try:
+        path = download_head(token)
+    except Exception as exc:
+        return _set_identity({"identity_lora": False, "identity_lora_path": "", "identity_lora_why": f"download: {type(exc).__name__}"})
+    return apply_identity(body, path)
+
+
+# ---- cached-mode heads (FeatureTLDM on the body's final-norm hidden states, as training's BodyReader) ----------------------
+def _tok_ids(tok, text: str, n: int) -> list:
+    """The tokenizer's ids for text, cut to n (no padding), as train_sham2's donor encode(text, n) before padding."""
+    if tok is None:
+        ids = list(text.encode("utf-8"))
+    elif callable(tok) and not hasattr(tok, "encode"):
+        try:
+            ids = list(tok(text, n))
+        except TypeError:
+            ids = list(tok(text))
+    else:
+        out = tok.encode(text)
+        ids = list(getattr(out, "ids", None) or (out.get("ids") if isinstance(out, dict) else out) or [])
+    return ids[:n]
+
+
+def text_ids(tok, text: str, n: int) -> list:
+    """= train_sham2.text_ids: pad (0) dropped, at most n, never empty."""
+    return [i for i in _tok_ids(tok, text, n) if i][:n] or [0]
+
+
+def loop_ids(tok, task: str, hist, n: int) -> list:
+    """= train_sham2.loop_ids: task (first 64 chars -> 32 ids), a newline, then the TAIL of the terminal history."""
+    t = text_ids(tok, task[:64], 32)
+    h_text = "".join(f"$ {c}\n> {r}\n" for c, r in hist)
+    h = text_ids(tok, h_text, 4096) if h_text else []
+    room = n - len(t) - 1
+    nl = text_ids(tok, "\n", 1)
+    return t + nl + (h[-room:] if room > 0 else [])
+
+
+class BodyFeatures:
+    """Final-norm hidden states of the live body for one id list (its own length, no padding), as train_sham2.BodyReader.
+    The hook lives only for the call; the body and its weights (identity LoRA included) are used as they are."""
+
+    def __init__(self, body):
+        self.body = body
+        self.d = int(body.cfg.d_model)
+
+    def feats(self, ids: list, n: int):
+        import torch
+        got = []
+        handle = self.body.final_norm.register_forward_hook(lambda mod, inp, out: got.append(out))
+        try:
+            dev = next(self.body.parameters()).device
+            with torch.no_grad():
+                self.body(torch.tensor([list(ids[:n]) or [0]], device=dev))
+        finally:
+            handle.remove()
+        h = got[-1][0].float().cpu()
+        out, pad = torch.zeros(1, n, self.d), torch.ones(1, n, dtype=torch.bool)
+        out[0, :len(h)] = h
+        pad[0, :len(h)] = False
+        return out, pad
+
+
+def build_feature_head(state: dict, cfg: dict, d_in: int, block: int):
+    """Rebuild a FeatureTLDM(d_in=body width, d=head_d) from its state dict; every tensor must match (strict)."""
+    from sham_tldm.donor import FeatureTLDM
+    pw = state.get("proj.weight")
+    if pw is None:
+        raise RuntimeError("head has no proj.* input layer (not a cached-mode FeatureTLDM head)")
+    if int(pw.shape[1]) != int(d_in):
+        raise RuntimeError(f"head reads width {int(pw.shape[1])}, the body has {d_in}")
+    head = FeatureTLDM(d_in=int(d_in), d=int(pw.shape[0]), latents=int(cfg.get("latents", 16)), think_steps=int(cfg.get("think_steps", 5)), block=int(block),
+                       writer_layers=int(cfg.get("writer_layers", 3)), heads=int(cfg.get("heads", 4)))
+    head.load_state_dict(state, strict=True)
+    head.eval()
+    return head
+
+
+def make_feature_writer(body, tok, cfg: dict, heads: dict):
+    """writer(task, hist) -> "$ <command>" or the reply, from the cached-mode heads.
+
+    loop_seed* (the agent-loop head, trained on task + terminal history with argument slots) drives the loop when present.
+    Without it, the single-command writer head writes one command, and the next step returns its result."""
+    import augment as AUG
+    from sham_tldm.model import decode_bytes
+    reader = BodyFeatures(body)
+    steps = int(cfg.get("diffusion_steps", 10))
+    confident = float(cfg.get("confident", 0.0))
+    lk = loop_key(heads)
+    loop = build_feature_head(heads[lk], cfg, reader.d, int(cfg.get("loop_block", 64))) if lk else None
+    single = build_feature_head(heads["writer"], cfg, reader.d, int(cfg.get("block", 32))) if isinstance(heads.get("writer"), dict) else None
+
+    def write(head, ids, n):
+        h, pad = reader.feats(ids, n)
+        out, _ = head.generate(h, pad, steps=steps, confident=confident)
+        return decode_bytes(out[0].tolist())
+
+    def writer(task, hist):
+        pairs = [(str(x[0]), str(x[1])) for x in (hist or []) if isinstance(x, (list, tuple)) and len(x) >= 2]
+        if loop is not None:
+            dt, _, slots = AUG.delex(task or "")
+            dh = [(AUG.apply_slots(c, slots), AUG.apply_slots(r, slots)) for c, r in pairs]
+            n = int(cfg.get("loop_in_len", 96))
+            return AUG.relex(write(loop, loop_ids(tok, dt, dh, n), n), slots)
+        if pairs:
+            return pairs[-1][1].strip() or "Done."
+        n = int(cfg.get("in_len", 64))
+        cmd = write(single, text_ids(tok, task or "", n), n).strip()
+        return cmd if cmd.startswith("$ ") else "$ " + cmd
+
+    writer.hints = False          # trained on the bare task: no extra context is appended to it
+    writer.mode = "loop" if loop is not None else "writer"
+    return writer
+
+
 def build_chat(body, tok, ckpt_path: Path, confirm=None, memory_root: Path | None = None):
     _on_path()
-    import torch
     from serve_adapter import TLDMChat
     from sham_binding import ShamEmbeddedBackend
 
-    payload = torch.load(str(ckpt_path), map_location="cpu")
-    if not isinstance(payload, dict) or "head_and_adapters" not in payload:
-        raise RuntimeError("checkpoint is not a Sham 2 head_and_adapters file")
+    payload = read_payload(ckpt_path)
     cfg = payload.get("cfg") or {}
-    writer = make_writer(body, tok, cfg, payload["head_and_adapters"])
+    if isinstance(payload.get("heads"), dict):
+        # the head was trained on the body WITH the identity LoRA: make sure the live body has it (no-op when startup applied it)
+        apply_identity(body, ckpt_path, payload)
+        writer = make_feature_writer(body, tok, cfg, payload["heads"])
+    else:
+        writer = make_writer(body, tok, cfg, payload["head_and_adapters"])
 
     def backend_factory(session: str):
         return ShamEmbeddedBackend(session, model_id="sham_v2")
@@ -328,6 +542,8 @@ def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approve
             r = _denied(pending_cmd, "denied by the user")
             hist.append((pending_cmd, _flat(r), False))
             _record_step(session, message, pending_cmd, r, t0, owner=owner)
+    if not getattr(getattr(chat, "writer", None), "hints", True):
+        hint_ctx = ""
     for _ in range(max_steps):
         asked = f"{message}\n{hint_ctx}" if hint_ctx else message
         text = str(chat.writer(asked, hist) or "").strip()
@@ -402,11 +618,15 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
 
 def status_fields() -> dict:
     local = _find_local_head()
+    head = str(_IDENTITY.get("identity_lora_path") or "") or (str(local) if local else "")
     return {
         "tldm": enabled(),
         "tldm_repo": repo_id(),
         "tldm_ckpt": str(local) if local else "",
+        "tldm_head": bool(head),
         "tldm_loaded": bool(_LOADED.get("chat")),
+        "identity_lora": bool(_IDENTITY.get("identity_lora")),
+        "identity_lora_why": str(_IDENTITY.get("identity_lora_why") or ""),
     }
 
 
