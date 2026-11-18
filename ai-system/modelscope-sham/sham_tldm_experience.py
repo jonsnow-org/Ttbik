@@ -93,50 +93,92 @@ def evolution_root() -> Path | None:
     return None
 
 
-def _evo_record(task: str, steps, success: bool, secs: float, session: str = "", verified: bool = True) -> None:
-    """Forward verified command outcomes to the self-evolution ingest API (no raw PII)."""
-    if not verified:
-        return
+def _evo():
+    """Import the self-evolution serving API (record / hints). None if it is not staged."""
     try:
         tldm = Path(__file__).resolve().parent / "tldm"
         if not (tldm / "evolution" / "api.py").is_file():
             tldm = Path(__file__).resolve().parent.parent / "tldm"
         if (tldm / "evolution" / "api.py").is_file() and str(tldm) not in sys.path:
             sys.path.insert(0, str(tldm))
-        from evolution.api import record as evo_record  # type: ignore
+        from evolution import api as evo_api  # type: ignore
+        return evo_api
     except Exception:
-        return
+        return None
+
+
+def evo_hints(task: str) -> dict:
+    """Optional inference help from lessons memory. Never used to block a work-time command."""
+    api = _evo()
     dest = evolution_root()
-    if dest is None:
-        return
-    root = str(dest)
-    user = session or "anon"
+    if api is None or dest is None:
+        return {}
     try:
-        items = list(steps or [])
-        if items:
-            for item in items:
-                if not isinstance(item, (list, tuple)) or len(item) < 2:
-                    continue
-                cmd = redact(str(item[0]), 500)
-                out = redact(str(item[1]), 1000)
-                ok = bool(item[2]) if len(item) >= 3 else (not str(item[1]).lower().startswith("denied"))
-                evo_record(
-                    root, "sham2-tldm", user=user, task=redact(task, 500), command=cmd,
-                    exit_code=0 if ok else 1, stdout=out if ok else "", stderr="" if ok else out,
-                    verdict=bool(ok), latency_s=secs, names=(), source="user",
-                )
-        else:
-            evo_record(
-                root, "sham2-tldm", user=user, task=redact(task, 500), command="",
-                exit_code=0 if success else 1, stdout="", stderr="",
-                verdict=bool(success), latency_s=secs, names=(), source="user",
-            )
+        return api.hints(str(dest), "sham2-tldm", task) or {}
     except Exception:
+        return {}
+
+
+def record_command(user: str, task: str, command: str, exit_code: int, stdout: str = "", stderr: str = "",
+                   verdict=None, latency_s: float = 0.0, adapter: str = "base", display_name: str = "") -> str:
+    """Call api.record after a command (and its verifier, if any) has finished. Never raises.
+
+    verdict is True/False only from a verifier; None = stored and not learned.
+    display_name is used only to scrub the task/command (it is not stored).
+    """
+    api = _evo()
+    dest = evolution_root()
+    if api is None or dest is None:
+        return ""
+    names = (display_name,) if str(display_name or "").strip() else ()
+    try:
+        return api.record(
+            str(dest),
+            "sham2-tldm",
+            user=user or "anon",
+            task=redact(task, 500),
+            command=redact(command, 500),
+            exit_code=int(exit_code),
+            stdout=redact(stdout, 1000),
+            stderr=redact(stderr, 1000),
+            verdict=verdict,
+            latency_s=latency_s,
+            adapter=adapter or "base",
+            names=names,
+        )
+    except Exception:
+        return ""
+
+
+def _evo_record(task: str, steps, success: bool, secs: float, session: str = "", verified: bool = True, display_name: str = "") -> None:
+    """Episode fallback: one api.record per command. A clean exit without a verifier is stored, not learned."""
+    items = list(steps or [])
+    if items:
+        for item in items:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            cmd, out = str(item[0]), str(item[1])
+            ok = bool(item[2]) if len(item) >= 3 else (not str(item[1]).lower().startswith("denied"))
+            if len(item) >= 4:
+                verdict = bool(item[3])
+            elif not ok:
+                verdict = False
+            else:
+                verdict = None
+            record_command(
+                session or "anon", task, cmd, 0 if ok else 1,
+                stdout=out if ok else "", stderr="" if ok else out,
+                verdict=verdict, latency_s=secs, display_name=display_name,
+            )
         return
+    record_command(
+        session or "anon", task, "", 0 if success else 1,
+        verdict=bool(success) if verified else None, latency_s=secs, display_name=display_name,
+    )
 
 
-def log_episode(task: str, reply: str, steps, success: bool, secs: float = 0.0, verified: bool = True, session: str = "") -> dict:
+def log_episode(task: str, reply: str, steps, success: bool, secs: float = 0.0, verified: bool = True, session: str = "", display_name: str = "") -> dict:
     rec = record(task, reply, steps, success, secs, verified)
     append(rec)
-    _evo_record(task, steps, success, secs, session=session, verified=verified)
+    _evo_record(task, steps, success, secs, session=session, verified=verified, display_name=display_name)
     return rec

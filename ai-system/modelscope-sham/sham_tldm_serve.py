@@ -253,7 +253,7 @@ def _approval_question(cmd: str, reason: str) -> str:
         from approvals import question
         return question(cmd, reason)
     except Exception:
-        return f"أمر على حاسوب شام 2 الداخلي يحتاج موافقتك:\n`{cmd}` ({reason})"
+        return f"أمر على حاسوب شام برو الداخلي يحتاج موافقتك:\n`{cmd}` ({reason})"
 
 
 def _flat(r) -> str:
@@ -269,6 +269,29 @@ def _denied(cmd: str, reason: str):
     return R()
 
 
+def _record_step(session: str, message: str, cmd: str, result, t0: float) -> None:
+    """After the computer ran (or refused) a command: store one anonymised experience record.
+
+    A verifier, when present, supplies verdict. Exit status alone is stored as unknown
+    (not learned). This never blocks or changes work-time execution.
+    """
+    try:
+        from sham_tldm_experience import record_command
+        ok = bool(getattr(result, "ok", False))
+        out = _flat(result)
+        refused = str(getattr(result, "refused", "") or "")
+        if refused.startswith("denied") or not ok:
+            verdict = False
+            rc = int(getattr(result, "code", 1) or 1)
+        else:
+            verdict = None
+            rc = int(getattr(result, "code", 0) or 0)
+        record_command(session or "anon", message, cmd, rc, stdout=out if ok else "", stderr="" if ok else (refused or out),
+                       verdict=verdict, latency_s=max(0.0, time.time() - t0))
+    except Exception:
+        return
+
+
 def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None, deny_list=None):
     """Hidden-terminal loop on Sham 2's existing embedded computer (ShamEmbeddedBackend / model_computer).
 
@@ -281,20 +304,31 @@ def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approve
         backend.deny_list = list(deny_list)
     hist = list(hist or [])
     max_steps = int(getattr(chat, "max_steps", 5) or 5)
+    hint_ctx = ""
+    try:
+        from sham_tldm_experience import evo_hints
+        hint = evo_hints(message)
+        hint_ctx = str((hint or {}).get("context") or "").strip()
+    except Exception:
+        hint_ctx = ""
     if pending_cmd:
+        t0 = time.time()
         if approved:
             r = backend.run(pending_cmd, confirm=True)
-            if not getattr(r, "ok", False) and str(getattr(r, "refused", "") or "").startswith("denied"):
-                hist.append((pending_cmd, _flat(r), False))
-            else:
-                hist.append((pending_cmd, _flat(r), bool(getattr(r, "ok", False))))
+            ok = bool(getattr(r, "ok", False)) and not str(getattr(r, "refused", "") or "").startswith("denied")
+            hist.append((pending_cmd, _flat(r), ok))
+            _record_step(session, message, pending_cmd, r, t0)
         else:
-            hist.append((pending_cmd, _flat(_denied(pending_cmd, "denied by the user")), False))
+            r = _denied(pending_cmd, "denied by the user")
+            hist.append((pending_cmd, _flat(r), False))
+            _record_step(session, message, pending_cmd, r, t0)
     for _ in range(max_steps):
-        text = str(chat.writer(message, hist) or "").strip()
+        asked = f"{message}\n{hint_ctx}" if hint_ctx else message
+        text = str(chat.writer(asked, hist) or "").strip()
         if not text.startswith("$ "):
             return text, hist
         cmd = text[2:].strip()
+        t0 = time.time()
         r = backend.run(cmd)
         if getattr(r, "needs_confirmation", False):
             reason = getattr(r, "refused", None) or "needs approval"
@@ -302,6 +336,7 @@ def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approve
                 reason = reason.split(": ", 1)[-1]
             raise ApprovalNeeded(cmd, _approval_question(cmd, reason), hist)
         hist.append((cmd, _flat(r), bool(getattr(r, "ok", False))))
+        _record_step(session, message, cmd, r, t0)
     return "I could not finish within the allowed number of steps.", hist
 
 

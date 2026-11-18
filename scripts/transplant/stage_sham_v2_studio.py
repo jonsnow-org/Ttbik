@@ -36,6 +36,10 @@ os.environ.setdefault("SHAM_TOOLCALL_GUARD", "1")    # v2 constrained tool-call 
 # T-LDM is off until the trained Sham 2 head exists and the owner turns it on (never a silent fallback to Sham 1).
 os.environ.setdefault("SHAM_TLDM", "0")
 os.environ.setdefault("SHAM_TLDM_REPO", "novaai2026/sham2-tldm-head")
+# Training-admission only (experience.deny_reason). Does not restrict work-time commands.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ.setdefault("SHAM_TLDM_DENYLIST", os.path.join(_HERE, "tldm", "evolution", "owner_denylist.txt"))
+os.environ.setdefault("SHAM_TLDM_EVOLUTION_ROOT", os.path.join("/mnt/workspace/sham2_tldm_evolution") if os.path.isdir("/mnt/workspace") else os.path.join(_HERE, "tldm_evolution"))
 runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sham_app.py"), run_name="__main__")
 '''
 
@@ -111,7 +115,7 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
     if evo_src.is_dir():
         evo_out.mkdir(parents=True, exist_ok=True)
         # Serving ingest only (record/hints). Training engine, adapters and curriculum stay out.
-        for name in ("__init__.py", "api.py", "experience.py", "lessons.py"):
+        for name in ("__init__.py", "api.py", "experience.py", "lessons.py", "owner_denylist.txt"):
             f = evo_src / name
             if f.is_file():
                 shutil.copy2(f, evo_out / name)

@@ -67,6 +67,7 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertTrue((studio / "sham_tldm_serve.py").is_file())
             self.assertTrue((studio / "sham_tldm_experience.py").is_file())
             self.assertTrue((studio / "tldm" / "evolution" / "api.py").is_file())
+            self.assertTrue((studio / "tldm" / "evolution" / "owner_denylist.txt").is_file())
             self.assertTrue((studio / "tldm" / "serve_adapter.py").is_file())
             self.assertTrue((studio / "tldm" / "sham_tldm" / "model.py").is_file())
             self.assertTrue((studio / "terminal" / "sham_binding.py").is_file())

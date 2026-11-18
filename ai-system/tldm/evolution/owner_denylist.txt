@@ -1,0 +1,10 @@
+# Training-only owner deny list for T-LDM self-evolution.
+# Point SHAM_TLDM_DENYLIST at this file. One entry per line: a command name, or re:<regex>.
+# These patterns are never admitted to TRAINING. They do not restrict work-time execution.
+# Work-time denies are the owner panel list (coder_flags tldm_deny) / SHAM_TLDM_DENY.
+
+rm -rf
+mkfs
+re:curl[^|]*\|\s*(ba)?sh
+re:wget[^|]*\|\s*(ba)?sh
+re:/etc/(passwd|shadow|sudoers)
