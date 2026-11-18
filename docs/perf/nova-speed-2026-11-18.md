@@ -32,7 +32,17 @@ Nova 1, run 44254973600 (Studio 1, 200 s after a restart, live traffic):
 | full start, new conversation (held start restored from disk) | 45.2 | 9,330 / 9,300 / 30 | 3.12 |
 | generation ~250 tok | 6.1 | 9,345 / 9,300 / 45 | 2.89 |
 
-Nova 2: see below (run 44254970139).
+Nova 2, run 44254970139 (Studio 16, 245 s after a restart; the bot now sends Nova 2 its small 2-tool start, 2,769 tok instead of 9,085):
+
+| step | TTFT | prompt total / cached / read | prompt tok/s | gen tok/s |
+|---|---|---|---|---|
+| greeting | 48.5 | 318 / 0 / 318 | 6.6 | 2.27 |
+| greeting again | 54.6 | 350 / 0 / 350 | 6.4 | 2.05 |
+| full start, cold | 418.7 | 2,769 / 0 / 2,769 | 6.6 | 1.64 |
+| full start, new conversation (start held) | 335.6 (322 s queued behind another job, 13.6 s reading 30 tok) | 2,772 / 2,742 / 30 | 2.2 | 1.50 |
+| generation ~300 tok | 15.5 | 2,787 / 2,742 / 45 | 2.9 | 1.76 |
+
+Cold full start: 1258.9 s -> 418.7 s (smaller start). Per-token speeds unchanged: the Studio box itself is the limit.
 
 ## Decode bench, Nova 2's exact file (run 44250853555, GitHub runner pinned to 2 cores, ctx 16384)
 
