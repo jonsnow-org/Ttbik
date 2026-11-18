@@ -79,6 +79,7 @@ def main() -> int:
         "sham_v1": os.environ.get("SHAM_MODELSCOPE_URL", ""),
         "sham_v2": os.environ.get("SHAM_V2_URL", ""),
         "nova": os.environ.get("COMPUTER_STUDIO_URL", ""),
+        "nova2": os.environ.get("COMPUTER_STUDIO_URL", ""),       # Nova 2: same Mini App computer, its OWN session (never Nova's)
     }
     results = {n: shoot(n, b.split(",")[0].strip().rstrip("/"), token, out) for n, b in targets.items() if b and token and (not only or n in only)}
     print("RESULTS " + json.dumps(results))

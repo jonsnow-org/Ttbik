@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "comma list of targets (sham_v1,sham_v2,nova); empty = all"
+        description: "comma list of targets (sham_v1,sham_v2,nova,nova2); empty = all"
         required: false
         default: ""
 
