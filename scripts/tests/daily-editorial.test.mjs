@@ -82,6 +82,8 @@ test("news and article detail pages label publication dates explicitly", () => {
   assert.match(englishArticles, /Published/);
   const englishEvents = readFileSync(new URL("../../src/app/en/events/page.tsx", import.meta.url), "utf8");
   const englishEventDetail = readFileSync(new URL("../../src/app/en/events/[slug]/page.tsx", import.meta.url), "utf8");
+  const englishUpcoming = readFileSync(new URL("../../src/app/en/events/upcoming/page.tsx", import.meta.url), "utf8");
   assert.match(englishEvents, /item\.dateLabel/);
   assert.match(englishEventDetail, /item\.dateLabel/);
+  assert.match(englishUpcoming, /item\.dateLabel/);
 });

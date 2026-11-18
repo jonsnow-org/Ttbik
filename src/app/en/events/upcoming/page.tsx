@@ -30,7 +30,7 @@ export default function Page() {
       <div className="mt-6"><AdSlot position="in-content" label="English upcoming" /></div>
       <div className="mt-6 grid gap-4">
         {upcoming.map((item) => (
-          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date} badge={item.date <= today ? "In progress" : "Upcoming"} />
+          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.dateLabel ?? (item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date)} badge={item.date <= today ? "In progress" : "Upcoming"} />
         ))}
       </div>
       <p className="mt-6 text-sm"><Link href="/en/events" className="font-bold text-sky-800">All dates</Link> · <Link href="/events/upcoming" className="font-bold text-sky-800">Arabic upcoming</Link></p>
