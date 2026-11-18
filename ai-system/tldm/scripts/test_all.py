@@ -401,6 +401,38 @@ def donor_head_trains_only_the_head_on_a_frozen_encoder():
     assert m.generate(["list files"], steps=2)[0].shape == (1, 6)
 
 
+
+@test
+def donor_tokenizer_refuses_a_silent_bert_fallback():
+    from sham_tldm.donor import check_donor_tokenizer
+
+    class UnkTok:
+        unk_token_id = 1
+        pad_token_id = 0
+        cls_token_id = 2
+        sep_token_id = 3
+        name_or_path = "bare-minilm"
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [2, 1, 1, 3]}
+
+    try:
+        check_donor_tokenizer(UnkTok())
+    except RuntimeError as exc:
+        assert "UNK" in str(exc) or "tokenizer" in str(exc).lower()
+    else:
+        raise AssertionError("all-UNK encodings must be refused")
+
+    class OkTok:
+        unk_token_id = 1
+        pad_token_id = 0
+        cls_token_id = 2
+        sep_token_id = 3
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [2, 10 + (hash(text) % 50), 11 + len(text), 3]}
+
+    assert check_donor_tokenizer(OkTok())
+
+
 @test
 def donor_head_refuses_a_reader_that_did_not_load_pretrained_weights():
     try:
@@ -418,8 +450,9 @@ def donor_head_refuses_a_reader_that_did_not_load_pretrained_weights():
     BertConfig(vocab_size=31, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32).save_pretrained(d)
     try:
         DonorTLDM(d, d=16, latents=4, think_steps=2, block=6, writer_layers=1, heads=2, vocab=20, in_len=10)
-    except RuntimeError as exc:
-        assert "embeddings" in str(exc) or "encoder" in str(exc)
+    except (RuntimeError, OSError) as exc:
+        msg = str(exc).lower()
+        assert ("embeddings" in msg or "encoder" in msg or "model.safetensors" in msg or "pytorch_model.bin" in msg or "weight" in msg), exc
         return
     raise AssertionError("DonorTLDM must refuse a reader with no pretrained embeddings/encoder weights")
 
