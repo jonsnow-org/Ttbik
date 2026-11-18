@@ -1,12 +1,11 @@
 // ModelScope computer-only runtime (ai-system/modelscope-media/computer_box.py): shell, persistent files and jobs.
 // Nova 1/LFM use the shared hub; Nova 2 requires its own configured computer endpoint.
-// The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
+// Every endpoint keys workspaces by verified user+model identity and keeps each session in its own UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 /** Where terminal/files/jobs live. Sham/Sham Pro use embedded serving tools; Nova 1/LFM use the shared hub;
  *  Nova 2 resolves only to its own NOVA2_COMPUTER_STUDIO_URL endpoint. */
- *  its serving code (sham_embedded_tools.py). The hub is Nova's only. */
 export function boxStudioFor(modelId: string | undefined): string | null {
   if (modelId === "sham" || modelId === "sham_v2") return null;
   return browserStudioFor(modelId);

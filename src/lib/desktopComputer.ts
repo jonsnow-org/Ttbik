@@ -24,7 +24,6 @@ export type DesktopArgs = {
 
 /** Nova 1/LFM use the shared computer hub; Nova 2 uses only NOVA2_COMPUTER_STUDIO_URL.
  *  Sham/Sham Pro use their own embedded model Studio. The Mini App is a viewer/controller, not a shared backend. */
- *  owner's order 2026-11-12) - never Nova's hub, which is Nova's only. The app is only a viewer there. */
 export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
   if (modelId === "sham" || modelId === "sham_v2") {
     const url = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
