@@ -1,0 +1,232 @@
+{
+ "date": "2026-11-18",
+ "metric": "same_effect on HELDOUT (12) and HELDOUT2 (14); never trained on; 3 seeds per arm; CPU",
+ "gate": 0.6,
+ "chosen_arm": "donor (configs/writer_donor.yaml: T-LDM head on frozen paraphrase-multilingual-MiniLM-L12-v2)",
+ "heldout": {
+  "same_effect": 0.778
+ },
+ "heldout2": {
+  "same_effect": 0.81
+ },
+ "gate_passed": true,
+ "earlier_arms_3seed_means": {
+  "small_base (7.7M, earlier PR)": [
+   [
+    0.556,
+    0.191
+   ]
+  ],
+  "small_reword24 (earlier PR)": [
+   [
+    0.528,
+    0.476
+   ]
+  ],
+  "small_reword48 (earlier PR)": [
+   [
+    0.417,
+    0.548
+   ]
+  ]
+ },
+ "arms": {
+  "big66_reword": {
+   "config": "experiment_0.3b_bpe_v2_reword.yaml",
+   "params_M_trained": 66.4,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.878,
+   "heldout_mean": 0.444,
+   "heldout2_mean": 0.381,
+   "heldout_min": 0.25,
+   "heldout2_min": 0.214,
+   "per_seed": [
+    [
+     0.5,
+     0.571
+    ],
+    [
+     0.25,
+     0.214
+    ],
+    [
+     0.583,
+     0.357
+    ]
+   ]
+  },
+  "donor": {
+   "config": "writer_donor.yaml",
+   "params_M_trained": 4.5,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.967,
+   "heldout_mean": 0.778,
+   "heldout2_mean": 0.81,
+   "heldout_min": 0.667,
+   "heldout2_min": 0.786,
+   "per_seed": [
+    [
+     0.917,
+     0.857
+    ],
+    [
+     0.667,
+     0.786
+    ],
+    [
+     0.75,
+     0.786
+    ]
+   ]
+  },
+  "donor_slots": {
+   "config": "writer_donor_slots.yaml",
+   "params_M_trained": 4.5,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.967,
+   "heldout_mean": 0.917,
+   "heldout2_mean": 0.571,
+   "heldout_min": 0.917,
+   "heldout2_min": 0.5,
+   "per_seed": [
+    [
+     0.917,
+     0.571
+    ],
+    [
+     0.917,
+     0.643
+    ],
+    [
+     0.917,
+     0.5
+    ]
+   ]
+  },
+  "names_syn": {
+   "config": "not in the repo: exploratory arm (writer_small_reword + 300 random-name rows + WordNet synonyms p=0.3); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.822,
+   "heldout_mean": 0.528,
+   "heldout2_mean": 0.405,
+   "heldout_min": 0.417,
+   "heldout2_min": 0.357,
+   "per_seed": [
+    [
+     0.583,
+     0.5
+    ],
+    [
+     0.417,
+     0.357
+    ],
+    [
+     0.583,
+     0.357
+    ]
+   ]
+  },
+  "slots_names": {
+   "config": "not in the repo: exploratory arm (writer_small_reword + slots + 300 random-name rows); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.9,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.31,
+   "heldout_min": 0.417,
+   "heldout2_min": 0.286,
+   "per_seed": [
+    [
+     0.5,
+     0.357
+    ],
+    [
+     0.5,
+     0.286
+    ],
+    [
+     0.417,
+     0.286
+    ]
+   ]
+  },
+  "slots_names_syn": {
+   "config": "not in the repo: exploratory arm (writer_small_reword + slots + random-name rows + WordNet synonyms p=0.3); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.734,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.167,
+   "heldout_min": 0.333,
+   "heldout2_min": 0.143,
+   "per_seed": [
+    [
+     0.5,
+     0.214
+    ],
+    [
+     0.333,
+     0.143
+    ],
+    [
+     0.583,
+     0.143
+    ]
+   ]
+  },
+  "slots": {
+   "config": "writer_small_slots.yaml",
+   "params_M_trained": 7.7,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "train": 0.956,
+   "heldout_mean": 0.472,
+   "heldout2_mean": 0.357,
+   "heldout_min": 0.333,
+   "heldout2_min": 0.286,
+   "per_seed": [
+    [
+     0.583,
+     0.5
+    ],
+    [
+     0.333,
+     0.286
+    ],
+    [
+     0.5,
+     0.286
+    ]
+   ]
+  }
+ },
+ "reproduce": "python ai-system/tldm/training/train_0.3b.py --config ai-system/tldm/configs/<config> --seed {0,1,2}; writer_donor*.yaml need TLDM_DONOR=<local dir of sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2>"
+}
