@@ -1,7 +1,7 @@
 // node cloudflare/sham-mesh-worker.test.mjs -> request authentication of the sham-mesh relay (Ed25519 over METHOD\npath\nts\nsha256(body)).
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { authenticate, sha256hex, signingString, b64uToBytes } from "./sham-mesh-worker.js";
+import worker, { authenticate, sha256hex, signingString, b64uToBytes, CORS } from "./sham-mesh-worker.js";
 
 globalThis.crypto ??= webcrypto;
 const b64u = (u8) => Buffer.from(u8).toString("base64url");
@@ -24,4 +24,11 @@ assert.equal((await req('{"slots":1}', { ts: Date.now() - 600_000 })).why, "cloc
 const other = b64u(new Uint8Array(await crypto.subtle.exportKey("raw", (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign"])).publicKey)));
 assert.equal((await req('{"slots":1}', { node: other })).why, "bad signature", "another node's id cannot be claimed");
 assert.equal((await authenticate(new Request("https://x/m/sham2/hello", { method: "POST", body: "{}" }), new Uint8Array())).why, "unsigned");
-console.log("sham-mesh worker auth: 5/5 ok");
+// browser nodes (src/lib/meshNode.ts): the preflight allows the signature headers, and every answer (even a refusal) carries CORS
+const pre = await worker.fetch(new Request("https://x/m/sham2/hello", { method: "OPTIONS" }), {});
+assert.equal(pre.status, 204);
+assert.match(pre.headers.get("access-control-allow-headers"), /x-mesh-sig/);
+const unsigned = await worker.fetch(new Request("https://x/m/sham2/hello", { method: "POST", body: "{}" }), { HUB: { idFromName: () => 0, get: () => ({}) } });
+assert.equal(unsigned.status, 401);
+assert.equal(unsigned.headers.get("access-control-allow-origin"), CORS["access-control-allow-origin"]);
+console.log("sham-mesh worker auth + CORS: 7/7 ok");

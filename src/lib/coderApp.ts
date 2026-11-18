@@ -160,6 +160,15 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         events: EVENT_TYPES,
       };
     }
+    case "mesh_vet": {
+      // Device mesh nodes (src/lib/meshNode.ts, opt-in per user in Settings): the owner deny list applies to every user's node, but its
+      // patterns stay private, so the device sends the commands of the lessons it would keep or share and gets back only allowed / refused.
+      const raw: unknown[] = Array.isArray(body.commands) ? body.commands.slice(0, 200) : [];
+      const P = await import("@/lib/tldmPolicy");
+      const policy = await P.refreshTldmPolicy(db).catch(() => null);
+      if (!policy) throw new AppError(503, "owner policy unavailable");
+      return { reasons: raw.map((c) => (P.tldmDeniedByOwner(String(c ?? "").slice(0, 500), policy.deny) ? "owner deny-list" : "")) };
+    }
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
