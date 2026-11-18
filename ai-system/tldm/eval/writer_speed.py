@@ -47,7 +47,12 @@ def main():
             torch.manual_seed(0)
             m = Sham1_TLDM(d=1280, layers=12, latents=16, think_steps=5, block=block, writer_layers=4, heads=8, in_len=64, vocab=512).eval()
             params = m.count_params()
-            fast_inference(m, mode)
+            if mode == "int8_ffn":                                       # the int8 of the first version (quantize_dynamic only: attention projections stay fp32), for a same-run comparison
+                import torch.ao.quantization as Q
+                m.core.writer = Q.quantize_dynamic(m.core.writer, {torch.nn.Linear}, dtype=torch.qint8)
+                m.reader = Q.quantize_dynamic(m.reader, {torch.nn.Linear}, dtype=torch.qint8)
+            else:
+                fast_inference(m, mode)
             for batch, nin in [(int(b), int(n)) for b in a.batches.split(",") for n in a.in_bytes.split(",")]:
                 ids = torch.randint(1, 500, (batch, 64))
                 ids[:, nin:] = 0

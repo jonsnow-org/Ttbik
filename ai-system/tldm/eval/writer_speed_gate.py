@@ -54,7 +54,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", action="append", required=True)
     ap.add_argument("--json", default="")
+    ap.add_argument("--only", default="", help="comma list of option-name substrings to run (the baseline always runs)")
     a = ap.parse_args()
+    if a.only:
+        keep = [k for k in OPTIONS if k.startswith("baseline") or any(x.strip() in k for x in a.only.split(","))]
+        for k in list(OPTIONS):
+            if k not in keep:
+                OPTIONS.pop(k)
     res = {"date": time.strftime("%Y-%m-%d"), "threads": torch.get_num_threads(), "ckpts": [], "options": {}}
     for path in a.ckpt:
         ck = torch.load(path, map_location="cpu")
