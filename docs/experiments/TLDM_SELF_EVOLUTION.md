@@ -48,6 +48,32 @@ Code: `ai-system/tldm/evolution/`. Numbers: `tldm_self_evolution_2026-11-18.json
 | round 3 | 0.983 (unchanged) | **0.711** (0.676 / 0.768) | 0.938 | 0.561 → 0.739 |
 
 ## Gaps
-- The web data does not pass the gate yet. Its pairs are about commands and wordings far from the replay distribution. Next steps: train it as its own family with a larger replay share, or a lower learning rate.
+- Web data now passes the gate (see "Web learning that passes the gate" below). Known-wording adapters still rarely gain (1 item or none).
 - The verifier in the simulation is the task's real effect against the intent's reference. In serving it is the agent's verifier plus the user's acceptance.
 - Commands longer than the writer's 24-token block (e.g. the `python3 -c` sum) cannot be learned.
+
+## Web learning that passes the gate (2026-11-18)
+
+Data: `tldr-pages` EN/AR (CC-BY-4.0), `cheat/cheatsheets` (CC0-1.0) and `awesome-cheatsheets` (MIT). Stack Exchange (CC BY-SA) is fetched and rejected.
+Every pair is injection-screened, PII-scrubbed, decontaminated against held-out 1+2, the full-task benchmark and dev, and RUN in the sandbox.
+That leaves 188–191 pairs per seed from 47 pages (29 known wordings and about 160 new commands or options).
+
+Recipe (`engine.WEB_RECIPE`, `evolution/web_training.py`):
+- **known** (the command template is already in replay): adapter `kn_<family>`, 3 replay : 1 web, lr 5e-4, 150 steps, L2-to-base 0.1 (EWC with a uniform Fisher).
+- **new**: adapter `web_<family>`, 1 : 1, lr 1e-3, 300 steps.
+- **Both are routed** (k-NN on the frozen reader): an adapter only serves requests whose nearest examples are its own web rows.
+- Every adapter passes the same gate. The gate never sees held-out.
+
+3 seeds, means (`docs/experiments/tldm_web_learning_2026-11-18.json`, `eval/web_learning_benchmark.py`):
+
+| recipe | adapters accepted | web set | web new | held-out | held-out 2 | replay150 | dev |
+|---|---|---|---|---|---|---|---|
+| base | – | 0.087 | 0.054 | 0.778 | 0.810 | 1.0 | 0.96 |
+| before: old 1:1, lr 1e-3, 120 steps, one global adapter per family | **0 / 12** | 0.087 | 0.054 | 0.778 | 0.810 | 1.0 | 0.96 |
+| tiered, known adapters applied to the whole family | 14 / 21 | 0.242 | 0.230 | **0.722** | 0.810 | 1.0 | 0.962 |
+| **after: tiered, both tiers routed (shipped)** | **11 / 21** | **0.210** | **0.194** | 0.778 | 0.810 | 1.0 | 0.96 |
+
+- End to end (`self_evolution_benchmark.py --arms web`, i.e. `EvolutionEngine.learn_web`): 5, 2 and 5 of 7 adapters accepted. Held-out, held-out 2, train30, replay150 and dev were unchanged on every seed.
+- Applying the known-wording adapters to the whole family passed the gate but cost seed 0 two held-out items (0.917 → 0.75). In an earlier run, seed 2's held-out 2 also dropped. Routing them removed this.
+- A wider sweep (L2 1.0, curriculum order, half-strength merge, routed-only at 60 steps) accepted nothing on the first 99-pair web set (`web_s*` logs).
+- Necessary tools (`rm`, `curl`, `wget`, `pip`, `git`, `mv`, `sudo apt-get` …) are learnable. Only clearly destructive or out-of-scope patterns (`rm -rf /`, `curl … | sh`, fork bomb, `dd of=/dev/sd*`, …), the owner's deny list and credentials are refused (`test_necessary_commands_are_learnable`). Owner records (`source="owner"`, #1102) skip the intake filter.
