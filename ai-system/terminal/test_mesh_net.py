@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """python test_mesh_net.py -> offline checks of the networked mesh (mesh_net.py) over the in-process LocalHub (same semantics as the Worker).
-The multi-process run over the real Cloudflare Worker is mesh_net_e2e.py (CI: .github/workflows/sham-mesh.yml)."""
+The multi-process run over the real Cloudflare Worker is mesh_net_e2e.py (CI: .github/workflows/terminal-mesh.yml)."""
 import base64
 import os
 import sys

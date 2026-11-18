@@ -1,4 +1,4 @@
-name: sham-mesh
+name: terminal-mesh
 # The terminal mesh ("every new user adds compute and knowledge"): cloudflare/sham-mesh-worker.js (relay, Durable Object on the free plan) +
 # ai-system/terminal/mesh_net.py (client). Every run: worker auth unit test + Python tests + the multi-process e2e against a local `wrangler dev`.
 # On the default branch (or by hand): deploy https://sham-mesh.jonsnowx1r.workers.dev with the existing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID
@@ -13,7 +13,7 @@ on:
       - cloudflare/sham-mesh.wrangler.jsonc
       - ai-system/terminal/mesh*.py
       - ai-system/terminal/test_mesh*.py
-      - .github/workflows/sham-mesh.yml
+      - .github/workflows/terminal-mesh.yml
   pull_request:
     paths:
       - cloudflare/sham-mesh-worker.js
@@ -21,7 +21,7 @@ on:
       - cloudflare/sham-mesh.wrangler.jsonc
       - ai-system/terminal/mesh*.py
       - ai-system/terminal/test_mesh*.py
-      - .github/workflows/sham-mesh.yml
+      - .github/workflows/terminal-mesh.yml
   workflow_dispatch:
     inputs:
       deploy:
@@ -39,7 +39,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: sham-mesh-${{ github.ref }}-${{ inputs.helper_mesh || 'main' }}
+  group: terminal-mesh-${{ github.ref }}-${{ inputs.helper_mesh || 'main' }}
   cancel-in-progress: false
 jobs:
   test:

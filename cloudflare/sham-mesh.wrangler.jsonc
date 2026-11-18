@@ -2,7 +2,7 @@
   // sham-mesh.jonsnowx1r.workers.dev: the rendezvous / relay of the Sham terminal mesh ("every new user adds compute and knowledge").
   // One Durable Object (SQLite storage, available on the Workers FREE plan) per mesh name holds presence, mailboxes, the lesson index and
   // the adapter index. It executes nothing and never sees files or results: peers only exchange signed proposals, lessons and job payloads.
-  // Deployed by .github/workflows/sham-mesh.yml with the existing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets. No secret lives here.
+  // Deployed by .github/workflows/terminal-mesh.yml with the existing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets. No secret lives here.
   "name": "sham-mesh",
   "main": "sham-mesh-worker.js",
   "compatibility_date": "2026-10-01",
