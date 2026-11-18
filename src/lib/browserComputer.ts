@@ -28,6 +28,7 @@ export function browserStudioFor(modelId: string | undefined): string | null {
       process.env.LFM_MEDIA_STUDIO_URL || "",
       process.env.NOVA_IMAGE_STUDIO_URL || "",
       process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "",
+      process.env.SHAM_MEDIA_STUDIO_URL || process.env.SHAM_V2_MEDIA_STUDIO_URL || "",
     ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
     if (base === novaHub || nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham/i.test(base)) return null;
     return base;

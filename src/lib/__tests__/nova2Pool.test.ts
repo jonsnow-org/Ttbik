@@ -159,6 +159,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     const priorHub = process.env.COMPUTER_STUDIO_URL;
     const priorMedia = process.env.NOVA2_MEDIA_STUDIO_URL;
     const priorNovaMedia = process.env.NOVA_MEDIA_STUDIO_URL;
+    const priorNovaImage = process.env.NOVA_IMAGE_STUDIO_URL;
     try {
       delete process.env.NOVA2_COMPUTER_STUDIO_URL;
       delete process.env.NOVA2_MEDIA_STUDIO_URL;
@@ -186,6 +187,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
       if (priorHub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = priorHub;
       if (priorMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = priorMedia;
       if (priorNovaMedia === undefined) delete process.env.NOVA_MEDIA_STUDIO_URL; else process.env.NOVA_MEDIA_STUDIO_URL = priorNovaMedia;
+      if (priorNovaImage === undefined) delete process.env.NOVA_IMAGE_STUDIO_URL; else process.env.NOVA_IMAGE_STUDIO_URL = priorNovaImage;
     }
   });
 });
