@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const runId = String(q.get("runId") || "").slice(0, 64);
   const after = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
-  const requestedModel = String(q.get("model") || "all");
+  const requestedModel = String(q.get("model") || "coder");
   if (!isTaskModelFilter(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
   try {

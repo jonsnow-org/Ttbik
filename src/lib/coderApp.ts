@@ -141,14 +141,18 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
+  // Older Mini App clients may omit model for task-control operations. Resolve the persisted
+  // selection instead of silently treating such requests as Nova 1.
+  const requestedModel = typeof body.model === "string" && body.model ? body.model : "";
+  const selectedModel = requestedModel || String((await loadState(chatId, db)).model || "coder");
   // Nova 2 has a separate connector namespace; never expose or mutate Nova's linked OAuth/MCP connections.
-  if (body.model === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "github_start", "github_token"].includes(op)) {
+  if (selectedModel === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "github_start", "github_token"].includes(op)) {
     throw new AppError(403, "Nova 2's connectors are independent; Nova's linked accounts cannot be used from Nova 2.");
   }
-  if (body.model === "nova2" && ["schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run"].includes(op)) {
+  if (selectedModel === "nova2" && ["schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run"].includes(op)) {
     throw new AppError(403, "Nova 2's independent scheduler is not provisioned; Nova's schedules are not shared.");
   }
-  if (body.model === "nova2" && ["secret_answer", "secret_list", "secret_delete"].includes(op)) {
+  if (selectedModel === "nova2" && ["secret_answer", "secret_list", "secret_delete"].includes(op)) {
     throw new AppError(403, "Nova 2's secret-request vault is not separated from Nova's yet.");
   }
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
@@ -198,10 +202,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
       const st = await loadStateStrict(chatId, db);
-      if (typeof body.model === "string") {
+      if (typeof selectedModel === "string") {
         // the one place a model is chosen: a user may pick only what the owner made visible; Sham stays the owner's until the owner switches it on for everyone
         const { listModels, chooseModel } = await import("@/lib/coderModels");
-        if (!chooseModel(st, await listModels(db), body.model, user.tier === "owner")) throw new AppError(400, "model not available");
+        if (!chooseModel(st, await listModels(db), selectedModel, user.tier === "owner")) throw new AppError(400, "model not available");
         // Model switching changes routing only. Never import or copy the previous model's conversation.
         // Connectors belong to the user account and remain available to every permitted model.
       }
@@ -245,7 +249,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "sham_memory": {
       const { listModels, canonModelId } = await import("@/lib/coderModels");
       const st = await loadState(chatId, db);
-      const model = canonModelId(typeof body.model === "string" ? body.model : st.model);
+      const model = canonModelId(typeof selectedModel === "string" ? selectedModel : st.model);
       const m = (await listModels(db)).find((x) => x.id === model);
       if ((model !== "sham" && model !== "sham_v2") || !m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
       const M = await import("@/lib/shamMemory");
@@ -273,10 +277,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "tasks": {
       await (await import("@/lib/coderTasks")).reapStaleTasks(chatId, db);
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const tasks = await scope(await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db));
       // step counts are an internal meter: the owner only
-      return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db, body.model) };
+      return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db, selectedModel) };
     }
     case "secret_answer": {
       // the user fills (or cancels) the secure box: the value goes straight to the in-memory vault; the model is told only "stored"
@@ -306,14 +310,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // Return the user's own screen to the selected model's waiting run; never resume another model's state.
       const note = String(body.note || "").slice(0, 300);
       const cancelled = Boolean(body.cancel);
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
       if (!body.runId) {
-        if (body.model === "nova2") throw new AppError(403, "Nova 2 has no independent computer handoff until its computer Studio is provisioned.");
+        if (selectedModel === "nova2") throw new AppError(403, "Nova 2 has no independent computer handoff until its computer Studio is provisioned.");
         const H = await import("@/lib/computerHandoff");
         const h = H.cleanHandoff(body.handoff);
         return { ok: true, followup: H.shamHandoffFollowup(h, note, cancelled) };
       }
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
       if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "handoff task not found in this model");
       const slot = String(body.slot || "");
@@ -325,28 +329,28 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const { answerHandoffAsk } = await import("@/lib/coderSections");
         await answerHandoffAsk(deps.bot, deps.botRow, chatId, st, { note, cancelled }, db, slot);
       };
-      if (body.model === "nova2" || body.model === "lfm25") await withEngineModel(body.model, finish);
+      if (selectedModel === "nova2" || selectedModel === "lfm25") await withEngineModel(selectedModel, finish);
       else await finish();
       return { ok: true, resumed: true };
     }
     case "secret_list": {
-      if (body.model === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
+      if (selectedModel === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
       const V = await import("@/lib/secretVault");
       return { secrets: V.listSecretNames(chatId) };
     }
     case "secret_delete": {
-      if (body.model === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
+      if (selectedModel === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
       const V = await import("@/lib/secretVault");
       return { ok: V.deleteSecret(chatId, String(body.name || "")) };
     }
     case "screen_offer": {
-      if (user.tier !== "owner" || body.model === "nova2") return { offer: null };
+      if (user.tier !== "owner" || selectedModel === "nova2") return { offer: null };
       return { offer: await (await import("@/lib/coderTasks")).latestScreenOffer(chatId, db) };
     }
     case "task_delete": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const visible = await scope(await listTasks(chatId, { limit: 100 }, db));
       if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "task not found in this model");
       const { archiveTask } = await import("@/lib/coderTasks");
@@ -355,8 +359,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "events": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const visible = await scope(await listTasks(chatId, { limit: 100 }, db));
       if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "task not found in this model");
       const evs = await taskEvents(chatId, body.runId, Number(body.after) || 0, db);
@@ -365,19 +369,19 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "resolve": {
       const answer = body.answer === "yes" || body.answer === "all" || body.answer === "no" ? body.answer : null;
       if (!answer) throw new AppError(400, "bad answer");
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const active = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
       if (!active.some((t) => t.run_id === String(body.runId || ""))) throw new AppError(404, "pending task not found in this model");
       const { withEngineModel } = await import("@/lib/openCoderStudio");
       const resolve = () => resolvePending(deps.bot, deps.botRow, chatId, String(body.runId || ""), String(body.nonce || ""), answer, db);
-      const ok = body.model === "nova2" || body.model === "lfm25" ? await withEngineModel(body.model, resolve) : await resolve();
+      const ok = selectedModel === "nova2" || selectedModel === "lfm25" ? await withEngineModel(selectedModel, resolve) : await resolve();
       return { ok };
     }
     case "stop": {
       const runId = String(body.runId || "");
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
       const target = visible.find((t) => t.run_id === runId);
       if (!target) return { ok: false };
@@ -391,7 +395,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { stopRun } = await sections();
       const { withEngineModel } = await import("@/lib/openCoderStudio");
       const stop = () => stopRun(chatId, target.slot || "", runId, db);
-      const ok = body.model === "nova2" || body.model === "lfm25" ? await withEngineModel(body.model, stop) : await stop();
+      const ok = selectedModel === "nova2" || selectedModel === "lfm25" ? await withEngineModel(selectedModel, stop) : await stop();
       return { ok };
     }
     case "task_stop":
@@ -399,8 +403,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // stops one running task (or every running one) from Home: a live Nova run is cancelled like /stop (its Studio job too), any other row is closed in the history
       const { stopRun } = await sections();
       const { stopTaskRow } = await import("@/lib/coderTasks");
-      if (typeof body.model !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
       const all = await listTasks(chatId, { active: true, limit: 100 }, db);
       const scoped = await scope(all);
       const targets = op === "stop_all" ? scoped : scoped.filter((t) => t.run_id === String(body.runId || ""));
@@ -410,7 +414,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
         if (!t.run_id.startsWith("sham-") && !String(t.slot || "").startsWith("model:")) {
           const stop = () => stopRun(chatId, t.slot || "", t.run_id, db);
-          await (body.model === "nova2" || body.model === "lfm25" ? withEngineModel(body.model, stop) : stop()).catch(() => false);
+          await (selectedModel === "nova2" || selectedModel === "lfm25" ? withEngineModel(selectedModel, stop) : stop()).catch(() => false);
         }
         if (await stopTaskRow(chatId, t.run_id, db)) stopped++;
       }
@@ -424,12 +428,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await tidyBeforeList(chatId, st, db);
       const threads = await T.listThreads(chatId, { limit: Number(body.limit) || 40, before: body.before || undefined }, db);
       // `model` scopes the running / scheduled lists to ONE model (the Mini App always sends the selected one); "all" or none keeps every row
-      const scope = await taskScope(chatId, st.model, body.model, db);
+      const scope = await taskScope(chatId, st.model, selectedModel, db);
       const live = await scope(await listTasks(chatId, { active: true, limit: 20 }, db));
       // scheduled / event runs are not conversations: listed on their own
       const runs = (await scope(await listTasks(chatId, { limit: 20 }, db))).filter((t) => t.source !== "interactive");
       const strip = (x: any[]) => (user.tier === "owner" ? x : x.map(({ steps: _s, ...t }) => t));
-      return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db, body.model) };
+      return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db, selectedModel) };
     }
     case "thread": {
       const T = await import("@/lib/coderThreads");
@@ -483,7 +487,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const C = await import("@/lib/coderChats");
       const { listModels, canonModelId, chooseModel } = await import("@/lib/coderModels");
       const st = await loadState(chatId, db);
-      if (op === "chats" && body.model === "all") {
+      if (op === "chats" && selectedModel === "all") {
         // ONE list for the person: every conversation of every model they may use (Telegram or app), each tagged with its model; any chat can be continued by selecting its model
         await tidyBeforeList(chatId, st, db);
         if (!st.threadId && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
@@ -500,7 +504,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         items.sort((x, y) => Number(y.pinned) - Number(x.pinned) || String(y.updated_at).localeCompare(String(x.updated_at)));
         return { model: "all", selected, items: items.slice(0, limit), current: st.threadId || null, currentEmpty: !st.messages.length };
       }
-      const model = canonModelId(typeof body.model === "string" ? body.model : st.model) || "coder";
+      const model = canonModelId(typeof selectedModel === "string" ? selectedModel : st.model) || "coder";
       const known = await listModels(db);
       const m = known.find((x) => x.id === model);
       // the same rule as the model picker: a user sees only the models the owner opened (Sham and Sham v2 are the owner's until their own switch is on)
@@ -756,7 +760,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "media_engine": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const E = await import("@/lib/shamMediaEngine");
-      const model = body.model === "sham" || body.model === "sham_v2" ? body.model : null;
+      const model = selectedModel === "sham" || selectedModel === "sham_v2" ? selectedModel : null;
       if (!model) throw new AppError(400, "model must be sham or sham_v2");
       try { await E.setShamEngine(model, body.engine as never, db); } catch (e) { throw new AppError(400, String((e as Error).message)); }
       return { model, engine: await E.shamEngine(model, db) };
@@ -768,21 +772,21 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "box": {                       // the owner's own screen of the model's free computer (shell, files, jobs): the same private session the model works in
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = computerModelOf(String(body.model || "coder"));
+      const model = computerModelOf(String(selectedModel || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { boxRaw } = await import("@/lib/computerBox");
       return await boxRaw(model, computerSessionOf(chatId, model), args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = computerModelOf(String(body.model || "coder"));
+      const model = computerModelOf(String(selectedModel || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { desktopDo } = await import("@/lib/desktopComputer");
       return await desktopDo(model, computerSessionOf(chatId, model), args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const model = computerModelOf(String(body.model || "coder"));
+      const model = computerModelOf(String(selectedModel || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { browserOwnStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
       const base = browserOwnStudioFor(model);            // Nova family: the Mini App computer; the Shams browse inside their own embedded computer (op desktop), never Nova's hub
@@ -808,7 +812,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     // ---------------------------------------------------------------- connectors (src/lib/coderConnectors.ts)
     case "connectors": {
-      if (body.model === "nova2") return { connectors: [], mcp: [], presets: [], isolated: true, note: "Nova 2's connectors are separate from Nova's and have not been provisioned yet." };
+      if (selectedModel === "nova2") return { connectors: [], mcp: [], presets: [], isolated: true, note: "Nova 2's connectors are separate from Nova's and have not been provisioned yet." };
       const c = await import("@/lib/coderConnectors");
       const ownerEnv = user.tier === "owner" && Boolean((process.env.CODER_GITHUB_TOKEN || "").trim());
       const mcp = await c.listMcpServers(chatId, db);
@@ -877,7 +881,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "repos": {
       let githubToken = "";
-      if (body.model === "nova2") {
+      if (selectedModel === "nova2") {
         const { secretCached } = await import("@/lib/hostedSecrets");
         githubToken = (process.env.NOVA2_GITHUB_TOKEN || secretCached("AI_NOVA2_GITHUB_TOKEN") || "").trim();
       } else {
