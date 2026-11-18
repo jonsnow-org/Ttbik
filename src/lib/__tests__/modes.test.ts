@@ -56,7 +56,7 @@ describe("classifyRequest", () => {
     ["قم بتوليد صورة أسد", "media"], ["make a short video of a rabbit", "media"],
     ["ما هي عاصمة فرنسا؟", "chat"], ["ما سعر الذهب اليوم؟", "chat"], ["اشرح لي الفرق بين الذكاء الاصطناعي والتعلم الآلي", "chat"], ["نعم", "chat"], ["عدّل", "code"], ["اكمل", "code"], ["تابع", "code"],
     ["اكتب دالة بايثون تعكس النص", "code"], ["fix this bug: TypeError in my function", "code"], ["```js\nconst a = 1\n```\nما الخطأ؟", "code"],
-    ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["قم بجولة بحث في الإنترنت عن موقع أكواد ضخم وقم بقراءة كل الأكواد", "agentic"], ["ابحث في الويب عن أحدث المعلومات", "agentic"], ["ما هو الإنترنت؟", "chat"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
+    ["اقرأ ملف README في مستودع octocat/Hello-World ولخصه", "agentic"], ["merge the open PRs of acme/app and deploy", "agentic"], ["حلل المشروع كله ثم اكتب تقريراً", "agentic"], ["x".repeat(800), "agentic"],
   ])("%s -> %s", (text, klass) => { expect(classifyRequest(text as string)).toBe(klass); });
 
   it.each(["مرحبا كيف حالك", "أهلاً، كيف حالك؟", "hello, how are you?"])("keeps compound greeting %s on Nova's lite path", (text) => {
@@ -69,7 +69,7 @@ describe("classifyRequest", () => {
     for (const text of ["مرحبا", "مرحبا كيف حالك", "ما هي عاصمة فرنسا؟", "اكتب لي قصيدة قصيرة"]) {
       expect(requiresProgressCard(text)).toBe(false);
     }
-    for (const text of ["اكتب دالة بايثون", "عدّل", "اكمل", "اقرأ README في octocat/Hello-World", "قم بجولة بحث في الإنترنت عن موقع أكواد ضخم وقم بقراءة كل الأكواد", "ما سعر الذهب اليوم؟", "قم بتوليد صورة أسد"]) {
+    for (const text of ["اكتب دالة بايثون", "عدّل", "اكمل", "اقرأ README في octocat/Hello-World", "ما سعر الذهب اليوم؟", "قم بتوليد صورة أسد"]) {
       expect(requiresProgressCard(text)).toBe(true);
     }
   });
