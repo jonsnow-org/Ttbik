@@ -273,7 +273,9 @@ class Desktop:
     def windows(self) -> list[str]:
         if self._which("wmctrl"):
             out = self._run(["wmctrl", "-l"], env=self._env(), capture_output=True, text=True, timeout=5, check=False).stdout or ""
-            return [" ".join(line.split()[3:]) for line in out.splitlines() if len(line.split()) > 3][:30]
+            listed = [" ".join(line.split()[3:]) for line in out.splitlines() if len(line.split()) > 3][:30]
+            if listed:
+                return listed                     # wmctrl only sees windows a window manager announces; with none running, ask X directly below
         ids = (self._xdo(["search", "--onlyvisible", "--name", "."]).stdout or "").split()[:30]
         names = [(self._xdo(["getwindowname", i]).stdout or "").strip() for i in ids]
         return [n for n in names if n]
