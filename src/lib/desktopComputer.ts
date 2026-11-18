@@ -1,4 +1,4 @@
-// The owner's isolated graphical Linux desktop on the shared 16 GB computer hub.
+// The owner's isolated graphical Linux desktop: Nova 1/LFM use the shared hub; Nova 2 requires its own configured Studio.
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
@@ -22,8 +22,8 @@ export type DesktopArgs = {
   height?: number;
 };
 
-/** Where a model's graphical desktop runs. Nova and LFM: the shared computer hub. Sham and Sham v2: THEIR OWN Studio, where the desktop is part of the model's code (sham_desktop.py;
- *  owner's order 2026-11-12) - never Nova's hub, which is Nova's only. The app is only a viewer there. */
+/** Nova 1/LFM use the shared computer hub; Nova 2 uses only NOVA2_COMPUTER_STUDIO_URL.
+ *  Sham/Sham Pro use their own embedded model Studio. The Mini App is a viewer/controller, not a shared backend. */
 export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
   if (modelId === "sham" || modelId === "sham_v2") {
     const url = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");

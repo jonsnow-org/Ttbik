@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Live proof that each model's OWN computer shows a working screen: for every target (Sham's own Studio, Sham Pro's own Studio, Nova's mini-app
-computer hub) start that model's desktop in a dedicated verification session, open the browser on a page, save the picture the live view shows,
-then stop the session. Each model is reached only through its own endpoint and its own session key; nothing is shared or redeployed.
-Prints facts only; the token comes from the environment (T) and is never printed. Offline self-test: --selftest
+"""Live proof of each configured model's OWN computer: Nova 1/LFM use the shared hub,
+Nova 2 uses NOVA2_COMPUTER_STUDIO_URL, and Sham/Sham Pro use embedded model Studios.
+Each target is checked through its own endpoint and user+model session; tokens are never printed.
+Offline self-test: --selftest
 """
 from __future__ import annotations
 
@@ -87,6 +87,7 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
 
 def main() -> int:
     token = os.environ.get("T", "")
+    nova2_token = os.environ.get("T_NOVA2") or os.environ.get("NOVA2_COMPUTER_STUDIO_TOKEN") or os.environ.get("AI_NOVA2_TOKEN") or ""
     out = os.environ.get("SHOT_DIR", "computer-shots")
     os.makedirs(out, exist_ok=True)
     only = {x for x in os.environ.get("SHOT_ONLY", "").split(",") if x}
@@ -94,9 +95,15 @@ def main() -> int:
         "sham_v1": os.environ.get("SHAM_MODELSCOPE_URL", ""),
         "sham_v2": os.environ.get("SHAM_V2_URL", ""),
         "nova": os.environ.get("COMPUTER_STUDIO_URL", ""),
-        "nova2": os.environ.get("COMPUTER_STUDIO_URL", ""),       # Nova 2: same Mini App computer, its OWN session (never Nova's)
+        "nova2": os.environ.get("NOVA2_COMPUTER_STUDIO_URL", ""),
     }
-    results = {n: shoot(n, b.split(",")[0].strip().rstrip("/"), token, out) for n, b in targets.items() if b and token and (not only or n in only)}
+    credentials = {name: (url, token) for name, url in targets.items() if name != "nova2"}
+    credentials["nova2"] = (targets["nova2"], nova2_token)
+    results = {
+        name: shoot(name, url.split(",")[0].strip().rstrip("/"), target_token, out)
+        for name, (url, target_token) in credentials.items()
+        if url and target_token and (not only or name in only)
+    }
     print("RESULTS " + json.dumps(results))
     return 0 if results and all(results.values()) else 1
 

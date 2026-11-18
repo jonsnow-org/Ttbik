@@ -961,7 +961,7 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
     if (kind === "video") {
       const { novaVideoStart } = await import("@/lib/novaMedia");
       const { ownMediaBase } = await import("@/lib/modelMedia");
-      const started = await novaVideoStart(m.prompt!, m.seconds ?? 10, { base: ownMediaBase(modelId) || undefined });
+      const started = await novaVideoStart(m.prompt!, m.seconds ?? 10, { base: ownMediaBase(modelId) });
       if ("job" in started) { m.job = started.job; m.jobStarted = Date.now(); m.phase = "poll"; m.started ||= Date.now(); await save(); }
       else if (started.reason === "no_job_api") {
         // the Studio predates the background-job API: the old single call is the only way to make the clip (it cannot be resumed, so it is run once inside this leg)
@@ -988,7 +988,7 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
   if (m.phase === "poll") {
     const { novaVideoJob, videoJobCapMs } = await import("@/lib/novaMedia");
     const { ownMediaBase } = await import("@/lib/modelMedia");
-    const base = ownMediaBase(modelId) || undefined;
+    const base = ownMediaBase(modelId);
     m.started ||= Date.now();
     // The ceiling follows the clip's length: a 60/120 s clip needs ~210 s per 4 s pass plus start-up, so a fixed 40 min aborted long clips
     // that were still generating (the Studio's own budget is the same formula, capped at 2 h). The +10 min covers polling and delivery.
@@ -1059,7 +1059,7 @@ async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void
   if (st.run || st.model === "sham" || st.model === "sham_loop" || st.model === "sham_v2") return;
   const ctx = await toolCtx(chatId, st, db, null);
   const github = Boolean(ctx.gh);
-  const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+  const connected = (novaModelOf(st.model) || currentEngineModel()) === "nova2" ? [] : await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
   const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
   const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
   const wire = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}`, ...((m as { images?: string[] }).images?.length ? { images: (m as { images?: string[] }).images } : {}) } : m);
@@ -1086,7 +1086,7 @@ export async function novaStarts(chatId: number, model: "coder" | "nova2", db: D
     const st = await loadState(chatId, db);
     const ctx = await toolCtx(chatId, st, db, null);
     const github = Boolean(ctx.gh);
-    const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+    const connected = (novaModelOf(st.model) || currentEngineModel()) === "nova2" ? [] : await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const sticky = [...new Set([...(st.groups || []), ...loadedGroups(st.messages, toolGroups(true, true))])].sort();
     const out: { label: string; messages: CoderMessage[]; tools: Parameters<typeof coderWarmStart>[1] }[] = [];
     const full = (owner: boolean, gh: boolean, conns: string[], keep: string[]) => {
@@ -1464,21 +1464,35 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
 async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, botId?: string): Promise<ToolCtx & { tier: Tier }> {
-  const conn = await resolveConnections(chatId, db);
+  const selectedModel = novaModelOf(st.model) || currentEngineModel();
+  const modelId = computerModelOf(selectedModel);
+  // Nova 2 does not inherit Nova's account-linked OAuth/MCP connections or its owner GitHub PAT.
+  let githubToken: string | null = null;
+  let gh: ReturnType<typeof githubClient> | null = null;
+  if (modelId === "nova2") {
+    const { secretCached } = await import("@/lib/hostedSecrets");
+    githubToken = (process.env.NOVA2_GITHUB_TOKEN || secretCached("AI_NOVA2_GITHUB_TOKEN") || "").trim() || null;
+    gh = githubClient(githubToken || ""); // public GitHub reads still work without a credential
+  } else {
+    const conn = await resolveConnections(chatId, db);
+    githubToken = conn.github?.token || null;
+    gh = conn.github ? githubClient(conn.github.token) : null;
+  }
+  const ownMemory = memorySettings(st, selectedModel);
   return {
     tier: tierFor(chatId),
-    runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
-    chatKey: coderChatKey(`${chatId}:${computerModelOf(st.model)}`),
-    modelId: computerModelOf(st.model),                       // each model its own computer session on its own computer (Nova 2: its own session on the Mini App computer)
+    runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),
+    chatKey: coderChatKey(`${chatId}:${modelId}`),
+    modelId,
     userId: chatId,
-    memoryChatId: modelSessionChatId(chatId),
-    memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
+    memoryChatId: modelSessionChatId(chatId, selectedModel),
+    memory: { remember: ownMemory.remember, recall: ownMemory.recall },
     botId,
     goal: (run || st.run)?.goal,
     tz: st.tz || defaultTz(),
     db,
-    githubToken: conn.github?.token || null,
-    gh: conn.github ? githubClient(conn.github.token) : null,
+    githubToken,
+    gh,
     addNote: (t: string) => {
       st.notes = `${st.notes}\n- ${t}`.trim().slice(-4000);
     },
@@ -1499,7 +1513,7 @@ async function rereadTouched(ctx: ToolCtx, ss: StallState): Promise<string> {
 
 async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db: Db): Promise<void> {
   const ss = run.stall!;
-  await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: stall.pattern, level: ss.level, detail: stall.detail }, db);
+  await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: stall.pattern, level: ss.level, detail: stall.detail }, db);
   const fresh = ss.level >= 2 ? await rereadTouched(ctx, ss) : "";
   run.recovery = `${run.recovery ? run.recovery + "\n\n" : ""}${recoveryMessage(stall, ss, fresh)}`;
 }
@@ -2277,7 +2291,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.queued = rest.slice(batch.length - 1);
       await progressDone(ioBot, chatId, run, outs);
       for (let i = 0; i < batch.length; i++) {
-        await bankAdd(run.id, coderChatKey(chatId), run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
+        await bankAdd(run.id, ctx.chatKey || coderChatKey(`${chatId}:${ctx.modelId || currentEngineModel()}`), run.step, batch[i].function.name, toolLabel(batch[i]), outs[i], db);          // kept in full for recall()
         st.messages.push({ role: "tool", content: outs[i] + (i === batch.length - 1 ? progressNote(run) : ""), tool_call_id: batch[i].id, name: batch[i].function.name });
         const seen = afterCall(run.stall, batch[i], outs[i], run.step);
         if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
@@ -2353,7 +2367,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
-          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
+          await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
           await saveState(chatId, st, db, slot);
           continue;
         }
@@ -2428,7 +2442,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         } else if (Date.now() - run.jobMovedAt > Math.max(jobStallMs(), readingMs(run, r))) {
           const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
           await coderCancel(run.job).catch(() => null);
-          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
+          await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
           if ((run.stallRetries || 0) < 2) {
             // a stuck generation is not the end of a long task: the same step goes again, twice at most
             run.stallRetries = (run.stallRetries || 0) + 1;
@@ -2496,11 +2510,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           run.retries = (run.retries || 0) + 1;
           run.histChars = Math.max(12000, Math.floor((run.histChars || historyChars()) / 2));
           run.promptEst = undefined;
-          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned done with empty text and no tool calls; retrying once with smaller context" }, db);
+          await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned done with empty text and no tool calls; retrying once with smaller context" }, db);
           await saveState(chatId, st, db, slot);
           continue;
         }
-        await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
+        await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
         await endRun(st, "failed", db, "empty model output after retry", modelSessionChatKey(chatId));
         await saveState(chatId, st, db, slot);
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
@@ -2533,7 +2547,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (stepsSinceProgress(run.stall, run.step) >= HARD_MAX_STEPS && tierFor(chatId) !== "owner") {   // the owner has no ceiling
           // the only stop: a stall safety net against runaway compute (CODER_HARD_MAX_STEPS model steps with no real progress — not total
           // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
-          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
+          await logStall({ run_id: run.id, chat_key: modelSessionChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
           await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, modelSessionChatKey(chatId));
           await saveState(chatId, st, db, slot);
@@ -2705,7 +2719,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // relevant long-term memories, once per task (keyword + recency + repo scope)
       run.memory = await novaMemoryPrompt(chatId, st, run.goal || "", db);
     }
-    const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+    const connected = (novaModelOf(st.model) || currentEngineModel()) === "nova2" ? [] : await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
     const nset = modelSettings(st, novaModelOf(st.model));                  // this model's OWN thinking / speed / media switches
     const accuracy: Accuracy = nset.accuracy;
     // ONE mode system (src/lib/modes.ts): the request's class and the user's mode / Auto decide thinking, answer cap, temperature and the short "lite" path. The class is decided once per task.
@@ -2771,7 +2785,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: run.agent ? "coder" : novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { prismaDb } from "@/lib/coderAuth";
-import { taskEvents, isTaskModelFilter, type TaskModelFilter } from "@/lib/coderTasks";
+import { listTasks, taskEvents, isTaskModelFilter, type TaskModelFilter } from "@/lib/coderTasks";
+import { tasksOfModel } from "@/lib/coderChats";
 import { terminalAllowed } from "@/lib/coderPlans";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,14 @@ export async function GET(req: NextRequest) {
   const requestedModel = String(q.get("model") || "all");
   if (!isTaskModelFilter(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400 });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;
+  if (modelFilter) {
+    const all = await listTasks(user.id, { limit: 100 });
+    const visible = modelFilter === "coder" || modelFilter === "nova2"
+      ? await tasksOfModel(Number(user.id), modelFilter, all, prismaDb)
+      : await listTasks(user.id, { limit: 100, model: modelFilter });
+    if (!visible.some((t) => t.run_id === runId)) return NextResponse.json({ error: "task not found in selected model" }, { status: 404 });
+  }
+  const eventFilter = modelFilter === "coder" || modelFilter === "nova2" ? undefined : modelFilter;
   let cursor = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
 
   let cancelled = false;
@@ -53,7 +62,7 @@ export async function GET(req: NextRequest) {
       try {
         write(": connected\n\n");
         while (!closed && !cancelled && Date.now() - started < 270000) {
-          const rows = await taskEvents(user.id, runId, cursor, prismaDb, modelFilter);
+          const rows = await taskEvents(user.id, runId, cursor, prismaDb, eventFilter);
           for (const ev of rows) {
             if (closed) break;
             cursor = Math.max(cursor, ev.id);

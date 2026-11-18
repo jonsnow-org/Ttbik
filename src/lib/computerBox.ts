@@ -1,10 +1,11 @@
-// Shared 16 GB computer-only Studio (ai-system/modelscope-media/computer_box.py): shell, persistent files and background jobs.
-// The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
+// ModelScope computer-only runtime (ai-system/modelscope-media/computer_box.py): shell, persistent files and jobs.
+// Nova 1/LFM use the shared hub; Nova 2 requires its own configured computer endpoint.
+// Every endpoint keys workspaces by verified user+model identity and keeps each session in its own UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
-/** Where a model's terminal / files / jobs live. Sham and Sham v2 have NO computer Studio at all (owner's order 2026-11-08): their computer is part of the model's own loop and runs inside
- *  its serving code (sham_embedded_tools.py). The hub is Nova's only. */
+/** Where terminal/files/jobs live. Sham/Sham Pro use embedded serving tools; Nova 1/LFM use the shared hub;
+ *  Nova 2 resolves only to its own NOVA2_COMPUTER_STUDIO_URL endpoint. */
 export function boxStudioFor(modelId: string | undefined): string | null {
   if (modelId === "sham" || modelId === "sham_v2") return null;
   return browserStudioFor(modelId);
@@ -136,7 +137,7 @@ function renderBody(action: string, r: Record<string, any>): string {
 }
 
 export async function boxDo(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
-  const base = boxStudioFor(modelId);                 // the same per-model media Studio hosts the browser and the computer
+  const base = boxStudioFor(modelId);                 // this model's computer Studio, never its media Studio
   if (!base) return "error: this model has no computer Studio";
   const clean = cleanBoxArgs(args);
   if (!clean) return "error: unknown computer action";
@@ -182,7 +183,7 @@ async function waitJob(base: string, session: string, id: string, fetchImpl: typ
   return last;
 }
 
-/** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
+/** Raw Mini App terminal/files reply: selected model's computer endpoint and private user+model session; never a token. */
 export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
   if (modelId === "sham" || modelId === "sham_v2") {
     // The owner's Mini App screen of a Sham's computer stays useful WITHOUT any command API: a READ-ONLY view (files, a file, jobs, a job log, what the model just did) served by the
@@ -210,7 +211,7 @@ export async function boxRaw(modelId: string | undefined, session: string, args:
 
 export type BoxChanges = { ok: true; repo: string; base: string; files: { path: string; content: string }[]; deleted: string[]; skipped: { path: string; why: string }[] } | { ok: false; error: string };
 
-/** Changed files are read from this user+model session on the computer hub. The GitHub token never goes there: the app commits what comes back. */
+/** Changed files are read from this user's selected-model computer session. GitHub credentials never enter the computer; the app commits returned changes. */
 export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
   if (modelId === "sham" || modelId === "sham_v2") {
     // The Shams' computer is inside the model (no computer Studio). Publishing needs only the READ-ONLY list of changed files from the model's own serving app (computer_changes).

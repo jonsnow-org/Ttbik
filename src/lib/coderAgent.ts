@@ -182,7 +182,7 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand independent jobs to agents in parallel only when they are genuinely separable. The runner caps the number to available Nova Studios and disables delegation with one Studio. Each returns a short report. role worker = full tools and user permission checks; reader = read-only (default); tester (max 1) = runs tests in its own VM. A worker may start at most one read-only helper at a time. Each task must be a complete standalone instruction.",
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand genuinely independent jobs to agents on THIS model's own Studio pool; the runner enforces its capacity and never borrows another model's Studios. Nova 2 may run one child serially on its single dedicated Studio. Each returns a short report. role worker = full tools and user permission checks; reader = read-only (default); tester (max 1) = runs tests in its own VM. A worker may start at most one read-only helper at a time. Each task must be a complete standalone instruction.",
   obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
@@ -668,6 +668,8 @@ export type ToolCtx = {
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const key = ctx.userId === undefined || ctx.userId === null ? "" : String(ctx.userId);   // the chat id: the same key the app uses when the user fills the box
   const raw = call.function?.arguments;
+  // Nova 2 has no private secret vault yet. Never resolve Nova 1's {{secret:name}} values inside N2 tools.
+  if (ctx.modelId === "nova2" && typeof raw === "string" && /secret:/i.test(raw)) return "error: Nova 2's independent secret vault is not provisioned; Nova's stored credentials are not visible here.";
   if (!key || typeof raw !== "string" || !raw.includes("secret:")) return runToolInner(call, ctx);
   const V = await import("@/lib/secretVault");
   let resolved: CoderToolCall;
@@ -682,6 +684,10 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
 async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
   const name = call.function.name;
+  // These actions target account-wide Nova stores until Nova 2 has model-native stores and a computer.
+  if (ctx.modelId === "nova2" && name === "request_secret") return "error: Nova 2's own secret vault is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name === HANDOFF_TOOL_NAME) return "error: Nova 2's own computer screen is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name.startsWith("schedule_")) return "error: Nova 2's own scheduler is not provisioned; Nova's schedules are not shared.";
   try {
     if (name === "load_tools") {
       const want = loadArgs(call);
@@ -758,6 +764,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
     if (name === "view_image" || name === "view_video" || name === "make_media") return "error: this tool works in the main chat or in a worker only (it needs the chat to show or send the result).";
     if (name === "send_file") return "error: send_file is not available to this agent role (a reader or tester only reports). Put the result in your report instead.";
     if (name === "connector_api" || name === "mcp_list_tools" || name === "mcp_call") {
+      if (ctx.modelId === "nova2") return "error: Nova 2 has its own connector boundary; Nova's linked OAuth accounts and MCP servers are not available to it.";
       if (ctx.userId === undefined) return "error: connectors are not available here";
       const c = await import("@/lib/coderConnectors");
       if (name === "connector_api") return clip(await c.connectorApi(ctx.userId, a, ctx.db, ctx.fetchImpl));

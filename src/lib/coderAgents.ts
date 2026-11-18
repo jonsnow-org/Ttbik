@@ -28,10 +28,14 @@ export type AgentRole = "reader" | "tester" | "worker";   // worker = full tools
 export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
 
-/** Match useful agent concurrency to independent model servers; a nested worker gets at most one helper so it does not create a queue behind its siblings. */
+/** Capacity follows the selected model's OWN Studio pool. One Nova 2 Studio may run one
+ *  child serially; other one-Studio pools stay delegation-off. Nova 2 children do not nest. */
 export function maxParallelAgentsForStudios(studioCount: number, nested = false): number {
   const count = Math.max(0, Math.floor(Number(studioCount) || 0));
-  if (count < 2) return 0;
+  if (count < 1) return 0;
+  const serialNova2 = currentEngineModel() === "nova2" && count === 1;
+  if (count < 2 && !serialNova2) return 0;
+  if (nested && serialNova2) return 0;
   return nested ? Math.min(SUB_AGENT_MAX, 1) : Math.min(AGENT_MAX, count);
 }
 /** The model's context is a hard physical limit (32,768 tokens). Reports are never cut; only if ALL of them together exceed this many characters (default 60,000, about 20k tokens) does the system step in (see fitReports). */
