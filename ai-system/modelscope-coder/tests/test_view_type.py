@@ -41,6 +41,19 @@ class ViewType(unittest.TestCase):
         v = app._view(self.put("error", error="boom"))
         self.assertEqual((v["type"], v["error"]), ("error", "boom"))
 
+    def test_majflt_rides_along_and_faults_are_read(self):
+        self.assertEqual(app._view(self.put("done", majflt=12))["majflt"], 12)
+        import subprocess
+        p = subprocess.Popen(["sleep", "5"])
+        try:
+            app._PROC["p"] = p
+            f = app._llama_faults()
+            self.assertIsInstance(f.get("majflt"), int)
+            self.assertGreaterEqual(f.get("rss_gb"), 0)
+        finally:
+            p.kill()
+            app._PROC["p"] = None
+
 
 if __name__ == "__main__":
     unittest.main()

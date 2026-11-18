@@ -491,6 +491,27 @@ def _gc() -> None:
 THINK_CAP_CHARS = max(300, int(os.environ.get("CODER_THINK_CAP_CHARS", "1200") or 1200))
 
 
+def _llama_faults() -> dict:
+    """llama-server's major page faults (model pages read back from disk) and resident size: a box short of memory re-reads the mmapped weights on every token."""
+    p = _PROC.get("p")
+    out = {}
+    try:
+        f = open(f"/proc/{p.pid}/stat").read().rsplit(")", 1)[1].split()
+        out["majflt"] = int(f[9])                                   # field 12 of /proc/<pid>/stat
+        out["rss_gb"] = round(int(open(f"/proc/{p.pid}/statm").read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2 ** 30, 2)
+    except Exception:
+        pass
+    for name, path in (("cg_max_gb", "/sys/fs/cgroup/memory.max"), ("cg_now_gb", "/sys/fs/cgroup/memory.current"),
+                       ("cg_max_gb", "/sys/fs/cgroup/memory/memory.limit_in_bytes"), ("cg_now_gb", "/sys/fs/cgroup/memory/memory.usage_in_bytes")):
+        try:
+            v = open(path).read().strip()
+            if v.isdigit() and name not in out:
+                out[name] = round(int(v) / 2 ** 30, 2)
+        except Exception:
+            pass
+    return out
+
+
 def _stream(job: dict) -> None:
     _stream_once(job)
     # a thought that was too long, or one that ended with no answer and no tool call (the answer / call written inside the thinking): ask again, thinking off
@@ -602,8 +623,12 @@ def _runner() -> None:
             continue
         job.update(status="running", started=time.time())
         _slot_before(job)
+        f0 = _llama_faults().get("majflt")
         try:
             _stream(job)
+            f1 = _llama_faults().get("majflt")
+            if f0 is not None and f1 is not None:
+                job["majflt"] = f1 - f0                              # weight pages read back from disk during this job (0 = the model stayed in memory)
             job.update(status="cancelled" if job.get("cancel") else "done", finished=time.time())
             _slot_after(job)
         except Exception as exc:
@@ -645,6 +670,8 @@ def _view(jid: str, offset: int = 0) -> dict:
             out["ttft_s"] = round(job["first_at"] - job["started"], 1)                       # prompt reading until the first token
     if job.get("slot_restored"):
         out["restored"] = job["slot_restored"]
+    if job.get("majflt") is not None:
+        out["majflt"] = job["majflt"]
     return out
 
 
@@ -799,6 +826,7 @@ def status() -> str:
     except Exception:
         mem["starts"] = []
     mem["slot_start"] = _LAST.get("start", "")
+    mem["llama"] = _llama_faults()
     return json.dumps(dict(STATE, queue=q, active=active, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 
