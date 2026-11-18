@@ -10,7 +10,8 @@ Rules (owner, 2026-11-17/18):
   * the donor file is only READ (ai-system/colab/sham_small/checkpoint.load_checkpoint), the body in memory is a copy, its weights are frozen; nothing is ever written next to it
     or over it, and the output holds ONLY the new head + the adapters (never the donor weights);
   * a real donor is refused until the writer has passed the gate: held-out AND held-out-2 same-effect >= gate_heldout (default 0.6) in a results json of
-    training/train_0.3b.py (TLDM_TERMINAL_SPEC §3: steps 1-4 first). Today the measured held-out is below it, so this script has only ever run on --tiny;
+    training/train_0.3b.py (TLDM_TERMINAL_SPEC §3: steps 1-4 first). Passed 2026-11-18 (docs/experiments/tldm_heldout_gate_2026-11-18.json: 0.778 / 0.810, 3 seeds,
+    head on a frozen pretrained reader), which is the default --gate; the Sham 2 run itself is the trainer Studio job (modelscope-trainer/app.py, name sham2*);
   * old Sham, its weights and its serving are untouched; SHAM_TLDM stays off.
 Training data: the 30 terminal tasks (+ held-out-safe rewordings), target = the command, as bytes (the writer's block).
 """
@@ -321,7 +322,8 @@ def main(argv=None):
     ap.add_argument("--tiny", action="store_true")
     ap.add_argument("--donor", default="")
     ap.add_argument("--tokenizer", default="")
-    ap.add_argument("--gate", default="")
+    ap.add_argument("--gate", default=os.path.join(ROOT, "..", "..", "docs", "experiments", "tldm_heldout_gate_2026-11-18.json"),
+                    help="writer results json with heldout/heldout2 (the Studio uses the identical copy in gate/)")
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(ROOT, "checkpoints", "sham2_tldm", "head_and_adapters.pt"))
     ap.add_argument("--json", default="")

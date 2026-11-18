@@ -58,8 +58,8 @@ PROFILES = {
     "codec":  {"SHAM_IMG_SIZE": "384", "SHAM_TOK_AUDIO": "0", "SHAM_TOK_THREADS": "2"},
     # the motion codec: real clips -> consecutive frame pairs -> a motion tokenizer that beats "copy the previous frame"; published as sham-motion-tokenizer-checkpoint (resumes the newest one)
     "motion": {"SHAM_TOK_THREADS": "2"},
-    # T-LDM writer experiments (CPU): trains ai-system/tldm (copied next to this file) with rotating seeds and both frozen held-out sets.
-    # Does not import or change that tree's training code; each cycle is `training/train_0.3b.py`. Results live on /mnt/workspace/tldm and are published to the private model repo tldm-writer-runs.
+    # T-LDM on the Studio (CPU): the kept pretrained-reader head (DonorTLDM, writer_donor.yaml) plus the self-evolution loop (train_loop + evolve + lora_failed).
+    # Does not edit that tree's training code; scripts are invoked as subprocesses. Results live on /mnt/workspace/tldm and are published to tldm-writer-runs.
     "tldm":   {},
 }
 
@@ -88,7 +88,9 @@ def run_motion(hours: float = 3.0, **_ignored) -> dict:
 
 
 TLDM_REPO = "tldm-writer-runs"
-TLDM_CONFIG_DEFAULT = "writer_small_reword.yaml"
+TLDM_CONFIG_DEFAULT = "writer_donor.yaml"
+TLDM_LOOP_CONFIG_DEFAULT = "loop.yaml"
+TLDM_DONOR_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
 def tldm_root() -> Path:
@@ -133,37 +135,129 @@ def tldm_store_seed(work: Path, seed: int) -> None:
     (work / "seed.txt").write_text(str(int(seed)), encoding="utf-8")
 
 
+def tldm_cmd_opt(cmd: list, flag: str) -> str | None:
+    if flag in cmd:
+        i = cmd.index(flag)
+        if i + 1 < len(cmd):
+            return cmd[i + 1]
+    return None
+
+
+def tldm_script(cmd: list) -> str:
+    for part in cmd:
+        if str(part).endswith(".py"):
+            return Path(part).name
+    return ""
+
+
+def ensure_donor(work: Path, download: bool = True) -> Path:
+    """Local copy of paraphrase-multilingual-MiniLM-L12-v2 (frozen reader). Kept on /mnt/workspace/tldm/donor so later cycles do not download again."""
+    dest = Path(os.environ.get("TLDM_DONOR") or (work / "donor" / "minilm"))
+    if (dest / "config.json").is_file():
+        os.environ["TLDM_DONOR"] = str(dest)
+        return dest
+    dest.mkdir(parents=True, exist_ok=True)
+    os.environ["TLDM_DONOR"] = str(dest)
+    if not download:
+        return dest
+    repo = (os.environ.get("TLDM_DONOR_ID") or TLDM_DONOR_ID).strip() or TLDM_DONOR_ID
+    errors: list[str] = []
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id=repo, local_dir=str(dest))
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"hf:{type(exc).__name__}:{str(exc)[:160]}")
+        try:
+            from modelscope import snapshot_download as ms_dl
+            src = Path(ms_dl(repo, cache_dir=str(work / "donor" / "ms_cache")))
+            import shutil
+            for f in src.rglob("*"):
+                if f.is_file() and ".git" not in f.parts:
+                    target = dest / f.relative_to(src)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if not target.exists():
+                        shutil.copy2(f, target)
+        except Exception as exc2:  # noqa: BLE001
+            errors.append(f"ms:{type(exc2).__name__}:{str(exc2)[:160]}")
+    if not (dest / "config.json").is_file():
+        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + ")")
+    print(f"tldm donor ready: {dest}", flush=True)
+    return dest
+
+
+def tldm_run(cmd: list, cwd: str, env: dict | None, runner, **extra) -> int:
+    if runner is not None:
+        return int(runner(cmd=cmd, cwd=cwd, **extra))
+    import subprocess
+    print("tldm run:", " ".join(str(c) for c in cmd), flush=True)
+    return int(subprocess.run(cmd, cwd=cwd, env=env, check=False).returncode)
+
+
+def _num(block, *keys):
+    if isinstance(block, (int, float)):
+        return block
+    if not isinstance(block, dict):
+        return None
+    for k in keys:
+        if isinstance(block.get(k), (int, float)):
+            return block[k]
+    return None
+
+
 def tldm_flatten(res: dict, seed: int, published) -> dict:
-    """Whitelisted cycle numbers for the status page (nested held-out scores become one number each)."""
-    out = {"seed": int(seed), "published": bool(published)}
-    if isinstance(res, dict):
-        for k in ("config", "train_secs", "params_M"):
-            if k in res and isinstance(res[k], (int, float, str)) and len(str(res[k])) <= 80:
-                out[k] = res[k]
-        for k in ("train", "heldout", "heldout2"):
-            block = res.get(k) or {}
-            if isinstance(block, dict) and isinstance(block.get("same_effect"), (int, float)):
-                out[k] = block["same_effect"]
-            elif isinstance(block, (int, float)):
-                out[k] = block
+    """Whitelisted cycle numbers for the status page."""
+    out = {"seed": int(seed), "published": bool(published), "config": (res or {}).get("config") or TLDM_CONFIG_DEFAULT}
+    if not isinstance(res, dict):
+        return out
+    for k in ("train_secs", "params_M", "loop_trained"):
+        if k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80:
+            out[k] = res[k]
+    for k in ("train", "heldout", "heldout2"):
+        v = _num(res.get(k), "same_effect")
+        if v is not None:
+            out[k] = v
+    evo = res.get("evolve") or {}
+    after = evo.get("after") if isinstance(evo, dict) else None
+    v = _num(after, "episode_success")
+    if v is not None:
+        out["evo_after"] = v
+    lf = res.get("lora_failed") or {}
+    if isinstance(lf, dict):
+        se = lf.get("self_evolution") or {}
+        v = _num((se.get("after") or {}).get("eval60_778") if isinstance(se, dict) else None, "episode_success")
+        if v is not None:
+            out["lora_eval"] = v
+        v = _num((se.get("after") or {}).get("A") if isinstance(se, dict) else None, "rate")
+        if v is not None:
+            out["lora_A"] = v
     return out
 
 
-def publish_tldm(work: Path, seed: int, ckpt: Path, report: Path) -> str | None:
-    """Publish this cycle's checkpoint and JSON to the private ModelScope repo tldm-writer-runs (owner from SHAM_MS_OWNER)."""
+def publish_tldm(work: Path, seed: int, artifacts: list) -> str | None:
+    """Publish this cycle's checkpoints and JSON to the private ModelScope repo tldm-writer-runs (owner from SHAM_MS_OWNER, hub from MODELSCOPE_DOMAIN)."""
     sys.path.insert(0, str(SHAM))
     import shutil
 
     import sham_inputs
+    apply = getattr(sham_inputs, "_apply_ms_hub_endpoint", None)
+    if callable(apply):
+        apply()
     snap = work / "publish_snap"
     shutil.rmtree(snap, ignore_errors=True)
     snap.mkdir(parents=True)
-    for src, dest in ((ckpt, snap / ckpt.name), (ckpt, snap / "latest.pt"), (report, snap / report.name), (report, snap / "latest.json")):
-        if src.exists():
-            try:
-                os.link(src, dest)
-            except OSError:
-                shutil.copy2(src, dest)
+    seen: set[str] = set()
+    for src in artifacts:
+        src = Path(src)
+        if not src.is_file():
+            continue
+        dest = snap / src.name
+        if dest.name in seen:
+            dest = snap / f"{src.parent.name}_{src.name}"
+        seen.add(dest.name)
+        try:
+            os.link(src, dest)
+        except OSError:
+            shutil.copy2(src, dest)
     jsonl = work / "logs" / "results.jsonl"
     if jsonl.exists():
         try:
@@ -171,63 +265,149 @@ def publish_tldm(work: Path, seed: int, ckpt: Path, report: Path) -> str | None:
         except OSError:
             shutil.copy2(jsonl, snap / "results.jsonl")
     name = (os.environ.get("SHAM_TLDM_REPO") or TLDM_REPO).strip() or TLDM_REPO
-    got = sham_inputs.publish_modelscope(snap, name, f"writer cycle seed={seed}")
+    got = sham_inputs.publish_modelscope(snap, name, f"tldm cycle seed={seed}")
     shutil.rmtree(snap, ignore_errors=True)
     return got
 
 
+def _parse_evolve_log(text: str) -> dict:
+    out: dict = {}
+    for label, key in (("before evolution (names never seen):", "before"), ("after the LoRA (same episodes)      :", "after"), ("after the LoRA (same episodes):", "after")):
+        for line in text.splitlines():
+            if label.split(":")[0] in line and "{" in line:
+                try:
+                    out[key] = json.loads(line[line.index("{"):].replace("'", '"'))
+                except ValueError:
+                    pass
+    return out
+
+
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
-    """One writer cycle: train configs/writer_small_reword.yaml (or SHAM_TLDM_CONFIG) at the next seed, evaluate both frozen held-out sets, persist, publish."""
+    """One cycle: train the frozen-reader head (writer_donor.yaml), keep/train the slot-aware loop, run evolve + lora_failed, persist, publish."""
     work = tldm_work()
-    (work / "checkpoints").mkdir(parents=True, exist_ok=True)
+    (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
     (work / "logs").mkdir(parents=True, exist_ok=True)
     seed = tldm_next_seed(work)
-    cfg_name = (os.environ.get("SHAM_TLDM_CONFIG") or TLDM_CONFIG_DEFAULT).strip() or TLDM_CONFIG_DEFAULT
     root = tldm_root()
-    config = Path(cfg_name) if Path(cfg_name).is_file() else (root / "configs" / cfg_name)
-    ckpt = work / "checkpoints" / f"seed{seed}.pt"
-    report = work / "logs" / f"seed{seed}.json"
-    cmd = [sys.executable, "-u", str(root / "training" / "train_0.3b.py"),
-           "--config", str(config), "--out", str(ckpt), "--seed", str(seed), "--json", str(report)]
-    extra_steps = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
-    if extra_steps:
-        cmd.extend(["--steps", extra_steps])
     if not tldm_sidecars_ok(root):
         missing = [str(p) for p in tldm_sidecars(root) if not p.is_file()]
         raise FileNotFoundError("tldm sidecars missing (deploy must also copy ai-system/terminal and ai-system/distill): " + ", ".join(missing))
+    ensure_donor(work, download=runner is None)
+    cfg_name = (os.environ.get("SHAM_TLDM_CONFIG") or TLDM_CONFIG_DEFAULT).strip() or TLDM_CONFIG_DEFAULT
+    config = Path(cfg_name) if Path(cfg_name).is_file() else (root / "configs" / cfg_name)
+    loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
+    loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
+    donor_ckpt = work / "checkpoints" / f"donor_seed{seed}.pt"
+    donor_json = work / "logs" / f"donor_seed{seed}.json"
+    loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
+    evo_adapter = work / "checkpoints" / "loop" / f"evolution_adapter_seed{seed}.pt"
+    evo_log = work / "logs" / f"evolve_seed{seed}.log"
+    lora_json = work / "logs" / f"lora_failed_seed{seed}.json"
+    report = work / "logs" / f"cycle_seed{seed}.json"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+    env["TLDM_DONOR"] = os.environ.get("TLDM_DONOR") or str(work / "donor" / "minilm")
+    extra = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
+    loop_steps = (os.environ.get("SHAM_TLDM_LOOP_STEPS") or "").strip()
+    artifacts: list = []
+    res: dict = {"seed": seed, "config": config.name}
 
+    donor_cmd = [sys.executable, "-u", str(root / "training" / "train_0.3b.py"),
+                 "--config", str(config), "--out", str(donor_ckpt), "--seed", str(seed), "--json", str(donor_json)]
+    if extra:
+        donor_cmd.extend(["--steps", extra])
+    print(f"tldm cycle seed={seed} donor config={config.name} out={donor_ckpt}", flush=True)
+    code = tldm_run(donor_cmd, str(root), env, runner, ckpt=donor_ckpt, report=donor_json, seed=seed, work=work, arm="donor")
+    if code != 0:
+        raise RuntimeError(f"tldm donor train exited with code {code} (seed {seed})")
+    if donor_json.exists():
+        try:
+            res.update(json.loads(donor_json.read_text(encoding="utf-8")))
+        except ValueError:
+            pass
+        artifacts.append(donor_json)
+    if donor_ckpt.exists():
+        artifacts.append(donor_ckpt)
+
+    retrained = False
+    if (os.environ.get("SHAM_TLDM_RETRAIN_LOOP") or "").strip() == "1" or not loop_ckpt.exists():
+        loop_cmd = [sys.executable, "-u", str(root / "training" / "train_loop.py"),
+                    "--config", str(loop_config), "--out", str(loop_ckpt), "--seed", str(seed)]
+        if loop_steps:
+            loop_cmd.extend(["--steps", loop_steps])
+        print(f"tldm loop train config={loop_config.name} out={loop_ckpt}", flush=True)
+        code = tldm_run(loop_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="loop")
+        if code != 0:
+            raise RuntimeError(f"tldm loop train exited with code {code} (seed {seed})")
+        retrained = True
+    res["loop_trained"] = retrained
+    if loop_ckpt.exists():
+        artifacts.append(loop_ckpt)
+
+    evo_cmd = [sys.executable, "-u", str(root / "training" / "evolve.py"),
+               "--ckpt", str(loop_ckpt), "--adapter", str(evo_adapter),
+               "--memory", str(work / "memory" / f"evo_seed{seed}")]
+    print(f"tldm evolve ckpt={loop_ckpt} adapter={evo_adapter}", flush=True)
     if runner is not None:
-        code = int(runner(cmd=cmd, cwd=str(root), ckpt=ckpt, report=report, seed=seed, work=work))
+        code = tldm_run(evo_cmd, str(root), env, runner, ckpt=loop_ckpt, seed=seed, work=work, arm="evolve", adapter=evo_adapter)
     else:
         import subprocess
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
-        print(f"tldm cycle seed={seed} config={config.name} out={ckpt}", flush=True)
-        proc = subprocess.run(cmd, cwd=str(root), env=env, check=False)
-        code = int(proc.returncode)
-
-    res: dict = {}
-    if report.exists():
+        proc = subprocess.run(evo_cmd, cwd=str(root), env=env, check=False, text=True, capture_output=True)
+        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        evo_log.write_text(log[-20000:], encoding="utf-8")
         try:
-            res = json.loads(report.read_text(encoding="utf-8"))
-        except ValueError:
-            res = {}
+            sys.__stdout__.write(log)
+        except Exception:
+            pass
+        code = int(proc.returncode)
+        res["evolve"] = _parse_evolve_log(log)
+    if runner is not None and evo_log.exists():
+        res["evolve"] = _parse_evolve_log(evo_log.read_text(encoding="utf-8"))
     if code != 0:
-        raise RuntimeError(f"tldm train exited with code {code} (seed {seed})")
+        print(f"tldm evolve exited {code} (continuing to lora_failed)", flush=True)
+    if evo_adapter.exists():
+        artifacts.append(evo_adapter)
+    if evo_log.exists():
+        artifacts.append(evo_log)
+
+    lora_cmd = [sys.executable, "-u", str(root / "training" / "lora_failed.py"),
+                "--ckpt", str(loop_ckpt), "--json", str(lora_json), "--seed", str(seed)]
+    print(f"tldm lora_failed ckpt={loop_ckpt}", flush=True)
+    code = tldm_run(lora_cmd, str(root), env, runner, ckpt=loop_ckpt, report=lora_json, seed=seed, work=work, arm="lora_failed")
+    if code != 0:
+        print(f"tldm lora_failed exited {code}", flush=True)
+    if lora_json.exists():
+        try:
+            res["lora_failed"] = json.loads(lora_json.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+        artifacts.append(lora_json)
+
     tldm_store_seed(work, seed + 1)
-    line = {"seed": seed, **{k: res[k] for k in res if k != "secret"}}
+    report.write_text(json.dumps({k: v for k, v in res.items() if k != "secret"}, ensure_ascii=False, indent=1), encoding="utf-8")
+    artifacts.append(report)
+    try:
+        latest = work / "logs" / "latest.json"
+        if latest.exists() or True:
+            latest.write_text(report.read_text(encoding="utf-8"), encoding="utf-8")
+            artifacts.append(latest)
+    except OSError:
+        pass
     with (work / "logs" / "results.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+        slim = {k: res[k] for k in res if k not in ("lora_failed", "evolve", "secret") and not str(k).startswith("_")}
+        if isinstance(res.get("lora_failed"), dict):
+            slim["lora_self"] = (res["lora_failed"].get("self_evolution") or {})
+        if isinstance(res.get("evolve"), dict):
+            slim["evolve"] = res["evolve"]
+        f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     try:
-        published = publish_tldm(work, seed, ckpt, report)
+        published = publish_tldm(work, seed, artifacts)
     except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
         print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
     out = tldm_flatten(res, seed, bool(published))
     out["hours"] = float(hours)
-    if published:
-        out["published"] = True
-    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
+    print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} evo={out.get('evo_after')} lora_eval={out.get('lora_eval')} published={out['published']}", flush=True)
     return out
 
 
@@ -262,9 +442,27 @@ def sham2_flatten(res: dict) -> dict:
     return out
 
 
+SHAM2_DONOR_HOST = "www.modelscope.cn"           # novaai2026/sham-v2 lives on the cn hub (account novaai2026, token MODELSCOPE_TOKEN)
+
+
+def sham2_hub_check(env=None) -> str:
+    """'' when this Studio can read the donor; else why not. No silent fallback: the donor is on modelscope.cn, so the job must run on a cn Studio with the cn token
+    (an .ai Studio, MODELSCOPE_DOMAIN=www.modelscope.ai or owner Jonjithup, cannot read it)."""
+    env = os.environ if env is None else env
+    dom = (env.get("MODELSCOPE_DOMAIN") or env.get("MODELSCOPE_HUB_ENDPOINT") or "").replace("https://", "").replace("http://", "").strip("/")
+    if dom and dom != SHAM2_DONOR_HOST:
+        return f"sham2 needs {SHAM2_DONOR_HOST} (donor {SHAM2_DONOR_REPO}); this Studio talks to {dom}: deploy with site=cn"
+    if (env.get("SITE") or "").strip().lower() == "ai" or (env.get("SHAM_MS_OWNER") or "").strip().lower() == "jonjithup":
+        return f"sham2 needs a cn Studio (account novaai2026): this one is on the international site"
+    if not (env.get("MODELSCOPE_API_TOKEN") or env.get("MODELSCOPE_TOKEN")):
+        return "sham2 needs the cn ModelScope token in the Studio secrets (MODELSCOPE_API_TOKEN)"
+    return ""
+
+
 def sham2_donor(work: Path, fetch=None) -> tuple[Path, Path]:
-    """Download (once) a COPY of the Sham 2 donor weights to this Studio's disk; -> (checkpoint, tokenizer). Never writes to the model repo."""
+    """Download (once) a COPY of the Sham 2 donor weights to this Studio's disk; -> (checkpoint, tokenizer). Read only: nothing is ever written to the model repo."""
     dest = work / "donor"
+
     def find():
         ck = next(iter(sorted(dest.rglob("final_merged.pt"))), None) or next(iter(sorted(dest.rglob("*.pt"))), None)
         tk = next(iter(sorted(dest.rglob("sham_small_tokenizer.json"))), None)
@@ -276,20 +474,28 @@ def sham2_donor(work: Path, fetch=None) -> tuple[Path, Path]:
         if fetch is not None:
             fetch(repo, dest)
         else:
+            why = sham2_hub_check()
+            if why:
+                raise RuntimeError(why)
+            os.environ["MODELSCOPE_DOMAIN"] = SHAM2_DONOR_HOST          # explicit host, through the shared helper below
+            sys.path.insert(0, str(SHAM))
+            import sham_inputs
+            sham_inputs._ms_api()                                     # login with the cn token on the cn host (raises on a rejected token)
             from modelscope import snapshot_download
-            tok = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
-            if tok:
-                try:
-                    from modelscope.hub.api import HubApi
-                    HubApi().login(tok)
-                except Exception:  # noqa: BLE001 - the download below reports the real error
-                    pass
-            print(f"sham2: downloading a copy of {repo}", flush=True)
+            print(f"sham2: downloading a copy of {repo} from {SHAM2_DONOR_HOST}", flush=True)
             snapshot_download(repo, cache_dir=str(dest))
         ck, tk = find()
     if ck is None or tk is None:
         raise FileNotFoundError("sham2: the donor copy has no checkpoint (*.pt) or sham_small_tokenizer.json")
     return ck, tk
+
+
+def sham2_gate(root: Path) -> Path:
+    """The merged gate results: docs/experiments/tldm_heldout_gate_2026-11-18.json (repo layout), or the copy the Studio deploy keeps next to the tldm tree."""
+    for p in (root.parent.parent / "docs" / "experiments" / "tldm_heldout_gate_2026-11-18.json", root / "gate" / "tldm_heldout_gate_2026-11-18.json"):
+        if p.is_file():
+            return p
+    return root / "gate" / "tldm_heldout_gate_2026-11-18.json"
 
 
 def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None, publish=None, **_ignored) -> dict:
@@ -306,7 +512,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         ck, tk = sham2_donor(work, fetch)
         root = tldm_root()
         cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(root / "configs" / "sham2.yaml"),
-               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(root / "configs" / "sham2_gate.json"), "--cached",
+               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
                "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1",
                "--out", str(heads), "--json", str(report)]
         if runner is not None:
@@ -406,7 +612,7 @@ def _set(**kw) -> None:
 def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
-            "seed", "config", "train", "heldout", "heldout2", "train_secs",
+            "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "lora_eval", "lora_A", "loop_trained", "params_M",
             "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
@@ -650,35 +856,76 @@ if __name__ == "__main__":
         assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
         child_publish_leftover()                                         # already published: not twice
         assert len(sent) == 1, sent
-        # tldm job: rotating seeds, both held-out numbers, publish to tldm-writer-runs, no real training, no network
+        # tldm job: donor head + loop/evolve/lora_failed, rotating seeds, publish to tldm-writer-runs, no real training, no network
         tldm_tmp = Path(tempfile.mkdtemp())
         os.environ["TLDM_WORK"] = str(tldm_tmp)
         os.environ["SHAM_TRAINER_JOB"] = "tldm"
         os.environ["MODELSCOPE_API_TOKEN"] = "t"
+        os.environ["SHAM_MS_OWNER"] = "Jonjithup"
+        os.environ["SITE"] = "ai"
         os.environ.pop("KAGGLE_API_TOKEN", None)
-        tldm_calls = []
+        tldm_arms = []
 
         def fake_tldm(**kw):
-            seed, work = kw["seed"], kw["work"]
-            (work / "checkpoints").mkdir(parents=True, exist_ok=True)
+            cmd, seed, work = kw["cmd"], kw["seed"], kw["work"]
+            (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
             (work / "logs").mkdir(parents=True, exist_ok=True)
-            kw["ckpt"].write_bytes(b"w")
-            kw["report"].write_text(json.dumps({"config": "writer_small_reword.yaml", "seed": seed, "train_secs": 1,
-                                                "train": {"same_effect": 0.9, "exact_text": 0.8},
-                                                "heldout": {"same_effect": 0.5, "exact_text": 0.4},
-                                                "heldout2": {"same_effect": 0.4, "exact_text": 0.3}}), encoding="utf-8")
-            tldm_calls.append(seed)
+            script = tldm_script(cmd)
+            tldm_arms.append((seed, script, kw.get("arm")))
+            if script == "train_0.3b.py":
+                Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"w")
+                Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
+                    "config": "writer_donor.yaml", "seed": seed, "train_secs": 1,
+                    "train": {"same_effect": 0.9, "exact_text": 0.8},
+                    "heldout": {"same_effect": 0.5, "exact_text": 0.4},
+                    "heldout2": {"same_effect": 0.4, "exact_text": 0.3},
+                }), encoding="utf-8")
+            elif script == "train_loop.py":
+                Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"loop")
+            elif script == "evolve.py":
+                Path(tldm_cmd_opt(cmd, "--adapter") or kw.get("adapter")).write_bytes(b"ad")
+                (work / "logs" / f"evolve_seed{seed}.log").write_text(
+                    "before evolution (names never seen): {'episode_success': 0.6, 'final_state_correct': 0.7, 'episodes_per_s': 1}\n"
+                    "after the LoRA (same episodes)      : {'episode_success': 0.8, 'final_state_correct': 0.85, 'episodes_per_s': 1}\n",
+                    encoding="utf-8")
+            elif script == "lora_failed.py":
+                Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
+                    "self_evolution": {"retries_verified_success": 8, "of_failed": 14,
+                                       "after": {"A": {"rate": 0.7}, "eval60_778": {"episode_success": 0.85}}}
+                }), encoding="utf-8")
             return 0
 
         sent_tldm = []
         fake_inputs.publish_modelscope = lambda folder, name, message: (sent_tldm.append((name, sorted(p.name for p in Path(folder).iterdir()), message)), "modelscope:Jonjithup/" + name)[1]
         first = run_tldm(runner=fake_tldm)
         second = run_tldm(runner=fake_tldm)
-        assert tldm_calls == [0, 1] and first["seed"] == 0 and second["seed"] == 1, (tldm_calls, first, second)
+        assert first["seed"] == 0 and second["seed"] == 1, (first, second)
         assert first["heldout"] == 0.5 and first["heldout2"] == 0.4 and first["train"] == 0.9 and first["published"] is True
-        assert sent_tldm[0][0] == "tldm-writer-runs" and "seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
+        assert first["evo_after"] == 0.8 and first["lora_eval"] == 0.85 and first["config"] == "writer_donor.yaml"
+        assert [a[1] for a in tldm_arms if a[0] == 0] == ["train_0.3b.py", "train_loop.py", "evolve.py", "lora_failed.py"], tldm_arms
+        assert "train_loop.py" not in [a[1] for a in tldm_arms if a[0] == 1], tldm_arms  # later cycles keep the loop checkpoint and only evolve
+        assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
         assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
         assert tldm_next_seed(tldm_tmp) == 2
+        # international hub host is selected from SITE / owner (no network)
+        sys.modules.pop("sham_inputs", None)
+        sys.path.insert(0, str(HERE.parent / "colab" / "sham_small"))
+        import sham_inputs as real_inputs  # noqa: E402
+        saved_env = {k: os.environ.pop(k, None) for k in ("MODELSCOPE_DOMAIN", "SITE", "SHAM_MS_OWNER", "MODELSCOPE_HUB_ENDPOINT")}
+        assert real_inputs._ms_hub_endpoint() is None
+        os.environ["SHAM_MS_OWNER"] = "Jonjithup"
+        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        os.environ.pop("SHAM_MS_OWNER")
+        os.environ["SITE"] = "ai"
+        assert real_inputs._ms_hub_endpoint() == "www.modelscope.ai"
+        os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.cn"
+        assert real_inputs._ms_hub_endpoint() == "www.modelscope.cn"  # explicit wins
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        sys.modules["sham_inputs"] = fake_inputs
         STATE.update(phase="starting", error="")
         tldm_ok = []
         train_forever(lambda **kw: (tldm_ok.append(kw), {"seed": 0, "heldout": 0.5, "published": True})[1], sleep=lambda s: None, max_cycles=1)
@@ -688,9 +935,13 @@ if __name__ == "__main__":
         assert STATE["phase"] == "blocked" and "ModelScope" in STATE["error"], STATE
         os.environ.pop("SHAM_TRAINER_JOB", None)
         os.environ.pop("TLDM_WORK", None)
+        os.environ.pop("SITE", None)
+        os.environ.pop("SHAM_MS_OWNER", None)
         # sham2 job (job=tldm, name=sham2): donor copy once, train_sham2 --cached, publish heads to sham2-tldm-head, then only report
         os.environ["TLDM_WORK"] = str(Path(tempfile.mkdtemp()))
         assert settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_NAME": "sham2"})["name"] == "sham2" and sham2_mode("sham2") and not sham2_mode("ms1")
+        assert "site=cn" in sham2_hub_check({"MODELSCOPE_DOMAIN": "www.modelscope.ai", "MODELSCOPE_API_TOKEN": "x"}) and "cn Studio" in sham2_hub_check({"SITE": "ai", "MODELSCOPE_API_TOKEN": "x"})
+        assert sham2_hub_check({"MODELSCOPE_API_TOKEN": "x"}) == "" and "token" in sham2_hub_check({})
         fetched, ran, sent2 = [], [], []
 
         def fake_fetch(repo, dest):
@@ -700,7 +951,7 @@ if __name__ == "__main__":
 
         def fake_sham2(cmd, report, heads):
             ran.append(cmd)
-            assert "--cached" in cmd and "--loop" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "sham2_gate.json" in cmd[cmd.index("--gate") + 1]
+            assert "--cached" in cmd and "--loop" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
             heads.write_bytes(b"h")
             report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "donor_weights_unchanged": True,
                                           "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],

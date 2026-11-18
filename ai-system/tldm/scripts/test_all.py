@@ -287,7 +287,10 @@ def train_sham2_on_a_tiny_body_saves_only_head_and_adapters_and_refuses_a_real_d
     gate = os.path.join(d, "gate.json")
     _json.dump({"heldout": {"same_effect": 0.417}, "heldout2": {"same_effect": 0.9}}, open(gate, "w"))
     assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--gate", gate, "--out", os.path.join(d, "x.pt")]) == 2, "below the gate: a real donor is refused"
-    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--out", os.path.join(d, "x.pt")]) == 2, "no gate file: refused"
+    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--gate", os.path.join(d, "missing.json"), "--out", os.path.join(d, "x.pt")]) == 2, "no gate file: refused"
+    docs_gate = os.path.join(ROOT, "..", "..", "docs", "experiments", "tldm_heldout_gate_2026-11-18.json")
+    assert open(docs_gate, "rb").read() == open(os.path.join(ROOT, "gate", "tldm_heldout_gate_2026-11-18.json"), "rb").read(), "gate/ must be the identical copy"
+    assert train_sham2.gate_ok(docs_gate, 0.6)[0], "the merged gate results pass the 0.6 gate"
     assert not os.path.exists(os.path.join(d, "x.pt"))
 
 

@@ -139,6 +139,9 @@ jobs:
           set_secret SHAM_TRAINER_JOB "$JOB"
           set_secret HF_ENDPOINT https://hf-mirror.com
           set_secret SHAM_MS_OWNER "$OWNER"          # cn = novaai2026, ai = Jonjithup (publish_modelscope would otherwise default to novaai2026)
+          if [ "$SITE" = "ai" ]; then
+            set_secret MODELSCOPE_DOMAIN www.modelscope.ai   # HubApi must talk to the international hub (the .ai token is rejected on .cn)
+          fi
           if [ "$JOB" = "tldm" ]; then
             set_secret SHAM_TLDM_REPO tldm-writer-runs
           fi

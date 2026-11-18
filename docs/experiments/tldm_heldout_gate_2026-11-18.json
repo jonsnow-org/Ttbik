@@ -116,7 +116,7 @@
    ]
   },
   "names_syn": {
-   "config": "writer_small_names_syn.yaml",
+   "config": "not in the repo: exploratory arm (writer_small_reword + 300 random-name rows + WordNet synonyms p=0.3); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
    "params_M_trained": 7.7,
    "seeds": [
     0,
@@ -144,7 +144,7 @@
    ]
   },
   "slots_names": {
-   "config": "writer_small_slots_names.yaml",
+   "config": "not in the repo: exploratory arm (writer_small_reword + slots + 300 random-name rows); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
    "params_M_trained": 7.7,
    "seeds": [
     0,
@@ -172,7 +172,7 @@
    ]
   },
   "slots_names_syn": {
-   "config": "writer_small_slots_names_syn.yaml",
+   "config": "not in the repo: exploratory arm (writer_small_reword + slots + random-name rows + WordNet synonyms p=0.3); the name-row/synonym code was dropped after this measurement, so only its numbers are kept",
    "params_M_trained": 7.7,
    "seeds": [
     0,
@@ -227,5 +227,6 @@
     ]
    ]
   }
- }
+ },
+ "reproduce": "python ai-system/tldm/training/train_0.3b.py --config ai-system/tldm/configs/<config> --seed {0,1,2}; writer_donor*.yaml need TLDM_DONOR=<local dir of sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2>"
 }

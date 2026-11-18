@@ -1,6 +1,7 @@
 # Sham 2 on T-LDM (the book's recipe): a COPY of the donor body, frozen; trained = the T-LDM head (Compressor + Latent Thinker + Diffusion Writer) + LoRA rank 16 in the body.
 # python training/train_sham2.py --config configs/sham2.yaml --donor <ShamSmall checkpoint> --tokenizer <its tokenizer.json> --gate <writer results json>
-# python training/train_sham2.py --config configs/sham2.yaml --tiny      (a tiny random body: the only mode tested so far)
+# python training/train_sham2.py --config configs/sham2.yaml --tiny      (a tiny random body: plumbing, CI)
+# ... --donor <copy of novaai2026/sham-v2> --tokenizer <its tokenizer> --cached --dtype bf16 --seeds 3 --loop   (CPU Studio; gate passed 2026-11-18, default --gate = docs/experiments/tldm_heldout_gate_2026-11-18.json)
 latents: 16
 think_steps: 5
 block: 48
