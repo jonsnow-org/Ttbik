@@ -14,7 +14,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, ownerIds, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderWarmStart, nova2TokenSet, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderWarmStart, nova2Urls, tokenForAsync, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -1111,7 +1111,13 @@ export async function warmNovaStarts(db: Db = prismaDb): Promise<Record<string, 
   const owner = Number(ownerIds()[0] || 0);
   if (!owner) return out;
   for (const model of ["coder", "nova2"] as const) {
-    if (model === "nova2" && !nova2TokenSet()) continue;
+    if (model === "nova2") {
+      // The secret may be stored in the shared encrypted database. A synchronous
+      // secretCached() check is empty on a cold server before its first DB read,
+      // which used to skip Nova 2's start warm-up for that whole server lifetime.
+      const base = nova2Urls()[0];
+      if (!base || !(await tokenForAsync(base).catch(() => ""))) continue;
+    }
     if (model === "coder" && !coderEnabled()) continue;
     const starts = await novaStarts(owner, model, db).catch(() => []);
     for (const s of starts) out[`${model}/${s.label}`] = await coderWarmStart(s.messages, s.tools, model).catch(() => ({}));
