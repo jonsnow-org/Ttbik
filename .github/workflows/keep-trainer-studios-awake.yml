@@ -3,7 +3,7 @@ name: "Keep the Sham trainer Studios awake"
 # 16 GB tier) were "Sleeping" hours after their deploy. A plain HTTP request does not wake a Studio (see keep-warm-chat-studios.yml); only ModelScope's deploy call does, from the code it
 # already holds, and the trainer app then resumes its cycle. This asks every 20 minutes: if a trainer Studio is Sleeping, start it; a running or building one is never touched.
 # Sham's trainers are listed, plus the international Nova 2 chat Studio (Jonjithup/coder-inference-server-16)
-# so it is woken the same way if it falls asleep. Never the computer hub, never the cn Nova 4B Studios.
+# so it is woken the same way if it falls asleep, plus sham-runner-1 (the GitHub runner `studio` that replaced the notebook, 2026-11-18). Never the computer hub, never the cn Nova 4B Studios.
 on:
   schedule:
     - cron: "*/20 * * * *"
@@ -32,7 +32,9 @@ jobs:
                       ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-minicpmo45-test", "T_CN"),
                       ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-1", "T_AI"),
                       ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "coder-inference-server-16", "T_AI")]
+                      ("ai", "www.modelscope.ai", "Jonjithup", "coder-inference-server-16", "T_AI"),
+                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-2", "T_AI"),     # 2026-11-18: the notebook's live trainer (lineage nb1) moved here
+                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-runner-1", "T_AI")]      # 2026-11-18: the GitHub runner `studio` that replaced the notebook
           def call(url, tok, method="GET"):
               req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok}, method=method, data=b"" if method == "POST" else None)
               try:
