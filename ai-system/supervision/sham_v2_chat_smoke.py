@@ -168,6 +168,64 @@ def native_model_terminal_smoke() -> None:
     print("PASS Sham v2 read the real terminal result and answered from it")
 
 
+def stream_pieces(messages: list[dict], max_new_tokens: int = 96, timeout: int = 240) -> list[str]:
+    """generate_chat_stream: every SSE data line until 'complete' (one line per piece the model wrote)."""
+    submitted = request_json(f"{BASE}/gradio_api/call/v2/generate_chat_stream", "POST", {
+        "messages_json": json.dumps(messages, ensure_ascii=False), "max_new_tokens": max_new_tokens, "temperature": 0.2, "think_tokens": 0}, timeout=40)
+    event_id = submitted.get("event_id")
+    if not event_id:
+        raise RuntimeError("generate_chat_stream: no event_id returned")
+    pieces: list[str] = []
+    event = ""
+    req = Request(f"{BASE}/gradio_api/call/generate_chat_stream/{event_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+    with urlopen(req, timeout=timeout) as res:
+        for raw in res:
+            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            if line.startswith("event:"):
+                event = line[6:].strip()
+                if event == "error":
+                    raise RuntimeError("generate_chat_stream returned an error event")
+                continue
+            value = unwrap_line(line)
+            if value is None:
+                continue
+            if event == "complete":
+                break
+            if isinstance(value, dict) and value.get("type") == "error":
+                raise RuntimeError("generate_chat_stream error: " + str(value.get("text"))[:200])
+            if isinstance(value, str) and value:
+                pieces.append(value)
+    return pieces
+
+
+def streaming_smoke() -> None:
+    pieces = stream_pieces([{"role": "user", "content": "اكتب جملتين عن دمشق."}], 64)
+    text = "".join(pieces).strip()
+    if len(pieces) < 2 or not text:
+        raise RuntimeError(f"generate_chat_stream did not stream (pieces={len(pieces)}): {text[:200]!r}")
+    print(f"PASS Sham v2 streamed {len(pieces)} pieces: {text[:160]}")
+
+
+def tldm_smoke(status: dict) -> None:
+    """T-LDM on the published head (novaai2026/sham2-tldm-head). Until it is published the Studio reports tldm_head=false: SKIP, not a failure."""
+    if not status.get("tldm_head"):
+        print(f"SKIP T-LDM: the Sham 2 head is not published yet ({status.get('tldm_repo') or 'novaai2026/sham2-tldm-head'})")
+        return
+    session = f"ci-tldm-sham_v2:{os.environ.get('GITHUB_RUN_ID', 'manual')}:{uuid.uuid4().hex[:8]}"
+    res = call("generate_tldm", {"messages_json": json.dumps([{"role": "user", "content": "how many files are in this folder?"}], ensure_ascii=False),
+                                 "session": session, "max_new_tokens": 128, "tldm_flag": 1, "confirm_cmd": "", "confirm_ok": 0, "deny_list": "", "owner": 0}, timeout=300)
+    if isinstance(res, str):
+        try:
+            res = json.loads(res)
+        except json.JSONDecodeError:
+            raise RuntimeError("generate_tldm did not return JSON: " + res[:200])
+    if not isinstance(res, dict) or res.get("type") not in ("text", "confirm") or not res.get("tldm"):
+        raise RuntimeError("T-LDM did not answer from the published head: " + json.dumps(res, ensure_ascii=False)[:300])
+    if res.get("computer") != "model_computer":
+        raise RuntimeError("T-LDM did not run on Sham 2's own computer: " + json.dumps(res, ensure_ascii=False)[:200])
+    print(f"PASS Sham 2 T-LDM answered from the published head ({res.get('type')}): {str(res.get('text'))[:160]}")
+
+
 def main() -> int:
     if not TOKEN:
         raise RuntimeError("MODELSCOPE_TOKEN is missing")
@@ -210,10 +268,13 @@ def main() -> int:
     identity = chat([{"role": "user", "content": "من أنت؟"}], 160)
     if not identity or not identity.strip():
         raise RuntimeError("Sham v2 identity prompt returned an empty answer")
-    # Training-stage identity check (does not fail this script): the live self-name is Sham Pro / «شام برو».
-    # A donor that still says Qwen or "Sham 2" is reported, then factual chat continues so media smoke can run.
-    if re.search(r"qwen|alibaba|openai|chatgpt|gpt-?\d|claude", identity, re.I) or not re.search(r"شام\s*برو|sham\s*pro", identity, re.I):
-        print(f"KNOWN_FAILURE Sham Pro identity is not yet trained (tools-stage identity facts): {identity[:240]!r}")
+    # The live self-name is Sham Pro / «شام برو», from the identity LoRA in the published head (applied to the body at start, every chat).
+    # Before the head is published (status identity_lora=false) a donor that still says Qwen is reported, not failed, so media smoke can run.
+    wrong = re.search(r"qwen|alibaba|openai|chatgpt|gpt-?\d|claude", identity, re.I) or not re.search(r"شام\s*برو|sham\s*pro", identity, re.I)
+    if wrong and status.get("identity_lora"):
+        raise RuntimeError(f"Sham Pro identity LoRA is applied but the model does not answer as Sham Pro: {identity[:240]!r}")
+    if wrong:
+        print(f"KNOWN_FAILURE Sham Pro identity: head not published/applied yet ({status.get('identity_lora_why') or 'no head'}): {identity[:240]!r}")
     else:
         print(f"PASS Sham Pro model-authored identity response (wording unrestricted, but it is Sham Pro): {identity[:240]}")
 
@@ -234,7 +295,9 @@ def main() -> int:
     ], 128)
     print(f"PASS Sham v2 multi-turn response: {followup[:240]}")
 
+    streaming_smoke()
     native_model_terminal_smoke()
+    tldm_smoke(status)
     return 0
 
 
