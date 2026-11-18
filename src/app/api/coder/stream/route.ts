@@ -28,10 +28,13 @@ export async function GET(req: NextRequest) {
   const user = verifyTmaInitData(req.headers.get("x-telegram-init-data") || "", botRow.token);
   if (!user) return NextResponse.json({ error: "open this from Telegram" }, { status: 401 });
 
-  if (!(await terminalAllowed(user.id))) return NextResponse.json({ error: "not available on this plan", hidden: true }, { status: 403 });   // free plan: no terminal (owner and paid plans only)
   const q = req.nextUrl.searchParams;
   const runId = String(q.get("runId") || "").slice(0, 64);
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
+  // Sham 2 chat follow is not a terminal feature: any user who owns the task can reconnect by run id.
+  // Nova's terminal stream stays paid/owner-only.
+  const shamFollow = runId.startsWith("sham-");
+  if (!shamFollow && !(await terminalAllowed(user.id))) return NextResponse.json({ error: "not available on this plan", hidden: true }, { status: 403 });
   const requestedModel = String(q.get("model") || "all");
   if (!isTaskModelFilter(requestedModel)) return NextResponse.json({ error: "bad model" }, { status: 400 });
   const modelFilter = requestedModel === "all" ? undefined : requestedModel as TaskModelFilter;

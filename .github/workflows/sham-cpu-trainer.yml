@@ -54,16 +54,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.AI_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || secrets.TELEGRAM_OWNER_CHAT_ID || secrets.SUPER_ADMIN_TELEGRAM_ID }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          SUPER_ADMIN_TELEGRAM_ID: ${{ secrets.SUPER_ADMIN_TELEGRAM_ID }}
         run: |
           python - <<'PY'
           import os, sham_live
           res = sham_live.run(hours=5.3, name="gh", source_set="gh", video=True, workers=8)
           print(res)
           try:
-              from telegram_report import send_telegram_message
+              from telegram_report import send_training_report
               msg = ("🤖 مدرّب CPU على GitHub: " + f"{res.get('steps', 0):,} خطوة | نُشر: {res.get('published')} | نصوص: {res.get('corpus')}"
                      + (f" | مؤشر الحارس {res['guard_score']:.3f}" if res.get("guard_score") is not None else ""))
-              send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), msg)
+              send_training_report(os.environ.get("TELEGRAM_BOT_TOKEN") or "", msg)
           except Exception as exc:
               print("telegram:", exc)
           PY
