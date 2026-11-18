@@ -668,6 +668,8 @@ export type ToolCtx = {
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const key = ctx.userId === undefined || ctx.userId === null ? "" : String(ctx.userId);   // the chat id: the same key the app uses when the user fills the box
   const raw = call.function?.arguments;
+  // Nova 2 has no private secret vault yet. Never resolve Nova 1's {{secret:name}} values inside N2 tools.
+  if (ctx.modelId === "nova2" && typeof raw === "string" && /secret:/i.test(raw)) return "error: Nova 2's independent secret vault is not provisioned; Nova's stored credentials are not visible here.";
   if (!key || typeof raw !== "string" || !raw.includes("secret:")) return runToolInner(call, ctx);
   const V = await import("@/lib/secretVault");
   let resolved: CoderToolCall;
@@ -682,6 +684,10 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
 async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
   const name = call.function.name;
+  // These actions target account-wide Nova stores until Nova 2 has model-native stores and a computer.
+  if (ctx.modelId === "nova2" && name === "request_secret") return "error: Nova 2's own secret vault is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name === HANDOFF_TOOL_NAME) return "error: Nova 2's own computer screen is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name.startsWith("schedule_")) return "error: Nova 2's own scheduler is not provisioned; Nova's schedules are not shared.";
   try {
     if (name === "load_tools") {
       const want = loadArgs(call);

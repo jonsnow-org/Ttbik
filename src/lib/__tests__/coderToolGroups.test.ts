@@ -4,6 +4,23 @@ import { withEngineModel } from "@/lib/openCoderStudio";
 
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
 
+describe("Nova 2 cannot execute Nova's unprovisioned account services", () => {
+  const call = (name: string, args = "{}") => ({
+    id: "n2-test", type: "function" as const, function: { name, arguments: args },
+  });
+  it.each(["request_secret", "schedule_create", "schedule_list", "schedule_delete", "computer_handoff"])("blocks %s at the tool executor", async (name) => {
+    const result = await runTool(call(name), { modelId: "nova2", userId: 42 } as any);
+    expect(result).toMatch(/not provisioned|not shared/);
+  });
+  it("does not resolve Nova's saved secrets in Nova 2 arguments", async () => {
+    const result = await runTool(call("http_request", JSON.stringify({
+      method: "GET", url: "https://example.test",
+      headers: { Authorization: "{{secret:github_token}}" },
+    })), { modelId: "nova2", userId: 42 } as any);
+    expect(result).toMatch(/independent secret vault is not provisioned/);
+  });
+});
+
 const oldPrimary = process.env.OPEN_CODER_STUDIO_URL;
 const oldReplicas = process.env.OPEN_CODER_STUDIO_URLS;
 beforeAll(() => {
