@@ -194,12 +194,14 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     if fast:       # 2026-11-13: four checkpoints (3 GB) were downloaded on every cycle start over a slow link (and every redeploy got Kaggle to rate-limit us) only to end up on the head anyway
         lines = lines[::-1][:1] + lines[:-1]
     head_ok = False
+    looked = []        # what each line gave: printed when nothing usable came back, so the log says WHY there is no start point
     for name, pattern in lines:
         if head_ok:
             print(f"⚡ الرأس المنشور سليم: لا حاجة لتنزيل {name} (SHAM_START_FAST=0 يعيد القياس الكامل)")
             continue
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
+        looked.append(f"{name}: {'غير متاحة' if not root else (hits[0].name if hits else 'بلا ' + pattern)}")
         if hits:
             mains.append((name, hits[0], hits[0].parent))
             if fast and name == "sham-merged-checkpoint":
@@ -227,7 +229,8 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
         toks = sorted(own_ckpt[0].parent.rglob("sham_small_tokenizer.json"))
         cands.append(("own", own_ckpt[0], toks[0] if toks else None))
     if not cands:
-        raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
+        looked.append(f"{model_dataset}: {'غير متاحة' if not own else ('final.pt بلا crawl_progress من sham_live' if own_ckpt else 'بلا final.pt')}")
+        raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً. | " + " ; ".join(looked))
     best = cands[0][0]
     if head_ok:
         best = "sham-merged-checkpoint"
