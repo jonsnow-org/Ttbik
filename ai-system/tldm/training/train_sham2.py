@@ -158,6 +158,8 @@ class BodyReader:
                 self.body(torch.tensor([list(key) or [0]], device=self.device))
                 self.cache[key] = self._hs[-1][0].float().cpu()
                 self.secs += time.time() - t0
+                if len(self.cache) % 25 == 0:
+                    print(f"  body read {len(self.cache)} texts ({self.secs:.0f}s)", flush=True)
             h = self.cache[key]
             out[i, :len(h)] = h
             pad[i, :len(h)] = False
@@ -353,11 +355,26 @@ def main(argv=None):
         body, encode = donor_body(a.donor, a.tokenizer, int(cfg["adapter_rank"]))
     else:
         body, encode = tiny_body(int(cfg["adapter_rank"]))
-    donor_before = {k: v.clone() for k, v in body.state_dict().items() if ".adapter_" not in k}
+    def fingerprint(sd):
+        """Per-tensor (sum, sum of squares) in float64: proves the donor did not change without a second full copy of a 1.7B body (8 GB Studio)."""
+        out = {}
+        for k, v in sd.items():
+            if ".adapter_" in k:
+                continue
+            flat, s1, s2 = v.detach().reshape(-1), 0.0, 0.0
+            for i in range(0, flat.numel(), 1 << 22):                # 4M elements at a time: never a float64 copy of a whole embedding
+                c = flat[i:i + (1 << 22)].double()
+                s1, s2 = s1 + c.sum().item(), s2 + c.pow(2).sum().item()
+            out[k] = (s1, s2)
+        return out
+    if a.cached:                                                     # the in-memory copy is read in the chosen dtype; the check below is on that copy
+        body.to(dtype=torch.bfloat16 if a.dtype == "bf16" else torch.float32)
+    donor_before = fingerprint(body.state_dict()) if a.cached else {k: v.clone() for k, v in body.state_dict().items() if ".adapter_" not in k}
+    print(f"donor loaded: {sum(p.numel() for p in body.parameters()) / 1e6:.0f}M parameters", flush=True)
     if a.cached:
         res, heads = run_cached(body, encode, cfg, a, lambda m: print(m, flush=True))
         after = body.state_dict()
-        res["donor_weights_unchanged"] = all(torch.equal(donor_before[k].to(after[k].dtype), after[k].cpu()) for k in donor_before)
+        res["donor_weights_unchanged"] = fingerprint(after) == donor_before
         assert res["donor_weights_unchanged"], "a donor weight changed"
         os.makedirs(os.path.dirname(os.path.realpath(a.out)), exist_ok=True)
         torch.save({"cfg": cfg, "heads": heads, "mode": res["mode"], "note": "T-LDM heads only (FeatureTLDM state dicts); never a donor weight"}, a.out)
