@@ -178,6 +178,9 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
       expect(browserStudioFor("nova2")).toBeNull();
       process.env.NOVA2_MEDIA_STUDIO_URL = process.env.NOVA2_COMPUTER_STUDIO_URL!;
       expect(ownMediaBase("nova2")).toBe("");
+      process.env.NOVA2_MEDIA_STUDIO_URL = "https://nova-image.example.test";
+      process.env.NOVA_IMAGE_STUDIO_URL = "https://nova-image.example.test";
+      expect(ownMediaBase("nova2")).toBe("");
     } finally {
       if (priorComputer === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = priorComputer;
       if (priorHub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = priorHub;

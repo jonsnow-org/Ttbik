@@ -26,9 +26,11 @@ export function nova2MediaUrl(): string {
     novaMediaUrl(), lfmMediaUrl(),
     (process.env.COMPUTER_STUDIO_URL || "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").trim(),
     (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim(),
+    (process.env.NOVA_IMAGE_STUDIO_URL || "").trim(),
+    (process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "").trim(),
     ...nova2Urls(),
   ].map((x) => x.replace(/\/+$/, "")).filter(Boolean);
-  if (forbidden.includes(base) || /nova-inference-server|coder-inference-server|epicrealism-image-test|lfm25-media-server/i.test(base)) return "";
+  if (forbidden.includes(base) || /nova-inference-server|coder-inference-server|epicrealism-image-test|lfm25-media-server|sham/i.test(base)) return "";
   return base;
 }
 

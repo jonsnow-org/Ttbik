@@ -26,8 +26,10 @@ export function browserStudioFor(modelId: string | undefined): string | null {
       process.env.NOVA2_MEDIA_STUDIO_URL || "",
       process.env.NOVA_MEDIA_STUDIO_URL || "",
       process.env.LFM_MEDIA_STUDIO_URL || "",
+      process.env.NOVA_IMAGE_STUDIO_URL || "",
+      process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "",
     ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-    if (base === novaHub || nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test/i.test(base)) return null;
+    if (base === novaHub || nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham/i.test(base)) return null;
     return base;
   }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
