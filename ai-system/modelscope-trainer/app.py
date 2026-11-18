@@ -231,6 +231,118 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     return out
 
 
+SHAM2_DONOR_REPO = "novaai2026/sham-v2"          # Sham 2's donor weights: READ only (downloaded copy); the repo, Sham 1 and every live Studio stay untouched
+SHAM2_HEAD_REPO = "sham2-tldm-head"               # where the trained T-LDM heads + results go (private, its own repo; never sham-v2)
+
+
+def sham2_mode(name: str) -> bool:
+    """job=tldm with name sham2* runs the Sham 2 T-LDM job instead of the writer cycles (same deploy path: the tldm tree is copied for job=tldm)."""
+    return str(name or "").startswith("sham2")
+
+
+def sham2_flatten(res: dict) -> dict:
+    out = {}
+    for k in ("train", "heldout", "heldout2"):
+        v = (res.get(k) or {}).get("same_effect")
+        if isinstance(v, (int, float)):
+            out[k] = v
+    w = res.get("writer") or []
+    if w:
+        out["heldout_seeds"] = "/".join(str(r["heldout"]["same_effect"]) for r in w)
+        out["heldout2_seeds"] = "/".join(str(r["heldout2"]["same_effect"]) for r in w)
+    lp = res.get("loop") or []
+    if lp:
+        out["loop_all"] = lp[0]["all"]["success"]
+        out["loop_simple"] = lp[0]["simple"]["success"]
+        out["loop_multi"] = lp[0]["multi_step"]["success"]
+        out["loop_s_per_task"] = lp[0]["all"]["median_s_per_task"]
+    for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
+        if k in res:
+            out[k] = res[k]
+    return out
+
+
+def sham2_donor(work: Path, fetch=None) -> tuple[Path, Path]:
+    """Download (once) a COPY of the Sham 2 donor weights to this Studio's disk; -> (checkpoint, tokenizer). Never writes to the model repo."""
+    dest = work / "donor"
+    def find():
+        ck = next(iter(sorted(dest.rglob("final_merged.pt"))), None) or next(iter(sorted(dest.rglob("*.pt"))), None)
+        tk = next(iter(sorted(dest.rglob("sham_small_tokenizer.json"))), None)
+        return ck, tk
+    ck, tk = find() if dest.exists() else (None, None)
+    if ck is None or tk is None:
+        dest.mkdir(parents=True, exist_ok=True)
+        repo = os.environ.get("SHAM2_DONOR_REPO") or SHAM2_DONOR_REPO
+        if fetch is not None:
+            fetch(repo, dest)
+        else:
+            from modelscope import snapshot_download
+            tok = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
+            if tok:
+                try:
+                    from modelscope.hub.api import HubApi
+                    HubApi().login(tok)
+                except Exception:  # noqa: BLE001 - the download below reports the real error
+                    pass
+            print(f"sham2: downloading a copy of {repo}", flush=True)
+            snapshot_download(repo, cache_dir=str(dest))
+        ck, tk = find()
+    if ck is None or tk is None:
+        raise FileNotFoundError("sham2: the donor copy has no checkpoint (*.pt) or sham_small_tokenizer.json")
+    return ck, tk
+
+
+def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None, publish=None, **_ignored) -> dict:
+    """Sham 2 = a copy of Sham 1's structure with the donor weights + the T-LDM head. Once: read the donor copy (bf16, frozen), train the head over 3 seeds on cached features,
+    measure both frozen held-out sets and the full-task benchmark on THIS body, publish heads + results to the private repo sham2-tldm-head. Later cycles only report."""
+    work = tldm_work() / "sham2"
+    work.mkdir(parents=True, exist_ok=True)
+    report, heads = work / "sham2_results.json", work / "sham2_heads.pt"
+    if report.exists() and (work / ".published").exists():
+        if runner is None:
+            time.sleep(1800)                                         # done once: later cycles only report (no retraining, no re-download)
+        return {**sham2_flatten(json.loads(report.read_text(encoding="utf-8"))), "published": True, "hours": float(hours)}
+    if not report.exists():
+        ck, tk = sham2_donor(work, fetch)
+        root = tldm_root()
+        cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(root / "configs" / "sham2.yaml"),
+               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(root / "configs" / "sham2_gate.json"), "--cached",
+               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1",
+               "--out", str(heads), "--json", str(report)]
+        if runner is not None:
+            code = int(runner(cmd=cmd, report=report, heads=heads))
+        else:
+            import subprocess
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+            code = int(subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode)
+        if code != 0 or not report.exists():
+            raise RuntimeError(f"sham2 train exited with code {code}")
+    res = json.loads(report.read_text(encoding="utf-8"))
+    got = None
+    try:
+        snap = work / "publish_snap"
+        import shutil
+        shutil.rmtree(snap, ignore_errors=True)
+        snap.mkdir()
+        for f in (heads, report):
+            if f.exists():
+                shutil.copy2(f, snap / f.name)
+        if publish is None:
+            sys.path.insert(0, str(SHAM))
+            import sham_inputs
+            publish = sham_inputs.publish_modelscope
+        got = publish(snap, os.environ.get("SHAM2_HEAD_REPO") or SHAM2_HEAD_REPO, "Sham 2 T-LDM heads (head only, no donor weight)")
+        shutil.rmtree(snap, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle retries the publish
+        print(f"sham2 publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    if got:
+        (work / ".published").write_text(str(got), encoding="utf-8")
+    out = {**sham2_flatten(res), "published": bool(got), "hours": float(hours)}
+    print("sham2 done " + json.dumps(out), flush=True)
+    return out
+
+
 def settings(env=None) -> dict:
     env = os.environ if env is None else env
     name = re.sub(r"[^a-z0-9]+", "-", (env.get("SHAM_TRAINER_NAME") or "ms1").lower()).strip("-") or "ms1"
@@ -294,7 +406,8 @@ def _set(**kw) -> None:
 def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
-            "seed", "config", "train", "heldout", "heldout2", "train_secs")
+            "seed", "config", "train", "heldout", "heldout2", "train_secs",
+            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -312,7 +425,7 @@ def _resolve_run_fn(cfg: dict):
     if cfg["job"] == "motion":
         return run_motion
     if cfg["job"] == "tldm":
-        return run_tldm
+        return run_sham2 if sham2_mode(cfg["name"]) else run_tldm
     sys.path.insert(0, str(SHAM))
     import sham_live
     return sham_live.run
@@ -574,6 +687,30 @@ if __name__ == "__main__":
         train_forever(lambda **kw: {"seed": 0}, sleep=lambda s: None, max_cycles=1)
         assert STATE["phase"] == "blocked" and "ModelScope" in STATE["error"], STATE
         os.environ.pop("SHAM_TRAINER_JOB", None)
+        os.environ.pop("TLDM_WORK", None)
+        # sham2 job (job=tldm, name=sham2): donor copy once, train_sham2 --cached, publish heads to sham2-tldm-head, then only report
+        os.environ["TLDM_WORK"] = str(Path(tempfile.mkdtemp()))
+        assert settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_NAME": "sham2"})["name"] == "sham2" and sham2_mode("sham2") and not sham2_mode("ms1")
+        fetched, ran, sent2 = [], [], []
+
+        def fake_fetch(repo, dest):
+            fetched.append(repo)
+            (dest / "final_merged.pt").write_bytes(b"x")
+            (dest / "sham_small_tokenizer.json").write_text("{}", encoding="utf-8")
+
+        def fake_sham2(cmd, report, heads):
+            ran.append(cmd)
+            assert "--cached" in cmd and "--loop" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "sham2_gate.json" in cmd[cmd.index("--gate") + 1]
+            heads.write_bytes(b"h")
+            report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "donor_weights_unchanged": True,
+                                          "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],
+                                          "loop": [{"all": {"success": 0.9, "median_s_per_task": 2.0}, "simple": {"success": 0.95}, "multi_step": {"success": 0.8}}]}), encoding="utf-8")
+            return 0
+        r1 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: (sent2.append((n, sorted(p.name for p in Path(d).iterdir()))), "modelscope:novaai2026/" + n)[1])
+        r2 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: None)
+        assert fetched == ["novaai2026/sham-v2"] and len(ran) == 1, (fetched, ran)
+        assert sent2 == [("sham2-tldm-head", ["sham2_heads.pt", "sham2_results.json"])] and r1["published"] and r2["heldout"] == 0.7 and r2["loop_multi"] == 0.8
+        assert _short(r1)["heldout_seeds"] == "0.7" and _short(r1)["loop_all"] == 0.9
         os.environ.pop("TLDM_WORK", None)
         print("modelscope-trainer app self-test OK")
         sys.exit(0)

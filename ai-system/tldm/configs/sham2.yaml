@@ -3,7 +3,7 @@
 # python training/train_sham2.py --config configs/sham2.yaml --tiny      (a tiny random body: the only mode tested so far)
 latents: 16
 think_steps: 5
-block: 32
+block: 48
 writer_layers: 3
 heads: 4
 adapter_rank: 16
@@ -14,3 +14,11 @@ lr: 0.001
 diffusion_steps: 10
 rewordings: true
 gate_heldout: 0.6
+# --cached mode (CPU Studio, 2026-11-18): head width over the body's features, the agent-loop view, and the writer's early exit
+head_d: 256
+confident: 0.9
+loop_in_len: 96
+loop_block: 64
+loop_episodes: 500
+loop_steps: 900
+loop_batch: 64

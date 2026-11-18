@@ -3,6 +3,8 @@
 
   python training/train_sham2.py --config configs/sham2.yaml --tiny                                        # tiny random body: plumbing only (CI)
   python training/train_sham2.py --config configs/sham2.yaml --donor CKPT --tokenizer TOK --gate RESULTS.json   # a real donor: REFUSED unless the gate passes
+  ... --cached --dtype bf16 --seeds 3 --loop   # CPU (Studio) mode: the body is frozen and read ONCE per text (bf16); only the T-LDM head trains on those features
+                                               # (no LoRA in this mode); --loop also trains the agent-loop head and runs the full-task benchmark on the same body
 
 Rules (owner, 2026-11-17/18):
   * the donor file is only READ (ai-system/colab/sham_small/checkpoint.load_checkpoint), the body in memory is a copy, its weights are frozen; nothing is ever written next to it
@@ -28,6 +30,9 @@ from sham_tldm import ShamBodyTLDM  # noqa: E402
 from sham_tldm.model import decode_bytes, encode_bytes  # noqa: E402
 import terminal_tasks as T  # noqa: E402
 import rewordings as RW  # noqa: E402
+import trajectories as J  # noqa: E402
+import augment as AUG  # noqa: E402
+from sham_tldm.donor import FeatureTLDM  # noqa: E402
 
 SHAM_SMALL = os.path.realpath(os.path.join(ROOT, "..", "colab", "sham_small"))
 
@@ -84,8 +89,9 @@ def train(model, encode, rows, cfg, seed=0, log=print):
     t0 = time.time()
     for step in range(int(cfg["steps"])):
         pick = rng.sample(rows, min(int(cfg.get("batch", 32)), len(rows)))
-        ids = torch.tensor([encode(t, int(cfg["in_len"])) for t, _ in pick])
-        tgt = torch.tensor([encode_bytes(c, int(cfg["block"])) for _, c in pick])
+        dev = next(model.core.parameters()).device
+        ids = torch.tensor([encode(t, int(cfg["in_len"])) for t, _ in pick], device=dev)
+        tgt = torch.tensor([encode_bytes(c, int(cfg["block"])) for _, c in pick], device=dev)
         opt.zero_grad(set_to_none=True)
         loss = model.loss(ids, tgt)
         loss.backward()
@@ -98,12 +104,187 @@ def train(model, encode, rows, cfg, seed=0, log=print):
 
 
 def evaluate(model, encode, rows, cfg):
-    ids = torch.tensor([encode(t, int(cfg["in_len"])) for t, _ in rows])
+    ids = torch.tensor([encode(t, int(cfg["in_len"])) for t, _ in rows], device=next(model.core.parameters()).device)
     with torch.no_grad():
         out, _ = model.generate(ids, steps=int(cfg["diffusion_steps"]))
     cmds = [decode_bytes(o) for o in out.tolist()]
     return {"same_effect": round(sum(T.same_effect(ref, c) for (_, ref), c in zip(rows, cmds)) / len(rows), 3),
             "exact_text": round(sum(ref == c for (_, ref), c in zip(rows, cmds)) / len(rows), 3)}
+
+
+# ---- cached-feature mode (CPU / Studio): the frozen body reads each distinct text once; the head trains on the kept features --------------------------------
+class BodyReader:
+    """Frozen body -> final-norm hidden states for a list of token-id lists (each at its OWN length: no padding goes through the body). Features are cached per input."""
+
+    def __init__(self, body, device="cpu", dtype=torch.float32):
+        self.body = body.to(device=device, dtype=dtype).eval()
+        for p in self.body.parameters():
+            p.requires_grad = False
+        self.device, self.cache, self._hs = device, {}, []
+        body.final_norm.register_forward_hook(lambda mod, inp, out: self._hs.append(out))
+        self.d = body.cfg.d_model
+        self.secs = 0.0
+
+    @torch.no_grad()
+    def feats(self, id_lists, n):
+        """-> (B, n, d) float32 features padded with zeros, and the (B, n) pad mask."""
+        out, pad = torch.zeros(len(id_lists), n, self.d), torch.ones(len(id_lists), n, dtype=torch.bool)
+        for i, ids in enumerate(id_lists):
+            key = tuple(ids[:n])
+            if key not in self.cache:
+                t0 = time.time()
+                self._hs.clear()
+                self.body(torch.tensor([list(key) or [0]], device=self.device))
+                self.cache[key] = self._hs[-1][0].float().cpu()
+                self.secs += time.time() - t0
+            h = self.cache[key]
+            out[i, :len(h)] = h
+            pad[i, :len(h)] = False
+        return out, pad
+
+
+def text_ids(tk_encode, text, n):
+    return [i for i in tk_encode(text, n) if i][:n] or [0]
+
+
+def loop_ids(tk_encode, task, hist, n):
+    """The agent-loop view on the body's tokens: the task (first 32 tokens), then the TAIL of the terminal history (as J.view_ids, with this body's tokenizer)."""
+    t = text_ids(tk_encode, task[:64], 32)
+    h_text = "".join(f"$ {c}\n> {r}\n" for c, r in hist)
+    h = text_ids(tk_encode, h_text, 4096) if h_text else []
+    room = n - len(t) - 1
+    nl = text_ids(tk_encode, "\n", 1)
+    return t + nl + (h[-room:] if room > 0 else [])
+
+
+def train_head(head, reader, xs, ys, n, cfg, seed, log=print):
+    torch.manual_seed(seed)
+    rng = random.Random(seed)
+    opt = torch.optim.AdamW(head.parameters(), lr=float(cfg["lr"]), weight_decay=0.01)
+    head.train()
+    steps, bs = int(cfg["steps"]), int(cfg.get("batch", 32))
+    for step in range(steps):
+        for g in opt.param_groups:
+            g["lr"] = float(cfg["lr"]) * min(1.0, (step + 1) / 30) * (0.05 + 0.95 * 0.5 * (1 + __import__("math").cos(__import__("math").pi * step / steps)))
+        idx = [rng.randrange(len(xs)) for _ in range(min(bs, len(xs)))]
+        h, pad = reader.feats([xs[i] for i in idx], n)
+        tgt = torch.tensor([ys[i] for i in idx])
+        opt.zero_grad(set_to_none=True)
+        loss = head.loss(h, pad, tgt)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
+        opt.step()
+        if step % 200 == 0 or step == steps - 1:
+            log(f"  step {step} loss {loss.item():.4f}")
+    head.eval()
+    return loss.item()
+
+
+def eval_head(head, reader, tk_encode, rows, cfg, delex=False):
+    n = int(cfg["in_len"])
+    dl = [AUG.delex(t) if delex else (t, None, {}) for t, _ in rows]
+    h, pad = reader.feats([text_ids(tk_encode, d[0], n) for d in dl], n)
+    out, _ = head.generate(h, pad, steps=int(cfg["diffusion_steps"]), confident=float(cfg.get("confident", 0.0)))
+    cmds = [AUG.relex(decode_bytes(o), d[2]) for o, d in zip(out.tolist(), dl)]
+    return {"same_effect": round(sum(T.same_effect(ref, c) for (_, ref), c in zip(rows, cmds)) / len(rows), 3),
+            "exact_text": round(sum(ref == c for (_, ref), c in zip(rows, cmds)) / len(rows), 3),
+            "misses": [[t, c, ref] for (t, ref), c in zip(rows, cmds) if not T.same_effect(ref, c)][:20]}
+
+
+def loop_data(tk_encode, cfg, episodes, seed=1):
+    """Training views of the agent loop (data/trajectories.py, training file names only), with argument slots (configs/loop.yaml default)."""
+    rng = random.Random(seed)
+    n, block = int(cfg["loop_in_len"]), int(cfg["loop_block"])
+    xs, ys = [], []
+    for _ in range(episodes):
+        task, plan, reply_t = J.make_episode(rng)
+        steps, _, _ = J.run_episode(task, plan, reply_t)
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            xs.append(loop_ids(tk_encode, dt, dh, n))
+            ys.append(encode_bytes(AUG.apply_slots(tgt, slots), block))
+    return xs, ys
+
+
+def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_steps=5):
+    """The full task (eval/full_task_benchmark.py rule): 60 episodes with file names never seen in training; success = final folder AND reply equal the reference's."""
+    import statistics
+    n = int(cfg["loop_in_len"])
+    rng = random.Random(seed)
+    rows = []
+    for _ in range(episodes):
+        task, plan, reply_t = J.make_episode(rng, new_names=True)
+        _, ref_reply, ref_snap = J.run_episode(task, plan, reply_t)
+        term, hist, reply, t0 = T.fresh(), [], "", time.perf_counter()
+        try:
+            for _ in range(max_steps):
+                dt, dh, slots = J.delex_view(task, hist, True)
+                h, pad = reader.feats([loop_ids(tk_encode, dt, dh, n)], n)
+                out, _ = head.generate(h, pad, steps=int(cfg["diffusion_steps"]), confident=float(cfg.get("confident", 0.0)))
+                text = AUG.relex(decode_bytes(out[0].tolist()), slots)
+                if not text.startswith("$ "):
+                    reply = text
+                    break
+                r = term.run(text[2:].strip(), confirm=True)
+                hist.append((text[2:].strip(), (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")))
+            ok = reply == ref_reply and T.snapshot(term) == ref_snap
+        finally:
+            term.close()
+        rows.append({"kind": "multi_step" if len(plan) >= 2 else "simple", "ok": ok, "secs": time.perf_counter() - t0})
+
+    def summ(rs):
+        return {"n": len(rs), "success": round(sum(r["ok"] for r in rs) / max(1, len(rs)), 3),
+                "median_s_per_task": round(statistics.median(r["secs"] for r in rs), 3) if rs else None}
+    return {"all": summ(rows), "simple": summ([r for r in rows if r["kind"] == "simple"]), "multi_step": summ([r for r in rows if r["kind"] == "multi_step"])}
+
+
+def head_args(cfg, d_in, block):
+    return dict(d_in=d_in, d=int(cfg.get("head_d", 256)), latents=int(cfg["latents"]), think_steps=int(cfg["think_steps"]), block=block,
+                writer_layers=int(cfg["writer_layers"]), heads=int(cfg["heads"]))
+
+
+def run_cached(body, encode, cfg, a, log=print):
+    """CPU mode: frozen body (bf16 by default), features read once per text, T-LDM head trained on them over --seeds seeds; optional agent loop + full-task benchmark."""
+    dtype = torch.bfloat16 if a.dtype == "bf16" else torch.float32
+    reader = BodyReader(body, a.device, dtype)
+    n = int(cfg["in_len"])
+    rows = list(T.TRAIN) + (RW.generate() if cfg.get("rewordings", False) else [])
+    xs = [text_ids(encode, t, n) for t, _ in rows]
+    ys = [encode_bytes(c, int(cfg["block"])) for _, c in rows]
+    t0 = time.time()
+    reader.feats(xs, n)                                   # every training text through the body once
+    log(f"body features: {len(reader.cache)} texts in {time.time() - t0:.0f}s ({a.dtype}, {a.device})")
+    res = {"mode": "donor-cached" if a.donor else "tiny-cached", "body_params_M": round(sum(p.numel() for p in body.parameters()) / 1e6, 1), "dtype": a.dtype,
+           "device": a.device, "lora": "none in cached mode (body fully frozen)", "writer": [], "loop": []}
+    best = None
+    for seed in range(int(a.seeds)):
+        head = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["block"])))
+        loss = train_head(head, reader, xs, ys, n, cfg, seed, log)
+        r = {"seed": seed, "final_loss": round(loss, 4), "head_params_M": round(head.count_params() / 1e6, 2), "train": eval_head(head, reader, encode, T.TRAIN, cfg),
+             "heldout": eval_head(head, reader, encode, T.HELDOUT, cfg), "heldout2": eval_head(head, reader, encode, RW.HELDOUT2, cfg)}
+        log(f"seed {seed}: train {r['train']['same_effect']} heldout {r['heldout']['same_effect']} heldout2 {r['heldout2']['same_effect']}")
+        res["writer"].append(r)
+        if best is None or r["heldout"]["same_effect"] + r["heldout2"]["same_effect"] > best[0]:
+            best = (r["heldout"]["same_effect"] + r["heldout2"]["same_effect"], head)
+    for k in ("train", "heldout", "heldout2"):
+        res[k] = {"same_effect": round(sum(r[k]["same_effect"] for r in res["writer"]) / len(res["writer"]), 3)}
+    heads = {"writer": {k: v.detach().cpu() for k, v in best[1].state_dict().items()}}
+    if a.loop:
+        ln = int(cfg["loop_in_len"])
+        lx, ly = loop_data(encode, cfg, int(cfg.get("loop_episodes", 500)))
+        t0 = time.time()
+        reader.feats(lx, ln)
+        log(f"loop features: {len(lx)} views in {time.time() - t0:.0f}s")
+        lcfg = dict(cfg, steps=int(cfg.get("loop_steps", 900)), batch=int(cfg.get("loop_batch", 64)))
+        for seed in range(int(a.loop_seeds)):
+            head = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["loop_block"])))
+            train_head(head, reader, lx, ly, ln, lcfg, seed, log)
+            b = loop_benchmark(head, reader, encode, cfg)
+            log(f"loop seed {seed}: full task {b['all']['success']} simple {b['simple']['success']} multi-step {b['multi_step']['success']}")
+            res["loop"].append({"seed": seed, **b})
+            heads[f"loop_seed{seed}"] = {k: v.detach().cpu() for k, v in head.state_dict().items()}
+    res["body_read_secs"] = round(reader.secs, 1)
+    return res, heads
 
 
 def main(argv=None):
@@ -116,7 +297,15 @@ def main(argv=None):
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(ROOT, "checkpoints", "sham2_tldm", "head_and_adapters.pt"))
     ap.add_argument("--json", default="")
+    ap.add_argument("--device", default="cpu", help="cpu | cuda | auto")
+    ap.add_argument("--dtype", default="fp32", help="fp32 | bf16 (the body's compute dtype; the head stays fp32)")
+    ap.add_argument("--cached", action="store_true", help="CPU mode: frozen body read once per text, head-only training (no LoRA)")
+    ap.add_argument("--seeds", type=int, default=1)
+    ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
+    ap.add_argument("--loop_seeds", type=int, default=1)
     a = ap.parse_args(argv)
+    if a.device == "auto":
+        a.device = "cuda" if torch.cuda.is_available() else "cpu"
     cfg = load_config(a.config)
     if a.steps:
         cfg["steps"] = a.steps
@@ -134,7 +323,22 @@ def main(argv=None):
     else:
         body, encode = tiny_body(int(cfg["adapter_rank"]))
     donor_before = {k: v.clone() for k, v in body.state_dict().items() if ".adapter_" not in k}
+    if a.cached:
+        res, heads = run_cached(body, encode, cfg, a, lambda m: print(m, flush=True))
+        after = body.state_dict()
+        res["donor_weights_unchanged"] = all(torch.equal(donor_before[k].to(after[k].dtype), after[k].cpu()) for k in donor_before)
+        assert res["donor_weights_unchanged"], "a donor weight changed"
+        os.makedirs(os.path.dirname(os.path.realpath(a.out)), exist_ok=True)
+        torch.save({"cfg": cfg, "heads": heads, "mode": res["mode"], "note": "T-LDM heads only (FeatureTLDM state dicts); never a donor weight"}, a.out)
+        res["saved_MB"] = round(os.path.getsize(a.out) / 1e6, 2)
+        print(json.dumps({k: v for k, v in res.items() if k not in ("writer", "loop")}, ensure_ascii=False), flush=True)
+        if a.json:
+            json.dump(res, open(a.json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        return 0
+    if a.device != "cpu" or a.dtype != "fp32":                       # full (LoRA) mode on a runner with a GPU: body in the chosen dtype, head + adapters train
+        body.to(device=a.device, dtype=torch.bfloat16 if a.dtype == "bf16" else torch.float32)
     model = ShamBodyTLDM(body, latents=int(cfg["latents"]), think_steps=int(cfg["think_steps"]), block=int(cfg["block"]), writer_layers=int(cfg["writer_layers"]), heads=int(cfg["heads"]))
+    model.core.to(a.device)
     rep = model.trainable_report()
     print("trainable:", rep, flush=True)
     rows = list(T.TRAIN) + (RW.generate() if cfg.get("rewordings", False) else [])

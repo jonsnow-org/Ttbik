@@ -292,6 +292,33 @@ def train_sham2_on_a_tiny_body_saves_only_head_and_adapters_and_refuses_a_real_d
 
 
 @test
+def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only():
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    d = tempfile.mkdtemp(prefix="sham2_cached_")
+    cfg = os.path.join(d, "c.yaml")
+    with open(os.path.join(ROOT, "configs", "sham2.yaml")) as f, open(cfg, "w") as g:
+        g.write(f.read().replace("loop_episodes: 500", "loop_episodes: 6").replace("loop_steps: 900", "loop_steps: 2"))
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "2", "--loop", "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    assert r["donor_weights_unchanged"] and len(r["writer"]) == 2 and r["loop"][0]["all"]["n"] == 60 and "heldout2" in r
+    heads = torch.load(out)["heads"]
+    assert set(heads) == {"writer", "loop_seed0"} and all(k.startswith(("proj.", "core.")) for k in heads["writer"]), "heads only, never a body weight"
+    body, _ = train_sham2.tiny_body(4)
+    from sham_tldm import ShamBodyTLDM
+    m = ShamBodyTLDM(body, latents=4, think_steps=2, block=8, writer_layers=1, heads=2).eval()
+    seen, orig = [], m.core.writer.generate
+    m.core.writer.generate = lambda z, steps, temperature, confident: (seen.append(confident), orig(z, steps, temperature, confident))[1]
+    ids = torch.randint(5, 300, (1, 10))
+    m.generate(ids, steps=4, confident=0.5)
+    m.generate(ids, steps=4)
+    assert seen == [0.5, 0.0], "Sham 2 body passes `confident` to the writer"
+
+
+@test
 def rewordings_never_copy_or_come_close_to_a_held_out_task():
     import rewordings as RW
     rows = RW.generate()
