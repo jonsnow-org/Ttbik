@@ -737,6 +737,8 @@ def child_cycle() -> None:
             got = prepare_resume(WORK)
             if got:
                 os.environ["SHAM_RESUME_DIR"] = str(got)
+            else:
+                _flag_cycle(True)                    # not resuming: this cycle starts now, so only its own saves count as resumable
         except Exception as exc:  # noqa: BLE001 - a resume problem never blocks the cycle: it starts from the head as before
             print(f"resume: not used ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
     run_fn = _resolve_run_fn(cfg)
@@ -812,7 +814,7 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
     import subprocess
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
     cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
-    _flag_cycle(True)
+    _flag_cycle(True, keep=True)                     # an interrupted cycle's flag stays: the child's prepare_resume decides (and restarts the flag when it does not resume)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
     _CYCLE_LINE_AT[0] = time.time()
     _KILL_REQUEST.clear()
@@ -942,9 +944,13 @@ def backoff_seconds(fails: int) -> int:
     return int(min(1800, 60 * 2 ** max(0, fails - 1)))
 
 
-def _flag_cycle(on: bool) -> None:
+def _flag_cycle(on: bool, keep: bool = False) -> None:
+    """keep=True (the supervisor starting a cycle): a flag left by an INTERRUPTED cycle is kept, so its final.pt still counts as that cycle's and the child resumes from it.
+    Rewriting it here made every saved checkpoint look older than the flag, so a killed cycle restarted from the head (live resume-test on ai/sham-trainer-2, 2026-11-18)."""
     try:
         f = WORK / "checkpoints" / CYCLE_FLAG
+        if on and keep and f.exists():
+            return
         if on:
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(str(time.time()), encoding="utf-8")
@@ -1464,6 +1470,10 @@ if __name__ == "__main__":
         _flag_cycle(True)
         os.utime(ck / "final.pt", (time.time() - 60,) * 2)
         assert prepare_resume(WORK) is None                                              # final.pt is from the cycle BEFORE: not resumed
+        (ck / CYCLE_FLAG).write_text(str(time.time() - 120))                            # a cycle that started 2 min ago, saved 1 min ago, then was killed
+        os.utime(ck / "final.pt", (time.time() - 60,) * 2)
+        _flag_cycle(True, keep=True)                                                     # the supervisor restarting it must not move the start past that save
+        assert _saved_in_running_cycle(ck) and prepare_resume(WORK) is not None, "a restarted cycle must resume from its interrupted save"
         os.utime(ck / "final.pt", None)
         snap = prepare_resume(WORK)
         assert snap and (snap / "final.pt").read_bytes() == b"w1" and _live_progress(snap)["step"] == 77 and not (snap / CYCLE_FLAG).exists()
