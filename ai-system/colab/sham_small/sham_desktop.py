@@ -240,7 +240,21 @@ class Desktop:
                 argv.append(self.home)
         else:
             return {"ok": False, "error": f"app must be terminal, files or browser (and installed)"}
-        self.procs.append(self._popen(argv, env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
+        if app != "browser":
+            self.procs.append(self._popen(argv, env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
+            return {"ok": True, "phase": "running", "app": app}
+        # The browser: keep its error output and make sure it is still alive after a moment. "ok" means a window can be on the screen, not just that a process was spawned
+        # (a Chromium missing its system libraries exits at once and used to leave a black screen behind an ok=True).
+        log_path = os.path.join(self.home, "browser.log")
+        log = open(log_path, "ab")
+        try:
+            proc = self._popen(argv, env=self._env(), stdout=log, stderr=log, cwd=self.home)
+        finally:
+            log.close()
+        self.procs.append(proc)
+        dead = browser_exit(proc, log_path, wait=BROWSER_ALIVE_WAIT)
+        if dead:
+            return dead
         return {"ok": True, "phase": "running", "app": app}
 
     def clipboard(self, text: str | None = None) -> dict:
@@ -319,13 +333,64 @@ def _playwright_chrome(glob_fn=None) -> str | None:
 
 
 _CHROME_INSTALL = {"started": False, "note": ""}
+_CHROME_DEPS = {"started": False, "note": ""}
+BROWSER_ALIVE_WAIT = float(os.environ.get("SHAM_DESKTOP_BROWSER_WAIT", "4"))
+
+
+def _log_tail(path: str, n: int = 400) -> str:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - n))
+            return f.read().decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def browser_exit(proc, log_path: str, wait: float = 4.0, start_deps=None) -> dict | None:
+    """None while the browser is alive after `wait` seconds; otherwise why it died. Missing system libraries on a root host: fetch them once in the background
+    (`playwright install-deps chromium`, which knows each distro's package names) and answer phase=installing so the caller launches again."""
+    poll = getattr(proc, "poll", None)
+    if poll is None:
+        return None
+    end = time.time() + max(0.0, wait)
+    while time.time() < end:
+        if poll() is not None:
+            break
+        time.sleep(0.25)
+    code = poll()
+    if code is None:
+        return None
+    tail = _log_tail(log_path)
+    if "shared libraries" in tail or "cannot open shared object" in tail:
+        if not _CHROME_DEPS["started"]:
+            _CHROME_DEPS["started"] = True
+            (start_deps or (lambda: threading.Thread(target=_install_chrome_deps, daemon=True).start()))()
+        if _CHROME_DEPS["note"] and _CHROME_DEPS["note"] != "installed":
+            return {"ok": False, "error": "the browser's system libraries could not be installed: " + _CHROME_DEPS["note"]}
+        return {"ok": False, "phase": "installing", "error": "installing the browser's system libraries (one time); launch the browser again shortly"}
+    return {"ok": False, "error": f"the browser exited at once (code {code}): " + (tail[-240:] or "no output")}
+
+
+def _install_chrome_deps(run=subprocess.run) -> None:
+    import sys
+    root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if not root:
+        _CHROME_DEPS["note"] = "needs root (run install_desktop.sh on the host)"
+        return
+    try:
+        env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
+        done = run([sys.executable, "-m", "playwright", "install-deps", "chromium"], env=env, capture_output=True, text=True, timeout=1200, check=False)
+        _CHROME_DEPS["note"] = "installed" if done.returncode == 0 else "install-deps failed: " + (done.stderr or "")[-160:]
+    except Exception as exc:  # noqa: BLE001
+        _CHROME_DEPS["note"] = f"install-deps failed: {type(exc).__name__}"
 
 
 def _install_playwright_chrome(run=subprocess.run) -> None:
     """Fetch the windowed Chromium once per process with Playwright (no root needed); the desktop browser then opens like any app."""
     import sys
     try:
-        done = run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True, text=True, timeout=900, check=False)
+        done = run([sys.executable, "-m", "playwright", "install", *(["--with-deps"] if hasattr(os, "geteuid") and os.geteuid() == 0 and shutil.which("apt-get") else []), "chromium"], capture_output=True, text=True, timeout=900, check=False)
         _CHROME_INSTALL["note"] = "installed" if done.returncode == 0 else "playwright install failed: " + (done.stderr or "")[-160:]
     except Exception as exc:  # noqa: BLE001
         _CHROME_INSTALL["note"] = f"install failed: {type(exc).__name__}"

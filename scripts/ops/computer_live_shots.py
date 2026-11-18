@@ -19,7 +19,15 @@ PAGE = os.environ.get("SHOT_URL", "https://example.com/")
 
 
 def do(base: str, token: str, session: str, **args) -> dict:
-    return call(base, token, "desktop_do", {"session": session, **args}, timeout=150)
+    import urllib.error
+    for attempt in range(5):                      # the Studio gateway answers 429 when calls come too fast: wait and ask again
+        try:
+            return call(base, token, "desktop_do", {"session": session, **args}, timeout=150)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt == 4:
+                raise
+            time.sleep(15 * (attempt + 1))
+    return {}
 
 
 def picture(reply: dict) -> bytes:
@@ -45,7 +53,7 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
             return False
         launched = do(base, token, session, action="launch", app="browser", url=PAGE)
         t1 = time.time()
-        while not launched.get("ok") and launched.get("phase") == "installing" and time.time() - t1 < 900:   # the desktop fetches its browser once
+        while not launched.get("ok") and launched.get("phase") == "installing" and time.time() - t1 < 1500:   # the desktop fetches its browser once
             print(f"{name}: browser -> {str(launched.get('error') or '')[:120]}", flush=True)
             time.sleep(30)
             launched = do(base, token, session, action="launch", app="browser", url=PAGE)
@@ -64,6 +72,8 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
                 f.write(best)
             print(f"{name}: saved {path} ({len(best)} bytes) windows={state.get('windows')}", flush=True)
         ok = bool(launched.get("ok")) and len(best) > 5000        # a picture of an empty screen is not a working browser
+        if name.startswith("sham"):
+            ok = ok and bool(state.get("windows"))                   # Sham's desktop lists its windows: none means nothing is on the screen
     except Exception as exc:  # noqa: BLE001
         print(f"{name}: failed {type(exc).__name__}: {str(exc)[:200]}")
     finally:
