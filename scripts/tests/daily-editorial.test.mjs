@@ -7,7 +7,7 @@ import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
 const sourceUrls = (item) => (item.sources ?? []).map((source) => source.href).sort();
-const dateNumbers = (value) => (value.match(/\\d+/g) ?? []).join(",");
+const dateNumbers = (value) => (value.match(/\d+/g) ?? []).join(",");
 
 test("18 November news entries have aligned Arabic and English versions", () => {
   const dailyNews = NEWS_ITEMS.filter((item) => item.dateIso === "2026-11-18");
