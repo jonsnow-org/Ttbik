@@ -74,12 +74,12 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(DEFAULT_MODELS.find((x) => x.id === "coder")).toBeTruthy();   // Nova is still there
   });
 
-  test("Nova 2 works in Nova's computer: same session identity, same hub, no second workspace", () => {
-    expect(computerModelOf("nova2")).toBe("coder");
+  test("Nova 2 is independent: its own session on the same Mini App computer as Nova (owner 2026-11-18)", () => {
+    expect(computerModelOf("nova2")).toBe("nova2");
     expect(computerModelOf("coder")).toBe("coder");
     expect(computerModelOf("lfm25")).toBe("lfm25");
     expect(computerModelOf(undefined)).toBe("coder");
-    expect(COMPUTER_MODEL_IDS).not.toContain("nova2");
-    expect(browserStudioFor(computerModelOf("nova2"))).toBe(browserStudioFor("coder"));
+    expect(COMPUTER_MODEL_IDS).toContain("nova2");
+    expect(browserStudioFor("nova2")).toBe(browserStudioFor("coder"));   // same Mini App computer host
   });
 });

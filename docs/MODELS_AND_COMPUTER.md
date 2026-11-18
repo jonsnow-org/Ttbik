@@ -4,9 +4,16 @@ Inference and media weights remain isolated by model. The execution host is now 
 
 | Model | Chat Studio | Image / media | Computer |
 |---|---|---|---|
-| Nova AI (\`coder\`) | \`coder-inference-server\` 1–5 | Nova's own image/speech/video Studios | Shared 16 GB computer hub; private \`user:coder\` session |
-| Sham (old) | \`sham-v1-server\` | Its own media route | Shared 16 GB computer hub; private \`user:sham\` session |
-| Sham v2 | \`sham-v2-server\` (+ overflow) | Its own image/audio/video Studios | Shared 16 GB computer hub; private \`user:sham_v2\` session |
+| Nova AI (\`coder\`) | \`coder-inference-server\` 1–5 | Nova's own image/speech/video Studios | Mini App computer hub; private \`user:coder\` session |
+| Nova 2 (\`nova2\`) | Its own international Studio | — | Mini App computer hub; its OWN private \`user:nova2\` session (no longer Nova's) |
+| Sham (old) | \`sham-v1-server\` | Its own media route | Its own embedded computer inside its Studio |
+| Sham Pro (\`sham_v2\`) | \`sham-v2-server\` (+ overflow) | Its own image/audio/video Studios | Its own embedded computer (model_computer) inside \`sham-v2-server\` |
+
+## Independence rule (owner, 2026-11-18)
+
+Every model is independent: its own computer session, tools, chats, working state, memory and data. No routing between models and no silent fallback.
+- Nova 2 keeps its working state, threads and long-term memory under \`<chat>#model:nova2\` (same scheme as LFM2.5), never in Nova's rows.
+- The Mini App binds every screen to the selected model (\`src/lib/miniAppBinding.ts\`): Chats lists only that model's chats, the Computer tab opens only that model's computer (no picker), running tasks / stop-all / memory are scoped to it, and every tab remounts on a switch. Tests: \`src/lib/__tests__/miniAppBinding.test.ts\`.
 
 ## The computer host
 

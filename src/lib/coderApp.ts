@@ -1,7 +1,7 @@
 // Server side of the coder's Telegram Mini App (/coder-app). Every call carries Telegram's signed initData (header
 // x-telegram-init-data), verified with the coder bot's own token (verifyTelegramInitData) — the user id from it is the private chat id.
 // One dispatcher (appOp) so the route stays thin and everything here is unit-testable with a fake db and bot.
-import { computerModelOf } from "@/lib/computerModels";
+import { computerModelOf, computerSessionOf } from "@/lib/computerModels";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -110,6 +110,27 @@ async function tidyBeforeList(chatId: number, st: { threadId?: string | null }, 
   }
 }
 
+/** Whose long-term memory the Mini App reads / edits: the named (else the selected) Nova-family model's own store.
+ *  Nova 2 and LFM2.5 keep their memories under their own chat id; Sham models have their own memory (op sham_memory), never this one. */
+async function memoryOwnerOf(chatId: number, body: Json, db: Db): Promise<number | string> {
+  const { canonModelId } = await import("@/lib/coderModels");
+  const C = await import("@/lib/coderChats");
+  const { loadState } = await sections();
+  const model = canonModelId(typeof body.model === "string" && body.model ? body.model : (await loadState(chatId, db)).model) || "coder";
+  if (model === "sham" || model === "sham_v2") throw new AppError(400, "this model keeps its own memory (sham_memory)");
+  return C.isChatModel(model) ? C.modelChatId(chatId, model) : chatId;
+}
+
+/** A filter that keeps only the tasks of the model named in the request (`"selected"` = the chat's selected model); none / "all" keeps every task. */
+async function taskScope(chatId: number, selected: string | undefined, requested: unknown, db: Db): Promise<<T extends { slot?: string | null; thread_id?: string | null }>(tasks: T[]) => Promise<T[]>> {
+  if (typeof requested !== "string" || !requested || requested === "all") return async (tasks) => tasks;
+  const { canonModelId } = await import("@/lib/coderModels");
+  const C = await import("@/lib/coderChats");
+  const model = canonModelId(requested === "selected" ? selected || "coder" : requested) || "coder";
+  if (!C.isChatModel(model)) return async () => [];
+  return (tasks) => C.tasksOfModel(chatId, model, tasks, db);
+}
+
 export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps): Promise<Json> {
   const db = deps.db || prismaDb;
   const { chatId } = user;
@@ -214,7 +235,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "tasks": {
       await (await import("@/lib/coderTasks")).reapStaleTasks(chatId, db);
-      const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const tasks = await scope(await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db));
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
     }
@@ -289,7 +311,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // stops one running task (or every running one) from Home: a live Nova run is cancelled like /stop (its Studio job too), any other row is closed in the history
       const { stopRun } = await sections();
       const { stopTaskRow } = await import("@/lib/coderTasks");
-      const targets = op === "stop_all" ? await listTasks(chatId, { active: true, limit: 50 }, db) : (await listTasks(chatId, { active: true, limit: 50 }, db)).filter((t) => t.run_id === String(body.runId || ""));
+      const scope = op === "stop_all" ? await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db) : async <T,>(x: T[]) => x;   // "stop all" from a model's page stops only that model's tasks
+      const targets = op === "stop_all" ? await scope(await listTasks(chatId, { active: true, limit: 50 }, db)) : (await listTasks(chatId, { active: true, limit: 50 }, db)).filter((t) => t.run_id === String(body.runId || ""));
       let stopped = 0;
       for (const t of targets) {
         if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
@@ -305,9 +328,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!st.threadId && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
       await tidyBeforeList(chatId, st, db);
       const threads = await T.listThreads(chatId, { limit: Number(body.limit) || 40, before: body.before || undefined }, db);
-      const live = await listTasks(chatId, { active: true, limit: 20 }, db);
+      // `model` scopes the running / scheduled lists to ONE model (the Mini App always sends the selected one); "all" or none keeps every row
+      const scope = await taskScope(chatId, st.model, body.model, db);
+      const live = await scope(await listTasks(chatId, { active: true, limit: 20 }, db));
       // scheduled / event runs are not conversations: listed on their own
-      const runs = (await listTasks(chatId, { limit: 20 }, db)).filter((t) => t.source !== "interactive");
+      const runs = (await scope(await listTasks(chatId, { limit: 20 }, db))).filter((t) => t.source !== "interactive");
       const strip = (x: any[]) => (user.tier === "owner" ? x : x.map(({ steps: _s, ...t }) => t));
       return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db) };
     }
@@ -373,7 +398,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const limit = Number(body.limit) || 60;
         const items: (Awaited<ReturnType<typeof C.chatList>>["items"][number] & { model: string })[] = [];
         for (const m of knownAll) {
-          if (m.id === "nova2") continue;                          // Nova 2 shares Nova's threads: they are listed once, under Nova
           if (!C.isChatModel(m.id) || !modelUsableBy(m, user.tier === "owner")) continue;
           const l = await C.chatList(chatId, st, m.id, { q: typeof body.q === "string" ? body.q : undefined, archived: archivedAll, limit }, db).catch(() => null);
           if (l) for (const x of l.items) items.push({ ...x, model: m.id, current: x.current && m.id === selected });
@@ -603,22 +627,22 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "memories": {
       const { listMemories } = await import("@/lib/coderMemory");
-      return { memories: (await listMemories(chatId, db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
+      return { memories: (await listMemories(await memoryOwnerOf(chatId, body, db), db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
     }
     case "memory_add": {
       const { saveMemory } = await import("@/lib/coderMemory");
-      const r = await saveMemory(chatId, { text: String(body.text || ""), kind: body.kind, repo: body.repo, source: "app" }, db);
+      const r = await saveMemory(await memoryOwnerOf(chatId, body, db), { text: String(body.text || ""), kind: body.kind, repo: body.repo, source: "app" }, db);
       if (r.action === "invalid") throw new AppError(400, "text too short");
       return { ok: true, ...r };
     }
     case "memory_update": {
       const { updateMemory } = await import("@/lib/coderMemory");
-      if (!(await updateMemory(chatId, Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db))) throw new AppError(404, "no such memory");
+      if (!(await updateMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db))) throw new AppError(404, "no such memory");
       return { ok: true };
     }
     case "memory_delete": {
       const { deleteMemory } = await import("@/lib/coderMemory");
-      if (!(await deleteMemory(chatId, Number(body.id), db))) throw new AppError(404, "no such memory");
+      if (!(await deleteMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), db))) throw new AppError(404, "no such memory");
       return { ok: true };
     }
     // ---------------------------------------------------------------- owner control panel (src/lib/coderPanel.ts)
@@ -652,24 +676,24 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { boxRaw } = await import("@/lib/computerBox");
-      return await boxRaw(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
+      return await boxRaw(model, computerSessionOf(chatId, model), args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "desktop": {                    // real graphical desktop in this model's own Studio; never shares another model's runtime
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
       const { desktopDo } = await import("@/lib/desktopComputer");
-      return await desktopDo(model, `${chatId}:${model}`, args as never, deps.fetchImpl || globalThis.fetch) as Json;
+      return await desktopDo(model, computerSessionOf(chatId, model), args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const model = computerModelOf(String(body.model || "coder"));
       const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
-      const { browserStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
-      const base = browserStudioFor(model);
+      const { browserOwnStudioFor, cleanBrowserArgs, studioCall } = await import("@/lib/browserComputer");
+      const base = browserOwnStudioFor(model);            // Nova family: the Mini App computer; the Shams browse inside their own embedded computer (op desktop), never Nova's hub
       const clean = cleanBrowserArgs(args as never);
       if (!base || !clean) throw new AppError(400, !base ? "this model has no computer Studio" : "unknown browser action");
-      try { return await studioCall(base, "browser_do", { ...clean, session: `${chatId}:${model}`, screenshot: true }, deps.fetchImpl || globalThis.fetch, 100_000) as Json; }
+      try { return await studioCall(base, "browser_do", { ...clean, session: computerSessionOf(chatId, model), screenshot: true }, deps.fetchImpl || globalThis.fetch, 100_000) as Json; }
       catch (error) { return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) } as Json; }
     }
     case "status": {
