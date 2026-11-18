@@ -487,10 +487,12 @@ WEB_TASK = re.compile(
     re.I,
 )
 WEB_TOOL_GUIDE = (
-    'للبحث الخارجي: اكتب $ @tool web_search {"query":"..."}؛ '
-    'لقراءة صفحة: $ @tool fetch_page {"url":"..."}؛ '
-    'للبحث الموسع: $ @tool deep_research {"question":"..."}؛ '
-    "انتظر نتيجة الأداة ثم تابع، ولا تدّع البحث دون نتيجة."
+    'ابحث باستخدام $ @tool web_search {"query":"...","limit":6"}؛ '
+    'واقرأ الصفحة باستخدام $ @tool fetch_page {"url":"https://...","max_chars":20000"}؛ '
+    'ولبحث متعدد المصادر استخدم $ @tool deep_research {"question":"...","max_sources":6"}؛ '
+    'إذا كان GitHub متصلاً في هذا الحساب افحص المستودع بـ $ @tool github_repo_scan {"repo":"owner/name"}، '
+    'واقرأ عدة ملفات بـ $ @tool github_read_files {"repo":"owner/name","paths":["README.md","src/file.ts"]}؛ '
+    "إذا قالت نتيجة الأداة إن اتصال GitHub غير متاح فلا تدّع قراءة المستودع. انتظر نتيجة كل أداة ثم تابع، ولا تنفذ أي كتابة عبر هذا الجسر."
 )
 
 # Per-Studio-process pending approvals and tool requests, keyed by the T-LDM session.

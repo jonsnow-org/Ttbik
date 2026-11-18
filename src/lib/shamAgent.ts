@@ -195,7 +195,7 @@ export async function shamAgentRun(opts: {
         kind: "confirm",
         call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
         used,
-        steps: 1,
+        steps: tldmSteps,
       };
     }
     if (direct?.type === "text") {
