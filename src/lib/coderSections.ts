@@ -45,6 +45,7 @@ import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskS
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, clock12, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
+import { priorAssistantReplies, visibleNovaReply } from "@/lib/novaReplyGuard";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -2530,8 +2531,23 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
-      await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       const calls = completedCalls;
+      // Reply hygiene (Nova's own guard, like Sham 2's): a user-facing final answer (no tool call, not a sub-agent report) gets its adjacent
+      // repeated blocks collapsed, and a reply copied from a previous turn or a raw status/inventory dump is replaced with an honest line
+      // before it is shown or stored. The rewrite is skipped when it would drop text already streamed/committed this step (delivery is
+      // offset-based): never lose shown text.
+      if (!calls.length && !run.agent) {
+        const vis = visibleNovaReply(text, priorAssistantReplies(st.messages));
+        const shown = Math.max(run.botSent || 0, run.sent || 0, run.logged || 0);
+        if (vis.text && (vis.blocked || vis.text.length >= shown)) {
+          if (vis.blocked) {
+            await taskEvent(run.id, "info", vis.blocked === "report" ? "استُبدل ردّ خام (تقرير/جرد) بردّ صادق." : "استُبدل ردّ مكرّر من دور سابق بردّ صادق.", db);
+            run.botSent = 0; run.sent = 0; run.logged = 0;         // the honest line is delivered fresh instead of being swallowed by the offsets of the text it replaces
+          }
+          text = vis.text;
+        }
+      }
+      await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       dropShownImages(st.messages);                        // a picture is shown to the model once; after its answer it is only a note
       run.job = undefined;
