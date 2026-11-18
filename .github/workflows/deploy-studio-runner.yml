@@ -1,0 +1,124 @@
+name: Deploy the sham-runner Studio (GitHub self-hosted runner `studio` + the notebook's data, modelscope.ai)
+
+# Owner's order 2026-11-18: the modelscope.ai CPU notebook stays stopped; what ran there moves to free 16 GB Studios on the international account (Jonjithup).
+# This Studio (private, free hardware only) runs ai-system/modelscope-runner/app.py: restores the notebook backup (scripts/notebook-node/backup_workspace.sh) into its /mnt/workspace and
+# runs a GitHub Actions runner labeled `studio` that notebook-task.yml (target=studio) uses instead of the notebook.
+# Runner registration: GITHUB_TOKEN cannot mint runner tokens, so a repository admin sets the repo secret STUDIO_RUNNER_REG_TOKEN (Settings -> Actions -> Runners -> New runner, the
+# token part only; valid 1 hour) right before the FIRST deploy. Later deploys and wake-ups need nothing: the runner keeps its credentials on the Studio's persistent disk.
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Studio name under Jonjithup (created when missing, private, free hardware only)"
+        required: false
+        default: "sham-runner-1"
+      restore_repo:
+        description: "PRIVATE ModelScope model repo holding the notebook backup (empty = no restore)"
+        required: false
+        default: "Jonjithup/sham-notebook-workspace"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-studio-runner-${{ inputs.repo || 'sham-runner-1' }}
+  cancel-in-progress: false
+
+env:
+  MS: https://www.modelscope.ai
+  MSHOST: www.modelscope.ai
+  OWNER: Jonjithup
+  REPO: ${{ inputs.repo || 'sham-runner-1' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Self-test
+        run: python3 ai-system/modelscope-runner/app.py --selftest && python3 scripts/notebook-node/backup_upload.py --selftest
+      - name: Create the Studio when missing (free hardware only)
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -uo pipefail
+          echo "::add-mask::$T"
+          case "$REPO" in coder-inference-server-16|sham-trainer-tools|sham-trainer-1) echo "::error::refusing to touch $REPO"; exit 1;; esac
+          code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          if [ "$code" = "200" ] && python3 -c "import json,sys;d=json.load(open('studio.json'));sys.exit(0 if (d.get('data') or d.get('Data')) else 1)" 2>/dev/null; then echo "Studio $REPO exists"; exit 0; fi
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hw.json
+          HW=$(python3 - <<'PY'
+          import json
+          items=((json.load(open("hw.json")).get("data") or {}).get("hardware")) or []
+          free=[i for i in items if str(i.get("resource_type","")).lower()=="free" and not str(i.get("name","")).startswith("paid/")]
+          print((free or [{"name":"platform/2v-cpu-16g-mem"}])[-1]["name"])
+          PY
+          )
+          case "$HW" in paid/*) echo "::error::Refusing paid hardware"; exit 1;; esac
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create HTTP $code (hardware $HW)"; head -c 800 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused"; exit 1; }
+          sleep 10
+      - name: Push the app to the Studio
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone "https://oauth2:${T}@${MSHOST}/studios/${OWNER}/${REPO}.git" /tmp/studio 2>&1 | sed "s/${T}/***/g"
+          cd /tmp/studio
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-runner/app.py" "$GITHUB_WORKSPACE/ai-system/modelscope-runner/requirements.txt" .
+          git config user.name "Sham CI"; git config user.email "ci@sham.local"
+          date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
+          git add -A
+          git commit -q -m "sham-runner (from CI ${GITHUB_SHA})" && git push -q; echo pushed
+      - name: Set the Studio's secrets
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          REG: ${{ secrets.STUDIO_RUNNER_REG_TOKEN }}
+          RESTORE: ${{ inputs.restore_repo }}
+        run: |
+          set -eu
+          echo "::add-mask::$T"; [ -n "$REG" ] && echo "::add-mask::$REG"
+          set_secret() {
+            printf '%s' "$2" | python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$1" > secret.json
+            code=$(curl -sS -o r.json -w '%{http_code}' -X PUT -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @secret.json "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o r.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @secret.json "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            fi
+            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Secret update failed for $1 (HTTP $code)"; exit 1; }
+            echo "updated secret key: $1"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T"
+          set_secret SHAM_RESTORE_REPO "$RESTORE"
+          set_secret GH_RUNNER_NAME "studio-$REPO"
+          if [ -n "$REG" ]; then set_secret GH_RUNNER_REG_TOKEN "$REG"; else echo "::warning::STUDIO_RUNNER_REG_TOKEN is empty: an already registered runner keeps working, a new one cannot register"; fi
+          rm -f secret.json r.json
+      - name: Deploy and wait until Running
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -uo pipefail
+          echo "::add-mask::$T"
+          curl -fsS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 400; echo
+          for i in $(seq 1 120); do
+            sleep 30
+            st=$(curl -fsS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status'))" 2>/dev/null || echo unknown)
+            echo "$(date -u +%H:%M:%S) Studio: $st"
+            case "$st" in
+              *ail*|*rror*|*topped*)
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" | tail -c 2500
+                curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 2500
+                echo "::error::Studio ended in $st"; exit 1;;
+            esac
+            if echo "$st" | grep -qi running; then
+              sleep 60; curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 1500; echo
+              echo "Studio is Running"; exit 0
+            fi
+          done
+          echo "::error::Studio did not reach Running in time"; exit 1

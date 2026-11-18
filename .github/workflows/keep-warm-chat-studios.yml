@@ -34,7 +34,7 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_CN" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "cn $n HTTP $code"
           done
-          for n in sham-trainer-1 sham-trainer-tools coder-inference-server-16; do
+          for n in sham-trainer-1 sham-trainer-tools coder-inference-server-16 sham-trainer-2 sham-runner-1; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
             echo "ai $n HTTP $code"
           done
