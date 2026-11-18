@@ -210,7 +210,7 @@ def main() -> int:
     identity = chat([{"role": "user", "content": "من أنت؟"}], 160)
     if not identity or not identity.strip():
         raise RuntimeError("Sham v2 identity prompt returned an empty answer")
-    # Training eval (does not fail this script): the live self-name is Sham Pro / «شام برو».
+    # Training-stage identity check (does not fail this script): the live self-name is Sham Pro / «شام برو».
     # A donor that still says Qwen or "Sham 2" is reported, then factual chat continues so media smoke can run.
     if re.search(r"qwen|alibaba|openai|chatgpt|gpt-?\d|claude", identity, re.I) or not re.search(r"شام\s*برو|sham\s*pro", identity, re.I):
         print(f"KNOWN_FAILURE Sham Pro identity is not yet trained (tools-stage identity facts): {identity[:240]!r}")
