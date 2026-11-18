@@ -35,7 +35,7 @@ export function bindingFor(selected: string | undefined | null): MiniAppBinding 
     threadPage: model === "coder",
     computer: { model: computerModelOf(model), home: computerHomeOf(model) },
     memory: family === "sham" ? "sham_memory" : "memories",
-    schedules: family === "nova",
+    schedules: family === "nova" && model !== "nova2",
     tldm: model === "sham_v2",
   };
 }
@@ -44,7 +44,7 @@ export function bindingFor(selected: string | undefined | null): MiniAppBinding 
 export const computerSessionFor = (userId: number | string, selected: string | undefined | null): string => computerSessionOf(userId, bindingFor(selected).computer.model);
 
 /** Ops whose body must name the bound model; the app adds `model` to each of them so the server never falls back to another model. */
-export const MODEL_SCOPED_OPS = ["chats", "chat_new", "chat_open", "chat_rename", "chat_pin", "chat_archive", "chat_delete", "chat_messages", "threads", "tasks", "stop_all", "memories", "memory_add", "memory_update", "memory_delete", "sham_memory", "box", "desktop", "connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos"] as const;
+export const MODEL_SCOPED_OPS = ["chats", "chat_new", "chat_open", "chat_rename", "chat_pin", "chat_archive", "chat_delete", "chat_messages", "threads", "tasks", "stop", "stop_all", "task_stop", "task_delete", "events", "resolve", "memories", "memory_add", "memory_update", "memory_delete", "sham_memory", "box", "desktop", "connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos", "schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run", "secret_answer"] as const;
 const SCOPED = new Set<string>(MODEL_SCOPED_OPS);
 
 /** The body of one app request bound to the selected model (an explicit `model` already in the body is replaced: no cross-model calls). */

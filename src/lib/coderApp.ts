@@ -74,15 +74,18 @@ async function sections() {
 }
 
 /** Pending confirmations across the chat and its scheduled tasks. */
-async function pendings(chatId: number, db: Db) {
+async function pendings(chatId: number, db: Db, requestedModel?: unknown) {
   const { loadState } = await sections();
-  const waiting = await listTasks(chatId, { active: true, limit: 30 }, db);
+  const model = typeof requestedModel === "string" && requestedModel && requestedModel !== "all" ? requestedModel : undefined;
+  const scope = model ? await taskScope(chatId, model, model, db) : async <T,>(rows: T[]) => rows;
+  const waiting = await scope(await listTasks(chatId, { active: true, limit: 60 }, db));
   const out: Json[] = [];
   const { openSecretRequests } = await import("@/lib/secretVault");
-  for (const r of openSecretRequests(chatId)) out.push({ runId: "", nonce: `secretreq:${r.name}`, reason: "secret", summary: r.purpose || r.name, tool: "request_secret", categories: [], title: "", slot: "", at: r.at, secret: { name: r.name } });
+  if (model !== "nova2") for (const r of openSecretRequests(chatId)) out.push({ runId: "", nonce: `secretreq:${r.name}`, reason: "secret", summary: r.purpose || r.name, tool: "request_secret", categories: [], title: "", slot: "", at: r.at, secret: { name: r.name } });
   const slots = new Set<string>(["", ...waiting.map((t) => t.slot)]);
+  const { withEngineModel } = await import("@/lib/openCoderStudio");
   for (const slot of slots) {
-    const st = await loadState(chatId, db, slot);
+    const st = model === "nova2" || model === "lfm25" ? await withEngineModel(model, () => loadState(chatId, db, slot)) : await loadState(chatId, db, slot);
     const ask = st.run?.asking;
     if (st.run && ask?.kind === "handoff") {                   // the model handed its computer to the user: the screen with the control bar
       out.push({ runId: st.run.id, nonce: `handoff:${ask.id}`, reason: "handoff", summary: ask.question, tool: "computer_handoff", categories: [], title: st.run.title || "", slot, at: ask.at || null, handoff: { ...(ask.handoff || { kind: "other", reason: ask.question }), model: ask.model || "coder" } });
@@ -141,6 +144,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   // Nova 2 has a separate connector namespace; never expose or mutate Nova's linked OAuth/MCP connections.
   if (body.model === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove"].includes(op)) {
     throw new AppError(403, "Nova 2's connectors are independent; Nova's linked accounts cannot be used from Nova 2.");
+  }
+  if (body.model === "nova2" && ["schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run"].includes(op)) {
+    throw new AppError(403, "Nova 2's independent scheduler is not provisioned; Nova's schedules are not shared.");
+  }
+  if (body.model === "nova2" && op === "secret_answer") {
+    throw new AppError(403, "Nova 2's secret-request vault is not separated from Nova's yet.");
   }
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
@@ -267,7 +276,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
       const tasks = await scope(await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db));
       // step counts are an internal meter: the owner only
-      return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
+      return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db, body.model) };
     }
     case "secret_answer": {
       // the user fills (or cancels) the secure box: the value goes straight to the in-memory vault; the model is told only "stored"
@@ -381,7 +390,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // scheduled / event runs are not conversations: listed on their own
       const runs = (await scope(await listTasks(chatId, { limit: 20 }, db))).filter((t) => t.source !== "interactive");
       const strip = (x: any[]) => (user.tier === "owner" ? x : x.map(({ steps: _s, ...t }) => t));
-      return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db) };
+      return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db, body.model) };
     }
     case "thread": {
       const T = await import("@/lib/coderThreads");

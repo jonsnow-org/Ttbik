@@ -56,7 +56,7 @@ describe("client binding table", () => {
     expect(b.sham_v2.computer.home).toBe("embedded");
     expect(MODELS.filter((m) => b[m].threadPage)).toEqual(["coder"]);
     expect(MODELS.filter((m) => b[m].tldm)).toEqual(["sham_v2"]);
-    expect(MODELS.filter((m) => b[m].schedules)).toEqual(["coder", "nova2"]);
+    expect(MODELS.filter((m) => b[m].schedules)).toEqual(["coder"]);
     expect(b.sham.memory).toBe("sham_memory");
     expect(b.nova2.memory).toBe("memories");
     expect(bindingFor("sham_loop").model).toBe("sham");
@@ -68,7 +68,7 @@ describe("client binding table", () => {
       expect(boundBody(op, m, { model: m === "coder" ? "sham_v2" : "coder", x: 1 })).toEqual({ model: m, x: 1 });
     }
     expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1 });
-    for (const op of ["connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos"]) {
+    for (const op of ["connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos", "schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run", "stop", "task_stop", "task_delete", "events", "resolve", "secret_answer"]) {
       expect(boundBody(op, "nova2", { model: "coder" })).toEqual({ model: "nova2" });
     }
   });
@@ -88,6 +88,16 @@ describe("server: per-model computer and sessions", () => {
     expect(view).toMatchObject({ connectors: [], mcp: [], presets: [], isolated: true });
     await expect(appOp({ chatId: OWNER, tier: "owner" }, "mcp_add", { model: "nova2", url: "https://mcp.example.test" }, deps))
       .rejects.toMatchObject({ status: 403 });
+  });
+
+  test("Nova 2 cannot read or mutate Nova's schedule store", async () => {
+    const db: any = pgDb();
+    const { bot } = fakeBot();
+    const deps = { db, bot, botRow } as any;
+    for (const op of ["schedules", "schedule_create", "schedule_run"]) {
+      const result: any = await appOp({ chatId: OWNER, tier: "owner" }, op, { model: "nova2", title: "not shared", prompt: "test" }, deps).catch((e: any) => e);
+      expect(result).toMatchObject({ status: 403 });
+    }
   });
 
   test("Nova 2 repository picker uses its own GitHub credential, not Nova's", async () => {
