@@ -1,0 +1,1 @@
+Byte-identical copy of `docs/experiments/tldm_heldout_gate_2026-11-18.json` (the merged held-out gate results), so the trainer Studio (which receives only `ai-system/tldm/`) can pass `--gate` to `train_sham2.py`. `scripts/test_all.py` fails if the two differ.

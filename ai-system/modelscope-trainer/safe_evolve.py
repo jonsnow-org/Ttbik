@@ -1,10 +1,15 @@
-"""Optional loop self-evolution for the Studio trainer: LoRA on failed tasks, ALWAYS mixed with replay,
+"""Optional loop self-evolution for the Studio trainer: LoRA on verified failures, ALWAYS mixed with replay,
 with a hold-out of previously-correct tasks. An adapter is kept only when held-out eval and the
 previously-correct set do not regress.
 
 The audit of lora_failed (2026-11-18): the self-evolution arm produced 0 verified pairs, and a LoRA
 trained without replay dropped the previously-correct set from 1.0 to 0.182. This wrapper never
 promotes a no-replay adapter.
+
+Commercial path (not wired to live traffic yet): Sham 2 should learn from every user, so this step is
+built to ingest verified execution results from all users' sessions. Records must be anonymized first
+(no personal data: no user/session ids, emails, IPs, raw chat outside the task/result). Session pairs
+are only an extra source; they still go through replay + the no-regress gate before any adapter is kept.
 """
 from __future__ import annotations
 
@@ -12,6 +17,10 @@ import json
 import os
 import sys
 from pathlib import Path
+
+
+# Only these fields may enter training. Anything else (user_id, session_id, email, ip, name, raw chat, ...) is dropped.
+VERIFIED_KEYS = ("task", "ref_reply", "ref_snap", "steps")
 
 
 def _rate(block, *keys):
@@ -40,8 +49,57 @@ def no_regress(before: dict, after: dict) -> tuple[bool, str]:
     return True, "held-out and previously-correct did not regress"
 
 
+def anonymize_record(record: dict) -> dict | None:
+    """Keep only the task and the verified execution. Reject unverified or incomplete rows.
+    Future commercial session sources must pass through this; live user data is not wired yet."""
+    if not isinstance(record, dict):
+        return None
+    if record.get("verified") is False:
+        return None
+    out = {k: record[k] for k in VERIFIED_KEYS if k in record}
+    if "task" not in out:
+        return None
+    if "ref_reply" not in out and not out.get("steps"):
+        return None
+    return out
+
+
+def load_session_pairs(path: Path | None = None) -> list[dict]:
+    """Optional jsonl of already-verified session results (SHAM_TLDM_SESSION_PAIRS).
+    Not connected to live traffic. Each line is anonymized; unverified or personal-only rows are skipped."""
+    raw = path if path is not None else Path(os.environ.get("SHAM_TLDM_SESSION_PAIRS") or "")
+    if not raw or not Path(raw).is_file():
+        return []
+    out: list[dict] = []
+    for line in Path(raw).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        cleaned = anonymize_record(rec)
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
+def encode_session_pairs(records: list[dict], tok, cfg) -> list:
+    """Turn anonymized session records into supervised (input, target) pairs. Only verified execution steps are used."""
+    out = []
+    block = cfg["block"]
+    for rec in records:
+        for step in rec.get("steps") or []:
+            if not isinstance(step, (list, tuple)) or len(step) < 2:
+                continue
+            v, t = step[0], step[1]
+            out.append((v, tok.encode(t, block) if isinstance(t, str) else t))
+    return out
+
+
 def run_safe_evolve(root: Path, work: Path, loop_ckpt: Path, seed: int, runner=None) -> dict:
-    """Train a replay-mixed LoRA on verified failures of the loop checkpoint. Returns a JSON-ready dict.
+    """Train a replay-mixed LoRA on verified failures (plus optional anonymized session pairs).
     Writes the adapter only when no_regress is True. When runner is set (self-test), no tldm imports."""
     out_json = work / "logs" / f"safe_evolve_seed{seed}.json"
     adapter = work / "checkpoints" / "loop" / f"safe_evolve_seed{seed}.pt"
@@ -84,8 +142,13 @@ def run_safe_evolve(root: Path, work: Path, loop_ckpt: Path, seed: int, runner=N
                 fixed += 1
                 pairs += [(v, tok.encode(t, cfg["block"])) for v, t in steps]
                 break
+    session = load_session_pairs()
+    session_pairs = encode_session_pairs(session, tok, cfg)
+    pairs = pairs + session_pairs
     report["verified_pairs"] = len(pairs)
     report["verified_failures"] = fixed
+    report["session_records"] = len(session)
+    report["session_pairs"] = len(session_pairs)
     if not pairs:
         report["reason"] = "no verified successes among retries (nothing safe to learn); adapter not kept"
         out_json.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +158,8 @@ def run_safe_evolve(root: Path, work: Path, loop_ckpt: Path, seed: int, runner=N
 
     xs, ys = J.make_dataset(replay_n, 1, tok, cfg["in_len"], cfg["block"], delex=cfg.get("delex", False))
     replay = list(zip(xs, ys))
-    # Always mix replay with the verified failure pairs (the no-replay arm is what dropped C 1.0 -> 0.182).
+    # Always mix replay with the verified pairs (the no-replay arm is what dropped C 1.0 -> 0.182). Session
+    # pairs are never trained alone: they join the same mix and still have to pass no_regress.
     data = pairs * max(1, len(replay) // max(1, len(pairs))) + replay
     model = fresh_model(ck)
     n_lora = train_lora(model, data, lora_steps, rank, seed)
@@ -116,3 +180,23 @@ def run_safe_evolve(root: Path, work: Path, loop_ckpt: Path, seed: int, runner=N
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     return report
+
+
+if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        before = {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}}
+        assert no_regress(before, {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}})[0]
+        assert not no_regress(before, {"C": {"rate": 0.182}, "eval60_778": {"episode_success": 0.8}})[0]
+        assert not no_regress(before, {"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.7}})[0]
+        cleaned = anonymize_record({"task": "t", "ref_reply": "ok", "ref_snap": "s", "steps": [[0, "ok"]],
+                                    "user_id": "u1", "email": "a@b.c", "session_id": "s1", "ip": "1.2.3.4", "verified": True})
+        assert cleaned == {"task": "t", "ref_reply": "ok", "ref_snap": "s", "steps": [[0, "ok"]]}
+        assert anonymize_record({"task": "t", "user_id": "u1", "verified": False}) is None
+        import tempfile
+        sess = Path(tempfile.mkdtemp()) / "sessions.jsonl"
+        sess.write_text(json.dumps({"task": "t", "ref_reply": "ok", "steps": [[0, "ok"]], "user_id": "u1", "verified": True}) + "\n", encoding="utf-8")
+        loaded = load_session_pairs(sess)
+        assert loaded == [{"task": "t", "ref_reply": "ok", "steps": [[0, "ok"]]}] and "user_id" not in loaded[0]
+        print("safe_evolve self-test OK")
+        raise SystemExit(0)
+    raise SystemExit("safe_evolve.py is imported by the Studio trainer (pass --selftest)")

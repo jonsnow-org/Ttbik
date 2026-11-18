@@ -51,5 +51,6 @@ jobs:
           ARGS: ${{ inputs.args }}
         run: |
           echo "::add-mask::$MS_TOKEN"; echo "::add-mask::$MS_AI_TOKEN"; echo "::add-mask::$KAGGLE_API_TOKEN"
+          if [ "${{ inputs.target }}" = notebook ] && [ "$SCRIPT" != backup_workspace.sh ]; then echo "::error::target=notebook is kept only for backup_workspace.sh (the notebook stays stopped; use target=studio)"; exit 1; fi
           case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh|distill_publish.sh|distill_local.sh|infer_bench.sh|backup_workspace.sh|runner_check.sh) ;; *) echo "script not allowed"; exit 1;; esac
           bash "scripts/notebook-node/$SCRIPT" $ARGS

@@ -5,11 +5,17 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+  # GitHub drops many scheduled runs in this repo (gaps of 2-3 h seen 2026-11-18), so also run after every Studio deploy and every merge to the default branch
+  workflow_run:
+    workflows: ["Deploy the Sham live-trainer Studio (free ModelScope CPU, GPU if the Studio has one)", "Deploy the sham-runner Studio (GitHub self-hosted runner `studio` + the notebook's data, modelscope.ai)"]
+    types: [completed]
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
 permissions:
   contents: read
 concurrency:
   group: keep-warm-chat-studios
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   ping:
     runs-on: ubuntu-latest

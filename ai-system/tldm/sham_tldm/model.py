@@ -106,14 +106,15 @@ class ShamBodyTLDM(nn.Module):
     def read(self, ids):
         self._hs.clear()
         self.body(ids)
-        return self._hs[-1]
+        return self._hs[-1].float()                                  # a bf16 body feeds the fp32 head
 
     def loss(self, ids, target, pad_mask=None):
         return self.core.loss(self.read(ids), pad_mask, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None, temperature: float = 0.0):
-        return self.core.generate(self.read(ids), pad_mask, steps, early_exit, temperature)
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None, temperature: float = 0.0, confident: float = 0.0):
+        """confident > 0: the writer stops early once every position is that sure (the same option as Sham1_TLDM and DonorTLDM)."""
+        return self.core.generate(self.read(ids), pad_mask, steps, early_exit, temperature, confident)
 
     def trainable_report(self) -> dict:
         tot = sum(p.numel() for p in self.parameters())

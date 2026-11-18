@@ -64,6 +64,30 @@ jobs:
           echo "create HTTP $code (hardware $HW)"; head -c 800 create.json; echo
           [ "$code" -lt 300 ] || { echo "::error::Studio creation refused"; exit 1; }
           sleep 10
+      - name: Mirror the GitHub runner tarball to a private ModelScope repo (github.com downloads hang from the Studio)
+        env:
+          MS_AI_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MS_AI_TOKEN"
+          V=$(gh api repos/actions/runner/releases/latest --jq .tag_name | tr -d v)
+          echo "RUNNER_VERSION=$V" >> "$GITHUB_ENV"; echo "runner v$V"
+          F=actions-runner-linux-x64-$V.tar.gz
+          curl -fsSL -o "$F" "https://github.com/actions/runner/releases/download/v$V/$F"
+          pip install -q modelscope
+          MODELSCOPE_DOMAIN=www.modelscope.ai F="$F" python3 - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+          api = HubApi(); api.login(os.environ["MS_AI_TOKEN"])
+          repo, f = "Jonjithup/sham-runner-bin", os.environ["F"]
+          api.create_repo(repo, visibility="private", repo_type="model", exist_ok=True)
+          have = {str(x.get("Path") or x.get("path")) for x in (api.get_model_files(repo, recursive=True) or [])}
+          if f in have:
+              print("already mirrored:", f)
+          else:
+              api.upload_file(repo_id=repo, path_or_fileobj=f, path_in_repo=f, commit_message="runner " + f); print("mirrored:", f)
+          PY
       - name: Push the app to the Studio
         env:
           T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
@@ -97,6 +121,8 @@ jobs:
           set_secret MODELSCOPE_API_TOKEN "$T"
           set_secret SHAM_RESTORE_REPO "$RESTORE"
           set_secret GH_RUNNER_NAME "studio-$REPO"
+          set_secret GH_RUNNER_VERSION "$RUNNER_VERSION"
+          set_secret GH_RUNNER_MIRROR "Jonjithup/sham-runner-bin"
           if [ -n "$REG" ]; then set_secret GH_RUNNER_REG_TOKEN "$REG"; else echo "::warning::STUDIO_RUNNER_REG_TOKEN is empty: an already registered runner keeps working, a new one cannot register"; fi
           rm -f secret.json r.json
       - name: Deploy and wait until Running

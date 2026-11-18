@@ -8,6 +8,27 @@ import torch.nn as nn
 from .model import _Core
 
 
+class FeatureTLDM(nn.Module):
+    """The head on PRE-COMPUTED reader features (B, L, d_in) of any frozen body: proj + Compressor + Thinker + Writer. Used when the body is too big to run at every
+    training step on a CPU (Sham 2, 1.7B): each text goes through the body once, its features are kept, and only this head trains."""
+
+    def __init__(self, d_in: int, d: int = 256, latents: int = 16, think_steps: int = 5, block: int = 32, writer_layers: int = 3, heads: int = 4, vocab: int = 257,
+                 think_exit: str = "change", think_min_steps: int = 2):
+        super().__init__()
+        self.proj = nn.Linear(d_in, d)
+        self.core = _Core(d, latents, think_steps, block, writer_layers, heads, vocab, think_exit, think_min_steps)
+
+    def loss(self, h, pad, target):
+        return self.core.loss(self.proj(h), pad, target)
+
+    @torch.no_grad()
+    def generate(self, h, pad, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
+        return self.core.generate(self.proj(h), pad, steps, early_exit, temperature, confident)
+
+    def count_params(self):
+        return sum(p.numel() for p in self.parameters())
+
+
 class DonorTLDM(nn.Module):
     def __init__(self, donor_path: str, d: int = 256, latents: int = 16, think_steps: int = 5, block: int = 24, writer_layers: int = 3, heads: int = 4, vocab: int = 257,
                  in_len: int = 32, think_exit: str = "change", think_min_steps: int = 2):
