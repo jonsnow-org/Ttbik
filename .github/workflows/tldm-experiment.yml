@@ -28,16 +28,26 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install numpy && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-      - name: Tests
-        run: python ai-system/tldm/scripts/test_all.py 2>&1 | tee /tmp/test_all.log
+      - name: Tests (a failing test fails the job)
+        run: |
+          set -o pipefail
+          python ai-system/tldm/scripts/test_all.py 2>&1 | tee /tmp/test_all.log
+      - name: Mesh tests (collaborative terminal)
+        run: |
+          set -o pipefail
+          python ai-system/terminal/test_mesh.py 2>&1 | tee /tmp/test_mesh.log
+          python ai-system/terminal/test_tasks.py 2>&1 | tee /tmp/test_tasks.log
+          python -m pip install pillow 2>&1 | tail -1
+          python ai-system/terminal/test_media_workers.py 2>&1 | tee /tmp/test_media.log
       - name: Decisive experiment (train, run the 30 + 12 tasks in the sandbox, benchmark)
+        if: always()
         run: |
           cd ai-system/tldm
           python training/train_0.3b.py --config "configs/${{ inputs.config || 'experiment_0.3b_bpe.yaml' }}" --steps "${{ inputs.steps || '0' }}" --out checkpoints/exp/final.pt 2>&1 | tee /tmp/train.log
           python eval/benchmark.py --ckpt checkpoints/exp/final.pt 2>&1 | tee /tmp/bench.log
           python terminal/terminal_loop.py --ckpt checkpoints/exp/final.pt --demo 2>&1 | tee /tmp/demo.log
       - name: Agent loop and self-evolution (optional)
-        if: ${{ inputs.run_loop == 'true' || github.event_name == 'push' }}
+        if: ${{ always() && (inputs.run_loop == 'true' || github.event_name == 'push') }}
         run: |
           cd ai-system/tldm
           python training/train_loop.py --config configs/loop.yaml 2>&1 | tee /tmp/loop.log
