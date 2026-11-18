@@ -97,6 +97,12 @@ def main():
     model = build(cfg)
     print(f"tokenizer: {tok.kind}, vocabulary {tok.vocab}; a command averages {sum(len([i for i in tok.encode(c, 64) if i]) for _, c in T.TRAIN)/len(T.TRAIN):.1f} tokens", flush=True)
     print(f"params: {model.count_params()/1e6:.1f}M (the name '0.3B' is the book's; this configuration really has this many)", flush=True)
+    # Startup self-check: a missing MiniLM tokenizer silently becomes BertTokenizer and the cycle scores at the floor (0.067/0.083/0.071). Fail now.
+    if cfg.get("donor"):
+        from sham_tldm.donor import check_donor_features, check_donor_tokenizer
+        check_donor_tokenizer(model.dtok)
+        sims = check_donor_features(model.donor, model.dtok)
+        print(f"donor sanity: tokenizer ok, reader feature cosine={['%.3f' % s for s in sims]}", flush=True)
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=cfg["lr"], weight_decay=0.01)
     ids, tgt = batch(rows, cfg, tok)
     rng = random.Random(a.seed)
@@ -119,6 +125,15 @@ def main():
         if every and (step + 1) % every == 0:
             r, _ = evaluate(model, T.TRAIN, cfg, cfg["diffusion_steps"], tok)     # logged only: nothing is selected on the held-out set
             print(f"   [train-set check @ {step+1}] same-effect {r['same_effect']} exact {r['exact_text']}", flush=True)
+            model.train()
+        if cfg.get("donor") and cfg["steps"] >= 50 and step + 1 == 50:
+            r, _ = evaluate(model, T.TRAIN, cfg, cfg["diffusion_steps"], tok)
+            print(f"donor sanity eval @ 50: train same-effect {r['same_effect']} exact {r['exact_text']}", flush=True)
+            if r["same_effect"] <= 0.2:
+                raise RuntimeError(
+                    f"donor sanity eval is at the floor (train same-effect {r['same_effect']}); "
+                    "the frozen reader is unusable (usually a missing tokenizer.json). refusing to continue"
+                )
             model.train()
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     torch.save({"cfg": cfg, "model": model.head_state() if hasattr(model, "head_state") else model.state_dict(), "tokenizer": tok.state()}, a.out)
