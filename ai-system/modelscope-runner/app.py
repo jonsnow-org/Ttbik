@@ -24,7 +24,12 @@ from pathlib import Path
 DISK = Path(os.environ.get("SHAM_RUNNER_DISK") or "/mnt/workspace")
 if not (DISK.is_dir() and os.access(DISK, os.W_OK)):
     DISK = Path.home() / "workspace"        # shown on the status page as disk: it is NOT persistent, so a restart re-restores and re-registers
-RUNNER_DIR = DISK / "gh_runner"
+# /mnt/workspace on an international Studio is an ossfs (OSS object storage) mount: persistent but far too slow for the runner's thousands of small files and its job work dirs
+# (read from the run log 2026-11-18: the first deploy never finished unpacking there). So the runner lives on the container's local disk and only its 3 small credential files are
+# kept on the persistent mount, copied back at every start: a restart or wake-up re-downloads the runner (~200 MB) but never needs a new registration token.
+RUNNER_DIR = Path(os.environ.get("GH_RUNNER_DIR") or (Path.home() / "gh_runner"))
+RUNNER_CFG = DISK / "gh_runner_cfg"
+CFG_FILES = (".runner", ".credentials", ".credentials_rsaparams")
 RESTORE_DIR = DISK / ".restore"
 REPO_URL = "https://github.com/jonsnow-org/Ttbik"
 RUNNER_VERSION = os.environ.get("GH_RUNNER_VERSION") or "2.338.2"     # the runner updates itself after registering
@@ -127,6 +132,7 @@ def install_runner() -> bool:
     if (RUNNER_DIR / "run.sh").exists():
         return True
     RUNNER_DIR.mkdir(parents=True, exist_ok=True)
+    _set(runner_disk=str(RUNNER_DIR), runner_free_gb=round(shutil.disk_usage(RUNNER_DIR).free / 2**30, 1))
     url = f"https://github.com/actions/runner/releases/download/v{RUNNER_VERSION}/actions-runner-linux-x64-{RUNNER_VERSION}.tar.gz"
     _set(runner=f"downloading runner v{RUNNER_VERSION}")
     tgz = RUNNER_DIR / "r.tgz"
@@ -142,8 +148,17 @@ def install_runner() -> bool:
     return True
 
 
+def _copy_cfg(src: Path, dst: Path) -> bool:
+    if not all((src / f).exists() for f in CFG_FILES):
+        return False
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in CFG_FILES:
+        shutil.copyfile(src / f, dst / f)
+    return True
+
+
 def register_runner() -> bool:
-    if (RUNNER_DIR / ".runner").exists():
+    if (RUNNER_DIR / ".runner").exists() or _copy_cfg(RUNNER_CFG, RUNNER_DIR):
         return True
     tok = os.environ.get("GH_RUNNER_REG_TOKEN") or ""
     if not tok:
@@ -156,6 +171,7 @@ def register_runner() -> bool:
     if r.returncode:
         _set(runner=f"registration failed (exit {r.returncode}): {out[-300:]}")
         return False
+    _set(runner="registered" + ("" if _copy_cfg(RUNNER_DIR, RUNNER_CFG) else " (credentials NOT saved to the persistent disk: a restart will need a new token)"))
     return True
 
 
@@ -195,6 +211,14 @@ def selftest() -> int:
     assert target_name("data__x") == "nas_data" and target_name("sham_trainer") == ""
     env = (os.environ.__setitem__("GH_RUNNER_REG_TOKEN", "x") or _runner_env())
     assert "GH_RUNNER_REG_TOKEN" not in env and env["RUNNER_ALLOW_RUNASROOT"] == "1"
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        a, b = Path(t) / "a", Path(t) / "b"
+        a.mkdir()
+        assert not _copy_cfg(a, b)
+        for f in CFG_FILES:
+            (a / f).write_text(f)
+        assert _copy_cfg(a, b) and (b / ".credentials").read_text() == ".credentials"
     print("sham-runner self-test OK")
     return 0
 
