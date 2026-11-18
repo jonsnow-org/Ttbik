@@ -36,6 +36,10 @@ CHEAT_RAW = "https://raw.githubusercontent.com/cheat/cheatsheets/master/{cmd}"  
 CHEAT_LICENSE = "https://raw.githubusercontent.com/cheat/cheatsheets/master/.github/LICENSE.txt"
 AWESOME_BASH = "https://raw.githubusercontent.com/LeCoupa/awesome-cheatsheets/master/languages/bash.sh"   # MIT
 AWESOME_LICENSE = "https://raw.githubusercontent.com/LeCoupa/awesome-cheatsheets/master/LICENSE"
+LCL_RAW = "https://raw.githubusercontent.com/SimonSchubert/LinuxCommandLibrary/master/assets/commands/{cmd}.md"
+LCL_LICENSE = "https://raw.githubusercontent.com/SimonSchubert/LinuxCommandLibrary/master/LICENSE"
+# LinuxCommandLibrary: code Apache-2.0; its "# TLDR" examples are its own (Apache-2.0) or adapted from tldr-pages (CC-BY-4.0, attributed in its README).
+# Only that section is read: the man-page sections are copyrighted by their authors and are never used.
 SE_API = "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=votes&q={q}&site=unix&filter=withbody&pagesize={n}"
 INJECTION = re.compile(r"(?i)(ignore (?:all |any )?(?:previous|prior|above) (?:instructions|prompts)|disregard (?:the|your) (?:rules|instructions)|you are (?:now )?(?:an? )?(?:ai|assistant|chatgpt)|system prompt|<script|BEGIN (?:SYSTEM|INSTRUCTIONS)|do not tell the user)")
 
@@ -56,7 +60,7 @@ def detect_license(text: str) -> str:
 
 
 # ---------------------------------------------------------------- what to look for (the model's own gaps)
-SANDBOX_COMMANDS = ["ls", "cat", "echo", "pwd", "head", "tail", "wc", "grep", "sort", "uniq", "touch", "date", "seq", "tr", "cut", "basename", "dirname", "stat", "mkdir"]
+SANDBOX_COMMANDS = ["ls", "cat", "echo", "pwd", "head", "tail", "wc", "grep", "sort", "uniq", "touch", "date", "seq", "tr", "cut", "basename", "dirname", "stat", "mkdir", "cp", "mv"]
 
 
 def knowledge_gaps(failures: list, known_commands: set) -> list:
@@ -145,6 +149,12 @@ class WebFetcher:
         t = self.get(AWESOME_BASH)
         if t:
             pages.append({"source": "awesome-cheatsheets", "url": AWESOME_BASH, "license": detect_license(self.get(AWESOME_LICENSE) or ""), "text": t, "lang": "pages"})
+        lcl_lic = detect_license(self.get(LCL_LICENSE) or "")
+        for cmd in gaps:
+            url = LCL_RAW.format(cmd=cmd)
+            t = self.get(url)
+            if t and lcl_lic == "Apache-2.0":
+                pages.append({"source": "linuxcommandlibrary", "url": url, "license": "Apache-2.0+CC-BY-4.0", "text": t, "lang": "pages"})
         for cmd in gaps[:se_queries]:
             url = SE_API.format(q=urllib.parse.quote(f"{cmd} command"), n=3)
             t = self.get(url)
@@ -154,7 +164,8 @@ class WebFetcher:
 
 
 # ---------------------------------------------------------------- extraction (fetched text is data)
-FIXTURE_FILES = {"file": ["app.log", "names.txt", "README.md"], "directory": ["."], "pattern": ["ERROR", "INFO"]}
+FIXTURE_FILES = {"file": ["app.log", "names.txt", "README.md"], "directory": ["."], "pattern": ["ERROR", "INFO"], "output": ["out.txt", "result.txt", "copy.txt"],
+                 "text": ["hello", "done", "backup ready"]}
 
 
 def _instantiate(cmd: str, i: int):
@@ -169,9 +180,13 @@ def _instantiate(cmd: str, i: int):
         if re.fullmatch(r"-\w+|--[\w-]+", inner):
             return inner
         low = inner.lower()
-        if re.search(r"dirname|new_?dir|path/to/new", low):
+        if re.search(r"output_?file|out_?file|new_?file|target_?file|destination(?:_?file)?$|^dest$|^target$|path/to/(?:output|target|destination)", low):
+            v = FIXTURE_FILES["output"][(i + len(used)) % 3]
+        elif re.fullmatch(r"(?:some_|your_)?(?:text|message|words?|content)", low):
+            v = FIXTURE_FILES["text"][i % 3]
+        elif re.search(r"dirname|new_?dir|path/to/new", low):
             v = "newdir"
-        elif re.search(r"path/to/(?:input_)?file\d*$|^(?:input)?file(?:name)?\d*$|path/to/file\d*\.\w+|^filenames?$", low):
+        elif re.search(r"path/to/(?:input_|source_)?file\d*$|^(?:input|source)?_?file(?:name)?\d*$|^source$|path/to/file\d*\.\w+|^filenames?$", low):
             v = FIXTURE_FILES["file"][(i + len(used)) % 3]
         elif re.search(r"directory|folder", low):
             v = "."
@@ -204,11 +219,19 @@ def _pairs(desc: str, cmd: str, p: dict, n_files: int = 3) -> list:
         if re.search(r"<[\w./-]+>", task):
             continue
         task = task[0].lower() + task[1:] if task[:1].isupper() and not task[:2].isupper() else task
-        files = [v for v in (used or {}).values() if "." in v and v != "."]
-        for f in files:                                             # the argument goes into the task, as a user would say it
-            task2 = re.sub(r"\b(?:a|the|given|specific|your) (?:file|text file|filename)\b|\bملف\b", f, task, count=1)
-            task = task2 if task2 != task else task + f" in {f}"
-        out.append({"task": task[:64], "command": c, "url": p["url"], "license": p["license"], "source": p["source"]})
+        vals = list(dict.fromkeys((used or {}).values()))
+        outs = [v for v in vals if v in FIXTURE_FILES["output"]]
+        files = [v for v in vals if "." in v and v != "." and v not in outs]
+        if files:                                                   # the arguments go into the task, as a user would say them
+            fl = " and ".join(files)
+            task2 = re.sub(r"\b(?:(?:a|the|given|specific|your|multiple|two|several) )?(?:text )?(?:files?|filenames?)\b|\bملف\b", fl, task, count=1)
+            task = task2 if task2 != task else task + f" in {fl}"
+        if outs:
+            ar = bool(re.search(r"[\u0600-\u06FF]", task))
+            t2 = re.sub(r"\b(?:to|into) (?:another location|another directory|a new location|(?:the )?destination|another file)\b|إلى موقع آخر|داخل مجلد",
+                        ("إلى " if ar else "to ") + outs[0], task, count=1)
+            task = t2 if t2 != task else task + (" إلى " if ar else " into ") + outs[0]
+        out.append({"task": task[:96], "command": c, "url": p["url"], "license": p["license"], "source": p["source"]})
     return out
 
 
@@ -231,6 +254,12 @@ def extract(pages: list) -> list:
             for cmd, desc in re.findall(r"^(\S[^#\n]*?)\s+#\s+([^\n]+)$", text, re.M):
                 if cmd.split()[0] in SANDBOX_COMMANDS:
                     out += _pairs(desc.split(",")[0].split(". ")[0], cmd.strip(), p)
+        elif p["source"] == "linuxcommandlibrary":
+            m = re.search(r"^# TLDR\s*\n(.*?)(?=^# |\Z)", text, re.M | re.S)
+            for desc, cmd in re.findall(r"^\*\*(.+?)\*\*[^\n]*\n\s*\n```([^`\n]+)```", m.group(1) if m else "", re.M):
+                cmd = re.sub(r"\"\[([^\]\"]+)\]\"", r'"\1"', cmd.strip())                    # "[Hello World]" -> "Hello World"
+                cmd = re.sub(r"(?<![\w'\"\[])\[((?:path/to/)?[a-z][a-z0-9_]*(?:\.\w+)?)\](?!\])", r"{{\1}}", cmd)   # [file] placeholders; '[a-z]' sets stay
+                out += _pairs(desc, cmd, p)
         elif p["source"] == "unix.stackexchange":
             try:
                 items = json.loads(text).get("items", [])
@@ -264,7 +293,7 @@ def verify_and_filter(cands: list, heldout_tasks: list, block_fits=None, allowed
         if "rejected" in c:
             no(c["rejected"])
             continue
-        if c["license"] not in allowed:
+        if not all(x in allowed for x in c["license"].split("+")):        # "A+B": every part must be permissive
             no(f"licence {c['license']} not permissive")
             continue
         task, cmd = scrub(c["task"]), c["command"].strip()
@@ -292,11 +321,16 @@ def verify_and_filter(cands: list, heldout_tasks: list, block_fits=None, allowed
         if block_fits and not block_fits(cmd):
             no("command longer than the writer's block")
             continue
-        ok1, out1, snap1 = T.execute(cmd, confirm=False)
+        if re.search(r"\[(?:regex|pattern|text|string|file|path|path/to/[^\]]*)\]", cmd):          # an unfilled placeholder left in the command
+            no("unfilled placeholder")
+            continue
+        # a fresh throw-away fixture folder: commands that ask for confirmation at work time (mkdir, cp, mv, rm) are confirmed HERE so that their
+        # verified uses can be learned; at work time the user is still asked.
+        ok1, out1, snap1 = T.execute(cmd, confirm=True)
         if not ok1:
             no("did not run / non-zero exit in the sandbox")
             continue
-        ok2, out2, snap2 = T.execute(cmd, confirm=False)
+        ok2, out2, snap2 = T.execute(cmd, confirm=True)
         base = T.execute("true")[2]
         if (out1, snap1) != (out2, snap2) and "<time>" not in out1:
             no("not deterministic")

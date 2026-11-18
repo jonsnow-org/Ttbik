@@ -196,6 +196,25 @@ class Web(unittest.TestCase):
         self.assertEqual(r.route(["count lines please", "sort names please", "json keys please", "zip archive please"]), [None, None, "web_json", "kn_archive"])
 
 
+class WebSources(unittest.TestCase):
+    def test_linuxcommandlibrary_tldr_section_and_confirmed_writes(self):
+        """LinuxCommandLibrary: only its "# TLDR" examples are read (licence Apache-2.0 + CC-BY-4.0); write commands that need confirmation at work time
+        (cp, mkdir) are verified in a throw-away folder and kept; man-page sections are ignored."""
+        page = {"source": "linuxcommandlibrary", "url": "u", "license": "Apache-2.0+CC-BY-4.0", "lang": "pages", "text":
+                "# TAGLINE\n\nx\n\n# TLDR\n\n**Copy a file**\n\n```cp [source] [destination]```\n\n**Sort numerically**\n\n```sort -n [file]```\n\n"
+                "# SYNOPSIS\n\n**Never read this**\n\n```cat [file]```\n"}
+        cands = WL.extract([page])
+        cmds = {c["command"] for c in cands}
+        self.assertIn("cp app.log result.txt", cmds)
+        self.assertIn("sort -n names.txt", cmds)
+        self.assertFalse(any(c.startswith("cat") for c in cmds))
+        kept, rep = WL.verify_and_filter(cands, heldout_tasks=[])
+        self.assertIn("cp app.log result.txt", {k["command"] for k in kept})
+        self.assertIn("copy app.log into result.txt", {k["task"] for k in kept})
+        kept2, rep2 = WL.verify_and_filter(cands, heldout_tasks=[], allowed={"Apache-2.0"})        # every part of "A+B" must be allowed
+        self.assertEqual(kept2, [])
+
+
 class Guard(unittest.TestCase):
     def test_guard_disjoint_from_heldout(self):
         """The gate's GUARD set never overlaps held-out (held-out stays evaluation-only) and training text close to it is decontaminated."""
