@@ -1,8 +1,13 @@
 import { coderToolsFor } from "@/lib/coderAgent";
-import { agentsAllowedFor, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { agentsAllowedFor, coderChat, coderJobResult, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, nova2WarmStartReady, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
+
+jest.mock("@/lib/hostedSecrets", () => ({
+  secretCached: jest.fn(() => ""),
+  getSecret: jest.fn(async (name: string) => name === "AI_NOVA2_TOKEN" ? "db-stored-ai-token" : ""),
+}));
 
 const OLD = ["https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net", "https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net"];
 const N2 = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
@@ -72,6 +77,71 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     process.env.NOVA2_STUDIO_TOKEN = "ai-token";
     expect(modelReady(m)).toBe(true);
     expect(DEFAULT_MODELS.find((x) => x.id === "coder")).toBeTruthy();   // Nova is still there
+  });
+
+  test("an explicit model option routes Nova 2 to its international Studio even outside Nova 2's async context", async () => {
+    process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+    process.env.CODER_STUDIO_BALANCE = "off";
+    const calls: string[] = [];
+    const realFetch = global.fetch;
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (init?.method === "POST") return Response.json({ event_id: "nova2-event" });
+      const payload = JSON.stringify([JSON.stringify({ type: "pending", job: "nova2-job" })]);
+      return new Response("event: complete\ndata: " + payload + "\n\n", {
+        status: 200, headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+    try {
+      const result = await withEngineModel("coder", () => coderChat(
+        [{ role: "user", content: "hello" }],
+        { model: "nova2", waitS: 1, timeoutMs: 5000 },
+      ));
+      expect(result.reply?.job).toBe("s2~nova2-job");
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((url) => url.startsWith(N2))).toBe(true);
+
+      const beforePoll = calls.length;
+      await withEngineModel("coder", () => coderJobResult("s2~nova2-job", 0, 5000));
+      expect(calls.length).toBeGreaterThan(beforePoll);
+      expect(calls.slice(beforePoll).every((url) => url.startsWith(N2))).toBe(true);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test("an explicit Nova 1 option overrides an ambient Nova 2 context", async () => {
+    process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+    process.env.CODER_STUDIO_BALANCE = "off";
+    const calls: string[] = [];
+    const realFetch = global.fetch;
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (init?.method === "POST") return Response.json({ event_id: "nova1-event" });
+      const payload = JSON.stringify([JSON.stringify({ type: "pending", job: "nova1-job" })]);
+      return new Response("event: complete\ndata: " + payload + "\n\n", {
+        status: 200, headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+    try {
+      const result = await withEngineModel("nova2", () => coderChat(
+        [{ role: "user", content: "hello" }],
+        { model: "coder", waitS: 1, timeoutMs: 5000 },
+      ));
+      expect(result.reply?.job).toBe("nova1-job");
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((url) => url.startsWith(OLD[0]))).toBe(true);
+      expect(calls.some((url) => url.startsWith(N2))).toBe(false);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test("Nova 2's first warm-up waits for its encrypted account token on a cold server", async () => {
+    delete process.env.NOVA2_STUDIO_TOKEN;
+    expect(await nova2WarmStartReady()).toBe(true);
   });
 
   test("Nova 2 is independent: its own session on the same Mini App computer as Nova (owner 2026-11-18)", () => {
