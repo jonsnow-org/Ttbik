@@ -7,7 +7,7 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
-import { setDeviceMesh, syncDeviceMesh, useDeviceMesh } from "./deviceMesh";
+import { syncDeviceMesh } from "./deviceMesh";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
 import { threadBubbles } from "@/lib/chatBubbles";
@@ -833,30 +833,6 @@ function Schedules({ c }: { c: Ctx }) {
   );
 }
 
-// ---------------------------------------------------------------- this device as a node of the selected model's mesh (opt-in, src/lib/meshNode.ts)
-function DeviceMeshCard({ model, lang }: { model: string; lang: Lang }) {
-  const m = useDeviceMesh(model);
-  if (!m.mesh) return null;
-  const ar = lang === "ar";
-  const st = m.stats;
-  const sub = m.supported === false
-    ? (ar ? "جهازك لا يدعم التوقيع المطلوب (Ed25519). حدّث تيليجرام أو المتصفح." : "This device lacks the required signing (Ed25519). Update Telegram or the browser.")
-    : (ar ? "اختياري ومطفأ افتراضيًا. أثناء فتح التطبيق يساهم جهازك بحوسبة خفيفة قابلة للتحقق، وبدروس موثّقة لهذا النموذج فقط. لا يُنفَّذ أي أمر على جهازك لأحد، ولا تخرج بياناتك الشخصية، وقائمة منع المالك تنطبق."
-      : "Optional, off by default. While the app is open your device adds light, verifiable compute and signed lessons for this model only. Nobody runs commands on your device, no personal data leaves it, and the owner's deny list applies.");
-  return (
-    <Card title={ar ? "شارك جهازك" : "Share your device"}>
-      <Row icon="🕸️" title={ar ? "انضم لشبكة هذا النموذج" : "Join this model's mesh"} sub={sub}
-        after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={m.on && m.supported !== false} disabled={m.supported === false} aria-label="mesh"
-          onChange={(e) => { const on = e.currentTarget.checked; void setDeviceMesh(model, on).then(() => haptic(on ? "success" : "warning")); }} /></span>} />
-      {m.on && (
-        <Row icon={st?.online ? "🟢" : "⚪"} chevron={false} title={st?.online ? (ar ? "متصل" : "Online") : (ar ? "غير متصل" : "Offline")}
-          sub={m.error || (st ? (ar ? `أجهزة أخرى: ${st.peers} · دروس موثّقة: ${st.lessons} · مهام حوسبة: ${st.jobs_served} · مرفوض: ${st.lessons_rejected + st.forged_rejected}`
-            : `Other nodes: ${st.peers} · verified lessons: ${st.lessons} · compute jobs: ${st.jobs_served} · refused: ${st.lessons_rejected + st.forged_rejected}`) : "…")} />
-      )}
-    </Card>
-  );
-}
-
 // ---------------------------------------------------------------- Settings (Mira's grouped cards)
 function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; modelsError: string; modelsLoading: boolean; reloadModels: () => Promise<boolean> }) {
   const { t, n, lang, me, owner, open, reload } = c;
@@ -919,7 +895,6 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
           </>
         )}
       </Card>
-      <DeviceMeshCard model={s.model} lang={lang} />
       {me.features?.tldm && c.bind.tldm && (                                             /* T-LDM belongs to Sham Pro: shown only while it is the selected model */
         <Card title={lang === "ar" ? "T-LDM لشام برو" : "T-LDM for Sham Pro"}>
           <Row icon="⚡" title={lang === "ar" ? "تفعيل T-LDM" : "Enable T-LDM"}
@@ -1057,7 +1032,7 @@ export default function NovaApp() {
   const { d: models, load: reloadModels, error: modelsError, loading: modelsLoading } = useModels();
   useFonts();
   const meshModel = me?.settings.model || "";
-  useEffect(() => { if (meshModel) void syncDeviceMesh(meshModel); }, [meshModel]);   // the user's own mesh switch, per model (off by default)
+  useEffect(() => { if (meshModel) void syncDeviceMesh(meshModel); }, [meshModel]);   // silent; follows the owner's switch (default off)
   const reload = useCallback(async () => {
     try { setMe(await api<Me>("me")); setErr(""); } catch (e: any) { setErr(e.status === 401 ? "__tg" : e.message); }
   }, []);

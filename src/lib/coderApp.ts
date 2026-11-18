@@ -160,10 +160,23 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         events: EVENT_TYPES,
       };
     }
+    case "mesh_flag": {
+      // every user's Mini App polls this: the owner's one switch decides whether devices join the mesh (default off)
+      const M = await import("@/lib/meshPolicy");
+      return { on: await M.meshDevicesOn(db) };
+    }
+    case "mesh_devices": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const M = await import("@/lib/meshPolicy");
+      if (typeof body.on === "boolean") await M.setMeshDevices(body.on, db);
+      return { on: await M.meshDevicesOn(db, true) };
+    }
     case "mesh_vet": {
-      // Device mesh nodes (src/lib/meshNode.ts, opt-in per user in Settings): the owner deny list applies to every user's node, but its
-      // patterns stay private, so the device sends the commands of the lessons it would keep or share and gets back only allowed / refused.
+      // Device mesh nodes (src/lib/meshNode.ts, on for everybody only while the owner's switch is on): the owner deny list applies to every
+      // user's node, but its patterns stay private, so the device sends the commands of the lessons it would keep or share and gets back
+      // only allowed / refused. With the switch off every command is refused (fail closed).
       const raw: unknown[] = Array.isArray(body.commands) ? body.commands.slice(0, 200) : [];
+      if (!(await (await import("@/lib/meshPolicy")).meshDevicesOn(db))) return { reasons: raw.map(() => "mesh off") };
       const P = await import("@/lib/tldmPolicy");
       const policy = await P.refreshTldmPolicy(db).catch(() => null);
       if (!policy) throw new AppError(503, "owner policy unavailable");
