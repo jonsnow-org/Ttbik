@@ -1,0 +1,51 @@
+{
+ "threads": 8,
+ "tldm": {
+  "params_M": 7.7,
+  "ckpt": "checkpoints/loop/final.pt",
+  "all": {
+   "n": 60,
+   "success": 0.75,
+   "median_s_per_task": 0.0886,
+   "median_model_s": 0.0659,
+   "median_exec_s": 0.0231,
+   "tasks_per_s": 10.51,
+   "correct_tasks_per_s": 7.88
+  },
+  "simple": {
+   "n": 37,
+   "success": 0.973,
+   "median_s_per_task": 0.0662,
+   "median_model_s": 0.0529,
+   "median_exec_s": 0.0083,
+   "tasks_per_s": 13.62,
+   "correct_tasks_per_s": 13.25
+  },
+  "multi_step": {
+   "n": 23,
+   "success": 0.391,
+   "median_s_per_task": 0.1225,
+   "median_model_s": 0.0906,
+   "median_exec_s": 0.0285,
+   "tasks_per_s": 7.68,
+   "correct_tasks_per_s": 3.01
+  },
+  "wall_s_incl_reference_runs": 6.87
+ },
+ "explanation_baseline": {
+  "model": "ShamSmall (Sham's autoregressive architecture), untrained, d=256, layers=6",
+  "params_M": 6.8,
+  "tokens": 300,
+  "secs_per_explanation": 0.822,
+  "tokens_per_s": 364.8,
+  "task_success": 0.0,
+  "note": "time to WRITE 300 tokens only; the task is still not done (the user must run it)"
+ },
+ "book_reference": {
+  "old_explanation_s": 33,
+  "old_tok_s": 9,
+  "tldm_task_s": 0.54,
+  "claimed_speedup": 61
+ },
+ "speedup_time_to_answer": 9.3
+}

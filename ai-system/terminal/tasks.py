@@ -6,6 +6,9 @@
   * a step with no check is refused when the plan is made: no measurable result, no acceptance (the report's "the result of the command is the reward");
   * workers: `shell` (the sandboxed terminal), `file` (read/write inside the task folder), `app_tool` and `ask_user` (ports to the web app, which alone holds GitHub / connectors / tokens / the user's confirmation);
     senses and generation (`see` `hear` `write` `make`) plug in here in phase 2 through the same `workers` table.
+Waiting for the user (2026-11-18): with `ask_later=True` a step that needs the user (an ask_user question, a command that needs approval, an app call that needs the
+user's yes) does not block the coordinator: the step becomes `waiting` with its question, the task becomes `waiting_user` and is saved, and `run()` returns. The app
+shows the question with its own ask_user / confirmation; `resume(task, answer)` (even in another process, after `load()`) records the answer and continues.
 `planner.plan(goal) -> list[dict]` and `planner.replan(goal, task, failed_step) -> list[dict]` are any callables (the T-LDM writer, Sham v2, Nova, or a scripted double in tests).
 """
 from __future__ import annotations
@@ -41,9 +44,11 @@ class Step:
     args: dict
     check: dict = field(default_factory=dict)
     needs: list = field(default_factory=list)
-    status: str = "pending"          # pending | done | failed
+    status: str = "pending"          # pending | waiting | done | failed | replaced
     result: str = ""
     tries: int = 0
+    question: str = ""               # what the user is asked while the step is `waiting`
+    answer: str | None = None        # the user's answer, once given (kept in the task file: the owner's audit trail)
 
 
 @dataclass
@@ -51,7 +56,7 @@ class Task:
     id: str
     goal: str
     steps: list = field(default_factory=list)
-    status: str = "new"              # new | running | done | failed | budget
+    status: str = "new"              # new | running | waiting_user | done | failed | budget
     replans: int = 0
     log: list = field(default_factory=list)
     budget: dict = field(default_factory=lambda: {"max_steps": 40, "max_replans": 3, "max_secs": 600})
@@ -71,6 +76,14 @@ def load(path: str) -> Task:
     d = json.load(open(path, encoding="utf-8"))
     d["steps"] = [Step(**s) for s in d["steps"]]
     return Task(**d)
+
+
+class WaitForUser(Exception):
+    """Raised by a worker in ask_later mode: the step cannot go on without the user's answer to `question`."""
+
+    def __init__(self, question: str):
+        super().__init__(question)
+        self.question = question
 
 
 class Verifier:
@@ -121,10 +134,10 @@ class Verifier:
 
 class Coordinator:
     def __init__(self, folder: str, planner, term: SandboxTerminal | None = None, workers: dict | None = None, slots: int = 3,
-                 confirm: Callable[[str], bool] | None = None, app_call: Callable[[str, dict], str] | None = None):
+                 confirm: Callable[[str], bool] | None = None, app_call: Callable[[str, dict], str] | None = None, ask_later: bool = False):
         self.dir = os.path.realpath(folder)
         os.makedirs(self.dir, exist_ok=True)
-        self.planner, self.slots, self.confirm, self.app_call = planner, slots, confirm, app_call
+        self.planner, self.slots, self.confirm, self.app_call, self.ask_later = planner, slots, confirm, app_call, ask_later
         self.term = term or SandboxTerminal(self.dir)
         self.verify = Verifier(self.term.dir)
         self.workers = {"shell": self._shell, "file": self._file, "app_tool": self._app_tool, "ask_user": self._ask_user}
@@ -204,7 +217,13 @@ class Coordinator:
             else:
                 with ThreadPoolExecutor(max_workers=min(self.slots, len(batch))) as ex:
                     results = list(ex.map(self._do, batch))
+            waiting = False
             for s, (ok, out, why) in zip(batch, results):
+                if why == "waiting":                              # not a try: the step pauses until resume() brings the user's answer
+                    s.status, s.question = "waiting", out[:1000]
+                    t.log.append(f"{s.id} waiting for the user")
+                    waiting = True
+                    continue
                 ran += 1
                 s.tries += 1
                 s.result = out[:1500]
@@ -218,11 +237,27 @@ class Coordinator:
                     if not self._replan(t, s, why):
                         s.status = "failed"
                         t.status = "failed"
+            if waiting and t.status == "running":
+                t.status = "waiting_user"
             save(t, self._file_of(t))
-            if t.status in ("failed", "budget"):
+            if t.status in ("failed", "budget", "waiting_user"):
                 break
         save(t, self._file_of(t))
         return t
+
+    def waiting(self, t: Task) -> list:
+        """[(step_id, question)] the user has to answer before the task can go on."""
+        return [(s.id, s.question) for s in t.steps if s.status == "waiting"]
+
+    def resume(self, t: Task, answer: str, step_id: str | None = None, stop_after: int | None = None) -> Task:
+        """The user's answer to a waiting step (the first one if no id): recorded on the step, then the task runs on from where it stopped."""
+        w = [s for s in t.steps if s.status == "waiting" and (step_id is None or s.id == step_id)]
+        if not w:
+            raise ValueError("no step of this task is waiting for the user" + (f" (id {step_id})" if step_id else ""))
+        s = w[0]
+        s.answer, s.status = str(answer)[:400], "pending"
+        t.log.append(f"{s.id} answered by the user: {'yes' if YES.match(s.answer) else 'no'}")
+        return self.run(t, stop_after=stop_after)
 
     def _batch(self, ready: list) -> list:
         """Read-only steps together (up to the slots); a writing step runs alone, in plan order."""
@@ -250,6 +285,8 @@ class Coordinator:
             self.executions += 1
         try:
             ok, out = self.workers[s.kind](s)
+        except WaitForUser as w:
+            return False, w.question, "waiting"
         except Exception as e:                                  # a worker must never take the coordinator down
             return False, f"worker error: {str(e)[:120]}", "worker error"
         if s.kind == "ask_user":
@@ -262,8 +299,15 @@ class Coordinator:
         cmd = s.args.get("command", "")
         self.term.task = s.id
         r = self.term.run(cmd)
-        if r.needs_confirmation and self.confirm is not None and self.confirm(cmd):
-            r = self.term.run(cmd, confirm=True)
+        if r.needs_confirmation:
+            if s.answer is not None:                                    # resumed with the user's answer
+                if not YES.match(s.answer):
+                    return False, f"denied by the user: `{cmd}` was not run"
+                r = self.term.run(cmd, confirm=True)
+            elif self.ask_later:
+                raise WaitForUser(f"Run this command?\n$ {cmd}\n({r.refused or 'needs approval'})")
+            elif self.confirm is not None and self.confirm(cmd):
+                r = self.term.run(cmd, confirm=True)
         return r.ok, r.out if r.ok else (r.refused or r.out)
 
     def _file(self, s: Step) -> tuple[bool, str]:
@@ -285,17 +329,34 @@ class Coordinator:
         name = s.args.get("name", "")
         if self.app_call is None:
             return False, "no runtime attached: app tools are the web app's"
-        if not hasattr(self.app_call, "needs_ok"):
-            if any(w in name.lower() for w in EXTERNAL) and not (self.confirm is not None and self.confirm(f"{name} {json.dumps(s.args.get('arguments', {}), ensure_ascii=False)[:200]}")):
+        args = s.args.get("arguments", {})
+        q = f"{name} {json.dumps(args, ensure_ascii=False)[:200]}"
+        port_rule = hasattr(self.app_call, "needs_ok")
+        needs = self.app_call.needs_ok(name, args) if port_rule else any(w in name.lower() for w in EXTERNAL)
+        approved = False
+        if needs:
+            if s.answer is not None:
+                if not YES.match(s.answer):
+                    return False, f"denied by the user: {name} was not sent"
+                approved = True
+            elif self.ask_later:
+                raise WaitForUser(f"Allow this action? {q}")
+            elif not port_rule and not (self.confirm is not None and self.confirm(q)):
                 return False, "needs the user's confirmation"
         try:
-            return True, str(self.app_call(name, s.args.get("arguments", {})))[:4000]
+            if approved and port_rule:
+                return True, str(self.app_call(name, args, approved=True))[:4000]
+            return True, str(self.app_call(name, args))[:4000]
         except PermissionError as e:
             return False, str(e)[:300]
 
     def _ask_user(self, s: Step) -> tuple[bool, str]:
         """With an app port that loads ask_user, the question goes to the user through the app's own ask_user tool; otherwise through confirm()."""
         q = s.args.get("question", "")
+        if s.answer is not None:                                        # resumed: the answer the app brought back
+            return bool(YES.match(s.answer)), s.answer[:400]
+        if self.ask_later:
+            raise WaitForUser(q)
         ask = getattr(self.app_call, "ask", None)
         if ask is not None and "ask_user" in getattr(self.app_call, "tools", ()):
             try:

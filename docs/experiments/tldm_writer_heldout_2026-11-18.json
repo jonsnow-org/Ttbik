@@ -1,0 +1,83 @@
+{
+ "note": "Held-out generalization experiment, 2026-11-18, box CPU. 3 seeds per arm; 7.7M-param writer (d=256, 4 layers; configs/writer_small_*.yaml). HELDOUT = the original 12 (frozen); HELDOUT2 = 14 new texts frozen before any training with rewordings. Never trained on either. Rewordings: data/rewordings.py (held-out-safe, Jaccard < 0.5).",
+ "arms": {
+  "base": {
+   "config": "writer_small_base.yaml",
+   "train_rows": 30,
+   "heldout": [
+    0.667,
+    0.417,
+    0.583
+   ],
+   "heldout2": [
+    0.286,
+    0.143,
+    0.143
+   ],
+   "train": [
+    0.967,
+    0.967,
+    0.967
+   ],
+   "mean_heldout": 0.556,
+   "mean_heldout2": 0.191,
+   "train_secs": [
+    146,
+    163,
+    152
+   ]
+  },
+  "reword": {
+   "config": "writer_small_reword.yaml",
+   "train_rows": 370,
+   "heldout": [
+    0.583,
+    0.5,
+    0.5
+   ],
+   "heldout2": [
+    0.571,
+    0.5,
+    0.357
+   ],
+   "train": [
+    0.967,
+    0.933,
+    0.967
+   ],
+   "mean_heldout": 0.528,
+   "mean_heldout2": 0.476,
+   "train_secs": [
+    287,
+    177,
+    170
+   ]
+  },
+  "reword48": {
+   "config": "writer_small_reword48.yaml",
+   "train_rows": 473,
+   "heldout": [
+    0.5,
+    0.417,
+    0.333
+   ],
+   "heldout2": [
+    0.714,
+    0.429,
+    0.5
+   ],
+   "train": [
+    0.967,
+    0.933,
+    0.967
+   ],
+   "mean_heldout": 0.417,
+   "mean_heldout2": 0.548,
+   "train_secs": [
+    268,
+    264,
+    248
+   ]
+  }
+ }
+}

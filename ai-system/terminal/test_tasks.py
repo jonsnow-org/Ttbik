@@ -141,6 +141,62 @@ def a_file_step_cannot_leave_the_task_folder():
     assert t.status == "failed" and not os.path.exists(os.path.join(os.path.dirname(c.dir), "escape.txt"))
 
 
+WAIT_PLAN = [
+    {"id": "ask", "kind": "ask_user", "args": {"question": "Write the report?"}},
+    {"id": "backup", "kind": "shell", "args": {"command": "mkdir backup"}, "needs": ["ask"], "check": {"exit0": True}},
+    {"id": "push", "kind": "app_tool", "args": {"name": "github_push", "arguments": {"branch": "x"}}, "needs": ["backup"], "check": {"exit0": True}},
+]
+
+
+@test
+def waiting_for_the_user_pauses_saves_and_resumes_on_the_answer_even_in_a_new_process():
+    sent = []
+    c = coord(Scripted(WAIT_PLAN), ask_later=True, app_call=lambda name, args: (sent.append(name), "pushed")[1])
+    t = c.new_task("ask, back up, push", tid="w1")
+    c.run(t)
+    assert t.status == "waiting_user" and c.waiting(t) == [("ask", "Write the report?")], (t.status, t.log)
+    assert not os.path.isdir(os.path.join(c.dir, "backup")) and sent == [], "nothing after the question runs before the answer"
+    c2 = Coordinator(c.dir, Scripted(WAIT_PLAN), ask_later=True, app_call=lambda name, args: (sent.append(name), "pushed")[1])   # the answer arrives later, another process
+    t2 = load(c2._file_of(t))
+    assert t2.status == "waiting_user" and c2.waiting(t2)[0][0] == "ask"
+    c2.resume(t2, "نعم")
+    assert t2.status == "waiting_user" and c2.waiting(t2)[0][0] == "backup" and "mkdir backup" in c2.waiting(t2)[0][1], "mkdir needs the user's approval: it waits too"
+    assert not os.path.isdir(os.path.join(c.dir, "backup"))
+    c2.resume(t2, "yes")
+    assert os.path.isdir(os.path.join(c.dir, "backup")) and t2.status == "waiting_user" and c2.waiting(t2)[0][0] == "push" and sent == []
+    c2.resume(t2, "ok")
+    assert t2.status == "done" and sent == ["github_push"], (t2.status, t2.log)
+    assert [s.answer for s in load(c2._file_of(t2)).steps] == ["نعم", "yes", "ok"], "the answers stay in the task file"
+
+
+@test
+def a_no_while_waiting_never_runs_the_step_and_the_task_ends_without_it():
+    c = coord(Scripted([dict(WAIT_PLAN[1], needs=[])]), ask_later=True)
+    t = c.run(c.new_task("back up", tid="w2"))
+    assert t.status == "waiting_user"
+    c.resume(t, "لا")
+    assert not os.path.isdir(os.path.join(c.dir, "backup")) and t.status == "failed"
+    assert "denied by the user" in t.step("backup").result
+    try:
+        c.resume(t, "yes")
+        raise AssertionError("resume without a waiting step must fail")
+    except ValueError:
+        pass
+
+
+@test
+def waiting_with_the_app_port_sends_the_approved_call_once_with_its_approval():
+    from app_port import AppPort
+    sent = []
+    port = AppPort(lambda env, ok: (sent.append((env, ok)), "done")[1], ["github_merge_pr", "ask_user"])          # no confirm: the app answers later
+    plan = [{"id": "merge", "kind": "app_tool", "args": {"name": "github_merge_pr", "arguments": {"pr": 1}}, "check": {"exit0": True}}]
+    c = coord(Scripted(plan), ask_later=True, app_call=port)
+    t = c.run(c.new_task("merge", tid="w3"))
+    assert t.status == "waiting_user" and sent == [] and "github_merge_pr" in c.waiting(t)[0][1]
+    c.resume(t, "موافق")
+    assert t.status == "done" and len(sent) == 1 and sent[0][1] is True and "github_merge_pr" in sent[0][0]
+
+
 if __name__ == "__main__":
     bad = 0
     for f in TESTS:

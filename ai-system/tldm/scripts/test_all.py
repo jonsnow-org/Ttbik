@@ -272,6 +272,35 @@ def owner_policy_2026_11_18_shams_computer_plus_approval_before_a_sensitive_comm
 
 
 @test
+def train_sham2_on_a_tiny_body_saves_only_head_and_adapters_and_refuses_a_real_donor_before_the_gate():
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    d = tempfile.mkdtemp(prefix="sham2_test_")
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--tiny", "--steps", "3", "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    assert r["donor_weights_unchanged"] and r["trainable"]["new_head"] > 0
+    saved = torch.load(out)["head_and_adapters"]
+    assert saved and all(k.startswith("core.") or ".adapter_" in k for k in saved), "the output must hold no donor weight"
+    gate = os.path.join(d, "gate.json")
+    _json.dump({"heldout": {"same_effect": 0.417}, "heldout2": {"same_effect": 0.9}}, open(gate, "w"))
+    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--gate", gate, "--out", os.path.join(d, "x.pt")]) == 2, "below the gate: a real donor is refused"
+    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--out", os.path.join(d, "x.pt")]) == 2, "no gate file: refused"
+    assert not os.path.exists(os.path.join(d, "x.pt"))
+
+
+@test
+def rewordings_never_copy_or_come_close_to_a_held_out_task():
+    import rewordings as RW
+    rows = RW.generate()
+    assert len(rows) > 200 and RW.check(rows) == [], RW.check(rows)[:3]
+    assert {c for _, c in rows} <= {c for _, c in T.TRAIN}
+    assert all(T.execute(c)[0] for _, c in RW.HELDOUT2), "every held-out-2 reference command runs"
+
+
+@test
 def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     import unittest
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
