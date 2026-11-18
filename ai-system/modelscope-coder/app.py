@@ -634,16 +634,17 @@ def _view(jid: str, offset: int = 0) -> dict:
         out.update(type="pending", queue_pos=_queue_pos(jid), phase=STATE["phase"])
     elif st == "done":
         out.update(type="done", tool_calls=job.get("tool_calls") or [], timings=job.get("timings") or {})
+    elif st == "cancelled":
+        out.update(type="cancelled")
+    else:
+        out.update(type="error", error=job.get("error", ""))
+    # extra facts only: they never change the type above (2026-11-18: a slot/timing block placed inside this chain turned every pending/done answer into type "error")
     if job.get("started"):
         out["wait_s"] = round(job["started"] - job.get("created", job["started"]), 1)       # queued behind other jobs (or the model loading)
         if job.get("first_at"):
             out["ttft_s"] = round(job["first_at"] - job["started"], 1)                       # prompt reading until the first token
     if job.get("slot_restored"):
         out["restored"] = job["slot_restored"]
-    elif st == "cancelled":
-        out.update(type="cancelled")
-    else:
-        out.update(type="error", error=job.get("error", ""))
     return out
 
 
