@@ -19,7 +19,9 @@ export const TASKS: SuiteTask[] = [
   { id: "github-list", text: "اعرض أسماء الملفات الموجودة في جذر المستودع jonsnow-org/Ttbik على GitHub.", expect: /package\.json|README/i, limitS: 900 },
   { id: "repo-read", text: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة", expect: /next|athar|src|prisma/i, limitS: 1500 },
 ];
-export const IDENTITY: Record<string, RegExp> = { coder: /نوفا|Nova/i, lfm25: /نوفا|Nova|LFM/i, sham: /شام|Sham/i, sham_v2: /شام|Sham/i };
+export const IDENTITY: Record<string, RegExp> = { coder: /نوفا|Nova/i, lfm25: /نوفا|Nova|LFM/i, sham: /شام|Sham/i, sham_v2: /شام برو|Sham Pro/i };
+// Sham v2 (owner, 2026-11-18): self-name «شام برو» / «Sham Pro»; naming its donor is a fail.
+export const IDENTITY_WRONG: Record<string, RegExp> = { sham_v2: /qwen|通义|tongyi|alibaba|علي ?بابا/i };
 export const PROGRESS = /جاري|🕒|⏳/;
 export const ERROR_NOTE = /خطأ داخلي|معلّمة كفاشلة|أعد إرسال طلبك|تعذّر توليد الرد|يتهيأ بعد/;
 export const RAW_MARKUP = /<\/?tool_call>|DSML|function_calls>|<\|[a-z_]+\|>|<\/?think>|<invoke\s+name=/i;
@@ -32,6 +34,7 @@ export function judge(task: SuiteTask, model: string, reply: string, finished: b
   if (ERROR_NOTE.test(r)) return { pass: false, why: "error notice instead of an answer" };
   if ((r.match(/[؀-ۿ]/g) || []).length < 6 && !task.expect) return { pass: false, why: "answer too short to be a reply" };
   if (task.identity && !(IDENTITY[model] || /./).test(r)) return { pass: false, why: "does not introduce itself by its own name" };
+  if (task.identity && IDENTITY_WRONG[model]?.test(r)) return { pass: false, why: "names its donor model, not its own name" };
   if (task.expect && !task.expect.test(r)) return { pass: false, why: "expected fact missing" };
   if (task.tool && !tools.some((t) => task.tool!.test(t))) return { pass: false, why: "the answer did not come from the tool (no matching tool call)" };
   if (!finished) return { pass: false, why: "answer began but the task did not finish in time" };

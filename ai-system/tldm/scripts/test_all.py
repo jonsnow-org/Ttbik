@@ -313,7 +313,7 @@ def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only
     heads = torch.load(out)["heads"]
     assert set(r["identity"]["after"]) == {"identity", "general_nll"} and len(r["identity"]["after"]["identity"]["answers"]) == 8
     import identity as ID
-    assert ID.identity_ok("I am Sham 2.") and ID.identity_ok("أنا شام 2") and not ID.identity_ok("I am Qwen, made by Alibaba Cloud") and not ID.identity_ok("I am Sham, not Qwen")
+    assert ID.identity_ok("I am Sham Pro.") and ID.identity_ok("أنا شام برو") and not ID.identity_ok("I am Qwen, made by Alibaba Cloud") and not ID.identity_ok("I am Sham Pro, not Qwen") and not ID.identity_ok("أنا شام 2")
     assert heads["identity_lora"] and all(".adapter_" in k for k in heads["identity_lora"]), "identity: only LoRA adapters are saved"
     assert set(heads) == {"writer", "loop_seed0", "identity_lora"} and all(k.startswith(("proj.", "core.")) for k in heads["writer"]), "heads only, never a body weight"
     body, _ = train_sham2.tiny_body(4)
