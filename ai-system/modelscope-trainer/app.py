@@ -420,10 +420,14 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
             slim["evolve_kept"] = res["safe_evolve"].get("kept")
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
-    try:
-        published = publish_tldm(work, seed, artifacts)
-    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
-        print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    heldout = _num(res.get("heldout"), "same_effect")
+    if heldout is None or heldout <= 0.2:
+        print("tldm publish skipped: heldout={} is at the floor (need > 0.2)".format(heldout), flush=True)
+    else:
+        try:
+            published = publish_tldm(work, seed, artifacts)
+        except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
+            print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
     out = tldm_flatten(res, seed, bool(published))
     out["hours"] = float(hours)
     print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
@@ -1266,6 +1270,24 @@ if __name__ == "__main__":
         assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
         assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
         assert tldm_next_seed(tldm_tmp) == 2
+        # a floor heldout (missing tokenizer / UNK reader) must not be published
+        floor_n = len(sent_tldm)
+
+        def fake_floor(**kw):
+            rc = fake_tldm(**kw)
+            report = tldm_cmd_opt(kw.get("cmd") or [], "--json") or kw.get("report")
+            if report:
+                Path(report).write_text(json.dumps({
+                    "config": "writer_donor.yaml", "seed": kw["seed"], "train_secs": 1,
+                    "train": {"same_effect": 0.067, "exact_text": 0.067},
+                    "heldout": {"same_effect": 0.083, "exact_text": 0.083},
+                    "heldout2": {"same_effect": 0.071, "exact_text": 0.071},
+                }), encoding="utf-8")
+            return rc
+
+        floor = run_tldm(runner=fake_floor)
+        assert floor["heldout"] == 0.083 and floor["published"] is False, floor
+        assert len(sent_tldm) == floor_n, sent_tldm
         # optional evolve: 0 verified pairs -> adapter not kept; previously-correct regression is refused
         from safe_evolve import anonymize_record, load_session_pairs, no_regress
         assert no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
