@@ -36,6 +36,7 @@ def main():
     ap.add_argument("--passes", default="10,3,2", help="writer passes to time (10 = the default schedule; 2-3 = parallel 0.7 on the gate)")
     ap.add_argument("--blocks", default="128,64")
     ap.add_argument("--modes", default="fp32,bf16,int8")
+    ap.add_argument("--in-bytes", default="64", help="real input bytes per request, rest PAD (64 = a full window; the 30+12+14 gate tasks average 23-27 bytes)")
     ap.add_argument("--batches", default="1", help="requests per generate (batching: one writer pass serves every row)")
     ap.add_argument("--json", default="")
     a = ap.parse_args()
@@ -47,21 +48,23 @@ def main():
             m = Sham1_TLDM(d=1280, layers=12, latents=16, think_steps=5, block=block, writer_layers=4, heads=8, in_len=64, vocab=512).eval()
             params = m.count_params()
             fast_inference(m, mode)
-            for batch in [int(x) for x in a.batches.split(",")]:
+            for batch, nin in [(int(b), int(n)) for b in a.batches.split(",") for n in a.in_bytes.split(",")]:
                 ids = torch.randint(1, 500, (batch, 64))
+                ids[:, nin:] = 0
+                ids_read = ids[:, :nin]                                  # what generate(trim=True) feeds the reader
                 with torch.inference_mode():                     # where one generate's time goes: reader, compressor+thinker, one writer pass
-                    pad = ids == 0
-                    h = m.read(ids)
+                    pad = ids_read == 0
+                    h = m.read(ids_read)
                     z, _ = m.core.latents(h, pad, False)
                     w = m.core.writer
                     tk, mk = torch.zeros(batch, block, dtype=torch.long), torch.ones(batch, block, dtype=torch.bool)
-                    split = {"read_ms": med(lambda: m.read(ids), a.reps)[0], "think_ms": med(lambda: m.core.latents(h, pad, False), a.reps)[0],
+                    split = {"read_ms": med(lambda: m.read(ids_read), a.reps)[0], "think_ms": med(lambda: m.core.latents(h, pad, False), a.reps)[0],
                              "writer_pass_ms": med(lambda: w.logits(tk, mk, z), a.reps)[0]}
                     split = {k: round(v * 1e3, 1) for k, v in split.items()}
-                    print(json.dumps({"block": block, "mode": mode, "batch": batch, "threads": a.threads, **split}), flush=True)
+                    print(json.dumps({"block": block, "mode": mode, "batch": batch, "in_bytes": nin, "threads": a.threads, **split}), flush=True)
                     for passes in [int(x) for x in a.passes.split(",")]:
                         t, tmin = med(lambda: m.generate(ids, steps=passes, end_exit=False), a.reps)
-                        r = {"params_M": round(params / 1e6, 1), "block": block, "mode": mode, "passes": passes, "threads": a.threads, "batch": batch,
+                        r = {"params_M": round(params / 1e6, 1), "block": block, "mode": mode, "passes": passes, "threads": a.threads, "batch": batch, "in_bytes": nin,
                              "ms": round(t * 1e3, 1), "tok_s": round(block * batch / t, 1), "tok_s_best": round(block * batch / tmin, 1), **split}
                         rows.append(r)
                         print(json.dumps(r), flush=True)

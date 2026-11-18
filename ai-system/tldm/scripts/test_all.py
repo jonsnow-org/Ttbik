@@ -496,6 +496,15 @@ def writer_end_exit_is_lossless_and_parallel_threshold_cuts_passes():
     assert w.last_passes == 1, w.last_passes
     m = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
     ids = torch.tensor([encode_bytes("ls -la", 12)])
+    for _ in range(4):                                              # trailing-PAD trim before the reader: same latents, same text
+        torch.manual_seed(10 + _)
+        mt = Sham1_TLDM(d=32, layers=2, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+        bt = torch.tensor([encode_bytes("ls -la", 12), encode_bytes("pwd", 12)])
+        h, pad = mt.read(bt), bt == 0
+        z_full = mt.core.latents(h, pad)[0]
+        z_trim = mt.core.latents(mt.read(bt[:, :6]), pad[:, :6])[0]
+        assert torch.allclose(z_full, z_trim, atol=1e-5), (z_full - z_trim).abs().max()
+        assert torch.equal(mt.generate(bt, steps=4, trim=True)[0], mt.generate(bt, steps=4, trim=False)[0])
     ref = m.generate(ids, steps=4)[0]
     for mode in ("bf16", "int8", "fp32"):
         import copy
