@@ -893,7 +893,7 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
           </>
         )}
       </Card>
-      {me.features?.tldm && (
+      {me.features?.tldm && c.bind.tldm && (                                             /* T-LDM belongs to Sham Pro: shown only while it is the selected model */
         <Card title={lang === "ar" ? "T-LDM لشام برو" : "T-LDM for Sham Pro"}>
           <Row icon="⚡" title={lang === "ar" ? "تفعيل T-LDM" : "Enable T-LDM"}
             sub={lang === "ar" ? "على حاسوب شام برو الداخلي، في مساحتك المعزولة. الأوامر الحساسة تنتظر موافقتك. قائمة منع المالك تنطبق ولا يمكن تجاوزها." : "On Sham Pro's internal computer, in your isolated workspace. Sensitive commands wait for your approval. The owner's deny list applies and cannot be overridden."}

@@ -27,7 +27,6 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
-  const [tldm, setTldm] = useState(false);
   const [tldmOpen, setTldmOpen] = useState(false);
   const [denyText, setDenyText] = useState("");
   const [denySaved, setDenySaved] = useState("");
@@ -41,7 +40,6 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
   useEffect(() => { void api<{ settings?: { tldm?: boolean; tldmOpen?: boolean }; tldmPolicy?: { open?: boolean; deny?: string[] } }>("me").then((r) => {
-    setTldm(Boolean(r.settings?.tldm));
     setTldmOpen(Boolean(r.tldmPolicy?.open ?? r.settings?.tldmOpen));
     const d = (r.tldmPolicy?.deny || []).join("\n");
     setDenyText(d); setDenySaved(d);
@@ -78,8 +76,8 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
       <Section
         header={ar ? "⚡ T-LDM لشام برو" : "⚡ T-LDM for Sham Pro"}
         footer={ar
-          ? "المفتاح الأول يفتح المسار لكل المستخدمين (نفس معنى SHAM_TLDM_OPEN). في وقت العمل: بحث وتصفح وتنفيذ حر داخل مساحة كل مستخدم المعزولة على حاسوب شام برو الداخلي؛ المستخدم يوافق على أوامره الحساسة؛ الكتابة تبقى في مساحته؛ قائمة المنع أدناه تنطبق على الجميع ولا يمكن تجاوزها. المفتاح الثاني يفعّل T-LDM لحسابك أنت. إن لم يكن رأس التدريب جاهزًا تظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-          : "The first switch opens the path to every user (same meaning as SHAM_TLDM_OPEN). At work time: free search, browsing and execution inside each user's isolated workspace on Sham Pro's existing internal computer; that user approves their own sensitive commands; writes stay in their workspace; the deny list below applies to everyone and cannot be overridden. The second switch enables T-LDM for your own account. If the trained head is missing, a clear error is shown and Sham 1 is never used."}
+          ? "المفتاح الأول يفتح المسار لكل المستخدمين (نفس معنى SHAM_TLDM_OPEN). في وقت العمل: بحث وتصفح وتنفيذ حر داخل مساحة كل مستخدم المعزولة على حاسوب شام برو الداخلي؛ المستخدم يوافق على أوامره الحساسة؛ الكتابة تبقى في مساحته؛ قائمة المنع أدناه تنطبق على الجميع ولا يمكن تجاوزها. تفعيله لحسابك أنت في الإعدادات عند اختيار شام برو. إن لم يكن رأس التدريب جاهزًا تظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+          : "The first switch opens the path to every user (same meaning as SHAM_TLDM_OPEN). At work time: free search, browsing and execution inside each user's isolated workspace on Sham Pro's existing internal computer; that user approves their own sensitive commands; writes stay in their workspace; the deny list below applies to everyone and cannot be overridden. Turn it on for your own account in Settings while Sham Pro is selected. If the trained head is missing, a clear error is shown and Sham 1 is never used."}
       >
         <Cell Component="label" multiline
           subtitle={ar ? (tldmOpen ? "مفتوح للجميع: كل مستخدم يستطيع تفعيل T-LDM لنفسه" : "مغلق: المسار للمالك فقط في هذه المرحلة") : (tldmOpen ? "Open to everyone: each user can enable T-LDM for themselves" : "Closed: owner-only during this testing phase")}
@@ -90,16 +88,6 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             setBusy("");
           }} />}>
           {ar ? "فتح T-LDM لجميع المستخدمين" : "Open T-LDM to all users"}
-        </Cell>
-        <Cell Component="label" multiline
-          subtitle={ar ? (tldm ? "مفعّل: رسائلك على شام برو تمرّ عبر T-LDM" : "متوقف: شام برو يرد بمساره الحالي إلى أن تفعّل T-LDM") : (tldm ? "On: your Sham Pro messages use the T-LDM path" : "Off: Sham Pro uses its current path until you turn T-LDM on")}
-          after={<Switch checked={tldm} disabled={busy === "tldm"} onChange={async (e) => {
-            const on = e.currentTarget.checked; setBusy("tldm"); setErr("");
-            try { await api("settings", { for: "sham_v2", tldm: on }); setTldm(on); haptic("success"); }
-            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
-            setBusy("");
-          }} />}>
-          {ar ? "تفعيل T-LDM لحسابي" : "Enable T-LDM for my account"}
         </Cell>
         <Input header={ar ? "قائمة منع المالك (سطر لكل نمط، أو re:تعبير). لا يمكن لأي مستخدم تجاوزها." : "Owner deny list (one pattern per line, or re:regex). Users cannot override it."}
           value={denyText} onChange={(e) => setDenyText(e.currentTarget.value)}
