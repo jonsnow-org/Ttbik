@@ -19,9 +19,9 @@ describe("task suite verdicts", () => {
   it("checks each model's OWN name", () => {
     expect(judge(t("identity"), "sham_v2", "أنا مساعد ذكاء اصطناعي تطوعي واسمي مساعد الذكاء الاصطناعي", true).why).toMatch(/own name/);
     expect(judge(t("identity"), "sham_v2", "أنا شام برو، مساعد ذكاء اصطناعي.", true).pass).toBe(true);
-    expect(judge(t("identity"), "sham_v2", "I am Sham Pro.", true).pass).toBe(true);
+    expect(judge(t("identity"), "sham_v2", "مرحباً، أنا Sham Pro مساعدك.", true).pass).toBe(true);
     expect(judge(t("identity"), "sham_v2", "أنا شام، مساعد ذكاء اصطناعي.", true).why).toMatch(/own name/);
-    expect(judge(t("identity"), "sham_v2", "I am Sham Pro, based on Qwen by Alibaba.", true).why).toMatch(/donor/);
+    expect(judge(t("identity"), "sham_v2", "أنا شام برو، مبني على Qwen من Alibaba.", true).why).toMatch(/donor/);
     expect(judge(t("identity"), "coder", "أنا نوفا، مساعدك البرمجي.", true).pass).toBe(true);
   });
   it("no answer and unfinished tasks fail with the reason", () => {
