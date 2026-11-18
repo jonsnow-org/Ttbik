@@ -26,7 +26,7 @@ export const DEFAULT_MODELS: CoderModel[] = [
   // Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studio, beside Nova (the 4B), which stays as it is. Stronger and slower; owner-only until the owner opens it.
   { id: "nova2", name: { ar: "Nova 2", en: "Nova 2" }, desc: { ar: "Nova بنموذج أكبر وأقوى (Qwen3.6-35B-A3B) على استوديو الحساب الدولي: أبطأ وأعمق. نوفا الأصلي يبقى كما هو.", en: "Nova with a bigger, stronger model (Qwen3.6-35B-A3B) on the international Studio: slower and deeper. The original Nova stays as it is." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "", sort: 0.5 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
-  { id: "sham_v2", name: { ar: "شام v2 (الجديد)", en: "Sham v2 (new)" }, desc: { ar: "شام بجسم جديد، بأدواته ووسائطه واستوديوهاته الخاصة: بحث وGitHub وحاسوب افتراضي وصور وصوت وفيديو.", en: "Sham with a new body, with its own tools, media and Studios: search, GitHub, a private computer, pictures, speech and video." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
+  { id: "sham_v2", name: { ar: "شام 2", en: "Sham 2" }, desc: { ar: "نسخة شام 2 من شام 1، بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham 2, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
   // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
   // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
@@ -59,6 +59,12 @@ export async function listModels(db: Db = prismaDb): Promise<CoderModel[]> {
       const base = byId.get(r.id);
       if (!base) continue;                                    // only known models (a new one is added here in code)
       const name = { ar: String(d.name?.ar || base.name.ar).slice(0, 40), en: String(d.name?.en || base.name.en).slice(0, 40) };
+      if (r.id === "sham_v2") {          // identity fix: stock "Sham v2" labels become "Sham 2"; a custom name the owner typed is kept
+        const stockAr = new Set(["", "شام v2", "شام v2 (الجديد)", "شام (الجديد)"]);
+        const stockEn = new Set(["", "Sham v2", "Sham v2 (new)", "Sham (new)"]);
+        if (stockAr.has(name.ar.trim())) name.ar = base.name.ar;
+        if (stockEn.has(name.en.trim())) name.en = base.name.en;
+      }
       const price_stars = d.price_stars === undefined ? base.price_stars : cleanStars(d.price_stars);
       let visible = d.visible === undefined ? base.visible : Boolean(d.visible);
       let publicRolloutVersion = Number(d.publicRolloutVersion || 0);
@@ -224,4 +230,16 @@ export function setMemorySettings(st: MemoryState, id: string, patch: Partial<Me
   const next: MemorySettings = { remember: typeof patch.remember === "boolean" ? patch.remember : cur.remember, recall: typeof patch.recall === "boolean" ? patch.recall : cur.recall, save: typeof patch.save === "boolean" ? patch.save : cur.save };
   st.memPer = { ...(st.memPer || {}), [mid]: next };
   return next;
+}
+
+// ---------------------------------------------------------------- Sham 2 T-LDM (owner only)
+/** The T-LDM path is an owner-only switch on Sham 2. It never applies to Sham 1, and a user cannot turn it on. */
+export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
+export function tldmEnabled(st: TldmState, id?: string): boolean {
+  return canonModelId(id) === "sham_v2" && st.perModel?.sham_v2?.tldm === true;
+}
+export function setTldmEnabled(st: TldmState, on: boolean): boolean {
+  const cur = st.perModel?.sham_v2 || {};
+  st.perModel = { ...(st.perModel || {}), sham_v2: { ...cur, tldm: Boolean(on) } };
+  return Boolean(on);
 }

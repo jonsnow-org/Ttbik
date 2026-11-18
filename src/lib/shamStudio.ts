@@ -19,6 +19,14 @@ export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
 /** The chat's thinking / accuracy / speed settings for the calls made inside it (set by the bot route around Sham's own handler). */
 export const shamModeCtx = new AsyncLocalStorage<ShamMode>();
 
+/** Owner-only T-LDM path on Sham 2. Never set for Sham 1. When on, calls go to generate_tldm and must not fall back to Sham 1. */
+export const shamTldmCtx = new AsyncLocalStorage<boolean>();
+export const shamTldmOn = (): boolean => {
+  if (shamVariant.getStore() !== "v2") return false;
+  if (shamTldmCtx.getStore() === true) return true;
+  return (shamModeCtx.getStore() as { tldm?: boolean } | undefined)?.tldm === true;
+};
+
 /** Applies the settings to one call: the answer budget scales with accuracy, and the sampling / thought header goes at the start of the prompt (src/lib/shamModes.ts). */
 function withMode(payload: Record<string, unknown>, variant: "v1" | "v2"): Record<string, unknown> {
   const mode = shamModeCtx.getStore();
@@ -241,12 +249,44 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
 
 export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 
+const TLDM_NO_FALLBACK = "تعذّر مسار T-LDM لشام 2. لم يُستخدم شام 1، ولا يوجد تحويل صامت.";
+
+/** Sham 2 T-LDM chat: hidden terminal + the model's existing internal computer. Sham 1 is never used. */
+export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
+  if (shamVariant.getStore() !== "v2") {
+    setFailure("generate_tldm refused outside Sham 2; Sham 1 was not used");
+    return { type: "error", text: "مسار T-LDM متاح لشام 2 فقط. لم يُستخدم شام 1.", reason: "no-fallback" };
+  }
+  const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
+  if (!valid.length || valid[valid.length - 1].role !== "user") {
+    setFailure("generate_tldm requires a final user turn");
+    return { type: "error", text: "generate_tldm requires a final user turn", reason: "no-fallback" };
+  }
+  const body = await shamCall("generate_tldm", {
+    messages_json: JSON.stringify(valid.slice(-12)),
+    session: session || "default",
+    max_new_tokens: 512,
+    tldm_flag: 1,
+  }, timeoutMs);
+  if (!body) {
+    setFailure("generate_tldm: no reply; Sham 1 was not used");
+    return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
+  }
+  const reply = await vetShamReply(parseShamReply(body), opts);
+  if (!reply) {
+    setFailure(`generate_tldm: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")}); Sham 1 was not used`);
+    return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
+  }
+  return reply;
+}
+
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
 export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat refused outside the Sham v2 variant");
     return null;
   }
+  if (shamTldmOn()) return shamGenerateTldm(messages, "", timeoutMs, opts);
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat requires a final user turn");
@@ -343,6 +383,12 @@ export async function shamGenerateChatStream(
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat_stream refused outside the Sham v2 variant");
     return null;
+  }
+  if (shamTldmOn()) {
+    const reply = await shamGenerateTldm(messages, "", timeoutMs, opts);
+    const text = String(reply?.text || "");
+    if (reply?.type === "text" && text && onDelta) onDelta(text);
+    return reply;
   }
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
