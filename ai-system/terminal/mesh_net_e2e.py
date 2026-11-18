@@ -133,7 +133,7 @@ def relay_auth_checks(a) -> dict:
         except urllib.error.HTTPError as e:
             return e.code
     ts = str(int(time.time() * 1000))
-    path = urllib.request.urlparse(url).path
+    path = urllib.request.urlparse(url).path[len(urllib.request.urlparse(a.url).path.rstrip("/")):]     # relative to the relay root (proxy mounts)
     sig = ident.sign(f"POST\n{path}\n{ts}\n{hashlib.sha256(body).hexdigest()}".encode())
     out["unsigned"] = call({})
     out["forged"] = call({"x-mesh-node": Identity.generate().id, "x-mesh-ts": ts, "x-mesh-sig": sig})

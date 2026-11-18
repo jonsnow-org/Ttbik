@@ -4,7 +4,8 @@
  * WebCrypto Ed25519 only (node id = base64url public key). Written so `node --experimental-strip-types` can run it as is (CI e2e).
  *
  * Rules (owner, 2026-11-18):
- *  - opt-in per user and per model; off by default; switching the model switches the mesh (one mesh per model, its own key: no cross-model routing);
+ *  - governed only by the owner's one switch (src/lib/meshPolicy.ts, default off) and silent to users (no notice, badge or log);
+ *    one mesh per model with its own key, so switching the model switches the mesh (no cross-model routing);
  *  - local-first: the key, the lessons and the counters live on the device only; with no relay everything is simply off;
  *  - the device never runs a shell command for anybody: it gives (a) idle compute = pure, verifiable jobs (sha256 / exact_eval) only while
  *    the app is visible and idle, the requester re-checks every shard; (b) knowledge = it answers a peer's `propose` only from lessons it
@@ -232,7 +233,7 @@ export class RelayClient {
   async req(method: "GET" | "POST", route: string, body?: unknown, query = "", timeoutMs = 20000): Promise<Record<string, any>> {
     const data = body === undefined ? "" : JSON.stringify(body);
     const url = this.base + route + (query ? "?" + query : "");
-    const pathq = new URL(url).pathname + (query ? "?" + query : "");
+    const pathq = new URL(url).pathname.slice(new URL(this.root).pathname.replace(/\/+$/, "").length) + (query ? "?" + query : "");   // relative to the relay root (proxy mounts)
     const ts = String(Date.now());
     const sig = await this.ident.sign(`${method}\n${pathq}\n${ts}\n${await sha256hex(enc.encode(method === "GET" ? "" : data))}`);
     const ctl = new AbortController();
