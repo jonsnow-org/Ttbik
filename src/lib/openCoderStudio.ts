@@ -424,7 +424,13 @@ export async function coderChat(
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
   };
-  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools), opts.prefer || "");
+  // The engine is selected in the request options by the durable task runner. Honour it
+  // even when this call is made outside the original Telegram AsyncLocalStorage scope
+  // (for example, a recovered/background leg). Job ids still carry their global Studio
+  // index, so every later poll returns to the Studio that accepted this request.
+  const call = (payload: Record<string, unknown>) => withEngineModel(opts.model ?? currentEngineModel(), () =>
+    coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools), opts.prefer || ""),
+  );
   if (!(opts.priority && opts.priority > 0)) return call(base);                       // no field at all: the payload is what every Studio already understands
   const o = await call({ ...base, priority: 1 });                                     // Pro / owner: ahead in the Studio's queue
   return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it
