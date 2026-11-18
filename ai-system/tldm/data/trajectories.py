@@ -13,8 +13,8 @@ import augment as AUG  # noqa: E402
 
 OUT_FILES = [n + ".txt" for n in ("out", "report", "total", "result", "count", "data", "stats", "final")]
 NEW_FILES = [n + ".txt" for n in ("summary", "answer", "number", "tally", "size")]     # never seen in training: tests copying the name from the task
-CHAT = [("hello", "Hello! How can I help you?"), ("hi", "Hello! How can I help you?"), ("thanks", "You're welcome."), ("who are you", "I am Sham. I work through a terminal."),
-        ("مرحبا", "أهلا بك! كيف أساعدك؟"), ("شكرا", "على الرحب والسعة."), ("من انت", "أنا شام، أعمل عبر طرفية.")]
+CHAT = [("hello", "Hello! How can I help you?"), ("hi", "Hello! How can I help you?"), ("thanks", "You're welcome."), ("who are you", "I am Sham Pro. I work through a terminal."),
+        ("مرحبا", "أهلا بك! كيف أساعدك؟"), ("شكرا", "على الرحب والسعة."), ("من انت", "أنا شام برو، أعمل عبر طرفية.")]
 
 
 def view_text(task: str, hist) -> str:
