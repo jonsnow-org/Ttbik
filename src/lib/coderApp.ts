@@ -334,45 +334,73 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "task_delete": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const visible = await scope(await listTasks(chatId, { limit: 100 }, db));
+      if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "task not found in this model");
       const { archiveTask } = await import("@/lib/coderTasks");
       if (!(await archiveTask(chatId, String(body.runId), db))) throw new AppError(409, "the task is still running or does not exist");
       return { ok: true };
     }
     case "events": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const visible = await scope(await listTasks(chatId, { limit: 100 }, db));
+      if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "task not found in this model");
       const evs = await taskEvents(chatId, body.runId, Number(body.after) || 0, db);
       return { events: user.tier === "owner" ? evs : publicEvents(evs) };
     }
     case "resolve": {
       const answer = body.answer === "yes" || body.answer === "all" || body.answer === "no" ? body.answer : null;
       if (!answer) throw new AppError(400, "bad answer");
-      const ok = await resolvePending(deps.bot, deps.botRow, chatId, String(body.runId || ""), String(body.nonce || ""), answer, db);
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const active = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
+      if (!active.some((t) => t.run_id === String(body.runId || ""))) throw new AppError(404, "pending task not found in this model");
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      const resolve = () => resolvePending(deps.bot, deps.botRow, chatId, String(body.runId || ""), String(body.nonce || ""), answer, db);
+      const ok = body.model === "nova2" || body.model === "lfm25" ? await withEngineModel(body.model, resolve) : await resolve();
       return { ok };
     }
     case "stop": {
       const runId = String(body.runId || "");
-      const requestedSlot = typeof body.slot === "string" ? body.slot : "";
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
+      const target = visible.find((t) => t.run_id === runId);
+      if (!target) return { ok: false };
+      const requestedSlot = typeof body.slot === "string" ? body.slot : target.slot || "";
       if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot) || requestedSlot.startsWith("donor:") || requestedSlot.startsWith("model:")) {
         const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
         const actualSlot = await taskSlot(runId, chatId, db);
         if (actualSlot !== requestedSlot) return { ok: false };
         return { ok: await stopTaskRow(chatId, runId, db) };
       }
-      const slot = /^(|s:[a-f0-9]{12})$/.test(requestedSlot) ? requestedSlot : "";
       const { stopRun } = await sections();
-      return { ok: await stopRun(chatId, slot, runId, db) };
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      const stop = () => stopRun(chatId, target.slot || "", runId, db);
+      const ok = body.model === "nova2" || body.model === "lfm25" ? await withEngineModel(body.model, stop) : await stop();
+      return { ok };
     }
     case "task_stop":
     case "stop_all": {
       // stops one running task (or every running one) from Home: a live Nova run is cancelled like /stop (its Studio job too), any other row is closed in the history
       const { stopRun } = await sections();
       const { stopTaskRow } = await import("@/lib/coderTasks");
-      const scope = op === "stop_all" ? await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db) : async <T,>(x: T[]) => x;   // "stop all" from a model's page stops only that model's tasks
-      const targets = op === "stop_all" ? await scope(await listTasks(chatId, { active: true, limit: 50 }, db)) : (await listTasks(chatId, { active: true, limit: 50 }, db)).filter((t) => t.run_id === String(body.runId || ""));
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const all = await listTasks(chatId, { active: true, limit: 100 }, db);
+      const scoped = await scope(all);
+      const targets = op === "stop_all" ? scoped : scoped.filter((t) => t.run_id === String(body.runId || ""));
       let stopped = 0;
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
       for (const t of targets) {
         if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
-        if (!t.run_id.startsWith("sham-") && !String(t.slot || "").startsWith("model:")) await stopRun(chatId, t.slot || "", t.run_id, db).catch(() => false);
+        if (!t.run_id.startsWith("sham-") && !String(t.slot || "").startsWith("model:")) {
+          const stop = () => stopRun(chatId, t.slot || "", t.run_id, db);
+          await (body.model === "nova2" || body.model === "lfm25" ? withEngineModel(body.model, stop) : stop()).catch(() => false);
+        }
         if (await stopTaskRow(chatId, t.run_id, db)) stopped++;
       }
       return { ok: true, stopped };
