@@ -97,6 +97,7 @@ jobs:
           cd /tmp/studio
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-runner/app.py" "$GITHUB_WORKSPACE/ai-system/modelscope-runner/requirements.txt" .
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/studio_guard.py" .     # 2026-11-18: this Studio also wakes every trainer Studio (cn + ai)
           git config user.name "Sham CI"; git config user.email "ci@sham.local"
           date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
           git add -A
@@ -105,6 +106,7 @@ jobs:
         env:
           T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           REG: ${{ secrets.STUDIO_RUNNER_REG_TOKEN }}
+          TCN: ${{ secrets.MODELSCOPE_TOKEN }}
           RESTORE: ${{ inputs.restore_repo }}
         run: |
           set -eu
@@ -121,6 +123,10 @@ jobs:
           set_secret MODELSCOPE_API_TOKEN "$T"
           set_secret SHAM_RESTORE_REPO "$RESTORE"
           set_secret GH_RUNNER_NAME "studio-$REPO"
+          echo "::add-mask::$TCN"
+          [ -n "$TCN" ] && set_secret MS_GUARD_TOKEN_CN "$TCN"      # the cross-watch: cn trainers too (the .ai token is rejected on .cn)
+          set_secret MS_GUARD_TOKEN_AI "$T"
+          set_secret SHAM_GUARD_SELF "ai/$OWNER/$REPO"
           set_secret GH_RUNNER_VERSION "$RUNNER_VERSION"
           set_secret GH_RUNNER_MIRROR "Jonjithup/sham-runner-bin"
           if [ -n "$REG" ]; then set_secret GH_RUNNER_REG_TOKEN "$REG"; else echo "::warning::STUDIO_RUNNER_REG_TOKEN is empty: an already registered runner keeps working, a new one cannot register"; fi

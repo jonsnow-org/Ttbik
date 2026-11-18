@@ -67,7 +67,20 @@ def save_checkpoint(
     # existence+size check below turns any future silent write failure
     # into a loud, catchable error instead of hours of lost training
     # discovered only when trying to resume.
-    torch.save(payload, path)
+    # 2026-11-18 (Studio supervisor): a cycle killed in the middle of torch.save left a cut final.pt that the resume then tried to load. Now the bytes go to a temp file
+    # first and replace the old checkpoint in one step; if that rename silently does not take effect (the Drive incident above), the direct write is used as before.
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(payload, tmp)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        torch.save(payload, path)
+    if not path.exists() or path.stat().st_size == 0:
+        torch.save(payload, path)
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
     if not path.exists() or path.stat().st_size == 0:
         raise IOError(f"checkpoint write to {path} did not take effect (Drive sync issue?)")
 

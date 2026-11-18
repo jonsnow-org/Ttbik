@@ -1,0 +1,11 @@
+{
+  // studio-guard.jonsnowx1r.workers.dev: wakes the Sham trainer Studios on both ModelScope sites every 10 minutes (see studio-guard-worker.js).
+  // MS_TOKEN_CN / MS_TOKEN_AI are Cloudflare secrets set by .github/workflows/deploy-studio-guard-worker.yml; never store them here.
+  // The KV namespace id is filled in by the deploy workflow (it creates "studio-guard-log" once).
+  "name": "studio-guard",
+  "main": "studio-guard-worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "kv_namespaces": [{ "binding": "LOG", "id": "__KV_ID__" }]
+}
