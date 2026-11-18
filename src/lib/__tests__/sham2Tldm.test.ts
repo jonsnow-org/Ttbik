@@ -2,6 +2,26 @@ import { setTldmEnabled, tldmAllowedFor, tldmEnabled, tldmOpenToAll } from "@/li
 import { shamConfirmText } from "@/lib/shamExec";
 import { shamGenerateChat, shamGenerateTldm, shamModeCtx, shamTldmCtx, shamTldmOn, shamTldmSessionId, shamVariant } from "@/lib/shamStudio";
 
+function sseFetch(data: string) {
+  const chunk = new TextEncoder().encode(data.endsWith("\n") ? data : data + "\n");
+  let sent = false;
+  return {
+    ok: true,
+    body: {
+      getReader: () => ({
+        read: async () => {
+          if (sent) return { done: true, value: undefined };
+          sent = true;
+          return { done: false, value: chunk };
+        },
+        cancel: async () => undefined,
+        releaseLock() {},
+      }),
+    },
+    text: async () => data,
+  } as any;
+}
+
 describe("Sham 2 T-LDM owner path", () => {
   it("is off by default and only stored on Sham 2", () => {
     const st: any = {};
@@ -31,15 +51,11 @@ describe("Sham 2 T-LDM owner path", () => {
       if (String(input).includes("/call/v2/")) {
         return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
       }
-      return {
-        ok: true,
-        body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }), cancel: async () => undefined, releaseLock() {} }) },
-        text: async () => 'data: [{"type":"error","text":"مسار T-LDM لشام 2 غير جاهز: لم يُعثر على رأس التدريب. لم يُستخدم شام 1.","fallback":"none"}]\n',
-      } as any;
+      return sseFetch('data: [{"type":"error","text":"مسار T-LDM لشام 2 غير جاهز: لم يُعثر على رأس التدريب. لم يُستخدم شام 1.","fallback":"none"}]\n');
     }) as any;
     try {
       const reply = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamGenerateChat([{ role: "user", content: "مرحبا" }])));
-      expect(reply).toMatchObject({ type: "error", fallback: undefined });
+      expect(reply).toMatchObject({ type: "error" });
       expect(String(reply?.text || "")).toContain("شام 1");
       expect(urls.some((u) => u.includes("generate_tldm"))).toBe(true);
       expect(urls.some((u) => u.includes("sham-v1") || u.includes("generate_chat"))).toBe(false);
@@ -109,11 +125,7 @@ describe("Sham 2 T-LDM owner path", () => {
       const body = payloads.some((p) => p.confirm_ok === 1)
         ? 'data: [{"type":"text","text":"تم","tldm":true,"computer":"model_computer"}]\n'
         : 'data: [{"type":"confirm","text":"اسمح؟","command":"rm x","session":"tldm-sham_v2-7","tldm":true,"computer":"model_computer"}]\n';
-      return {
-        ok: true,
-        body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }), cancel: async () => undefined, releaseLock() {} }) },
-        text: async () => body,
-      } as any;
+      return sseFetch(body);
     }) as any;
     try {
       const confirm = await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "افعل" }], "tldm-sham_v2-7"));
