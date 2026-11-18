@@ -1,0 +1,1316 @@
+{
+ "date": "2026-11-18",
+ "what": "T-LDM self-evolution benchmark: writer (donor head, gate model) over 3 user rounds + web stage; agent loop (multi-step) over 3 rounds with the full-task benchmark; 3 seeds each; CPU",
+ "reproduce": {
+  "writer": "TLDM_DONOR=<paraphrase-multilingual-MiniLM-L12-v2 dir> python ai-system/tldm/training/train_0.3b.py --config ai-system/tldm/configs/writer_donor.yaml --seed S --out d_S.pt; python ai-system/tldm/eval/self_evolution_benchmark.py --ckpt d_S.pt --train-seed S --rounds 3",
+  "loop": "python ai-system/tldm/training/train_loop.py --config ai-system/tldm/configs/loop.yaml --seed S --out l_S.pt; python ai-system/tldm/eval/self_evolution_loop_benchmark.py --ckpt l_S.pt --seed S --rounds 3"
+ },
+ "writer": {
+  "base_3seed_mean": {
+   "heldout": 0.778,
+   "heldout2": 0.81,
+   "train30": 0.967,
+   "replay150": 0.978,
+   "dev": 0.96
+  },
+  "users": {
+   "curve_3seed_mean": [
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": 0
+    },
+    {
+     "heldout": 0.806,
+     "heldout2": 0.833,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.962,
+     "online": 0.888,
+     "dev_poison_outputs": 0,
+     "round": 1
+    },
+    {
+     "heldout": 0.806,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.964,
+     "online": 0.915,
+     "dev_poison_outputs": 0,
+     "round": 2
+    },
+    {
+     "heldout": 0.861,
+     "heldout2": 0.833,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.965,
+     "online": 0.912,
+     "dev_poison_outputs": 0,
+     "round": 3
+    }
+   ],
+   "per_seed_final": [
+    {
+     "heldout": 0.917,
+     "heldout2": 0.929,
+     "train30": 0.967,
+     "replay150": 0.987,
+     "dev": 0.96
+    },
+    {
+     "heldout": 0.75,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.967
+    },
+    {
+     "heldout": 0.917,
+     "heldout2": 0.714,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.967
+    }
+   ],
+   "adapters_accepted_rejected": [
+    [
+     7,
+     5
+    ],
+    [
+     10,
+     2
+    ],
+    [
+     6,
+     6
+    ]
+   ],
+   "curriculum": [
+    [
+     {
+      "failures": 51,
+      "repaired": 28,
+      "verified_pairs": 74
+     },
+     {
+      "failures": 41,
+      "repaired": 28,
+      "verified_pairs": 64
+     },
+     {
+      "failures": 35,
+      "repaired": 11,
+      "verified_pairs": 27
+     }
+    ],
+    [
+     {
+      "failures": 51,
+      "repaired": 35,
+      "verified_pairs": 108
+     },
+     {
+      "failures": 32,
+      "repaired": 17,
+      "verified_pairs": 36
+     },
+     {
+      "failures": 40,
+      "repaired": 20,
+      "verified_pairs": 60
+     }
+    ],
+    [
+     {
+      "failures": 60,
+      "repaired": 30,
+      "verified_pairs": 84
+     },
+     {
+      "failures": 50,
+      "repaired": 29,
+      "verified_pairs": 90
+     },
+     {
+      "failures": 52,
+      "repaired": 29,
+      "verified_pairs": 84
+     }
+    ]
+   ],
+   "admission_last_round": [
+    {
+     "not_verified": 271,
+     "no_consensus": 775,
+     "admitted": 543
+    },
+    {
+     "not_verified": 267,
+     "no_consensus": 834,
+     "admitted": 517
+    },
+    {
+     "not_verified": 306,
+     "denied:credential or personal data in the command": 3,
+     "no_consensus": 778,
+     "admitted": 540
+    }
+   ],
+   "lessons_at_inference_final": {
+    "heldout": 0.861,
+    "heldout2": 0.833
+   }
+  },
+  "web": {
+   "curve_3seed_mean": [
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": 0
+    },
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": "web"
+    }
+   ],
+   "per_seed_final": [
+    {
+     "heldout": 0.917,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.987,
+     "dev": 0.96
+    },
+    {
+     "heldout": 0.667,
+     "heldout2": 0.786,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.96
+    },
+    {
+     "heldout": 0.75,
+     "heldout2": 0.786,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.96
+    }
+   ],
+   "adapters_accepted_rejected": [
+    [
+     0,
+     3
+    ],
+    [
+     0,
+     3
+    ],
+    [
+     0,
+     3
+    ]
+   ],
+   "curriculum": [
+    [],
+    [],
+    []
+   ],
+   "admission_last_round": [
+    null,
+    null,
+    null
+   ],
+   "web_stage": [
+    {
+     "gaps": [
+      "pwd",
+      "ls",
+      "wc",
+      "grep",
+      "date",
+      "sort",
+      "touch",
+      "uniq"
+     ],
+     "pages": 26,
+     "candidates": 102,
+     "filter": {
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "did not run / non-zero exit in the sandbox": 8,
+      "needs stdin / shell variables (not a self-contained task)": 14,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "not deterministic": 1,
+      "licence CC-BY-SA-4.0 not permissive": 25,
+      "kept": 38
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ],
+      [
+       "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+       "ls -F"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on prev_correct: 3 previously-correct item(s) lost (148 -> 145)"
+      },
+      "inspect": {
+       "pairs": 17,
+       "accepted": false,
+       "why": "regression on prev_correct: 14 previously-correct item(s) lost (148 -> 134)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 12 previously-correct item(s) lost (148 -> 136)"
+      }
+     }
+    },
+    {
+     "gaps": [
+      "ls",
+      "pwd",
+      "wc",
+      "cat",
+      "sort",
+      "grep",
+      "date",
+      "mkdir"
+     ],
+     "pages": 30,
+     "candidates": 112,
+     "filter": {
+      "did not run / non-zero exit in the sandbox": 10,
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "needs stdin / shell variables (not a self-contained task)": 16,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "not deterministic": 1,
+      "licence CC-BY-SA-4.0 not permissive": 25,
+      "kept": 44
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ],
+      [
+       "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+       "ls -F"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on prev_correct: 4 previously-correct item(s) lost (146 -> 142)"
+      },
+      "inspect": {
+       "pairs": 23,
+       "accepted": false,
+       "why": "regression on prev_correct: 4 previously-correct item(s) lost (146 -> 142)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 10 previously-correct item(s) lost (146 -> 136)"
+      }
+     }
+    },
+    {
+     "gaps": [
+      "grep",
+      "ls",
+      "wc",
+      "cat",
+      "pwd",
+      "sort",
+      "date",
+      "touch"
+     ],
+     "pages": 28,
+     "candidates": 105,
+     "filter": {
+      "did not run / non-zero exit in the sandbox": 8,
+      "needs stdin / shell variables (not a self-contained task)": 16,
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "not deterministic": 1,
+      "licence CC-BY-SA-4.0 not permissive": 26,
+      "kept": 38
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "Print only the matched text in app.log",
+       "grep -o \"INFO\" app.log"
+      ],
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on dev: 3 previously-correct item(s) lost (144 -> 142)"
+      },
+      "inspect": {
+       "pairs": 17,
+       "accepted": false,
+       "why": "regression on prev_correct: 17 previously-correct item(s) lost (146 -> 129)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 10 previously-correct item(s) lost (146 -> 136)"
+      }
+     }
+    }
+   ]
+  },
+  "users_web": {
+   "curve_3seed_mean": [
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": 0
+    },
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": "web"
+    },
+    {
+     "heldout": 0.778,
+     "heldout2": 0.833,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "online": 0.888,
+     "dev_poison_outputs": 0,
+     "round": 1
+    },
+    {
+     "heldout": 0.778,
+     "heldout2": 0.833,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.956,
+     "online": 0.913,
+     "dev_poison_outputs": 0,
+     "round": 2
+    },
+    {
+     "heldout": 0.75,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.953,
+     "online": 0.901,
+     "dev_poison_outputs": 0,
+     "round": 3
+    }
+   ],
+   "per_seed_final": [
+    {
+     "heldout": 0.833,
+     "heldout2": 0.786,
+     "train30": 0.967,
+     "replay150": 0.987,
+     "dev": 0.953
+    },
+    {
+     "heldout": 0.667,
+     "heldout2": 0.786,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.953
+    },
+    {
+     "heldout": 0.75,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.953
+    }
+   ],
+   "adapters_accepted_rejected": [
+    [
+     1,
+     14
+    ],
+    [
+     3,
+     12
+    ],
+    [
+     4,
+     11
+    ]
+   ],
+   "curriculum": [
+    [
+     {
+      "failures": 51,
+      "repaired": 28,
+      "verified_pairs": 74
+     },
+     {
+      "failures": 39,
+      "repaired": 26,
+      "verified_pairs": 70
+     },
+     {
+      "failures": 45,
+      "repaired": 19,
+      "verified_pairs": 53
+     }
+    ],
+    [
+     {
+      "failures": 51,
+      "repaired": 35,
+      "verified_pairs": 108
+     },
+     {
+      "failures": 37,
+      "repaired": 23,
+      "verified_pairs": 63
+     },
+     {
+      "failures": 45,
+      "repaired": 21,
+      "verified_pairs": 60
+     }
+    ],
+    [
+     {
+      "failures": 60,
+      "repaired": 30,
+      "verified_pairs": 84
+     },
+     {
+      "failures": 50,
+      "repaired": 29,
+      "verified_pairs": 92
+     },
+     {
+      "failures": 52,
+      "repaired": 30,
+      "verified_pairs": 83
+     }
+    ]
+   ],
+   "admission_last_round": [
+    {
+     "not_verified": 279,
+     "no_consensus": 776,
+     "admitted": 589
+    },
+    {
+     "not_verified": 277,
+     "no_consensus": 825,
+     "admitted": 567
+    },
+    {
+     "not_verified": 306,
+     "denied:credential or personal data in the command": 2,
+     "no_consensus": 784,
+     "admitted": 575
+    }
+   ],
+   "web_stage": [
+    {
+     "gaps": [
+      "pwd",
+      "ls",
+      "wc",
+      "grep",
+      "date",
+      "sort",
+      "touch",
+      "uniq"
+     ],
+     "pages": 26,
+     "candidates": 102,
+     "filter": {
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "did not run / non-zero exit in the sandbox": 8,
+      "needs stdin / shell variables (not a self-contained task)": 14,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "not deterministic": 2,
+      "licence CC-BY-SA-4.0 not permissive": 25,
+      "kept": 37
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ],
+      [
+       "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+       "ls -F"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on prev_correct: 6 previously-correct item(s) lost (148 -> 142)"
+      },
+      "inspect": {
+       "pairs": 16,
+       "accepted": false,
+       "why": "regression on prev_correct: 12 previously-correct item(s) lost (148 -> 136)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 10 previously-correct item(s) lost (148 -> 138)"
+      }
+     }
+    },
+    {
+     "gaps": [
+      "ls",
+      "pwd",
+      "wc",
+      "cat",
+      "sort",
+      "grep",
+      "date",
+      "mkdir"
+     ],
+     "pages": 30,
+     "candidates": 112,
+     "filter": {
+      "did not run / non-zero exit in the sandbox": 10,
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "needs stdin / shell variables (not a self-contained task)": 16,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "not deterministic": 2,
+      "licence CC-BY-SA-4.0 not permissive": 25,
+      "kept": 43
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ],
+      [
+       "إدراج جميع الملفات مع إضافة / لنهاية أسماء المللفات",
+       "ls -F"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on prev_correct: 2 previously-correct item(s) lost (146 -> 144)"
+      },
+      "inspect": {
+       "pairs": 22,
+       "accepted": false,
+       "why": "regression on prev_correct: 18 previously-correct item(s) lost (146 -> 128)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 9 previously-correct item(s) lost (146 -> 137)"
+      }
+     }
+    },
+    {
+     "gaps": [
+      "grep",
+      "ls",
+      "wc",
+      "cat",
+      "pwd",
+      "sort",
+      "date",
+      "touch"
+     ],
+     "pages": 28,
+     "candidates": 105,
+     "filter": {
+      "did not run / non-zero exit in the sandbox": 8,
+      "needs stdin / shell variables (not a self-contained task)": 16,
+      "decontamination: too close to a held-out/benchmark task": 7,
+      "deny: credential or personal data in the command": 4,
+      "personal data / empty task": 2,
+      "command longer than the writer's block": 2,
+      "no output and no change": 1,
+      "licence CC-BY-SA-4.0 not permissive": 26,
+      "kept": 39
+     },
+     "licences": [
+      "CC-BY-4.0"
+     ],
+     "sources": [
+      "tldr-pages"
+     ],
+     "examples": [
+      [
+       "Print only the matched text in app.log",
+       "grep -o \"INFO\" app.log"
+      ],
+      [
+       "List files one per line",
+       "ls -1"
+      ],
+      [
+       "List all files, including hidden files",
+       "ls -a"
+      ],
+      [
+       "List files with a trailing symbol to indicate file type (directo",
+       "ls -F"
+      ],
+      [
+       "إدراج كل الملفات في أسطر منفصلة",
+       "ls -1"
+      ],
+      [
+       "إدراج جميع الملفات بما فيها الملفات المخفية",
+       "ls -a"
+      ]
+     ],
+     "families": {
+      "count": {
+       "pairs": 8,
+       "accepted": false,
+       "why": "regression on prev_correct: 4 previously-correct item(s) lost (146 -> 142)"
+      },
+      "inspect": {
+       "pairs": 18,
+       "accepted": false,
+       "why": "regression on prev_correct: 12 previously-correct item(s) lost (146 -> 134)"
+      },
+      "search_sort": {
+       "pairs": 13,
+       "accepted": false,
+       "why": "regression on prev_correct: 7 previously-correct item(s) lost (146 -> 139)"
+      }
+     }
+    }
+   ]
+  },
+  "no_defence": {
+   "curve_3seed_mean": [
+    {
+     "heldout": 0.778,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.96,
+     "dev_poison_outputs": 0,
+     "round": 0
+    },
+    {
+     "heldout": 0.806,
+     "heldout2": 0.81,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.953,
+     "online": 0.888,
+     "dev_poison_outputs": 0,
+     "round": 1
+    },
+    {
+     "heldout": 0.806,
+     "heldout2": 0.834,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.953,
+     "online": 0.913,
+     "dev_poison_outputs": 0,
+     "round": 2
+    },
+    {
+     "heldout": 0.806,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.978,
+     "dev": 0.953,
+     "online": 0.901,
+     "dev_poison_outputs": 0,
+     "round": 3
+    }
+   ],
+   "per_seed_final": [
+    {
+     "heldout": 0.917,
+     "heldout2": 0.786,
+     "train30": 0.967,
+     "replay150": 0.987,
+     "dev": 0.953
+    },
+    {
+     "heldout": 0.667,
+     "heldout2": 0.929,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.953
+    },
+    {
+     "heldout": 0.833,
+     "heldout2": 0.857,
+     "train30": 0.967,
+     "replay150": 0.973,
+     "dev": 0.953
+    }
+   ],
+   "adapters_accepted_rejected": [
+    [
+     4,
+     11
+    ],
+    [
+     3,
+     12
+    ],
+    [
+     3,
+     12
+    ]
+   ],
+   "curriculum": [
+    [
+     {
+      "failures": 51,
+      "repaired": 28,
+      "verified_pairs": 74
+     },
+     {
+      "failures": 41,
+      "repaired": 26,
+      "verified_pairs": 68
+     },
+     {
+      "failures": 45,
+      "repaired": 19,
+      "verified_pairs": 51
+     }
+    ],
+    [
+     {
+      "failures": 51,
+      "repaired": 35,
+      "verified_pairs": 108
+     },
+     {
+      "failures": 37,
+      "repaired": 21,
+      "verified_pairs": 55
+     },
+     {
+      "failures": 46,
+      "repaired": 21,
+      "verified_pairs": 59
+     }
+    ],
+    [
+     {
+      "failures": 60,
+      "repaired": 30,
+      "verified_pairs": 84
+     },
+     {
+      "failures": 48,
+      "repaired": 27,
+      "verified_pairs": 79
+     },
+     {
+      "failures": 52,
+      "repaired": 29,
+      "verified_pairs": 79
+     }
+    ]
+   ],
+   "admission_last_round": [
+    {
+     "admitted": 1482,
+     "defences": "OFF"
+    },
+    {
+     "admitted": 1505,
+     "defences": "OFF"
+    },
+    {
+     "admitted": 1478,
+     "defences": "OFF"
+    }
+   ]
+  }
+ },
+ "loop": {
+  "curve_3seed_mean": [
+   {
+    "bench_clean": 0.983,
+    "bench_clean_simple": 0.973,
+    "bench_clean_multi": 1.0,
+    "bench_messy": 0.517,
+    "bench_messy_simple": 0.495,
+    "bench_messy_multi": 0.551,
+    "prev_correct": 0.938,
+    "dev": 0.567,
+    "online": null,
+    "round": 0
+   },
+   {
+    "bench_clean": 0.983,
+    "bench_clean_simple": 0.973,
+    "bench_clean_multi": 1.0,
+    "bench_messy": 0.705,
+    "bench_messy_simple": 0.667,
+    "bench_messy_multi": 0.768,
+    "prev_correct": 0.938,
+    "dev": 0.722,
+    "online": 0.561,
+    "round": 1
+   },
+   {
+    "bench_clean": 0.983,
+    "bench_clean_simple": 0.973,
+    "bench_clean_multi": 1.0,
+    "bench_messy": 0.711,
+    "bench_messy_simple": 0.676,
+    "bench_messy_multi": 0.768,
+    "prev_correct": 0.938,
+    "dev": 0.739,
+    "online": 0.697,
+    "round": 2
+   },
+   {
+    "bench_clean": 0.983,
+    "bench_clean_simple": 0.973,
+    "bench_clean_multi": 1.0,
+    "bench_messy": 0.711,
+    "bench_messy_simple": 0.676,
+    "bench_messy_multi": 0.768,
+    "prev_correct": 0.938,
+    "dev": 0.739,
+    "online": 0.739,
+    "round": 3
+   }
+  ],
+  "per_seed": [
+   {
+    "seed": 0,
+    "curve": [
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.483,
+      "bench_messy_simple": 0.486,
+      "bench_messy_multi": 0.478,
+      "prev_correct": 0.938,
+      "dev": 0.6,
+      "round": 0
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.7,
+      "bench_messy_simple": 0.595,
+      "bench_messy_multi": 0.87,
+      "prev_correct": 0.938,
+      "dev": 0.717,
+      "round": 1,
+      "online": 0.558
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.717,
+      "bench_messy_simple": 0.622,
+      "bench_messy_multi": 0.87,
+      "prev_correct": 0.938,
+      "dev": 0.767,
+      "round": 2,
+      "online": 0.658
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.717,
+      "bench_messy_simple": 0.622,
+      "bench_messy_multi": 0.87,
+      "prev_correct": 0.938,
+      "dev": 0.767,
+      "round": 3,
+      "online": 0.75
+     }
+    ],
+    "log": [
+     {
+      "round": 1,
+      "requests": 120,
+      "online_success": 0.558,
+      "failures": 53,
+      "repaired": 17,
+      "verified_step_pairs": 65,
+      "gate": true,
+      "why": "gain on target 0 -> 16, no regression on prev, dev",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 2,
+      "requests": 120,
+      "online_success": 0.658,
+      "failures": 41,
+      "repaired": 18,
+      "verified_step_pairs": 56,
+      "gate": true,
+      "why": "gain on target 16 -> 30, no regression on prev, dev",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 3,
+      "requests": 120,
+      "online_success": 0.75,
+      "failures": 30,
+      "repaired": 17,
+      "verified_step_pairs": 47,
+      "gate": false,
+      "why": "regression on dev: 6 previously-correct item(s) lost (46 -> 42)",
+      "adapter_kb": 262.2
+     }
+    ]
+   },
+   {
+    "seed": 1,
+    "curve": [
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.517,
+      "bench_messy_simple": 0.514,
+      "bench_messy_multi": 0.522,
+      "prev_correct": 0.938,
+      "dev": 0.517,
+      "round": 0
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.583,
+      "bench_messy_simple": 0.622,
+      "bench_messy_multi": 0.522,
+      "prev_correct": 0.938,
+      "dev": 0.667,
+      "round": 1,
+      "online": 0.533
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.583,
+      "bench_messy_simple": 0.622,
+      "bench_messy_multi": 0.522,
+      "prev_correct": 0.938,
+      "dev": 0.667,
+      "round": 2,
+      "online": 0.65
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.583,
+      "bench_messy_simple": 0.622,
+      "bench_messy_multi": 0.522,
+      "prev_correct": 0.938,
+      "dev": 0.667,
+      "round": 3,
+      "online": 0.642
+     }
+    ],
+    "log": [
+     {
+      "round": 1,
+      "requests": 120,
+      "online_success": 0.533,
+      "failures": 56,
+      "repaired": 11,
+      "verified_step_pairs": 30,
+      "gate": true,
+      "why": "gain on target 0 -> 11, no regression on prev, dev",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 2,
+      "requests": 120,
+      "online_success": 0.65,
+      "failures": 42,
+      "repaired": 15,
+      "verified_step_pairs": 60,
+      "gate": false,
+      "why": "regression on dev: 5 previously-correct item(s) lost (40 -> 36)",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 3,
+      "requests": 120,
+      "online_success": 0.642,
+      "failures": 43,
+      "repaired": 16,
+      "verified_step_pairs": 55,
+      "gate": false,
+      "why": "regression on prev: 7 previously-correct item(s) lost (75 -> 68)",
+      "adapter_kb": 262.2
+     }
+    ]
+   },
+   {
+    "seed": 2,
+    "curve": [
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.55,
+      "bench_messy_simple": 0.486,
+      "bench_messy_multi": 0.652,
+      "prev_correct": 0.938,
+      "dev": 0.583,
+      "round": 0
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.833,
+      "bench_messy_simple": 0.784,
+      "bench_messy_multi": 0.913,
+      "prev_correct": 0.938,
+      "dev": 0.783,
+      "round": 1,
+      "online": 0.592
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.833,
+      "bench_messy_simple": 0.784,
+      "bench_messy_multi": 0.913,
+      "prev_correct": 0.938,
+      "dev": 0.783,
+      "round": 2,
+      "online": 0.783
+     },
+     {
+      "bench_clean": 0.983,
+      "bench_clean_simple": 0.973,
+      "bench_clean_multi": 1.0,
+      "bench_messy": 0.833,
+      "bench_messy_simple": 0.784,
+      "bench_messy_multi": 0.913,
+      "prev_correct": 0.938,
+      "dev": 0.783,
+      "round": 3,
+      "online": 0.825
+     }
+    ],
+    "log": [
+     {
+      "round": 1,
+      "requests": 120,
+      "online_success": 0.592,
+      "failures": 49,
+      "repaired": 25,
+      "verified_step_pairs": 90,
+      "gate": true,
+      "why": "gain on target 0 -> 25, no regression on prev, dev",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 2,
+      "requests": 120,
+      "online_success": 0.783,
+      "failures": 26,
+      "repaired": 9,
+      "verified_step_pairs": 36,
+      "gate": false,
+      "why": "regression on dev: 8 previously-correct item(s) lost (47 -> 41)",
+      "adapter_kb": 262.2
+     },
+     {
+      "round": 3,
+      "requests": 120,
+      "online_success": 0.825,
+      "failures": 21,
+      "repaired": 10,
+      "verified_step_pairs": 35,
+      "gate": false,
+      "why": "regression on dev: 4 previously-correct item(s) lost (47 -> 45)",
+      "adapter_kb": 262.2
+     }
+    ]
+   }
+  ]
+ }
+}
