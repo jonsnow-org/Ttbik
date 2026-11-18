@@ -63,8 +63,8 @@ export function lfmStudioUrls(): string[] {
 }
 // ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
 // Like LFM2.5 it has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
-// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Its conversation is Nova's own (same chat state): switching
-// between Nova and Nova 2 continues the same thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
+// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Nova 2 keeps its own thread and memory under
+// its private model chat key; it does not continue or overwrite Nova 1's thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
 export const NOVA2_DEFAULT = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
 export function nova2Urls(): string[] {
   const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || (process.env.NODE_ENV === "test" ? "" : NOVA2_DEFAULT)).trim();
