@@ -1,6 +1,6 @@
 import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
-import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamVariant } from "@/lib/shamStudio";
+import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamTldmCtx, shamVariant } from "@/lib/shamStudio";
 
 const ctx = { chatId: 1, db: { exec: async () => undefined, query: async () => [] }, githubToken: null, chatKey: "sham:1", runId: "sham-1", owner: true } as unknown as ShamCtx;
 const say = (text: string) => ({ type: "text" as const, text });
@@ -47,6 +47,37 @@ describe("Sham's own agent loop", () => {
     }));
     expect(r).toMatchObject({ kind: "text", text: oldAnswer });
     expect(seen).toHaveLength(1);
+  });
+
+  it("keeps greetings and capability questions on native chat when the owner has selected T-LDM", async () => {
+    const seen: string[] = [];
+    const question = "مرحبا من أنت؟";
+    const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("أهلاً بك.")], seen),
+    })));
+    expect(r).toMatchObject({ kind: "text", text: "أهلاً بك." });
+    expect(seen).toEqual([question]);
+  });
+
+  it("routes internet research to Sham Pro tools instead of the terminal-only T-LDM path", async () => {
+    const question = "قم بجولة بحث في الإنترنت عن موقع أكواد ضخم وقم بقراءة كل الأكواد";
+    const prompts: string[] = [], direct: string[] = [], ran: string[] = [];
+    const steps: any[] = [
+      { type: "tool_calls", text: "", tool_calls: [{ id: "web-1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "موقع أكواد ضخم" }) } }] },
+      say("نفذت البحث وقرأت ما أتاحته الصفحات من شيفرة ومعلومات."),
+    ];
+    const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({
+      text: question, ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 4,
+      ask: script([say("جواب مباشر لا يستخدم الأدوات")], direct),
+      agentAsk: async (prompt) => { prompts.push(prompt); return steps.shift() ?? null; },
+      exec: async (call) => { ran.push(call.function.name); return "نتائج الويب: موقع برمجي وصفحات تحتوي مستودعات وملفات شيفرة."; },
+    })));
+    expect(r).toMatchObject({ kind: "text", used: ["web_search"] });
+    expect(ran).toEqual(["web_search"]);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("نتائج الويب: موقع برمجي");
+    expect(direct).toHaveLength(0);
   });
 
   it("Sham v2 passes ordinary user text unchanged to its direct chat path", async () => {

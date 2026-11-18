@@ -11,7 +11,7 @@ import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamT
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
 import { shamAdminNotice } from "@/lib/shamAdminNotice";
-import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
+import { needsExternalWebResearch, needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -127,9 +127,13 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
-  // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
+  // Keep T-LDM for actual computer/code work. Normal chat, web research and connected-workspace
+  // tasks use the native chat or permission-checked tool loop; the terminal path cannot perform web search.
+  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
+  const useTldmComputerPath = v2 && shamTldmOn() && (prof.klass === "code" || prof.klass === "agentic")
+    && !needsExternalWebResearch(opts.text) && !hasWorkspaceTarget;
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
-  if (v2 && shamTldmOn()) {
+  if (useTldmComputerPath) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -170,7 +174,6 @@ export async function shamAgentRun(opts: {
   // A capability question is ordinary chat only when it is genuinely about capabilities.
   // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
   // select the permission-checked agent route instead of answering from the model's guess.
-  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
   const hasWorkspaceAction = /تحليل|حلل|افحص|راجع|اقرأ|تصفح|اعمل على|نفذ|نفّذ|ارفع|ادفع|انشر|نشر|دمج|افتح|أنشئ|أنشاء|analy[sz]e|inspect|review|read|scan|deploy|push|merge|create|open pull request|run workflow/i.test(opts.text);
   const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
   const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
