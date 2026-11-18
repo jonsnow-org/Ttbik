@@ -203,7 +203,10 @@ def _load(model_dir: Path) -> None:
         if _V2:
             try:
                 import sham_tldm_serve as _tldm
-                ident = _tldm.apply_identity(serve._state["model"], head)
+                if os.environ.get("SHAM_IDENTITY_LORA", "1").strip().lower() in ("0", "off", "false", "no"):
+                    ident = {"identity_lora": False, "identity_lora_why": "off (SHAM_IDENTITY_LORA=0)"}
+                else:
+                    ident = _tldm.apply_identity(serve._state["model"], head)
             except Exception as exc:
                 ident = {"identity_lora": False, "identity_lora_why": f"{type(exc).__name__}: {str(exc)[:120]}"}
             STATE["identity_lora"] = bool(ident.get("identity_lora"))

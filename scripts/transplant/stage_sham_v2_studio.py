@@ -80,7 +80,10 @@ def patch_staged_sham_v2_download(studio: pathlib.Path) -> None:
 
 
 def stage_tldm_serving(studio: pathlib.Path) -> None:
-    """Copy the T-LDM serving hook and the packages it imports. Training code is not copied. SHAM_TLDM stays off."""
+    """Copy the T-LDM serving hook and the packages it imports. Training code is not copied. SHAM_TLDM stays off.
+
+    serve_adapter imports data/trajectories -> terminal_tasks (reads tools/organize.py, imports terminal/sandbox_terminal) and augment:
+    all staged (live 2026-11-18: generate_tldm failed with ModuleNotFoundError terminal_tasks). test_stage_sham_v2_studio imports the staged tree."""
     root = ROOT / "ai-system"
     src = root / "modelscope-sham" / "sham_tldm_serve.py"
     if src.is_file():
@@ -95,7 +98,7 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
         f = tldm_src / name
         if f.is_file():
             shutil.copy2(f, dest / name)
-    for folder, files in (("sham_tldm", None), ("memory", ("store.py",)), ("data", ("trajectories.py", "augment.py"))):
+    for folder, files in (("sham_tldm", None), ("memory", ("store.py",)), ("data", ("trajectories.py", "augment.py", "terminal_tasks.py")), ("tools", ("organize.py",))):
         src_dir = tldm_src / folder
         out = dest / folder
         if not src_dir.exists():
@@ -119,6 +122,10 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
             f = evo_src / name
             if f.is_file():
                 shutil.copy2(f, evo_out / name)
+    distill = studio / "distill"                       # terminal/sandbox_terminal imports ../distill/exec_verify (the python3 rules)
+    distill.mkdir(parents=True, exist_ok=True)
+    if (root / "distill" / "exec_verify.py").is_file():
+        shutil.copy2(root / "distill" / "exec_verify.py", distill / "exec_verify.py")
     term = studio / "terminal"
     term.mkdir(parents=True, exist_ok=True)
     for name in ("approvals.py", "sham_binding.py", "backends.py", "sandbox_terminal.py"):
@@ -133,6 +140,10 @@ def stage_mesh(studio: pathlib.Path) -> None:
     src = root / "modelscope-sham" / "sham_mesh_node.py"
     if src.is_file():
         shutil.copy2(src, studio / "sham_mesh_node.py")
+    distill = studio / "distill"                       # terminal/sandbox_terminal imports ../distill/exec_verify (the python3 rules)
+    distill.mkdir(parents=True, exist_ok=True)
+    if (root / "distill" / "exec_verify.py").is_file():
+        shutil.copy2(root / "distill" / "exec_verify.py", distill / "exec_verify.py")
     term = studio / "terminal"
     term.mkdir(parents=True, exist_ok=True)
     for name in ("mesh.py", "mesh_net.py", "mesh_crypto.py"):
