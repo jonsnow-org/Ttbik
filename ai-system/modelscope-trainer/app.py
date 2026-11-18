@@ -271,9 +271,6 @@ def publish_tldm(work: Path, seed: int, artifacts: list) -> str | None:
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
     """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
     Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on verified failures (and, later, anonymized verified session results), kept only if held-out and previously-correct do not regress."""
-    sys.path.insert(0, str(HERE))
-    from safe_evolve import run_safe_evolve
-
     work = tldm_work()
     (work / "checkpoints" / "loop").mkdir(parents=True, exist_ok=True)
     (work / "logs").mkdir(parents=True, exist_ok=True)
@@ -314,6 +311,8 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
 
     evolve_on = (os.environ.get("SHAM_TLDM_EVOLVE") or "").strip().lower() in ("1", "true", "yes")
     if evolve_on:
+        sys.path.insert(0, str(HERE))
+        from safe_evolve import run_safe_evolve
         loop_cfg_name = (os.environ.get("SHAM_TLDM_LOOP_CONFIG") or TLDM_LOOP_CONFIG_DEFAULT).strip() or TLDM_LOOP_CONFIG_DEFAULT
         loop_config = Path(loop_cfg_name) if Path(loop_cfg_name).is_file() else (root / "configs" / loop_cfg_name)
         loop_ckpt = work / "checkpoints" / "loop" / "final.pt"
