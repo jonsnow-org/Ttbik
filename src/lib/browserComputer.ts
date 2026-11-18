@@ -182,6 +182,7 @@ async function liveStreamFetch(
   api: string,
   stage: string,
   fetchImpl: typeof fetch,
+  retryTransient412 = false,
 ): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -195,8 +196,10 @@ async function liveStreamFetch(
       continue;
     }
     if (response.ok) return response;
+    const retryAfter = response.headers.get("retry-after");
     const detail = await studioHttpError(response, api, stage);
-    if (!TRANSIENT_LIVE_HTTP_STATUSES.has(response.status) || attempt === 2) throw new Error(detail);
+    const transient412 = retryTransient412 && response.status === 412 && isTransientStudio412(detail, retryAfter);
+    if ((!TRANSIENT_LIVE_HTTP_STATUSES.has(response.status) && !transient412) || attempt === 2) throw new Error(detail);
     lastError = new Error(detail);
     await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : 300 * (attempt + 1)));
   }
@@ -210,6 +213,7 @@ export async function studioStream(
   payload: Record<string, unknown>,
   fetchImpl: typeof fetch = globalThis.fetch,
   readMs = 40_000,
+  retryTransient412 = false,
 ): Promise<Response> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
   const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
@@ -221,7 +225,7 @@ export async function studioStream(
       method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({ data: [wire] }),
     }),
-    api, "submit", fetchImpl,
+    api, "submit", fetchImpl, retryTransient412,
   );
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no live-stream request id");
@@ -230,7 +234,7 @@ export async function studioStream(
     () => ({
       headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
     }),
-    api, "stream", fetchImpl,
+    api, "stream", fetchImpl, retryTransient412,
   );
   if (!stream.body) throw new Error("the Studio returned an empty live stream");
   return stream;
