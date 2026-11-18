@@ -178,7 +178,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
         settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), tldm: tldmAllowed && (await import("@/lib/coderModels")).tldmEnabled(st, st.model), tldmOpen: tldmPolicy.open, perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
-        features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)), tldm: tldmAllowed },
+        features: {
+          sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db),
+          computer: selectedModel === "nova2"
+            ? Boolean((await import("@/lib/browserComputer")).browserStudioFor("nova2"))
+            : owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)),
+          tldm: tldmAllowed && selectedModel === "sham_v2",
+        },
         tldmPolicy: owner ? tldmPolicy : { open: tldmPolicy.open, deny: [] },
         // Nova 2 does not inherit Nova 1's linked account or OAuth setup.
         connections: selectedModel === "nova2" ? { github: { linked: false } } : await connectionInfo(chatId, db),
@@ -232,7 +238,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
       }
       if (typeof body.tldm === "boolean") {
-        const { setTldmEnabled } = await import("@/lib/coderModels");
+        const { setTldmEnabled, canonModelId } = await import("@/lib/coderModels");
+        const target = canonModelId(typeof body.for === "string" ? body.for : selectedModel) || "coder";
+        if (target !== "sham_v2") throw new AppError(403, "T-LDM belongs to Sham Pro (sham_v2) only.");
         const P = await import("@/lib/tldmPolicy");
         await P.refreshTldmPolicy(db).catch(() => null);
         if (!P.tldmAllowedFor(user.tier)) throw new AppError(403, "T-LDM for Sham Pro is owner only");

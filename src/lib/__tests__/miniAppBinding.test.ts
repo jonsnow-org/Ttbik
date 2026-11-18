@@ -90,6 +90,10 @@ describe("server: per-model computer and sessions", () => {
       expect(view.settings.model).toBe("nova2");
       expect(view.connections).toEqual({ github: { linked: false } });
       expect(view.oauth).toBe(false);
+      expect(view.features.computer).toBe(false);
+      expect(view.features.tldm).toBe(false);
+      const blockedTldm: any = await appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "nova2", tldm: true }, { db, bot, botRow } as any).catch((e: any) => e);
+      expect(blockedTldm).toMatchObject({ status: 403 });
     } finally {
       if (prior === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = prior;
     }
