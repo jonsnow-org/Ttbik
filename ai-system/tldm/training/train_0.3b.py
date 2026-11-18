@@ -126,15 +126,9 @@ def main():
             r, _ = evaluate(model, T.TRAIN, cfg, cfg["diffusion_steps"], tok)     # logged only: nothing is selected on the held-out set
             print(f"   [train-set check @ {step+1}] same-effect {r['same_effect']} exact {r['exact_text']}", flush=True)
             model.train()
-        if cfg.get("donor") and cfg["steps"] >= 50 and step + 1 == 50:
-            r, _ = evaluate(model, T.TRAIN, cfg, cfg["diffusion_steps"], tok)
-            print(f"donor sanity eval @ 50: train same-effect {r['same_effect']} exact {r['exact_text']}", flush=True)
-            if r["same_effect"] <= 0.2:
-                raise RuntimeError(
-                    f"donor sanity eval is at the floor (train same-effect {r['same_effect']}); "
-                    "the frozen reader is unusable (usually a missing tokenizer.json). refusing to continue"
-                )
-            model.train()
+        # 2026-11-18: no mid-training floor abort. A COMPLETE MiniLM donor also scores 0.133 at step 50 (lr still warming up; reproduced on seed 11,
+        # identical to the live Studio), so a step-50 check killed every healthy cycle. The startup tokenizer/feature checks above catch the real
+        # cause (missing tokenizer.json), and the Studio refuses to publish a head whose held-out is <= 0.2.
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     torch.save({"cfg": cfg, "model": model.head_state() if hasattr(model, "head_state") else model.state_dict(), "tokenizer": tok.state()}, a.out)
     print("saved", a.out)
