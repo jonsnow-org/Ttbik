@@ -21,6 +21,8 @@ beforeEach(async () => {
   process.env.MODELSCOPE_API_TOKEN = "ms";
   process.env.CODER_TOKEN_KEY = "k";
   process.env.COMPUTER_STUDIO_URL = HUB;
+  delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+  delete process.env.NOVA2_MEDIA_STUDIO_URL;
   delete process.env.SHAM_V2_URL;
   delete process.env.SHAM_MODELSCOPE_URL;
 });

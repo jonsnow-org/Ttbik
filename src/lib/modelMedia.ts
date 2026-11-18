@@ -25,6 +25,7 @@ export function nova2MediaUrl(): string {
   const forbidden = [
     novaMediaUrl(), lfmMediaUrl(),
     (process.env.COMPUTER_STUDIO_URL || "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").trim(),
+    (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim(),
     ...nova2Urls(),
   ].map((x) => x.replace(/\/+$/, "")).filter(Boolean);
   if (forbidden.includes(base) || /nova-inference-server|coder-inference-server|epicrealism-image-test|lfm25-media-server/i.test(base)) return "";
