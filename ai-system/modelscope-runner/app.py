@@ -127,9 +127,15 @@ def install_runner() -> bool:
     RUNNER_DIR.mkdir(parents=True, exist_ok=True)
     url = f"https://github.com/actions/runner/releases/download/v{RUNNER_VERSION}/actions-runner-linux-x64-{RUNNER_VERSION}.tar.gz"
     _set(runner=f"downloading runner v{RUNNER_VERSION}")
-    r = subprocess.run(f"curl -fsSL -o r.tgz '{url}' && tar xzf r.tgz && rm -f r.tgz", shell=True, cwd=RUNNER_DIR, capture_output=True, text=True)
-    if r.returncode:
-        _set(runner=f"download failed: {r.stderr[-200:]}")
+    tgz = RUNNER_DIR / "r.tgz"
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(url, tgz)
+        with tarfile.open(tgz, "r:gz") as tf:
+            tf.extractall(RUNNER_DIR)
+        tgz.unlink()
+    except Exception as exc:  # noqa: BLE001
+        _set(runner=f"download failed: {type(exc).__name__}: {str(exc)[:200]}")
         return False
     return True
 
