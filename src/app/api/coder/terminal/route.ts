@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents, isTaskModelFilter, type TaskModelFilter } from "@/lib/coderTasks";
+import { tasksOfModel } from "@/lib/coderChats";
 import { loadState } from "@/lib/coderSections";
+import { withEngineModel } from "@/lib/openCoderStudio";
 import { prismaDb } from "@/lib/coderAuth";
 import { terminalAllowed } from "@/lib/coderPlans";
 
@@ -38,22 +40,32 @@ export async function GET(req: NextRequest) {
   try {
     if (!runId) {
       // Keep this read endpoint side-effect free: recovery runs when a new task starts, not on every UI poll.
-      const [tasks, state] = await Promise.all([
-        listTasks(user.id, { limit, model: modelFilter }),
-        loadState(user.id, prismaDb).catch(() => null),
-      ]);
-      const shown = tasks as { run_id: string }[];                // ONE terminal for every model: Nova's and Sham's tasks are listed together
+      const raw = await listTasks(user.id, { limit: Math.max(limit, 100) });
+      const shown = modelFilter === "coder" || modelFilter === "nova2"
+        ? await tasksOfModel(user.id, modelFilter, raw, prismaDb)
+        : modelFilter ? await listTasks(user.id, { limit, model: modelFilter }) : raw;
+      const state = modelFilter === "nova2"
+        ? await withEngineModel("nova2", () => loadState(user.id, prismaDb)).catch(() => null)
+        : await loadState(user.id, prismaDb).catch(() => null);
       const run = state?.run;
       const p = run?.pending;
-      const pending = (!modelFilter || modelFilter === "coder") && run && p ? [{
+      const pending = (!modelFilter || modelFilter === "coder" || modelFilter === "nova2") && run && p ? [{
         runId: run.id, nonce: p.nonce, reason: p.reason, summary: p.summary,
         tool: p.calls?.[0]?.function?.name || "", categories: p.categories || [],
         title: run.title || "", slot: run.slot || "", at: p.at || null,
       }] : [];
-      const asking = (!modelFilter || modelFilter === "coder") && run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;   // the agent waits for the user's answer
+      const asking = (!modelFilter || modelFilter === "coder" || modelFilter === "nova2") && run && run.asking ? { runId: run.id, question: run.asking.question, at: run.asking.at } : null;
       return NextResponse.json({ tasks: shown, pending, asking }, { headers: { "Cache-Control": "no-store" } });
     }
-    const events = await taskEvents(user.id, runId, after, prismaDb, modelFilter);
+    if (modelFilter) {
+      const all = await listTasks(user.id, { limit: 100 });
+      const visible = modelFilter === "coder" || modelFilter === "nova2"
+        ? await tasksOfModel(user.id, modelFilter, all, prismaDb)
+        : await listTasks(user.id, { limit: 100, model: modelFilter });
+      if (!visible.some((t) => t.run_id === runId)) return NextResponse.json({ error: "task not found in selected model" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
+    const eventFilter = modelFilter === "coder" || modelFilter === "nova2" ? undefined : modelFilter;
+    const events = await taskEvents(user.id, runId, after, prismaDb, eventFilter);
     return NextResponse.json({ events: events.slice(0, 200) }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "could not read terminal logs" }, { status: 500, headers: { "Cache-Control": "no-store" } });

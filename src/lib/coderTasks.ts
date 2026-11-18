@@ -6,10 +6,10 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
-export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "all";
+export type TaskModelFilter = "coder" | "nova2" | "sham" | "sham_v2" | "all";
 /** Every accepted `?model=` value for the terminal and the live feed. Both routes must use this one list:
  * a model missing from a route's allowlist is a silent 400 that no test would catch otherwise. */
-export const TASK_MODEL_FILTERS: readonly string[] = ["all", "coder", "sham", "sham_v2"];
+export const TASK_MODEL_FILTERS: readonly string[] = ["all", "coder", "nova2", "sham", "sham_v2"];
 export const isTaskModelFilter = (value: unknown): value is TaskModelFilter => typeof value === "string" && TASK_MODEL_FILTERS.includes(value);
 export const shamTaskSlot = (variant: "v1" | "v2"): string => variant === "v2" ? "sham_v2" : "sham_v1";
 function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column = "slot"): void {
