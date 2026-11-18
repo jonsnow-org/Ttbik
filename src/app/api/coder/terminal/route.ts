@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       // Keep this read endpoint side-effect free: recovery runs when a new task starts, not on every UI poll.
       const raw = await listTasks(user.id, { limit: Math.max(limit, 100) });
       const shown = modelFilter === "coder" || modelFilter === "nova2"
-        ? await tasksOfModel(user.id, modelFilter, raw, prismaDb)
+        ? await tasksOfModel(Number(user.id), modelFilter, raw, prismaDb)
         : modelFilter ? await listTasks(user.id, { limit, model: modelFilter }) : raw;
       const state = modelFilter === "nova2"
         ? await withEngineModel("nova2", () => loadState(user.id, prismaDb)).catch(() => null)
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     if (modelFilter) {
       const all = await listTasks(user.id, { limit: 100 });
       const visible = modelFilter === "coder" || modelFilter === "nova2"
-        ? await tasksOfModel(user.id, modelFilter, all, prismaDb)
+        ? await tasksOfModel(Number(user.id), modelFilter, all, prismaDb)
         : await listTasks(user.id, { limit: 100, model: modelFilter });
       if (!visible.some((t) => t.run_id === runId)) return NextResponse.json({ error: "task not found in selected model" }, { status: 404, headers: { "Cache-Control": "no-store" } });
     }
