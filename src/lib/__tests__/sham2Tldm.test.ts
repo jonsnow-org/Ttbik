@@ -82,7 +82,7 @@ describe("Sham 2 T-LDM owner path", () => {
   it("refuses to run T-LDM on Sham 1", async () => {
     const reply = await shamVariant.run("v1", () => shamGenerateTldm([{ role: "user", content: "مرحبا" }]));
     expect(reply).toMatchObject({ type: "error", reason: "no-fallback" });
-    expect(String(reply?.text || "")).toContain("شام 2");
+    expect(String(reply?.text || "")).toContain("شام برو");
   });
 
   it("is owner-only by default and opens to every user through one switch", () => {
@@ -113,6 +113,28 @@ describe("Sham 2 T-LDM owner path", () => {
     expect(shamTldmSessionId()).toBe("default");
   });
 
+  it("sends the owner deny-list with the T-LDM request", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const { _setTldmPolicyForTests } = await import("@/lib/tldmPolicy");
+    _setTldmPolicyForTests(true, ["rm -rf"]);
+    const payloads: any[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      if (init?.body) payloads.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
+      return sseFetch('data: [{"type":"text","text":"ok","tldm":true}]\n');
+    }) as any;
+    try {
+      const { shamGenerateTldm, shamVariant } = await import("@/lib/shamStudio");
+      await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "مرحبًا" }], "tldm-sham_v2-1"));
+      expect(payloads.some((p) => String(p.deny_list || "").includes("rm -rf"))).toBe(true);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      _setTldmPolicyForTests(false, []);
+    }
+  });
+
   it("surfaces a confirm reply for the existing allow/deny flow and can resume it", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const payloads: any[] = [];
@@ -130,13 +152,35 @@ describe("Sham 2 T-LDM owner path", () => {
     try {
       const confirm = await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "افعل" }], "tldm-sham_v2-7"));
       expect(confirm).toMatchObject({ type: "confirm", command: "rm x", computer: "model_computer", session: "tldm-sham_v2-7" });
-      expect(shamConfirmText({ function: { name: "tldm_confirm", arguments: JSON.stringify({ command: "rm x" }) } } as any)).toContain("حاسوب شام 2");
+      expect(shamConfirmText({ function: { name: "tldm_confirm", arguments: JSON.stringify({ command: "rm x" }) } } as any)).toContain("حاسوب شام برو");
       const done = await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "افعل" }], "tldm-sham_v2-7", 180000, { resume: { command: "rm x", approved: true } }));
       expect(done).toMatchObject({ type: "text", text: "تم" });
       expect(payloads.some((p) => p.session === "tldm-sham_v2-7" && p.confirm_cmd === "rm x" && p.confirm_ok === 1)).toBe(true);
     } finally {
       global.fetch = real;
       delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
+  it("omits the deny-list when the caller is the owner", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const { _setTldmPolicyForTests } = await import("@/lib/tldmPolicy");
+    _setTldmPolicyForTests(true, ["rm -rf"]);
+    const payloads: any[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      if (init?.body) payloads.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
+      return sseFetch('data: [{"type":"text","text":"ok","tldm":true}]\n');
+    }) as any;
+    try {
+      const { shamGenerateTldm, shamVariant } = await import("@/lib/shamStudio");
+      await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "مرحبًا" }], "tldm-sham_v2-1", 180000, { owner: true }));
+      expect(payloads.some((p) => p.owner === 1 && !p.deny_list)).toBe(true);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      _setTldmPolicyForTests(false, []);
     }
   });
 });

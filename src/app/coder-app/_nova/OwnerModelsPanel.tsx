@@ -28,6 +28,9 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [tldm, setTldm] = useState(false);
+  const [tldmOpen, setTldmOpen] = useState(false);
+  const [denyText, setDenyText] = useState("");
+  const [denySaved, setDenySaved] = useState("");
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
   const mediaName = (id: string) => name(models.find((x) => x.id === id) || { id });
   const loadMedia = useCallback(async () => {
@@ -37,7 +40,12 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
-  useEffect(() => { void api<{ settings?: { tldm?: boolean } }>("me").then((r) => setTldm(Boolean(r.settings?.tldm))).catch(() => null); }, [api]);
+  useEffect(() => { void api<{ settings?: { tldm?: boolean; tldmOpen?: boolean }; tldmPolicy?: { open?: boolean; deny?: string[] } }>("me").then((r) => {
+    setTldm(Boolean(r.settings?.tldm));
+    setTldmOpen(Boolean(r.tldmPolicy?.open ?? r.settings?.tldmOpen));
+    const d = (r.tldmPolicy?.deny || []).join("\n");
+    setDenyText(d); setDenySaved(d);
+  }).catch(() => null); }, [api]);
   const setVisible = async (m: OwnerModel, visible: boolean) => {
     setBusy("vis-" + m.id);
     try { await api("model_update", { id: m.id, visible }); haptic("success"); await reload(); } catch (e: any) { setErr(String(e?.message || e)); haptic("error"); }
@@ -68,21 +76,39 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
         ))}
       </Section>
       <Section
-        header={ar ? "⚡ T-LDM لشام 2 (للمالك فقط)" : "⚡ T-LDM for Sham 2 (owner only)"}
+        header={ar ? "⚡ T-LDM لشام برو" : "⚡ T-LDM for Sham Pro"}
         footer={ar
-          ? "بعد اختيار شام 2 من /model في البوت أو من قائمة النماذج هنا، هذا المفتاح يشغّل مسار T-LDM على شام 2 فقط (الحاسوب الداخلي نفسه). إن لم يكن رأس التدريب جاهزًا في المستودع الخاص تظهر رسالة خطأ واضحة. شام 1 لا يُستخدم ولا يوجد تحويل صامت. في البوت أيضًا: /tldm on أو /tldm off."
-          : "After picking Sham 2 with /model in the bot or in the model list here, this switch turns on the T-LDM path on Sham 2 only (its existing internal computer). If the trained head is not in the private repo, a clear error is shown. Sham 1 is never used and there is no silent fallback. In the bot: /tldm on or /tldm off."}
+          ? "المفتاح الأول يفتح المسار لكل المستخدمين (نفس معنى SHAM_TLDM_OPEN). في وقت العمل: بحث وتصفح وتنفيذ حر داخل مساحة كل مستخدم المعزولة على حاسوب شام برو الداخلي؛ المستخدم يوافق على أوامره الحساسة؛ الكتابة تبقى في مساحته؛ قائمة المنع أدناه تنطبق على الجميع ولا يمكن تجاوزها. المفتاح الثاني يفعّل T-LDM لحسابك أنت. إن لم يكن رأس التدريب جاهزًا تظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+          : "The first switch opens the path to every user (same meaning as SHAM_TLDM_OPEN). At work time: free search, browsing and execution inside each user's isolated workspace on Sham Pro's existing internal computer; that user approves their own sensitive commands; writes stay in their workspace; the deny list below applies to everyone and cannot be overridden. The second switch enables T-LDM for your own account. If the trained head is missing, a clear error is shown and Sham 1 is never used."}
       >
         <Cell Component="label" multiline
-          subtitle={ar ? (tldm ? "مفعّل: رسائلك على شام 2 تمرّ عبر T-LDM" : "متوقف: شام 2 يرد بمساره الحالي إلى أن تفعّل T-LDM") : (tldm ? "On: your Sham 2 messages use the T-LDM path" : "Off: Sham 2 uses its current path until you turn T-LDM on")}
+          subtitle={ar ? (tldmOpen ? "مفتوح للجميع: كل مستخدم يستطيع تفعيل T-LDM لنفسه" : "مغلق: المسار للمالك فقط في هذه المرحلة") : (tldmOpen ? "Open to everyone: each user can enable T-LDM for themselves" : "Closed: owner-only during this testing phase")}
+          after={<Switch checked={tldmOpen} disabled={busy === "tldm-open"} onChange={async (e) => {
+            const on = e.currentTarget.checked; setBusy("tldm-open"); setErr("");
+            try { const r = await api<{ policy?: { open?: boolean } }>("tldm_policy", { open: on }); setTldmOpen(Boolean(r.policy?.open ?? on)); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy("");
+          }} />}>
+          {ar ? "فتح T-LDM لجميع المستخدمين" : "Open T-LDM to all users"}
+        </Cell>
+        <Cell Component="label" multiline
+          subtitle={ar ? (tldm ? "مفعّل: رسائلك على شام برو تمرّ عبر T-LDM" : "متوقف: شام برو يرد بمساره الحالي إلى أن تفعّل T-LDM") : (tldm ? "On: your Sham Pro messages use the T-LDM path" : "Off: Sham Pro uses its current path until you turn T-LDM on")}
           after={<Switch checked={tldm} disabled={busy === "tldm"} onChange={async (e) => {
             const on = e.currentTarget.checked; setBusy("tldm"); setErr("");
             try { await api("settings", { for: "sham_v2", tldm: on }); setTldm(on); haptic("success"); }
             catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
             setBusy("");
           }} />}>
-          {ar ? "تفعيل T-LDM لشام 2" : "Enable T-LDM for Sham 2"}
+          {ar ? "تفعيل T-LDM لحسابي" : "Enable T-LDM for my account"}
         </Cell>
+        <Input header={ar ? "قائمة منع المالك (سطر لكل نمط، أو re:تعبير). لا يمكن لأي مستخدم تجاوزها." : "Owner deny list (one pattern per line, or re:regex). Users cannot override it."}
+          value={denyText} onChange={(e) => setDenyText(e.currentTarget.value)}
+          after={<Button size="s" mode="bezeled" loading={busy === "tldm-deny"} disabled={denyText === denySaved} onClick={async () => {
+            setBusy("tldm-deny"); setErr("");
+            try { const r = await api<{ policy?: { deny?: string[] } }>("tldm_policy", { deny: denyText }); const d = (r.policy?.deny || []).join("\n"); setDenyText(d); setDenySaved(d); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy("");
+          }}>{ar ? "حفظ المنع" : "Save list"}</Button>} />
       </Section>
       <Section
         header={ar ? "🎨 ماذا يستخدم كل نموذج لتوليد الوسائط؟" : "🎨 What does each model use to make media?"}
@@ -117,7 +143,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             const hash = w.checkpointSha256 ? w.checkpointSha256.slice(0, 12) + "…" : (ar ? "لا توجد بصمة" : "no checkpoint hash");
             const detail = w.detail ? " · " + w.detail : "";
             const subtitle = w.sourceModel + " · " + w.modelRepo + " · " + hash + memory + detail;
-            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham 2" };
+            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham Pro" };
             return <Cell key={w.modelId} multiline after={w.ready ? "✅" : "❌"} subtitle={subtitle}>
               {(ar ? (labels[w.modelId] || w.displayName) : w.displayName) + " — " + (ar ? (w.ready ? "جاهز" : "غير جاهز") : w.phase)}
             </Cell>;

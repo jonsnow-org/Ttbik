@@ -27,11 +27,11 @@ def session_key(session: str, model_id: str = "sham", separate: bool | None = No
 
 
 class ShamEmbeddedBackend(ComputerBackend):
-    def __init__(self, session: str, model_id: str = "sham", policy: str | None = None, separate: bool | None = None, log_path: str | None = None, trusted: dict | None = None):
+    def __init__(self, session: str, model_id: str = "sham", policy: str | None = None, separate: bool | None = None, log_path: str | None = None, trusted: dict | None = None, owner: bool = False):
         import sham_embedded_tools as tools
         self._tools, self.model_id = tools, model_id
         self.key = session_key(session, model_id, separate)
-        super().__init__(tools.computer_for(self.key), policy=policy or default_policy(), log_path=log_path, trusted=trusted)
+        super().__init__(tools.computer_for(self.key), policy=policy or default_policy(), log_path=log_path, trusted=trusted, owner=owner)
 
     def _exec(self, command: str) -> str:
         return self._tools.run_call({"name": "computer_run", "arguments": {"command": command}}, self.key)

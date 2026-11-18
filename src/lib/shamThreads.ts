@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { chatKey, ensureTables, loadMemory, modelMemoryKey, saveTurn, scopeKey, type Db, type MemoryContext } from "@/lib/shamMemory";
 import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { excludeFromExperienceAndLogs } from "@/lib/ownerIdentity";
 
 export type ShamVariantId = "v1" | "v2";
 export type ShamThread = { id: string; title: string; pinned: boolean; archived: boolean; turns: number; created_at: string; updated_at: string; preview: string };
@@ -201,6 +202,7 @@ export async function loadChatMemory(chatId: number | string, text: string, db: 
   }
 }
 export async function saveChatTurn(chatId: number | string, question: string, answer: string, db: Db = prismaDb): Promise<void> {
+  if (excludeFromExperienceAndLogs(question) || excludeFromExperienceAndLogs(answer)) return;
   const variant = variantNow();
   if (!variant) {
     console.error("[sham-memory] missing selected variant; refusing to save an unscoped turn");
