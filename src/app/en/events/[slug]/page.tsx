@@ -32,7 +32,7 @@ export default async function Page(props: { params: Promise<{ slug: string }> })
       <article className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm">
         <img src={englishCover(item.slug)} alt="" className="aspect-[21/9] w-full object-cover" />
         <div className="p-5 sm:p-7">
-          <p className="text-xs font-bold text-sky-700">{item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date}</p>
+          <p className="text-xs font-bold text-sky-700">{item.dateLabel ?? (item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date)}</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">{item.title}</h1>
           <p className="mt-3 text-base leading-7 text-slate-600">{item.dek}</p>
           <AdSlot position="in-content" label="English date" />

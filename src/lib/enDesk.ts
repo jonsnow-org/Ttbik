@@ -3,6 +3,7 @@ export type DeskItem = {
   title: string;
   dek: string;
   date: string;
+  dateLabel?: string;
   contextDateLabel?: string;
   body: string[];
   tool?: string;
@@ -309,8 +310,9 @@ export const EN_EVENTS: DeskItem[] = [
   {
     "slug": "cop31-antalya-2026",
     "title": "UN Climate Change Conference COP31 in Antalya",
-    "date": "9–20 November 2026",
-    "endDate": "20 November 2026",
+    "date": "2026-11-09",
+    "dateLabel": "9–20 November 2026",
+    "endDate": "2026-11-20",
     "dek": "Antalya hosts the 31st UN Climate Change Conference through 20 November, bringing together governments, negotiators and stakeholders working on climate action.",
     "body": [
       "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) is taking place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. It brings together national delegations, negotiators, observers, civil society and private-sector representatives to advance implementation of the Paris Agreement.",
@@ -337,7 +339,8 @@ export const EN_EVENTS: DeskItem[] = [
   {
     "slug": "world-toilet-day-2026",
     "title": "World Toilet Day 2026: Safe toilets, equal futures",
-    "date": "19 November 2026",
+    "date": "2026-11-19",
+    "dateLabel": "19 November 2026",
     "dek": "World Toilet Day falls on 19 November. The 2026 campaign focuses on sanitation and gender equality under the theme “Safe toilets. Equal futures.”",
     "body": [
       "World Toilet Day is observed every year on 19 November. Coordinated by UN-Water, it promotes action on the global sanitation crisis and progress toward safe water and sanitation for all.",
@@ -363,7 +366,8 @@ export const EN_EVENTS: DeskItem[] = [
   {
     "slug": "world-childrens-day-2026",
     "title": "World Children’s Day 2026: My day, my rights, my future",
-    "date": "20 November 2026",
+    "date": "2026-11-20",
+    "dateLabel": "20 November 2026",
     "dek": "World Children’s Day takes place on 20 November. UNICEF’s 2026 campaign calls for children to be heard and involved in decisions that affect their rights and future.",
     "body": [
       "World Children’s Day is observed on 20 November each year. The date marks the UN General Assembly’s adoption of the Declaration of the Rights of the Child in 1959 and the Convention on the Rights of the Child in 1989.",
@@ -389,7 +393,8 @@ export const EN_EVENTS: DeskItem[] = [
   {
     "slug": "world-television-day-2026",
     "title": "World Television Day 2026: visual media and public dialogue",
-    "date": "21 November 2026",
+    "date": "2026-11-21",
+    "dateLabel": "21 November 2026",
     "dek": "World Television Day is observed on 21 November. The UN General Assembly proclaimed it in recognition of television’s role in communication, information and public debate.",
     "body": [
       "World Television Day is observed on 21 November each year. The UN General Assembly proclaimed it through resolution 51/205, adopted on 17 December 1996, commemorating the first World Television Forum held at the United Nations on 21–22 November 1996.",

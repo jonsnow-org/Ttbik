@@ -23,7 +23,7 @@ export default function Page() {
       <div className="mt-6"><AdSlot position="in-content" label="English events" /></div>
       <div className="mt-6 grid gap-4">
         {EN_EVENTS.map((item) => (
-          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date} badge="Date" />
+          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.dateLabel ?? (item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date)} badge="Date" />
         ))}
       </div>
     </main>

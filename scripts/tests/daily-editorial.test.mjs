@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { NEWS_ITEMS } from "../../src/lib/newsItems.ts";
 import { ARTICLE_ITEMS } from "../../src/lib/articlesIndex.ts";
 import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
-import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "../../src/lib/enDesk.ts";
+import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
 const sourceUrls = (item) => (item.sources ?? []).map((source) => source.href).sort();
 
@@ -45,10 +45,10 @@ test("the superconductivity explainer is bilingual and avoids claiming room-temp
 
 test("current and upcoming global events have matching English dates and sources", () => {
   const expected = [
-    { slug: "cop31-antalya-2026", dateIso: "2026-11-09", endDateIso: "2026-11-20", date: "9–20 November 2026", endDate: "20 November 2026" },
-    { slug: "world-toilet-day-2026", dateIso: "2026-11-19", date: "19 November 2026" },
-    { slug: "world-childrens-day-2026", dateIso: "2026-11-20", date: "20 November 2026" },
-    { slug: "world-television-day-2026", dateIso: "2026-11-21", date: "21 November 2026" }
+    { slug: "cop31-antalya-2026", dateIso: "2026-11-09", endDateIso: "2026-11-20", date: "2026-11-09", endDate: "2026-11-20", dateLabel: "9–20 November 2026" },
+    { slug: "world-toilet-day-2026", dateIso: "2026-11-19", date: "2026-11-19", dateLabel: "19 November 2026" },
+    { slug: "world-childrens-day-2026", dateIso: "2026-11-20", date: "2026-11-20", dateLabel: "20 November 2026" },
+    { slug: "world-television-day-2026", dateIso: "2026-11-21", date: "2026-11-21", dateLabel: "21 November 2026" }
   ];
 
   for (const item of expected) {
@@ -60,6 +60,8 @@ test("current and upcoming global events have matching English dates and sources
     assert.equal(arabic.endDateIso, item.endDateIso);
     assert.equal(english.date, item.date);
     assert.equal(english.endDate, item.endDate);
+    assert.equal(english.dateLabel, item.dateLabel);
+    assert.equal(isUpcomingDate(english, "2026-11-18"), true);
     assert.deepEqual(sourceUrls(english), sourceUrls(arabic));
     assert.ok(arabic.sources.length >= 1);
   }
@@ -77,4 +79,8 @@ test("news and article detail pages label publication dates explicitly", () => {
   assert.match(englishNews, /contextDateLabel/);
   assert.match(arabicArticles, /تاريخ النشر/);
   assert.match(englishArticles, /Published/);
+  const englishEvents = readFileSync(new URL("../../src/app/en/events/page.tsx", import.meta.url), "utf8");
+  const englishEventDetail = readFileSync(new URL("../../src/app/en/events/[slug]/page.tsx", import.meta.url), "utf8");
+  assert.match(englishEvents, /item\.dateLabel/);
+  assert.match(englishEventDetail, /item\.dateLabel/);
 });
