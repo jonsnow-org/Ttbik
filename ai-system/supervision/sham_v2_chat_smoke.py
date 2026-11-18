@@ -271,8 +271,10 @@ def main() -> int:
     # The live self-name is Sham Pro / «شام برو», from the identity LoRA in the published head (applied to the body at start, every chat).
     # Before the head is published (status identity_lora=false) a donor that still says Qwen is reported, not failed, so media smoke can run.
     wrong = re.search(r"qwen|alibaba|openai|chatgpt|gpt-?\d|claude", identity, re.I) or not re.search(r"شام\s*برو|sham\s*pro", identity, re.I)
+    failures: list[str] = []
     if wrong and status.get("identity_lora"):
-        raise RuntimeError(f"Sham Pro identity LoRA is applied but the model does not answer as Sham Pro: {identity[:240]!r}")
+        failures.append(f"Sham Pro identity LoRA is applied but the model does not answer as Sham Pro: {identity[:240]!r}")
+        print("FAIL " + failures[-1])
     if wrong:
         print(f"KNOWN_FAILURE Sham Pro identity: head not published/applied yet ({status.get('identity_lora_why') or 'no head'}): {identity[:240]!r}")
     else:
@@ -295,9 +297,15 @@ def main() -> int:
     ], 128)
     print(f"PASS Sham v2 multi-turn response: {followup[:240]}")
 
-    streaming_smoke()
-    native_model_terminal_smoke()
-    tldm_smoke(status)
+    # every check runs (one failure does not hide the others); the script fails at the end
+    for check in (streaming_smoke, native_model_terminal_smoke, lambda: tldm_smoke(status)):
+        try:
+            check()
+        except Exception as exc:  # noqa: BLE001 - reported, then the next check runs
+            failures.append(f"{type(exc).__name__}: {str(exc)[:300]}")
+            print("FAIL " + failures[-1])
+    if failures:
+        raise RuntimeError(f"{len(failures)} Sham v2 chat check(s) failed: " + " | ".join(f[:160] for f in failures))
     return 0
 
 
