@@ -325,6 +325,13 @@ def status() -> str:
         msg["bank"] = {"passages": len(b) if b is not None else 0, "sha": _BANK["sha"][:12], "built": (b.manifest.get("built") if b is not None else ""), "error": _BANK["error"], "repo": BANK_ID}
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
+    if _V2:
+        try:
+            import sham_tldm_serve as _tldm
+            msg.update(_tldm.status_fields())
+        except Exception as exc:
+            msg["tldm"] = False
+            msg["tldm_error"] = type(exc).__name__
     return json.dumps(msg, ensure_ascii=False)
 
 
@@ -423,8 +430,61 @@ def _chat_params(messages_json: str, max_new_tokens: float, temperature: float, 
     return clean, n, temp, thought
 
 
+
+def _tldm_user_text(messages_json: str) -> str:
+    messages = json.loads(messages_json or "[]")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages_json must be a non-empty list")
+    last = messages[-1]
+    if not isinstance(last, dict) or last.get("role") != "user" or not isinstance(last.get("content"), str):
+        raise ValueError("the final message must be a user turn")
+    return last["content"]
+
+
+def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0) -> str:
+    """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used.
+
+    Public generate_chat never enters this path. The owner-gated client calls this endpoint
+    (later, SHAM_TLDM_OPEN may allow every user). confirm_cmd/confirm_ok resume a paused
+    sensitive command after that chat's allow/deny tap; the command still runs on model_computer.
+    """
+    if not _V2:
+        return json.dumps({"type": "error", "text": "generate_tldm is available only on Sham 2.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    import sham_tldm_serve as tldm
+    if not tldm.requested(bool(float(tldm_flag or 0))):
+        return tldm.error_json("مسار T-LDM لشام 2 غير مفعّل. لم يُستخدم شام 1، ولا يوجد تحويل صامت.")
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    try:
+        text = _tldm_user_text(messages_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        return json.dumps({"type": "error", "text": str(exc)[:240], "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        return tldm.respond(
+            serve._state["model"],
+            serve._state["text_tokenizer"],
+            str(session or "default"),
+            text,
+            confirm_cmd=str(confirm_cmd or ""),
+            confirm_ok=bool(float(confirm_ok or 0)),
+        )
+    except Exception as exc:
+        print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return tldm.error_json(tldm.load_fail_message(f"{type(exc).__name__}: {exc}"))
+    finally:
+        _LOCK.release()
+
+
 def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
-    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions."""
+    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions.
+
+    T-LDM never auto-routes through generate_chat, even if SHAM_TLDM=1 is set on the Studio:
+    Sham 2 is public, and every ordinary chat (including non-owners) must stay on donor chat.
+    The T-LDM path is only generate_tldm, called by the owner-gated client.
+    """
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_chat is available only on Sham v2."}, ensure_ascii=False)
     if STATE["phase"] != "ready":
@@ -888,6 +948,14 @@ def build_ui():
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
+        tldm_chat = gr.Interface(
+            generate_tldm,
+            [gr.Textbox(label="messages_json"), gr.Textbox(label="session", value=""),
+             gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
+             gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0)],
+            gr.Textbox(label="Sham 2 T-LDM result"), api_name="generate_tldm", flagging_mode="never")
+        interfaces.insert(1, tldm_chat)
+        labels.insert(1, "محادثة T-LDM (شام 2)")
     # the live (token-by-token) chat is exposed by BOTH Shams now: v2 streams Qwen3, the legacy Sham streams its own chat path (owner 2026-11-08)
     chat_stream = gr.Interface(
         generate_chat_stream,

@@ -33,6 +33,9 @@ os.environ.setdefault("SHAM_GENERATE_CHAT_MAX_TOKENS", "1024")    # cap for the 
 # Enable the structured assistant/tool_calls response endpoint only in this dedicated Sham v2 Studio.
 os.environ.setdefault("SHAM_NATIVE_TOOL_CALLS", "1")
 os.environ.setdefault("SHAM_TOOLCALL_GUARD", "1")    # v2 constrained tool-call decoding
+# T-LDM is off until the trained Sham 2 head exists and the owner turns it on (never a silent fallback to Sham 1).
+os.environ.setdefault("SHAM_TLDM", "0")
+os.environ.setdefault("SHAM_TLDM_REPO", "novaai2026/sham2-tldm-head")
 runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sham_app.py"), run_name="__main__")
 '''
 
@@ -71,6 +74,43 @@ def patch_staged_sham_v2_download(studio: pathlib.Path) -> None:
         requirements_path.write_text(requirements.rstrip() + "\n" + pin + "\n", encoding="utf-8")
 
 
+
+def stage_tldm_serving(studio: pathlib.Path) -> None:
+    """Copy the T-LDM serving hook and the packages it imports. Training code is not copied. SHAM_TLDM stays off."""
+    root = ROOT / "ai-system"
+    src = root / "modelscope-sham" / "sham_tldm_serve.py"
+    if src.is_file():
+        shutil.copy2(src, studio / "sham_tldm_serve.py")
+    tldm_src = root / "tldm"
+    dest = studio / "tldm"
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in ("serve_adapter.py",):
+        f = tldm_src / name
+        if f.is_file():
+            shutil.copy2(f, dest / name)
+    for folder, files in (("sham_tldm", None), ("memory", ("store.py",)), ("data", ("trajectories.py",))):
+        src_dir = tldm_src / folder
+        out = dest / folder
+        if not src_dir.exists():
+            continue
+        if files is None:
+            if out.exists():
+                shutil.rmtree(out)
+            shutil.copytree(src_dir, out, ignore=shutil.ignore_patterns("test_*", "__pycache__", "*.pyc"))
+        else:
+            out.mkdir(parents=True, exist_ok=True)
+            for name in files:
+                f = src_dir / name
+                if f.is_file():
+                    shutil.copy2(f, out / name)
+    term = studio / "terminal"
+    term.mkdir(parents=True, exist_ok=True)
+    for name in ("approvals.py", "sham_binding.py", "backends.py", "sandbox_terminal.py"):
+        f = root / "terminal" / name
+        if f.is_file():
+            shutil.copy2(f, term / name)
+
+
 def write_sham_v2_wrapper(studio: pathlib.Path) -> None:
     (studio / "app.py").write_text(SHAM_V2_WRAPPER, encoding="utf-8")
     # status() reports this as "build": the deploy compares it with the commit it pushed (ModelScope's runner can ship a cached old build)
@@ -83,6 +123,7 @@ def stage_sham_v2(studio: pathlib.Path) -> str:
     shutil.move(str(studio / "app.py"), str(studio / "sham_app.py"))
     patch_staged_sham_v2_download(studio)
     write_sham_v2_wrapper(studio)
+    stage_tldm_serving(studio)
     return result
 
 

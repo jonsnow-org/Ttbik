@@ -8,7 +8,7 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -122,6 +122,37 @@ export async function shamAgentRun(opts: {
   if (!opts.resume) {
     for (const h of (opts.history || []).slice(-4)) { messages.push({ role: "user", content: h.q }, { role: "assistant", content: h.a }); }
     messages.push({ role: "user", content: opts.text });
+  }
+
+  // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
+  // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
+  if (v2 && shamTldmOn()) {
+    const session = shamTldmSessionId(opts.ctx.chatId);
+    const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
+    const chatMessages = messages
+      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
+        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
+    if (await isStopped()) return { kind: "stopped", used, steps: 0 };
+    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    if (await isStopped()) return { kind: "stopped", used, steps: 1 };
+    if (direct?.type === "confirm") {
+      const command = String(direct.command || "");
+      return {
+        kind: "confirm",
+        call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
+        used,
+        steps: 1,
+      };
+    }
+    if (direct?.type === "text") {
+      const answer = String(direct.text || "").trim();
+      return answer ? { kind: "text", text: answer, used, steps: 1 } : { kind: "none", used, steps: 1 };
+    }
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
+    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
+    return { kind: "none", used, steps: 0 };
   }
 
   // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,

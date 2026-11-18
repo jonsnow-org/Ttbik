@@ -124,7 +124,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
-        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
+        settings: { model: st.model || "coder", ...modelSettings(st, st.model), memory: memorySettings(st, st.model), tldm: (await import("@/lib/coderModels")).tldmAllowedFor(user.tier) && (await import("@/lib/coderModels")).tldmEnabled(st, st.model), perModel: Object.fromEntries((await (await import("@/lib/coderModels")).listModels(db)).filter((m) => modelUsableBy(m, owner)).map((m) => [m.id, { ...modelSettings(st, m.id), memory: memorySettings(st, m.id) }])), lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "", forced: await (await import("@/lib/modeForce")).refreshForced(db).catch(() => ({})) },
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)) },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
@@ -153,6 +153,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (!m || !modelUsableBy(m, user.tier === "owner")) throw new AppError(400, "model not available");
         const eff = setModelSettings(st, target, { think: typeof body.think === "boolean" ? body.think : undefined, accuracy: accIn, policy: polIn, auto: typeof body.auto === "boolean" ? body.auto : undefined });
         if (target === "coder") { st.think = eff.think; st.accuracy = eff.accuracy; }           // Nova's own values also stay in the old fields (older readers, forks)
+      }
+      if (typeof body.tldm === "boolean") {
+        const { setTldmEnabled, tldmAllowedFor } = await import("@/lib/coderModels");
+        if (!tldmAllowedFor(user.tier)) throw new AppError(403, "T-LDM for Sham 2 is owner only");
+        setTldmEnabled(st, body.tldm);
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save
       if (body.memory && typeof body.memory === "object") {
