@@ -944,9 +944,18 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         corpus = publish_dataset(WORK / "crawl_corpus", corpus_ds, f"live corpus to step {step:,}")
     try:
         from kaggle_secrets import UserSecretsClient
-        from telegram_report import send_telegram_message
+        from telegram_report import send_training_report
         sec = UserSecretsClient()
-        send_telegram_message(sec.get_secret("TELEGRAM_BOT_TOKEN"), sec.get_secret("TELEGRAM_CHAT_ID"), report[:4000])
+        token = sec.get_secret("TELEGRAM_BOT_TOKEN")
+        admin = ""
+        for key in ("TELEGRAM_ADMIN_CHAT_ID", "TELEGRAM_OWNER_CHAT_ID", "SHAM_TRAINING_REPORT_CHAT_ID", "SUPER_ADMIN_TELEGRAM_ID"):
+            try:
+                admin = sec.get_secret(key) or ""
+            except Exception:
+                admin = ""
+            if admin:
+                break
+        send_training_report(token, report[:4000], chat_id=admin or None)
     except Exception:
         pass
     return {"steps": step - start_step, "published": published, "corpus": corpus, "holdout": final,

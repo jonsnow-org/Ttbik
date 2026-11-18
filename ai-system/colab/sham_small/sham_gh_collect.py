@@ -180,8 +180,8 @@ def main():
     a = ap.parse_args()
     res = run(a.hours, a.publish_every)
     try:
-        from telegram_report import send_telegram_message
-        send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), res["report"][:4000])
+        from telegram_report import send_training_report
+        send_training_report(os.environ.get("TELEGRAM_BOT_TOKEN") or "", res["report"][:4000])
     except Exception as exc:
         print(f"telegram: {exc}")
 

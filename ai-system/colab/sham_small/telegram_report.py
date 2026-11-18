@@ -23,6 +23,7 @@ configured simply never calls this.
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from typing import Callable
 
@@ -58,6 +59,46 @@ def send_telegram_message(token: str, chat_id: str, text: str, post_fn: PostFn =
     except Exception as exc:
         print(f"telegram_report: send failed ({exc}) -- report lost this session, not fatal to training.")
         return False
+
+
+
+def resolve_report_chat_id(explicit: str | None = None, env: dict | None = None) -> str:
+    """Training reports go to an owner/admin chat, never to the Sham 2 model chat.
+
+    TELEGRAM_CHAT_ID is often the owner's conversation with the public Sham bot, so it
+    is used only when TELEGRAM_REPORT_ALLOW_MODEL_CHAT=1 is set explicitly.
+    """
+    e = env or os.environ
+    allow_model = str(e.get("TELEGRAM_REPORT_ALLOW_MODEL_CHAT") or "").strip() == "1"
+    model_chat = str(e.get("TELEGRAM_CHAT_ID") or "").strip()
+    if (explicit or "").strip():
+        dest = str(explicit).strip()
+    else:
+        dest = ""
+        for key in ("TELEGRAM_ADMIN_CHAT_ID", "TELEGRAM_OWNER_CHAT_ID", "SHAM_TRAINING_REPORT_CHAT_ID", "SUPER_ADMIN_TELEGRAM_ID"):
+            value = str(e.get(key) or "").strip()
+            if value:
+                dest = value
+                break
+        if not dest and allow_model:
+            dest = model_chat
+    if dest and model_chat and dest == model_chat and not allow_model:
+        return ""
+    return dest
+
+
+def send_training_report(token: str, text: str, post_fn: PostFn = _real_post, chat_id: str | None = None, env: dict | None = None) -> bool:
+    """Send a training/checkpoint report to the admin destination (or skip)."""
+    dest = resolve_report_chat_id(chat_id, env)
+    if not dest:
+        try:
+            from sham_reports import log_report
+            log_report(text)
+        except Exception:
+            pass
+        print("telegram_report: no admin/owner chat configured — training report was not posted into the model chat.")
+        return False
+    return send_telegram_message(token, dest, text, post_fn=post_fn)
 
 
 def format_training_report(
@@ -132,6 +173,17 @@ if __name__ == "__main__":
     assert send_telegram_message("", "999", "hello", post_fn=fake_post_ok) is False
     assert len(calls) == 0, "an unconfigured token must never even attempt the network call"
     print("unconfigured-credentials path verified: skipped cleanly with zero network attempts.")
+
+    assert resolve_report_chat_id(env={"TELEGRAM_CHAT_ID": "model-chat", "TELEGRAM_ADMIN_CHAT_ID": "admin-1"}) == "admin-1"
+    assert resolve_report_chat_id(env={"TELEGRAM_CHAT_ID": "same", "TELEGRAM_ADMIN_CHAT_ID": "same"}) == ""
+    assert resolve_report_chat_id(env={"TELEGRAM_CHAT_ID": "model-chat"}) == ""
+    assert resolve_report_chat_id(env={"TELEGRAM_CHAT_ID": "model-chat", "TELEGRAM_REPORT_ALLOW_MODEL_CHAT": "1"}) == "model-chat"
+    calls.clear()
+    assert send_training_report("123:abc", "🧠 تقرير جلسة شام", post_fn=fake_post_ok, env={"TELEGRAM_CHAT_ID": "model-chat"}) is False
+    assert calls == []
+    assert send_training_report("123:abc", "🧠 تقرير جلسة شام", post_fn=fake_post_ok, env={"TELEGRAM_ADMIN_CHAT_ID": "admin-1"}) is True
+    assert calls[0][1]["chat_id"] == "admin-1"
+    print("training reports are routed to an admin chat and never fall back to the model chat.")
 
     report = format_training_report("GPU main track", 12_345, [5.0, 4.8, 4.6, 4.4, 4.2, 4.0, 3.8, 3.6, 3.4, 3.2, 3.0], "me/sham-checkpoint")
     assert "12,345" in report

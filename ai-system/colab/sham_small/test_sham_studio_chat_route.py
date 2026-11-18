@@ -75,6 +75,24 @@ class Qwen3RouteTests(unittest.TestCase):
         self.assertIn("CURRENT_START", rendered)
         self.assertNotIn("CURRENT_END", rendered)
 
+    def test_two_different_current_questions_keep_their_own_last_user_turn(self):
+        module = load_module()
+        history = [
+            {"role": "user", "content": "مرحبا كيف حالك"},
+            {"role": "assistant", "content": "أهلاً، أنا بخير."},
+        ]
+        first = "".join(chr(t) for t in module._qwen3_messages_prompt_ids(
+            CharacterTokenizer(), [{"role": "user", "content": "مرحبا كيف حالك"}], 500))
+        second = "".join(chr(t) for t in module._qwen3_messages_prompt_ids(
+            CharacterTokenizer(), history + [{"role": "user", "content": "ماهي الموصلات المتاحة لديك هل ترى بينها موصل جيتهوب"}], 800))
+        self.assertIn("مرحبا كيف حالك", first)
+        self.assertIn("ماهي الموصلات المتاحة لديك هل ترى بينها موصل جيتهوب", second)
+        self.assertTrue(second.endswith("<|im_start|>assistant\n") or "<|im_start|>assistant\n" in second)
+        last_user = second.rfind("<|im_start|>user\n")
+        self.assertGreater(last_user, -1)
+        self.assertIn("موصل جيتهوب", second[last_user:])
+        self.assertNotEqual(first, second)
+
     def test_invalid_roles_are_rejected(self):
         module = load_module()
         with self.assertRaises(ValueError):
