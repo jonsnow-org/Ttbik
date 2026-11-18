@@ -27,7 +27,7 @@ jobs:
             curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$O/$REPO/logs/$k?page_size=200" | python3 -c "
           import json,sys,re
           d=json.load(sys.stdin); x=d.get('data') or {}
-          lines=x.get('logs') or x.get('Logs') or x.get('items') or (x if isinstance(x,list) else [])
+          lines=x if isinstance(x,list) else next((v for v in x.values() if isinstance(v,list)),[str(x)[:2000]])
           for l in (lines if isinstance(lines,list) else [str(lines)])[-80:]:
               s=l if isinstance(l,str) else json.dumps(l,ensure_ascii=False)
               if not re.search(r'token|secret|password|bearer',s,re.I): print(s.rstrip()[:300])
