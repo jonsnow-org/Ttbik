@@ -34,10 +34,30 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_CN" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "cn $n HTTP $code"
           done
-          for n in sham-trainer-1 sham-trainer-tools; do
+          for n in sham-trainer-1 sham-trainer-tools coder-inference-server-16; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
             echo "ai $n HTTP $code"
           done
+      - name: Wake the international Nova 2 Studio if it fell asleep
+        # A plain HTTP ping does not wake a sleeping free Studio (checked for media Studios, same file).
+        # Nova 2 lives only on Jonjithup/coder-inference-server-16 (modelscope.ai, 16 GB). This starts it when
+        # Sleeping; a running or building one is never touched. The cn Nova 4B Studios are unchanged.
+        env:
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          MS: https://www.modelscope.ai
+          OWNER: Jonjithup
+        run: |
+          echo "::add-mask::$T_AI"
+          n=coder-inference-server-16
+          state=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T_AI" "$MS/openapi/v1/studios/$OWNER/$n" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true)
+          if [ "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" = "sleeping" ]; then
+            code=$(curl -sS --connect-timeout 8 --max-time 30 -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $T_AI" "$MS/openapi/v1/studios/$OWNER/$n/deploy" || echo 000)
+            echo "ai $OWNER/$n was Sleeping -> deploy HTTP $code"
+          else
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
+            echo "ai $OWNER/$n state=${state:-unknown} ping HTTP $code"
+          fi
+
       - name: Wake each live media Studio if it fell asleep
         # A plain HTTP request does NOT wake a sleeping free Studio (checked 2026-11-11: after an image request every media Studio was still
         # "Sleeping" and every image failed with HTTP 404). Only ModelScope's deploy call starts it again, from the code it already holds.

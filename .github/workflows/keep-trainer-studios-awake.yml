@@ -2,7 +2,8 @@ name: "Keep the Sham trainer Studios awake"
 # Free Studios go to sleep after a quiet while, and a sleeping trainer trains nothing. Found 2026-11-16: the two international trainers (Jonjithup/sham-trainer-1 and sham-trainer-tools, free
 # 16 GB tier) were "Sleeping" hours after their deploy. A plain HTTP request does not wake a Studio (see keep-warm-chat-studios.yml); only ModelScope's deploy call does, from the code it
 # already holds, and the trainer app then resumes its cycle. This asks every 20 minutes: if a trainer Studio is Sleeping, start it; a running or building one is never touched.
-# Only Sham's own trainers are listed: never the computer hub, never Nova's Studios.
+# Sham's trainers are listed, plus the international Nova 2 chat Studio (Jonjithup/coder-inference-server-16)
+# so it is woken the same way if it falls asleep. Never the computer hub, never the cn Nova 4B Studios.
 on:
   schedule:
     - cron: "*/20 * * * *"
@@ -30,7 +31,8 @@ jobs:
                       ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-gemma4-e4b-test", "T_CN"),
                       ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-minicpmo45-test", "T_CN"),
                       ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-1", "T_AI"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI")]
+                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI"),
+                      ("ai", "www.modelscope.ai", "Jonjithup", "coder-inference-server-16", "T_AI")]
           def call(url, tok, method="GET"):
               req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok}, method=method, data=b"" if method == "POST" else None)
               try:
