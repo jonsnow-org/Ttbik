@@ -142,13 +142,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
   // Nova 2 has a separate connector namespace; never expose or mutate Nova's linked OAuth/MCP connections.
-  if (body.model === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove"].includes(op)) {
+  if (body.model === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "github_start", "github_token"].includes(op)) {
     throw new AppError(403, "Nova 2's connectors are independent; Nova's linked accounts cannot be used from Nova 2.");
   }
   if (body.model === "nova2" && ["schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run"].includes(op)) {
     throw new AppError(403, "Nova 2's independent scheduler is not provisioned; Nova's schedules are not shared.");
   }
-  if (body.model === "nova2" && op === "secret_answer") {
+  if (body.model === "nova2" && ["secret_answer", "secret_list", "secret_delete"].includes(op)) {
     throw new AppError(403, "Nova 2's secret-request vault is not separated from Nova's yet.");
   }
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
@@ -303,33 +303,44 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true, stored: ask.secretName };
     }
     case "handoff_done": {
-      // the user gives the computer back (Done) or declines the step (cancel). Nova-family: the waiting run continues; Sham (its round ended with the
-      // handoff): a short follow-up message continues the chat, like the secure box does.
+      // Return the user's own screen to the selected model's waiting run; never resume another model's state.
       const note = String(body.note || "").slice(0, 300);
       const cancelled = Boolean(body.cancel);
+      if (typeof body.model !== "string") throw new AppError(400, "model is required");
       if (!body.runId) {
+        if (body.model === "nova2") throw new AppError(403, "Nova 2 has no independent computer handoff until its computer Studio is provisioned.");
         const H = await import("@/lib/computerHandoff");
         const h = H.cleanHandoff(body.handoff);
         return { ok: true, followup: H.shamHandoffFollowup(h, note, cancelled) };
       }
+      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, body.model, db);
+      const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
+      if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "handoff task not found in this model");
       const slot = String(body.slot || "");
-      const st = await loadStateStrict(chatId, db, slot);
-      const ask = st.run?.asking;
-      if (!st.run || !ask || ask.kind !== "handoff" || st.run.id !== String(body.runId || "")) throw new AppError(409, "no computer handoff is awaited");
-      const { answerHandoffAsk } = await import("@/lib/coderSections");
-      await answerHandoffAsk(deps.bot, deps.botRow, chatId, st, { note, cancelled }, db, slot);
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      const finish = async () => {
+        const st = await loadStateStrict(chatId, db, slot);
+        const ask = st.run?.asking;
+        if (!st.run || !ask || ask.kind !== "handoff" || st.run.id !== String(body.runId || "")) throw new AppError(409, "no computer handoff is awaited");
+        const { answerHandoffAsk } = await import("@/lib/coderSections");
+        await answerHandoffAsk(deps.bot, deps.botRow, chatId, st, { note, cancelled }, db, slot);
+      };
+      if (body.model === "nova2" || body.model === "lfm25") await withEngineModel(body.model, finish);
+      else await finish();
       return { ok: true, resumed: true };
     }
     case "secret_list": {
+      if (body.model === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
       const V = await import("@/lib/secretVault");
       return { secrets: V.listSecretNames(chatId) };
     }
     case "secret_delete": {
+      if (body.model === "nova2") throw new AppError(403, "Nova 2's secret vault is not yet independent.");
       const V = await import("@/lib/secretVault");
       return { ok: V.deleteSecret(chatId, String(body.name || "")) };
     }
     case "screen_offer": {
-      if (user.tier !== "owner") return { offer: null };
+      if (user.tier !== "owner" || body.model === "nova2") return { offer: null };
       return { offer: await (await import("@/lib/coderTasks")).latestScreenOffer(chatId, db) };
     }
     case "task_delete": {
