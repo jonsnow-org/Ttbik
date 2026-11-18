@@ -16,9 +16,21 @@ class BitLinear(nn.Module):
         return torch.round(self.weight / scale).clamp(-1, 1), scale
 
     def forward(self, x):
+        if not self.training and not torch.is_grad_enabled():
+            # inference: the ternary weight is computed once and reused (it was re-quantized on every call: 2-3x slower reader with BitNet on).
+            # The cache is dropped by train() and whenever the weight tensor changes (version counter), so training and loading stay correct.
+            key = (self.weight.data_ptr(), self.weight._version)
+            if getattr(self, "_cache_key", None) != key:
+                q, scale = self.ternary()
+                self._cache, self._cache_key = (q * scale).detach(), key
+            return F.linear(x, self._cache.to(x.dtype), self.bias)
         q, scale = self.ternary()
         w_eff = self.weight + (q * scale - self.weight).detach()
         return F.linear(x, w_eff, self.bias)
+
+    def train(self, mode: bool = True):
+        self._cache_key = None
+        return super().train(mode)
 
 
 def make_linear(i: int, o: int, bitnet: bool):

@@ -32,22 +32,30 @@ class DiffusionWriter(nn.Module):
         return F.cross_entropy(lg[masked], target[masked])
 
     @torch.no_grad()
-    def generate(self, z, steps: int = 10, temperature: float = 0.0):
+    def generate(self, z, steps: int = 10, temperature: float = 0.0, confident: float = 0.0):
+        """confident > 0 (inference speed option, off by default): after a pass, if every still-hidden position is predicted with probability >= `confident`,
+        they are all written at once and the remaining passes are skipped. `self.last_passes` = passes actually run."""
         B, N = z.shape[0], self.block
         tok = torch.zeros(B, N, dtype=torch.long, device=z.device)
         masked = torch.ones(B, N, dtype=torch.bool, device=z.device)
+        hidden = N
+        self.last_passes = 0
         for s in range(steps):
+            self.last_passes = s + 1
             probs = F.softmax(self.logits(tok, masked, z).float() / (temperature or 1.0), -1)
             if temperature:
                 pred = torch.multinomial(probs.reshape(-1, probs.shape[-1]), 1).reshape(probs.shape[:2])      # exploration: a different but plausible command each time
                 conf = probs.gather(-1, pred[..., None])[..., 0]
             else:
                 conf, pred = probs.max(-1)
+            if confident and s + 1 < steps and bool(((conf >= confident) | ~masked).all()):
+                return torch.where(masked, pred, tok)
             conf = torch.where(masked, conf, torch.full_like(conf, -1.0))
             keep = N - (N * (s + 1)) // steps                       # hidden positions that remain after this pass
-            k = int(masked[0].sum()) - keep
+            k = hidden - keep
             if k > 0:
                 idx = conf.topk(k, dim=1).indices
                 tok = tok.scatter(1, idx, pred.gather(1, idx))
                 masked = masked.scatter(1, idx, False)
+                hidden = keep
         return tok

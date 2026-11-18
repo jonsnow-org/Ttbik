@@ -69,3 +69,18 @@
 2. **صيغة الاستدعاء:** `<tool_call>{"name":"computer_run",...}` عند شام مقابل `$ أمر` في بروتوكول T-LDM. الواجهة تترجم الثاني إلى استدعاء `computer_run` ولا تغيّر الأول.
 
 **اختبارات عدم التصادم (في `test_all.py`، تعمل على حاسوب شام الحقيقي):** ملف تكتبه الطرفية تقرؤه أدوات الحاسوب نفسه (جسد واحد)؛ الطرفية تنادي `computer_run` وحده؛ سياسة `strict` تحجب قبل وصول الأمر ولا يصل الأمر المحجوب إلى الحاسوب؛ واختبار شام الذاتي لحاسوبه المدمج ما زال ناجحًا.
+
+## 5) Speed (2026-11-18): the equation Throughput = K·BW/W, measured on this box
+Box: 8-core Xeon (AVX-512, AMX-bf16), measured copy bandwidth 71 GB/s. Speed is in tok/s = written block tokens / wall time, random-init weights. Full grid: `eval/speed.py` → `tldm_speed_2026-11-18.json`.
+- **66M**, block 64: fp32 805 tok/s (8 threads), 395 (2 threads); bf16 842 (2 threads). Block 128: fp32 737 (8 threads), bf16 1537 (2 threads). Batch of 8: 1357.
+- **0.3B for real** (`configs/speed_0.3b.yaml`): block 128 bf16 851 tok/s (8 threads); fp32 312.
+- **Bounds:** the bandwidth bound (K·BW/W) is 4.3k–17k for 66M. **Compute** is what binds at batch 1: we reach 40–60% of the measured matmul rate in fp32.
+- The old "14–38" figure was the useful command's tokens (~5) divided by latency on 2 CI cores, not the written block.
+- **Changes:**
+  - BitLinear caches its ternary weight at inference; the old path re-quantized on every call, making the reader 2–3× slower.
+  - The reader's scan keeps its dtype, so bf16 now works.
+  - `confident=` lets the writer finish early.
+  - Book options: a confidence exit in the thinker (`think_exit: confidence`, from step 7, >0.95; untrained) and `configs/book_layout.yaml` (1000 latents, 20 steps, block 128). Measured at 256 tok/s; the compressor/thinker over 1000 latents takes 250 ms.
+- **Accuracy unchanged** under every option on the same checkpoint (`tldm_speed_accuracy_*`):
+  - 66M: held-out 0.333, held-out-2 0.143 in fp32, bf16, and with confident=0.9.
+  - confident=0.9 cuts writer passes from 10 to 1.0 (train) and 6.2 (held-out).

@@ -1,0 +1,13 @@
+# The book's layout where it differs from ours: block 128, 1000 latents, 20 latent steps with the confidence exit (>= step 7, > 0.95). Speed-measured only (eval/speed.py).
+d: 640
+layers: 8
+latents: 1000
+think_steps: 20
+think_exit: confidence
+think_min_steps: 7
+block: 128
+in_len: 64
+writer_layers: 3
+heads: 4
+bitnet: false
+diffusion_steps: 10

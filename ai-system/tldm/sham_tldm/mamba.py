@@ -25,7 +25,7 @@ class MambaBlock(nn.Module):
         u, la = u.view(b, n, self.chunk, d), la.view(b, n, self.chunk, d)
         c = torch.cumsum(la, 2)
         intra = torch.exp(c) * torch.cumsum(u * torch.exp(-c), 2)
-        carry, outs = torch.zeros(b, d, device=u.device), []
+        carry, outs = torch.zeros(b, d, device=u.device, dtype=u.dtype), []
         for i in range(n):
             h = intra[:, i] + torch.exp(c[:, i]) * carry[:, None, :]
             outs.append(h)
