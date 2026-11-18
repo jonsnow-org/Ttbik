@@ -199,10 +199,10 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
     const d = db();
     const { bot } = fakeBot();
     for (const id of ["sham-1-a", "sham-2-b", "sham-3-c"]) await taskStart(OWNER, { runId: id, slot: "sham", source: "interactive", title: id }, d);
-    const one: any = await appOp(user, "task_stop", { runId: "sham-1-a" }, { db: d, bot, botRow });
+    const one: any = await appOp(user, "task_stop", { model: "sham", runId: "sham-1-a" }, { db: d, bot, botRow });
     expect(one.stopped).toBe(1);
     expect((await listTasks(OWNER, { active: true, limit: 20 }, d)).length).toBe(2);
-    const all: any = await appOp(user, "stop_all", {}, { db: d, bot, botRow });
+    const all: any = await appOp(user, "stop_all", { model: "sham" }, { db: d, bot, botRow });
     expect(all.stopped).toBe(2);
     expect((await listTasks(OWNER, { active: true, limit: 20 }, d)).length).toBe(0);
   });

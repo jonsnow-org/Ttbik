@@ -53,7 +53,7 @@ describe("terminal visibility", () => {
     expect(owner.body.tasks.map((t: any) => t.run_id)).toEqual(["run-of-1"]);
     expect(plus.body.tasks.map((t: any) => t.run_id)).toEqual(["run-of-2"]);
     const peek = await call("@/app/api/coder/terminal/route", "u2", "?runId=run-of-1");      // the paid user asks for the owner's run id
-    expect(peek.body.events).toEqual([]);
+    expect(peek.status).toBe(404); // a run ID not owned by this Telegram user is not disclosed as an event feed
     const own = await call("@/app/api/coder/terminal/route", "u2", "?runId=run-of-2");
     expect(own.body.events[0].text).toBe("سري 2");
   });

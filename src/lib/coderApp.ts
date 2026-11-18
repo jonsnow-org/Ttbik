@@ -317,9 +317,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const h = H.cleanHandoff(body.handoff);
         return { ok: true, followup: H.shamHandoffFollowup(h, note, cancelled) };
       }
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
-      const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
-      if (!visible.some((t) => t.run_id === String(body.runId))) throw new AppError(404, "handoff task not found in this model");
       const slot = String(body.slot || "");
       const { withEngineModel } = await import("@/lib/openCoderStudio");
       const finish = async () => {
@@ -381,20 +378,23 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "stop": {
       const runId = String(body.runId || "");
       if (typeof selectedModel !== "string") throw new AppError(400, "model is required");
-      const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
-      const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
-      const target = visible.find((t) => t.run_id === runId);
-      if (!target) return { ok: false };
-      const requestedSlot = typeof body.slot === "string" ? body.slot : target.slot || "";
+      const requestedSlot = typeof body.slot === "string" ? body.slot : "";
       if (["sham", "sham_v1", "sham_v2"].includes(requestedSlot) || requestedSlot.startsWith("donor:") || requestedSlot.startsWith("model:")) {
         const { taskSlot, stopTaskRow } = await import("@/lib/coderTasks");
         const actualSlot = await taskSlot(runId, chatId, db);
         if (actualSlot !== requestedSlot) return { ok: false };
+        const scope = await taskScope(chatId, (await loadState(chatId, db)).model, selectedModel, db);
+        const visible = await scope(await listTasks(chatId, { active: true, limit: 100 }, db));
+        if (!visible.some((t) => t.run_id === runId)) return { ok: false };
         return { ok: await stopTaskRow(chatId, runId, db) };
       }
       const { stopRun } = await sections();
       const { withEngineModel } = await import("@/lib/openCoderStudio");
-      const stop = () => stopRun(chatId, target.slot || "", runId, db);
+      const stop = async () => {
+        const state = await loadStateStrict(chatId, db, requestedSlot);
+        if (!state.run || state.run.id !== runId) return false;
+        return stopRun(chatId, requestedSlot, runId, db);
+      };
       const ok = selectedModel === "nova2" || selectedModel === "lfm25" ? await withEngineModel(selectedModel, stop) : await stop();
       return { ok };
     }

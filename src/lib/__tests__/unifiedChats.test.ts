@@ -109,15 +109,16 @@ describe("the shared terminal survives dropped connections", () => {
     for (const id of ["nova-run-1", "sham-1-abc"]) {
       await taskStart(OWNER, { runId: id, slot: id.startsWith("sham") ? "sham" : "", source: "interactive", title: id }, d);
       await taskEvent(id, "info", "one", d); await taskEvent(id, "info", "two", d);
-      const first: any = await appOp(owner, "events", { runId: id, after: 0 }, { db: d, bot, botRow });
+      const model = id.startsWith("sham") ? "sham" : "coder";
+      const first: any = await appOp(owner, "events", { model, runId: id, after: 0 }, { db: d, bot, botRow });
       const cursor = Math.max(...first.events.map((e: any) => e.id));
       expect(first.events.map((e: any) => e.text)).toEqual(expect.arrayContaining(["one", "two"]));
       // the connection drops: the run keeps going on the server (events and status are in the database, not in the connection)
       await taskEvent(id, "info", "three", d); await taskEvent(id, "text", "result", d); await taskStatus(id, "done", 3, d);
-      const second: any = await appOp(owner, "events", { runId: id, after: cursor }, { db: d, bot, botRow });
+      const second: any = await appOp(owner, "events", { model, runId: id, after: cursor }, { db: d, bot, botRow });
       expect(second.events.map((e: any) => e.text)).toEqual(["three", "result"]);
     }
-    const tasks: any = await appOp(owner, "tasks", {}, { db: d, bot, botRow });
+    const tasks: any = await appOp(owner, "tasks", { model: "all" }, { db: d, bot, botRow });
     expect(tasks.tasks.map((t: any) => t.run_id).sort()).toEqual(["nova-run-1", "sham-1-abc"]);
   });
 });
