@@ -49,11 +49,20 @@ def main():
             fast_inference(m, mode)
             for batch in [int(x) for x in a.batches.split(",")]:
                 ids = torch.randint(1, 500, (batch, 64))
-                with torch.inference_mode():
+                with torch.inference_mode():                     # where one generate's time goes: reader, compressor+thinker, one writer pass
+                    pad = ids == 0
+                    h = m.read(ids)
+                    z, _ = m.core.latents(h, pad, False)
+                    w = m.core.writer
+                    tk, mk = torch.zeros(batch, block, dtype=torch.long), torch.ones(batch, block, dtype=torch.bool)
+                    split = {"read_ms": med(lambda: m.read(ids), a.reps)[0], "think_ms": med(lambda: m.core.latents(h, pad, False), a.reps)[0],
+                             "writer_pass_ms": med(lambda: w.logits(tk, mk, z), a.reps)[0]}
+                    split = {k: round(v * 1e3, 1) for k, v in split.items()}
+                    print(json.dumps({"block": block, "mode": mode, "batch": batch, "threads": a.threads, **split}), flush=True)
                     for passes in [int(x) for x in a.passes.split(",")]:
                         t, tmin = med(lambda: m.generate(ids, steps=passes, end_exit=False), a.reps)
                         r = {"params_M": round(params / 1e6, 1), "block": block, "mode": mode, "passes": passes, "threads": a.threads, "batch": batch,
-                             "ms": round(t * 1e3, 1), "tok_s": round(block * batch / t, 1), "tok_s_best": round(block * batch / tmin, 1)}
+                             "ms": round(t * 1e3, 1), "tok_s": round(block * batch / t, 1), "tok_s_best": round(block * batch / tmin, 1), **split}
                         rows.append(r)
                         print(json.dumps(r), flush=True)
             del m

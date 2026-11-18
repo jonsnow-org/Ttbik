@@ -25,7 +25,7 @@ jobs:
           set -o pipefail
           cd ai-system/tldm
           python eval/writer_speed.py --threads 4 --modes fp32,bf16,int8 --passes 10,3,2,1 --blocks 128,64 --batches 1,4 --reps 5 --json /tmp/speed_t4.json 2>&1 | tee /tmp/speed_t4.log
-          python eval/writer_speed.py --threads 2 --modes fp32,int8 --passes 10,2 --blocks 128 --batches 1 --reps 5 --json /tmp/speed_t2.json 2>&1 | tee /tmp/speed_t2.log
+          python eval/writer_speed.py --threads 2 --modes fp32,int8 --passes 10,3,2,1 --blocks 128,64 --batches 1,4 --reps 5 --json /tmp/speed_t2.json 2>&1 | tee /tmp/speed_t2.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
