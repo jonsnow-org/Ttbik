@@ -6,6 +6,7 @@ import { stripThinkTags } from "@/lib/thinkTags";
 import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
+import { isRetryableStreamError, mergeResumedStream } from "@/lib/shamLiveReply";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -425,7 +426,7 @@ export async function shamGenerateChatStream(
     if (piece) onDelta?.(piece);
   };
   try {
-    const sub = await fetch(`${base}/gradio_api/call/v2/generate_chat_stream`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+    const sub = await fetch(`${base}/gradio_api/call/v2/generate_chat_stream`, { method: "POST", headers, body: JSON.stringify(payload), cache: "no-store", signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     if (sub.status === 404 || sub.status === 405) {
       // An older Studio has no streaming endpoint: answer with the one-shot chat and hand it over as a single piece.
       const one = await shamGenerateChat(valid, maxNewTokens, timeoutMs, opts);
@@ -435,10 +436,40 @@ export async function shamGenerateChatStream(
     if (!sub.ok) { setFailure(`generate_chat_stream: HTTP ${sub.status} on submit`); return null; }
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) { setFailure("generate_chat_stream: no event id"); return null; }
-    const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
-    if (!res.ok) { setFailure(`generate_chat_stream: HTTP ${res.status} on result`); return null; }
-    const full = await readShamSseDeltas(res, emit);
-    if (!full.trim()) { setFailure("generate_chat_stream: empty answer"); return null; }
+    // The Studio keeps generating under this event id if our GET drops. Reconnect to the same id
+    // (never resubmit) until the deadline, and merge a replay so tokens already shown are not doubled.
+    let full = "";
+    let lastErr = "";
+    const collect = (piece: string) => {
+      const next = mergeResumedStream(full, piece);
+      const extra = next.startsWith(full) ? next.slice(full.length) : "";
+      full = next;
+      if (extra) emit(extra);
+    };
+    while (Date.now() < deadline) {
+      const left = Math.max(1, deadline - Date.now());
+      try {
+        const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, cache: "no-store", signal: AbortSignal.timeout(left) });
+        if (!res.ok) {
+          lastErr = `HTTP ${res.status} on result`;
+          if (res.status === 404 || res.status === 410 || left < 800) break;
+          if (!isRetryableStreamError(new Error(lastErr))) break;
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        const chunk = await readShamSseDeltas(res, collect);
+        full = mergeResumedStream(full, chunk);
+        if (full.trim()) break;
+        lastErr = "empty answer";
+        if (left < 800) break;
+        await new Promise((r) => setTimeout(r, 400));
+      } catch (e) {
+        lastErr = `${(e as { name?: string })?.name || "error"}: ${String((e as Error)?.message || "").slice(0, 80)}`;
+        if (!isRetryableStreamError(e) || Date.now() + 800 >= deadline) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+    if (!full.trim()) { setFailure(`generate_chat_stream: ${lastErr || "empty answer"}`); return null; }
     const reply = await vetShamReply(parseShamReply(full) ?? ({ type: "text", text: full.trim() } as ShamReply), opts);
     if (!reply) setFailure(`generate_chat_stream: unreadable answer (${full.slice(0, 120).replace(/\s+/g, " ")})`);
     return reply;

@@ -9,6 +9,8 @@
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
+import { shamAdminNotice } from "@/lib/shamAdminNotice";
 import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -175,19 +177,19 @@ export async function shamAgentRun(opts: {
   const directChatIntent = !requiresWorkspaceAgent &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
   if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
-    const chatMessages = messages
-      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
-        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
-      .slice(-12)
-      .map((message) => ({ role: message.role, content: message.content }));
+    const chatMessages = shamDirectChatMessages(opts.history, opts.text);
+    if (lastUserContent(chatMessages) !== opts.text) {
+      chatMessages.push({ role: "user", content: opts.text });
+    }
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
     // Streaming is v2-only (its Studio has the endpoint); v1 has no stream, so it must still take the one-shot chat.
     const stream = variant === "v2" ? opts.onDelta : undefined;
-    const directAsk = () => opts.ask
-      ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => stream
-        ? shamGenerateChatStream(chatMessages, maxNew, timeout, stream, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
-        : shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const runDirect = (turns: typeof chatMessages, onDelta = stream) => opts.ask
+      ? ask(turns[turns.length - 1]?.content || opts.text, maxNew, timeout)
+      : shamModeCtx.run(effMode, () => onDelta
+        ? shamGenerateChatStream(turns, maxNew, timeout, onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
+        : shamGenerateChat(turns, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const directAsk = () => runDirect(chatMessages);
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
@@ -203,7 +205,27 @@ export async function shamAgentRun(opts: {
     }
     if (await isStopped()) return { kind: "stopped", used, steps: 1 + waited };
     if (direct?.type === "text") {
-      const answer = String(direct.text || "").trim();
+      let answer = String(direct.text || "").trim();
+      const prior = [...(opts.history || []), ...historyFromTurns(chatMessages.slice(0, -1))];
+      const stale = isTrainingStatusReply(answer) || isEchoedPriorReply(answer, prior);
+      if (stale && answer && left() > 8000) {
+        // The new user turn was ignored (copied previous reply) or the body recited a training report.
+        // Retry once with only this question so a cached/truncated prompt cannot be reused.
+        opts.onEvent?.("info", isTrainingStatusReply(answer) ? "dropped a training-status reply; retrying the current question only" : "dropped a copied previous reply; retrying the current question only");
+        if (isTrainingStatusReply(answer)) void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        const retry = await runDirect([{ role: "user", content: opts.text }], undefined);
+        const again = String(retry?.type === "text" ? retry.text || "" : "").trim();
+        if (again && !isTrainingStatusReply(again) && !isEchoedPriorReply(again, prior)) {
+          if (stream) stream(again);
+          answer = again;
+        } else {
+          if (isTrainingStatusReply(again)) void shamAdminNotice(again, opts.ctx.chatId).catch(() => null);
+          answer = STALE_REPLY_USER;
+        }
+      } else if (isTrainingStatusReply(answer)) {
+        void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        answer = STALE_REPLY_USER;
+      }
       return answer
         ? { kind: "text", text: answer, used, steps: 1 + waited }
         : { kind: "none", used, steps: 1 + waited };

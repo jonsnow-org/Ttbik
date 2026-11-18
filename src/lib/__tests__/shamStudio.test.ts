@@ -123,6 +123,31 @@ describe("shamStudio streamed chat", () => {
     }
   });
 
+  it("reconnects to the same Gradio event id after a dropped result stream", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    let gets = 0;
+    const stream = sseBody(["تابع"]);
+    global.fetch = (async (url: string) => {
+      if (String(url).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "keep-me" }) } as any;
+      gets++;
+      if (gets === 1) throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
+      return { ok: true, status: 200, body: stream, text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: string[] = [];
+      const reply = await shamVariant.run("v2", () => shamGenerateChatStream([{ role: "user", content: "مرحبا" }], 64, 5000, (p) => seen.push(p)));
+      expect(reply).toMatchObject({ type: "text", text: "تابع" });
+      expect(seen).toEqual(["تابع"]);
+      expect(gets).toBe(2);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+  });
+
   it("never streams a typed busy reply as text", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     process.env.SHAM_V2_OVERFLOW_URL = "off";

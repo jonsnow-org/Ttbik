@@ -8,7 +8,7 @@ jest.mock("@/lib/coderPlans", () => ({ terminalAllowed: jest.fn(async (id: numbe
 jest.mock("@/lib/coderTasks", () => ({
   ...jest.requireActual("@/lib/coderTasks"),                     // keep the real isTaskModelFilter / TASK_MODEL_FILTERS
   listTasks: jest.fn(async (id: number) => [{ run_id: `run-of-${id}`, status: "running" }]),
-  taskEvents: jest.fn(async (id: number, runId: string) => (runId === `run-of-${id}` ? [{ id: 1, run_id: runId, kind: "text", text: `سري ${id}` }] : [])),
+  taskEvents: jest.fn(async (id: number, runId: string) => (runId === `run-of-${id}` || runId === `sham-${id}-live` ? [{ id: 1, run_id: runId, kind: "text", text: `سري ${id}` }] : [])),
 }));
 jest.mock("@/lib/coderSections", () => ({ loadState: jest.fn(async () => ({ run: null })) }));
 jest.mock("@/lib/coderAuth", () => ({ prismaDb: {} }));
@@ -34,6 +34,13 @@ describe("terminal visibility", () => {
       expect(r.status).toBe(403);
       expect(r.body.hidden).toBe(true);
     }
+  });
+  it("a free user can still follow their own Sham run over the stream (not the terminal)", async () => {
+    const denied = await call("@/app/api/coder/stream/route", "u3", "?runId=run-of-3");
+    expect(denied.status).toBe(403);
+    expect(await statusOf("@/app/api/coder/stream/route", "u3", "?runId=sham-3-live")).toBe(200);
+    const term = await call("@/app/api/coder/terminal/route", "u3", "?runId=sham-3-live");
+    expect(term.status).toBe(403);
   });
   it("a visitor without verified Telegram data gets 401, never a list", async () => {
     expect((await call("@/app/api/coder/terminal/route", "nobody")).status).toBe(401);
