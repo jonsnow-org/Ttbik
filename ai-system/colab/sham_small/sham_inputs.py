@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import zipfile
 from pathlib import Path
+from ms_hub import apply_ms_hub_endpoint, ms_hub_endpoint
 
 KAGGLE_INPUT = Path("/kaggle/input")
 FETCH_ROOT = Path(os.environ.get("SHAM_FETCH_ROOT") or "/tmp/sham_inputs")      # a ModelScope trainer Studio points this at its persistent disk (the root file system counts as memory there)
@@ -302,28 +303,17 @@ def _ms_token() -> str:
 
 
 def _ms_hub_endpoint() -> str | None:
-    """Host for HubApi. The SDK default is modelscope.cn; the international account must use modelscope.ai.
-    Explicit MODELSCOPE_DOMAIN / MODELSCOPE_HUB_ENDPOINT always wins; otherwise SITE=ai or owner Jonjithup select .ai."""
-    raw = (os.environ.get("MODELSCOPE_DOMAIN") or os.environ.get("MODELSCOPE_HUB_ENDPOINT") or "").strip()
-    if raw:
-        return raw.replace("https://", "").replace("http://", "").strip("/") or None
-    if (os.environ.get("SITE") or "").strip().lower() == "ai":
-        return "www.modelscope.ai"
-    if (os.environ.get("SHAM_MS_OWNER") or os.environ.get("MS_OWNER") or "").strip().lower() == "jonjithup":
-        return "www.modelscope.ai"
-    return None
+    """Back-compat wrapper: the implementation lives in ms_hub.py (shared with the Studio trainer / sham2_donor)."""
+    return ms_hub_endpoint()
 
 
 def _apply_ms_hub_endpoint() -> str | None:
-    endpoint = _ms_hub_endpoint()
-    if endpoint:
-        os.environ["MODELSCOPE_DOMAIN"] = endpoint
-    return endpoint
+    return apply_ms_hub_endpoint()
 
 
 def _ms_api():
     from modelscope.hub.api import HubApi
-    _apply_ms_hub_endpoint()
+    apply_ms_hub_endpoint()
     api = HubApi()
     tok = _ms_token()
     if tok:
