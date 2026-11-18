@@ -233,12 +233,103 @@ def load_chat(body, tok, token: str | None = None, confirm=None):
     return chat, ""
 
 
-def respond(body, tok, session: str, message: str, token: str | None = None, confirm=None) -> str:
+class ApprovalNeeded(Exception):
+    """A sensitive command is paused for that chat's allow/deny; it was not run and no sandbox was used."""
+
+    def __init__(self, cmd: str, question: str, hist: list):
+        super().__init__(question)
+        self.cmd = cmd
+        self.question = question
+        self.hist = list(hist)
+
+
+# Per-Studio-process pending approvals, keyed by the chat's T-LDM session (isolated workspace).
+_PENDING: dict = {}
+
+
+def _approval_question(cmd: str, reason: str) -> str:
+    try:
+        from approvals import question
+        return question(cmd, reason)
+    except Exception:
+        return f"أمر على حاسوب شام 2 الداخلي يحتاج موافقتك:\n`{cmd}` ({reason})"
+
+
+def _flat(r) -> str:
+    return ((r.out if getattr(r, "ok", False) else (getattr(r, "refused", None) or getattr(r, "out", "") or "")) or "").strip().replace("\n", " ")
+
+
+def _denied(cmd: str, reason: str):
+    class R:
+        ok = False
+        out = ""
+        needs_confirmation = False
+        refused = f"denied by the user: `{cmd}` was not run ({reason})"
+    return R()
+
+
+def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None):
+    """Hidden-terminal loop on Sham 2's existing embedded computer (ShamEmbeddedBackend / model_computer).
+
+    Sensitive commands pause with ApprovalNeeded so the chat that issued them can allow or deny.
+    They are never auto-approved and never sent to a separate sandbox.
+    """
+    backend = chat.backend_factory(session)
+    hist = list(hist or [])
+    max_steps = int(getattr(chat, "max_steps", 5) or 5)
+    if pending_cmd:
+        if approved:
+            r = backend.run(pending_cmd, confirm=True)
+            hist.append((pending_cmd, _flat(r)))
+        else:
+            hist.append((pending_cmd, _flat(_denied(pending_cmd, "denied by the user"))))
+    for _ in range(max_steps):
+        text = str(chat.writer(message, hist) or "").strip()
+        if not text.startswith("$ "):
+            return text, hist
+        cmd = text[2:].strip()
+        r = backend.run(cmd)
+        if getattr(r, "needs_confirmation", False):
+            reason = getattr(r, "refused", None) or "needs approval"
+            if isinstance(reason, str) and ": " in reason:
+                reason = reason.split(": ", 1)[-1]
+            raise ApprovalNeeded(cmd, _approval_question(cmd, reason), hist)
+        hist.append((cmd, _flat(r)))
+    return "I could not finish within the allowed number of steps.", hist
+
+
+def respond(body, tok, session: str, message: str, token: str | None = None, confirm=None, confirm_cmd: str = "", confirm_ok: bool = False) -> str:
+    """Run or resume a T-LDM turn. `confirm` is accepted for compatibility but approvals
+    go through confirm_cmd/confirm_ok so the existing owner/user allow/deny UI can decide."""
     chat, err = load_chat(body, tok, token=token, confirm=confirm)
     if err or chat is None:
         return error_json(err or missing_message())
-    reply, _events = chat.respond(session or "default", message)
-    return json.dumps({"type": "text", "text": str(reply or ""), "tldm": True}, ensure_ascii=False)
+    sid = session or "default"
+    hist = None
+    pending_cmd = None
+    approved = None
+    if confirm_cmd:
+        pending = _PENDING.get(sid)
+        if not pending or pending.get("cmd") != confirm_cmd:
+            return error_json("انتهت صلاحية طلب الموافقة أو لا يطابق الأمر المنتظر. لم يُنفَّذ الأمر، ولم يُستخدم صندوق معزول.")
+        hist = list(pending.get("hist") or [])
+        message = pending.get("message") or message
+        pending_cmd = confirm_cmd
+        approved = bool(confirm_ok)
+        _PENDING.pop(sid, None)
+    try:
+        reply, _hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved)
+    except ApprovalNeeded as exc:
+        _PENDING[sid] = {"message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question}
+        return json.dumps({
+            "type": "confirm",
+            "text": exc.question,
+            "command": exc.cmd,
+            "session": sid,
+            "tldm": True,
+            "computer": "model_computer",
+        }, ensure_ascii=False)
+    return json.dumps({"type": "text", "text": str(reply or ""), "tldm": True, "computer": "model_computer"}, ensure_ascii=False)
 
 
 def status_fields() -> dict:

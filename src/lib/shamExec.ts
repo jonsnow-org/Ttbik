@@ -519,6 +519,7 @@ export function shamConfirmText(call: CoderToolCall): string {
     : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
     : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
+    : call.function.name === "tldm_confirm" ? `أمر على حاسوب شام 2 الداخلي يحتاج موافقتك:\n${String(a.command || a.question || "").slice(0, 400)}`
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;
   return `🔐 شام يريد أن ينفّذ:\n${what}\n\nهل أسمح له؟`;
 }

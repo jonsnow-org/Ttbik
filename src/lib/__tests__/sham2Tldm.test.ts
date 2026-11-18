@@ -1,5 +1,6 @@
-import { setTldmEnabled, tldmEnabled } from "@/lib/coderModels";
-import { shamGenerateChat, shamGenerateTldm, shamModeCtx, shamTldmCtx, shamTldmOn, shamVariant } from "@/lib/shamStudio";
+import { setTldmEnabled, tldmAllowedFor, tldmEnabled, tldmOpenToAll } from "@/lib/coderModels";
+import { shamConfirmText } from "@/lib/shamExec";
+import { shamGenerateChat, shamGenerateTldm, shamModeCtx, shamTldmCtx, shamTldmOn, shamTldmSessionId, shamVariant } from "@/lib/shamStudio";
 
 describe("Sham 2 T-LDM owner path", () => {
   it("is off by default and only stored on Sham 2", () => {
@@ -66,5 +67,64 @@ describe("Sham 2 T-LDM owner path", () => {
     const reply = await shamVariant.run("v1", () => shamGenerateTldm([{ role: "user", content: "مرحبا" }]));
     expect(reply).toMatchObject({ type: "error", reason: "no-fallback" });
     expect(String(reply?.text || "")).toContain("شام 2");
+  });
+
+  it("is owner-only by default and opens to every user through one switch", () => {
+    const prev = process.env.SHAM_TLDM_OPEN;
+    delete process.env.SHAM_TLDM_OPEN;
+    expect(tldmOpenToAll()).toBe(false);
+    expect(tldmAllowedFor("owner")).toBe(true);
+    expect(tldmAllowedFor("user")).toBe(false);
+    expect(tldmAllowedFor(undefined)).toBe(false);
+    process.env.SHAM_TLDM_OPEN = "1";
+    expect(tldmOpenToAll()).toBe(true);
+    expect(tldmAllowedFor("user")).toBe(true);
+    expect(tldmAllowedFor("owner")).toBe(true);
+    if (prev === undefined) delete process.env.SHAM_TLDM_OPEN;
+    else process.env.SHAM_TLDM_OPEN = prev;
+  });
+
+  it("does not let a non-owner reach the path just because state has the flag", () => {
+    const st: any = {};
+    setTldmEnabled(st, true);
+    expect(tldmEnabled(st, "sham_v2")).toBe(true);
+    expect(tldmAllowedFor("user") && tldmEnabled(st, "sham_v2")).toBe(false);
+    expect(tldmAllowedFor("owner") && tldmEnabled(st, "sham_v2")).toBe(true);
+  });
+
+  it("keys each chat to an isolated session on Sham 2's computer", () => {
+    expect(shamTldmSessionId(42)).toBe("tldm-sham_v2-42");
+    expect(shamTldmSessionId()).toBe("default");
+  });
+
+  it("surfaces a confirm reply for the existing allow/deny flow and can resume it", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const payloads: any[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      if (init?.body) payloads.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) {
+        return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
+      }
+      const body = payloads.some((p) => p.confirm_ok === 1)
+        ? 'data: [{"type":"text","text":"تم","tldm":true,"computer":"model_computer"}]\n'
+        : 'data: [{"type":"confirm","text":"اسمح؟","command":"rm x","session":"tldm-sham_v2-7","tldm":true,"computer":"model_computer"}]\n';
+      return {
+        ok: true,
+        body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }), cancel: async () => undefined, releaseLock() {} }) },
+        text: async () => body,
+      } as any;
+    }) as any;
+    try {
+      const confirm = await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "افعل" }], "tldm-sham_v2-7"));
+      expect(confirm).toMatchObject({ type: "confirm", command: "rm x", computer: "model_computer", session: "tldm-sham_v2-7" });
+      expect(shamConfirmText({ function: { name: "tldm_confirm", arguments: JSON.stringify({ command: "rm x" }) } } as any)).toContain("حاسوب شام 2");
+      const done = await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "افعل" }], "tldm-sham_v2-7", 180000, { resume: { command: "rm x", approved: true } }));
+      expect(done).toMatchObject({ type: "text", text: "تم" });
+      expect(payloads.some((p) => p.session === "tldm-sham_v2-7" && p.confirm_cmd === "rm x" && p.confirm_ok === 1)).toBe(true);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
   });
 });

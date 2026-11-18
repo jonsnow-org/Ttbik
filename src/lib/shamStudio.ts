@@ -19,13 +19,21 @@ export const shamVariant = new AsyncLocalStorage<"v1" | "v2">();
 /** The chat's thinking / accuracy / speed settings for the calls made inside it (set by the bot route around Sham's own handler). */
 export const shamModeCtx = new AsyncLocalStorage<ShamMode>();
 
-/** Owner-only T-LDM path on Sham 2. Never set for Sham 1. When on, calls go to generate_tldm and must not fall back to Sham 1. */
+/** T-LDM path on Sham 2 (owner-only unless SHAM_TLDM_OPEN=1). Never set for Sham 1. When on, calls go to generate_tldm and must not fall back to Sham 1. */
 export const shamTldmCtx = new AsyncLocalStorage<boolean>();
+/** Isolated workspace key for this chat on Sham 2's existing internal computer. */
+export const shamTldmSession = new AsyncLocalStorage<string>();
 export const shamTldmOn = (): boolean => {
   if (shamVariant.getStore() !== "v2") return false;
   if (shamTldmCtx.getStore() === true) return true;
   return (shamModeCtx.getStore() as { tldm?: boolean } | undefined)?.tldm === true;
 };
+export function shamTldmSessionId(chatId?: number | string | null): string {
+  const fromCtx = shamTldmSession.getStore();
+  if (fromCtx && fromCtx.trim()) return fromCtx.trim();
+  if (chatId !== undefined && chatId !== null && String(chatId).trim()) return `tldm-sham_v2-${chatId}`;
+  return "default";
+}
 
 /** Applies the settings to one call: the answer budget scales with accuracy, and the sampling / thought header goes at the start of the prompt (src/lib/shamModes.ts). */
 function withMode(payload: Record<string, unknown>, variant: "v1" | "v2"): Record<string, unknown> {
@@ -142,7 +150,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error";
+  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error" | "confirm";
   reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   /** Structured assistant function calls returned by Sham v2's own agent_step endpoint. */
   tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }>;
@@ -153,6 +161,8 @@ export type ShamReply = {
   /** The model chose to show its screen (desktop action=show): the offer rides in its own reply (a picture, its size, the session) for ANY client to display. */
   desktop?: { session?: string; width?: number; height?: number; screenshot_b64?: string };
   raw?: string;
+  /** T-LDM paused a sensitive command for this chat's allow/deny (existing shamok/shamno flow). */
+  command?: string; session?: string; computer?: string; tldm?: boolean;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -252,7 +262,7 @@ export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 const TLDM_NO_FALLBACK = "تعذّر مسار T-LDM لشام 2. لم يُستخدم شام 1، ولا يوجد تحويل صامت.";
 
 /** Sham 2 T-LDM chat: hidden terminal + the model's existing internal computer. Sham 1 is never used. */
-export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
+export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean; resume?: { command: string; approved: boolean } } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_tldm refused outside Sham 2; Sham 1 was not used");
     return { type: "error", text: "مسار T-LDM متاح لشام 2 فقط. لم يُستخدم شام 1.", reason: "no-fallback" };
@@ -262,12 +272,18 @@ export async function shamGenerateTldm(messages: ShamChatMessage[], session = ""
     setFailure("generate_tldm requires a final user turn");
     return { type: "error", text: "generate_tldm requires a final user turn", reason: "no-fallback" };
   }
-  const body = await shamCall("generate_tldm", {
+  const sid = session || shamTldmSessionId();
+  const payload: Record<string, unknown> = {
     messages_json: JSON.stringify(valid.slice(-12)),
-    session: session || "default",
+    session: sid,
     max_new_tokens: 512,
     tldm_flag: 1,
-  }, timeoutMs);
+  };
+  if (opts.resume?.command) {
+    payload.confirm_cmd = opts.resume.command;
+    payload.confirm_ok = opts.resume.approved ? 1 : 0;
+  }
+  const body = await shamCall("generate_tldm", payload, timeoutMs);
   if (!body) {
     setFailure("generate_tldm: no reply; Sham 1 was not used");
     return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
@@ -286,7 +302,7 @@ export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens
     setFailure("generate_chat refused outside the Sham v2 variant");
     return null;
   }
-  if (shamTldmOn()) return shamGenerateTldm(messages, "", timeoutMs, opts);
+  if (shamTldmOn()) return shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat requires a final user turn");
@@ -385,7 +401,7 @@ export async function shamGenerateChatStream(
     return null;
   }
   if (shamTldmOn()) {
-    const reply = await shamGenerateTldm(messages, "", timeoutMs, opts);
+    const reply = await shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
     const text = String(reply?.text || "");
     if (reply?.type === "text" && text && onDelta) onDelta(text);
     return reply;

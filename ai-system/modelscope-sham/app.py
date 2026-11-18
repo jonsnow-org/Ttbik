@@ -441,8 +441,13 @@ def _tldm_user_text(messages_json: str) -> str:
     return last["content"]
 
 
-def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1) -> str:
-    """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used."""
+def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0) -> str:
+    """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used.
+
+    Public generate_chat never enters this path. The owner-gated client calls this endpoint
+    (later, SHAM_TLDM_OPEN may allow every user). confirm_cmd/confirm_ok resume a paused
+    sensitive command after that chat's allow/deny tap; the command still runs on model_computer.
+    """
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_tldm is available only on Sham 2.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
     import sham_tldm_serve as tldm
@@ -458,7 +463,14 @@ def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float =
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        return tldm.respond(serve._state["model"], serve._state["text_tokenizer"], str(session or "default"), text)
+        return tldm.respond(
+            serve._state["model"],
+            serve._state["text_tokenizer"],
+            str(session or "default"),
+            text,
+            confirm_cmd=str(confirm_cmd or ""),
+            confirm_ok=bool(float(confirm_ok or 0)),
+        )
     except Exception as exc:
         print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return tldm.error_json(tldm.load_fail_message(f"{type(exc).__name__}: {exc}"))
@@ -467,15 +479,14 @@ def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float =
 
 
 def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
-    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions."""
+    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions.
+
+    T-LDM never auto-routes through generate_chat, even if SHAM_TLDM=1 is set on the Studio:
+    Sham 2 is public, and every ordinary chat (including non-owners) must stay on donor chat.
+    The T-LDM path is only generate_tldm, called by the owner-gated client.
+    """
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_chat is available only on Sham v2."}, ensure_ascii=False)
-    try:
-        import sham_tldm_serve as _tldm
-        if _tldm.enabled():
-            return generate_tldm(messages_json, session="default", tldm_flag=1)
-    except ImportError:
-        pass
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
@@ -940,7 +951,8 @@ def build_ui():
         tldm_chat = gr.Interface(
             generate_tldm,
             [gr.Textbox(label="messages_json"), gr.Textbox(label="session", value=""),
-             gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1)],
+             gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
+             gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0)],
             gr.Textbox(label="Sham 2 T-LDM result"), api_name="generate_tldm", flagging_mode="never")
         interfaces.insert(1, tldm_chat)
         labels.insert(1, "محادثة T-LDM (شام 2)")

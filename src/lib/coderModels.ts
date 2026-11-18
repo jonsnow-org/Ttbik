@@ -232,8 +232,19 @@ export function setMemorySettings(st: MemoryState, id: string, patch: Partial<Me
   return next;
 }
 
-// ---------------------------------------------------------------- Sham 2 T-LDM (owner only)
-/** The T-LDM path is an owner-only switch on Sham 2. It never applies to Sham 1, and a user cannot turn it on. */
+// ---------------------------------------------------------------- Sham 2 T-LDM
+/** Who may use the Sham 2 T-LDM path. Default is owner-only (testing phase).
+ *  A single later switch — SHAM_TLDM_OPEN=1, or a stored owner control that sets it — opens
+ *  the path to every user. All gates must go through tldmAllowedFor, not scattered owner checks.
+ *  Follow-up (not this PR): stored owner switch in the panel, owner deny-list that users cannot
+ *  override, and self-evolution logs of verified successes/failures with no personal data. */
+export function tldmOpenToAll(): boolean {
+  return (process.env.SHAM_TLDM_OPEN || "").trim() === "1";
+}
+export function tldmAllowedFor(tier: string | undefined): boolean {
+  return tldmOpenToAll() || tier === "owner";
+}
+/** Per-chat T-LDM switch on Sham 2 only. It never applies to Sham 1. Enabling it still requires tldmAllowedFor. */
 export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
 export function tldmEnabled(st: TldmState, id?: string): boolean {
   return canonModelId(id) === "sham_v2" && st.perModel?.sham_v2?.tldm === true;

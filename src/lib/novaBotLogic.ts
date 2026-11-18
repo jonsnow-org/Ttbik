@@ -11,7 +11,7 @@ import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_LEGACY_BACKEND_PAUSED, NOVA_LEGACY_PAUSED_TEXT } from "@/lib/novaPause";
 import { detectMediaIntent, looksLikeToolPlan } from "@/lib/coderMediaFast";
 import { requiresProgressCard } from "@/lib/modes";
-import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamGenerateTldm, shamStudioEnabled, shamThink, shamThinkPatient, shamReplyTokens, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, shamTldmCtx, shamTldmSession, type ShamReply } from "@/lib/shamStudio";
 import { modelMemoryKey, type loadMemory } from "@/lib/shamMemory";
 import { loadChatMemory, saveChatTurn } from "@/lib/shamThreads";
 import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/shamAgent";
@@ -24,6 +24,7 @@ import { shamLastFailure, shamModeCtx, shamUnderstandImage, shamVariant, setSham
 import { mediaRouteNeeded as shamMediaProbe } from "@/lib/coderMediaFast";
 setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the cheap "is this a media request?" pre-check (Sham modules never import Nova's)
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
+import { tldmAllowedFor } from "@/lib/coderModels";
 import { telegramPhoto } from "@/lib/coderSections";
 
 // Recognized the same way as every other bot template on this platform
@@ -821,6 +822,47 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
   const edit = (text: string) => bot.api.editMessageText(chatId, cq.message.message_id, text.slice(0, 3500)).catch(() => null);
   const call = chatId ? await shamTakePending(chatId, id || "") : null;
   if (!call) { await done("انتهت صلاحية هذا الطلب."); return; }
+  if (call.function.name === "tldm_confirm") {
+    // Resume on Sham 2's existing internal computer. Do not shamRunTool(computer_run): that path
+    // refuses Sham computer calls in the app (the computer lives inside the model). Ask THIS chat.
+    let args: { command?: string; session?: string; question?: string } = {};
+    try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* keep empty */ }
+    if (!tldmAllowedFor(tierFor(chatId))) {
+      await done("للمالك فقط.");
+      await edit("❌ مسار T-LDM للمالك فقط في هذه المرحلة.");
+      return;
+    }
+    const session = String(args.session || `tldm-sham_v2-${chatId}`);
+    const approved = kind === "shamok";
+    if (!approved) {
+      await done("أُلغي.");
+      const denied = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamTldmSession.run(session, () => shamGenerateTldm(
+        [{ role: "user", content: String(args.question || args.command || ".") }],
+        session,
+        180000,
+        { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: false } },
+      ))));
+      const text = String(denied?.text || "أُلغي الأمر ولم يُنفَّذ.");
+      await edit(`❌ ${text}`.slice(0, 3500));
+      return;
+    }
+    await done("جارٍ التنفيذ…");
+    const out = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamTldmSession.run(session, () => shamGenerateTldm(
+      [{ role: "user", content: String(args.question || args.command || ".") }],
+      session,
+      180000,
+      { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: true } },
+    ))));
+    if (out?.type === "confirm") {
+      const next = { id: "tldm-confirm", type: "function" as const, function: { name: "tldm_confirm", arguments: JSON.stringify({ command: out.command, session: out.session || session, question: out.text }) } };
+      const nid = await shamSavePending(chatId, next);
+      await bot.api.editMessageText(chatId, cq.message.message_id, shamConfirmText(next).slice(0, 3500), { reply_markup: new InlineKeyboard().text("✅ نفّذ", `shamok|${nid}`).text("❌ ألغِ", `shamno|${nid}`) }).catch(() => null);
+      return;
+    }
+    const text = String(out?.text || (out?.type === "error" ? "تعذّر إكمال الأمر." : "نُفّذ."));
+    await edit(`${out?.type === "error" ? "⚠️" : "✅"} ${text}`.slice(0, 3500));
+    return;
+  }
   if (kind === "shamno") { await done("أُلغي."); await edit("❌ ألغيتَ هذا الإجراء."); return; }
   await done("جارٍ التنفيذ…");
   const ctx = await shamToolCtx(chatId);

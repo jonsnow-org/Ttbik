@@ -12,7 +12,7 @@ import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { handleCoderSections, shamContextFor } from "@/lib/coderSections";
-import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { shamModeCtx, shamTldmSession, shamVariant } from "@/lib/shamStudio";
 import { coderChatKey } from "@/lib/coderAuth";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
@@ -211,7 +211,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           }
           if (routeChatId) console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "sham", variant: ctx.variant });
           const novaRow = botRow;                                  // narrowed here: the closures below would lose the null check
-          await shamVariant.run(ctx.variant, () => shamModeCtx.run(ctx.mode, () => handleNovaBotUpdate(bot, novaRow, body)));
+          await shamVariant.run(ctx.variant, () => shamModeCtx.run(ctx.mode, () => shamTldmSession.run(routeChatId ? `tldm-sham_v2-${routeChatId}` : "default", () => handleNovaBotUpdate(bot, novaRow, body))));
         } else if (routeChatId) {
           console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "coder" });
         }

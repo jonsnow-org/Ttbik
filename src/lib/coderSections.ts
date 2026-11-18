@@ -34,7 +34,7 @@ export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): nu
 }
 
 export { stripThinkTags };
-import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -446,7 +446,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
     if (data === "tldm_toggle") {
-      if (tierFor(chatId) !== "owner") {
+      if (!tldmAllowedFor(tierFor(chatId))) {
         await bot.api.answerCallbackQuery(cq.id, { text: "للمالك فقط.", show_alert: true }).catch(() => null);
         return true;
       }
@@ -548,7 +548,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (!chatId) return false;
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
-  if (cmd === "/tldm" && tierFor(chatId) === "owner") {
+  if (cmd === "/tldm" && tldmAllowedFor(tierFor(chatId))) {
     const stTldm = preloadedOwnerState || await loadStateStrict(chatId, db);
     const arg = text.split(/\s+/)[1] || "";
     if (/^(on|1|off|0)$/i.test(arg)) {
@@ -2927,6 +2927,6 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
   if (!selected) return null;
   const set = modelSettings(st, selected);
-  const tldm = selected === "sham_v2" && tierFor(chatId) === "owner" && tldmEnabled(st, "sham_v2");
+  const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId)) && tldmEnabled(st, "sham_v2");
   return { variant: selected === "sham_v2" ? "v2" : "v1", tldm, mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected), tldm } };
 }
