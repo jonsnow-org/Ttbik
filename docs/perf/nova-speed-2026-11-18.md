@@ -50,3 +50,14 @@ baseline: prose 5.0 tok/s, edit 4.6 tok/s, reads 15.3 tok/s; ngram-mod: prose 5.
 The Studio (2 vCPU, 15.35 GiB, 12.3 GiB model file) does 1.4-2.3 tok/s and reads 7 tok/s: about 3x below the same file on 2 runner cores.
 Hypothesis: memory pressure (mmapped weights re-read from disk). #1123 adds llama-server major page faults / RSS / cgroup memory to
 `status` and per job to confirm it before changing any flag.
+
+## Memory on Nova 2's Studio (run 44258832132, after #1123 deployed)
+
+| point | llama-server majflt (total) | RSS GB | cgroup now / max GB | MemAvailable GB |
+|---|---|---|---|---|
+| idle, 296 s up | 329 | 12.89 | 13.36 / 16.0 | 13.63 |
+| after greeting (2,029 faults in that job) | 2,362 | 12.61 | 13.19 / 16.0 | 13.35 |
+| after 2nd greeting | 3,458 | 12.09 | 12.95 / 16.0 | 13.24 |
+
+Greeting TTFT 37.6 / 39.9 s (8.5-8.8 prompt tok/s, 2.7-3.0 gen tok/s). The weights are being evicted and read back from disk:
+fix in #1129 (lock the weights in RAM when the model is > 60% of memory; Nova 1 unaffected).
