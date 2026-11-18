@@ -32,7 +32,7 @@ RUNNER_CFG = DISK / "gh_runner_cfg"
 CFG_FILES = (".runner", ".credentials", ".credentials_rsaparams")
 RESTORE_DIR = DISK / ".restore"
 REPO_URL = "https://github.com/jonsnow-org/Ttbik"
-RUNNER_VERSION = os.environ.get("GH_RUNNER_VERSION") or "2.338.2"     # the runner updates itself after registering
+RUNNER_VERSION = os.environ.get("GH_RUNNER_VERSION") or "2.338.2"     # set by the deploy workflow to the latest release; self-update is off (it would hit github.com downloads again)
 STATE = {"disk": str(DISK), "started": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()), "restore": "waiting", "restored": {}, "runner": "waiting", "runner_restarts": 0, "error": ""}
 _LOCK = threading.Lock()
 
@@ -136,14 +136,23 @@ def install_runner() -> bool:
     url = f"https://github.com/actions/runner/releases/download/v{RUNNER_VERSION}/actions-runner-linux-x64-{RUNNER_VERSION}.tar.gz"
     _set(runner=f"downloading runner v{RUNNER_VERSION}")
     tgz = RUNNER_DIR / "r.tgz"
+    mirror = (os.environ.get("GH_RUNNER_MIRROR") or "").strip()
     try:
-        import urllib.request
-        urllib.request.urlretrieve(url, tgz)
+        if mirror:      # github.com release downloads hang from this Studio (read 2026-11-18: 10+ min, no byte); the deploy workflow mirrors the tarball to a private ModelScope repo
+            from modelscope.hub.file_download import model_file_download
+            got = model_file_download(mirror, f"actions-runner-linux-x64-{RUNNER_VERSION}.tar.gz", local_dir=str(RUNNER_DIR / "dl"),
+                                      token=os.environ.get("MODELSCOPE_API_TOKEN") or None)
+            shutil.move(got, tgz)
+        else:
+            import socket
+            import urllib.request
+            socket.setdefaulttimeout(120)
+            urllib.request.urlretrieve(url, tgz)
         with tarfile.open(tgz, "r:gz") as tf:
             tf.extractall(RUNNER_DIR)
         tgz.unlink()
     except Exception as exc:  # noqa: BLE001
-        _set(runner=f"download failed: {type(exc).__name__}: {str(exc)[:200]}")
+        _set(runner=f"download failed ({'mirror ' + mirror if mirror else url}): {type(exc).__name__}: {str(exc)[:200]}")
         return False
     return True
 
@@ -165,7 +174,7 @@ def register_runner() -> bool:
         _set(runner="NOT REGISTERED: no GH_RUNNER_REG_TOKEN (re-run deploy-studio-runner.yml with a fresh STUDIO_RUNNER_REG_TOKEN)")
         return False
     name = os.environ.get("GH_RUNNER_NAME") or "studio-runner"
-    r = subprocess.run(["./config.sh", "--url", REPO_URL, "--token", tok, "--name", name, "--labels", "studio", "--unattended", "--replace", "--work", "_work"],
+    r = subprocess.run(["./config.sh", "--url", REPO_URL, "--token", tok, "--name", name, "--labels", "studio", "--unattended", "--replace", "--disableupdate", "--work", "_work"],
                        cwd=RUNNER_DIR, env=_runner_env(), capture_output=True, text=True)
     out = (r.stdout + r.stderr).replace(tok, "***")
     if r.returncode:
