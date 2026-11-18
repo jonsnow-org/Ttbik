@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import terminal_tasks as T  # noqa: E402
+import augment as AUG  # noqa: E402
 
 OUT_FILES = [n + ".txt" for n in ("out", "report", "total", "result", "count", "data", "stats", "final")]
 NEW_FILES = [n + ".txt" for n in ("summary", "answer", "number", "tally", "size")]     # never seen in training: tests copying the name from the task
@@ -29,6 +30,14 @@ def view_ids(tok, task: str, hist, in_len: int) -> list[int]:
     room = in_len - len(t) - 1
     s = t + [10] + (h[-room:] if room > 0 else [])
     return s + [0] * (in_len - len(s))
+
+
+def delex_view(task: str, hist, delex: bool):
+    """Argument slots for the loop (data/augment.py): file names/numbers of the task become @F1/@N1 in the task, the history and the target; relex() after writing."""
+    if not delex:
+        return task, hist, {}
+    t, _, slots = AUG.delex(task)
+    return t, [(AUG.apply_slots(c, slots), AUG.apply_slots(r, slots)) for c, r in hist], slots
 
 
 def make_episode(rng: random.Random, new_names: bool = False):
@@ -73,28 +82,31 @@ def run_episode(task: str, plan, reply_t: str):
         term.close()
 
 
-def corpus_texts(n: int, seed: int) -> list[str]:
+def corpus_texts(n: int, seed: int, delex: bool = False) -> list[str]:
     """Texts the tokenizer is trained on: tasks, commands and replies of TRAINING episodes (file names of the training split only)."""
     rng = random.Random(seed)
     out = []
     for _ in range(n):
         task, plan, reply_t = make_episode(rng)
         steps, _, _ = run_episode(task, plan, reply_t)
-        out.append(task)
+        dtask, _, slots = delex_view(task, [], delex)
+        out.append(dtask)
         for h, t in steps:
-            out.append(t)
+            _, h, _ = delex_view(task, h, delex)
+            out.append(AUG.apply_slots(t, slots) if delex else t)
             out += [f"$ {c}\n> {r}\n" for c, r in h]
     return out
 
 
-def make_dataset(n: int, seed: int, tok, in_len: int, block: int):
+def make_dataset(n: int, seed: int, tok, in_len: int, block: int, delex: bool = False):
     rng = random.Random(seed)
     xs, ys = [], []
     for _ in range(n):
         task, plan, reply_t = make_episode(rng)
         steps, _, _ = run_episode(task, plan, reply_t)
         for h, tgt in steps:
-            xs.append(view_ids(tok, task, h, in_len)); ys.append(tok.encode(tgt, block))
+            dtask, dh, slots = delex_view(task, h, delex)
+            xs.append(view_ids(tok, dtask, dh, in_len)); ys.append(tok.encode(AUG.apply_slots(tgt, slots) if delex else tgt, block))
     return xs, ys
 
 

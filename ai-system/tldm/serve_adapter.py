@@ -59,10 +59,11 @@ def load_writer(ckpt: str):
     tok = from_state(ck.get("tokenizer", {"kind": "byte"}))
 
     def writer(task, hist):
-        ids = torch.tensor([J.view_ids(tok, task, hist, c["in_len"])])
+        dtask, dhist, slots = J.delex_view(task, hist, c.get("delex", False))      # argument slots, if the checkpoint was trained with them
+        ids = torch.tensor([J.view_ids(tok, dtask, dhist, c["in_len"])])
         with torch.no_grad():
             out, _ = model.generate(ids, steps=c["diffusion_steps"])
-        return tok.decode(out[0])
+        return J.AUG.relex(tok.decode(out[0]), slots)
     return writer
 
 

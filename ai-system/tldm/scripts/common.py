@@ -19,7 +19,10 @@ def load_config(path: str) -> dict:
             try:
                 cfg[k] = int(v)
             except ValueError:
-                cfg[k] = float(v)
+                try:
+                    cfg[k] = float(v)
+                except ValueError:
+                    cfg[k] = v                                       # a string (e.g. donor: ${TLDM_DONOR})
     return cfg
 
 

@@ -1,0 +1,18 @@
+# 66M v2 + held-out-safe rewordings (2026-11-18)
+d: 640
+layers: 8
+latents: 16
+think_steps: 5
+block: 24
+in_len: 32
+writer_layers: 3
+heads: 4
+bitnet: false
+bpe_merges: 160
+steps: 900
+lr: 0.0004
+diffusion_steps: 10
+cosine: true
+augment: true
+batch: 32
+rewordings: true

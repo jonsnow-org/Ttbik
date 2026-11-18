@@ -14,6 +14,7 @@ import torch  # noqa: E402
 from sham_tldm import Sham1_TLDM  # noqa: E402
 import trajectories as J  # noqa: E402
 import terminal_tasks as T  # noqa: E402
+import augment as AUG  # noqa: E402
 
 
 def build(cfg):
@@ -26,10 +27,11 @@ def run_agent(model, cfg, tok, task, hide=False, max_steps=5):
     try:
         for _ in range(max_steps):
             seen = [(c, "" if hide else r) for c, r in hist]
-            ids = torch.tensor([J.view_ids(tok, task, seen, cfg["in_len"])])
+            dtask, seen, slots = J.delex_view(task, seen, cfg.get("delex", False))
+            ids = torch.tensor([J.view_ids(tok, dtask, seen, cfg["in_len"])])
             with torch.no_grad():
                 out, _ = model.generate(ids, steps=cfg["diffusion_steps"])
-            text = tok.decode(out[0])
+            text = AUG.relex(tok.decode(out[0]), slots)
             if text.startswith("$ "):
                 cmd = text[2:].strip()
                 r = term.run(cmd, confirm=True)
@@ -60,15 +62,16 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "checkpoints", "loop", "final.pt"))
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--eval", type=int, default=60)
+    ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     cfg = load_config(a.config)
     if a.steps:
         cfg["steps"] = a.steps
-    torch.manual_seed(0)
+    torch.manual_seed(a.seed)
     n_merges = int(cfg.get("bpe_merges", 0))
-    tok = BPETokenizer.train(J.corpus_texts(300, seed=3), n_merges) if n_merges > 0 else ByteTokenizer()
+    tok = BPETokenizer.train(J.corpus_texts(300, seed=3, delex=cfg.get("delex", False)), n_merges) if n_merges > 0 else ByteTokenizer()
     cfg["vocab"] = tok.vocab
-    xs, ys = J.make_dataset(cfg["episodes"], 1, tok, cfg["in_len"], cfg["block"])
+    xs, ys = J.make_dataset(cfg["episodes"], 1, tok, cfg["in_len"], cfg["block"], delex=cfg.get("delex", False))
     X, Y = torch.tensor(xs), torch.tensor(ys)
     print(f"tokenizer: {tok.kind}, vocabulary {tok.vocab}", flush=True)
     print(f"{cfg['episodes']} episodes -> {len(xs)} training steps of the agent loop", flush=True)
