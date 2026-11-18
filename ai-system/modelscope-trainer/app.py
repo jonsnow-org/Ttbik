@@ -164,10 +164,26 @@ def donor_weight_size(dest: Path) -> int:
     return int(sum(p.stat().st_size for p in files))
 
 
-def donor_ready(dest: Path) -> bool:
-    """True only when config.json and a weight file larger than 400 MB are both present."""
+def donor_tokenizer_files(dest: Path) -> list[str]:
+    """Tokenizer files AutoTokenizer needs. Without them it silently falls back to BertTokenizer and every text becomes UNK."""
     dest = Path(dest)
-    return (dest / "config.json").is_file() and donor_weight_size(dest) > DONOR_WEIGHT_MIN
+    names = []
+    for n in ("tokenizer.json", "sentencepiece.bpe.model", "tokenizer_config.json", "special_tokens_map.json", "unigram.json", "vocab.txt"):
+        if (dest / n).is_file() and (dest / n).stat().st_size > 0:
+            names.append(n)
+    return names
+
+
+def donor_tokenizer_ok(dest: Path) -> bool:
+    """True when the MiniLM/XLM-R tokenizer is actually on disk (tokenizer.json, or sentencepiece + tokenizer_config)."""
+    names = set(donor_tokenizer_files(dest))
+    return "tokenizer.json" in names or {"sentencepiece.bpe.model", "tokenizer_config.json"} <= names
+
+
+def donor_ready(dest: Path) -> bool:
+    """True only when config.json, a weight file >400 MB, and the tokenizer files are all present."""
+    dest = Path(dest)
+    return (dest / "config.json").is_file() and donor_weight_size(dest) > DONOR_WEIGHT_MIN and donor_tokenizer_ok(dest)
 
 
 def _copy_donor_tree(src: Path, dest: Path) -> None:
@@ -186,12 +202,12 @@ def _copy_donor_tree(src: Path, dest: Path) -> None:
 
 def ensure_donor(work: Path, download: bool = True) -> Path:
     """Local copy of paraphrase-multilingual-MiniLM-L12-v2 (frozen reader). Kept on /mnt/workspace/tldm/donor so later cycles do not download again.
-    Ready only if config.json and a weight file >400 MB exist; a truncated leftover is wiped and replaced."""
+    Ready only if config.json, a weight file >400 MB, and tokenizer.json (or sentencepiece + tokenizer_config) exist; a truncated or tokenizer-less leftover is wiped and replaced."""
     import shutil
     dest = Path(os.environ.get("TLDM_DONOR") or (work / "donor" / "minilm"))
     if donor_ready(dest):
         os.environ["TLDM_DONOR"] = str(dest)
-        print(f"tldm donor ready: {dest} size={donor_weight_size(dest)}", flush=True)
+        print("tldm donor ready: {} size={} tokenizer={}".format(dest, donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))), flush=True)
         return dest
     if not download:
         dest.mkdir(parents=True, exist_ok=True)
@@ -216,8 +232,8 @@ def ensure_donor(work: Path, download: bool = True) -> Path:
         except Exception as exc2:  # noqa: BLE001
             errors.append(f"ms:{type(exc2).__name__}:{str(exc2)[:160]}")
     if not donor_ready(dest):
-        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + f"; size={donor_weight_size(dest)})")
-    print(f"tldm donor ready: {dest} size={donor_weight_size(dest)}", flush=True)
+        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + "; size={} tokenizer={}".format(donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))) + ")")
+    print("tldm donor ready: {} size={} tokenizer={}".format(dest, donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))), flush=True)
     return dest
 
 
@@ -404,10 +420,14 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
             slim["evolve_kept"] = res["safe_evolve"].get("kept")
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
-    try:
-        published = publish_tldm(work, seed, artifacts)
-    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
-        print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    heldout = _num(res.get("heldout"), "same_effect")
+    if heldout is None or heldout <= 0.2:
+        print("tldm publish skipped: heldout={} is at the floor (need > 0.2)".format(heldout), flush=True)
+    else:
+        try:
+            published = publish_tldm(work, seed, artifacts)
+        except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle still runs
+            print(f"tldm publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
     out = tldm_flatten(res, seed, bool(published))
     out["hours"] = float(hours)
     print(f"tldm cycle done seed={seed} heldout={out.get('heldout')} heldout2={out.get('heldout2')} published={out['published']}", flush=True)
@@ -1262,6 +1282,24 @@ if __name__ == "__main__":
         assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
         assert (tldm_tmp / "logs" / "results.jsonl").read_text(encoding="utf-8").count("\n") == 2
         assert tldm_next_seed(tldm_tmp) == 2
+        # a floor heldout (missing tokenizer / UNK reader) must not be published
+        floor_n = len(sent_tldm)
+
+        def fake_floor(**kw):
+            rc = fake_tldm(**kw)
+            report = tldm_cmd_opt(kw.get("cmd") or [], "--json") or kw.get("report")
+            if report:
+                Path(report).write_text(json.dumps({
+                    "config": "writer_donor.yaml", "seed": kw["seed"], "train_secs": 1,
+                    "train": {"same_effect": 0.067, "exact_text": 0.067},
+                    "heldout": {"same_effect": 0.083, "exact_text": 0.083},
+                    "heldout2": {"same_effect": 0.071, "exact_text": 0.071},
+                }), encoding="utf-8")
+            return rc
+
+        floor = run_tldm(runner=fake_floor)
+        assert floor["heldout"] == 0.083 and floor["published"] is False, floor
+        assert len(sent_tldm) == floor_n, sent_tldm
         # optional evolve: 0 verified pairs -> adapter not kept; previously-correct regression is refused
         from safe_evolve import anonymize_record, load_session_pairs, no_regress
         assert no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},
@@ -1436,7 +1474,7 @@ if __name__ == "__main__":
             raise SystemExit("launch_studio must re-raise unknown ValueError")
         except ValueError as exc:
             assert "other" in str(exc)
-        # donor is ready only with config.json AND a weight file >400 MB; a truncated leftover is replaced
+        # donor is ready only with config.json AND a weight file >400 MB AND tokenizer files; a truncated leftover is replaced
         saved_donor = os.environ.pop("TLDM_DONOR", None)
         inc = Path(tempfile.mkdtemp()) / "minilm"
         inc.mkdir(parents=True)
@@ -1453,7 +1491,10 @@ if __name__ == "__main__":
         (ok / "config.json").write_text("{}", encoding="utf-8")
         with (ok / "model.safetensors").open("wb") as f:
             f.truncate(DONOR_WEIGHT_MIN + 1)
-        assert donor_ready(ok) and donor_weight_size(ok) == DONOR_WEIGHT_MIN + 1
+        # complete weights without tokenizer.json must not count as ready (Studio seed 8 scored 0.067/0.083/0.071 that way)
+        assert donor_ready(ok) is False and donor_tokenizer_ok(ok) is False
+        (ok / "tokenizer.json").write_text('{"version":"1.0"}', encoding="utf-8")
+        assert donor_ready(ok) and donor_weight_size(ok) == DONOR_WEIGHT_MIN + 1 and "tokenizer.json" in donor_tokenizer_files(ok)
         os.environ["TLDM_DONOR"] = str(ok)
         ensure_donor(ok.parent, download=False)
         # truncated dest file is replaced when the source is larger

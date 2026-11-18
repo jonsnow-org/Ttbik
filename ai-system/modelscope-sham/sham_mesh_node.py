@@ -145,6 +145,9 @@ def attach(chat):
         b.run = run_and_share
         return b
 
+    for attr in ("hints", "mode"):                         # drive() reads these off the writer (e.g. hints=False: the head was trained on the bare task)
+        if hasattr(orig_writer, attr):
+            setattr(writer, attr, getattr(orig_writer, attr))
     chat.writer, chat.backend_factory = writer, backend_factory
     chat._mesh_attached = True
     _STATE.update(net=net, chat=chat, error="")

@@ -173,9 +173,13 @@ function ensureTable(db: Db): Promise<void> {
 }
 
 /** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
-/** LFM2.5 has its own working state; Nova's historical key is left unchanged. */
-export const modelSessionChatId = (chatId: number | string, model = currentEngineModel()): string =>
-  model === "lfm25" ? `${chatId}#model:lfm25` : String(chatId);
+/** Engine models with their OWN working state, threads, memory and computer session (owner 2026-11-18: every model is independent).
+ *  Nova (coder) keeps its historical key; Nova 2 and LFM2.5 each get `<chat>#model:<id>`. */
+export const PRIVATE_SESSION_MODELS = ["lfm25", "nova2"] as const;
+export type PrivateSessionModel = (typeof PRIVATE_SESSION_MODELS)[number];
+export const isPrivateSessionModel = (model: string | undefined): model is PrivateSessionModel => model === "lfm25" || model === "nova2";
+export const modelSessionChatId = (chatId: number | string, model: string = currentEngineModel()): string =>
+  isPrivateSessionModel(model) ? `${chatId}#model:${model}` : String(chatId);
 export const modelSessionChatKey = (chatId: number | string, model = currentEngineModel()): string =>
   coderChatKey(modelSessionChatId(chatId, model));
 export const stateKey = (chatId: number | string, slot = "") => {
@@ -205,21 +209,27 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
   try { await saveStateStrict(chatId, st, db, slot); } catch { /* best-effort for non-critical state updates */ }
 }
 
-/** Create LFM2.5's private working state without importing Nova's transcript, thread, notes or active run. */
-export async function ensureLfmSessionState(chatId: number, db: Db = prismaDb): Promise<ChatState> {
+/** Create a private engine model's working state (LFM2.5, Nova 2) without importing Nova's transcript, thread, notes or active run. */
+export async function ensureModelSessionState(chatId: number, model: PrivateSessionModel, db: Db = prismaDb): Promise<ChatState> {
   const shared = await withEngineModel("coder", () => loadStateStrict(chatId, db));
-  const current = await withEngineModel("lfm25", () => loadStateStrict(chatId, db));
-  const privateState: ChatState = current.model === "lfm25" ? current : { ...emptyState(), model: "lfm25" };
+  const current = await withEngineModel(model, () => loadStateStrict(chatId, db));
+  const privateState: ChatState = current.model === model ? current : { ...emptyState(), model };
   // Keep account-wide preferences/settings fresh without ever copying the selected model's conversation.
-  privateState.model = "lfm25";
+  privateState.model = model;
   privateState.lang = shared.lang;
   privateState.tz = shared.tz;
   privateState.repo = shared.repo;
   privateState.menu = shared.menu;
-  privateState.perModel = { ...(privateState.perModel || {}), ...(shared.perModel?.lfm25 ? { lfm25: shared.perModel.lfm25 } : {}) };
-  privateState.memPer = { ...(privateState.memPer || {}), ...(shared.memPer?.lfm25 ? { lfm25: shared.memPer.lfm25 } : {}) };
-  await withEngineModel("lfm25", () => saveStateStrict(chatId, privateState, db));
+  privateState.perModel = { ...(privateState.perModel || {}), ...(shared.perModel?.[model] ? { [model]: shared.perModel[model] } : {}) };
+  privateState.memPer = { ...(privateState.memPer || {}), ...(shared.memPer?.[model] ? { [model]: shared.memPer[model] } : {}) };
+  await withEngineModel(model, () => saveStateStrict(chatId, privateState, db));
   return privateState;
+}
+/** LFM2.5's private state (kept for existing callers). */
+export const ensureLfmSessionState = (chatId: number, db: Db = prismaDb): Promise<ChatState> => ensureModelSessionState(chatId, "lfm25", db);
+/** Ensure the private state of `model` when it has one (no-op for Nova and the Sham models). */
+export async function ensurePrivateSession(chatId: number, model: string | undefined, db: Db = prismaDb): Promise<void> {
+  if (isPrivateSessionModel(model)) await ensureModelSessionState(chatId, model, db);
 }
 
 // ---------------------------------------------------------------- signing of the self-continuation
@@ -372,9 +382,9 @@ async function engineModelOf(chatId: number | string | undefined, db: Db, slot =
 
 /** Find the engine that owns a persisted run, even when the account has since switched models. */
 export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | "nova2" | undefined> {
-  for (const model of ["coder", "lfm25"] as const) {
+  for (const model of ["coder", "lfm25", "nova2"] as const) {
     const st = await withEngineModel(model, () => loadStateStrict(chatId, db, slot)).catch(() => null);
-    if (st?.run?.id === runId) return model === "coder" && st.model === "nova2" ? "nova2" : model;   // Nova 2 shares Nova's chat state: the model recorded in it says which pool owns the run
+    if (st?.run?.id === runId) return model;   // every engine model keeps its runs in its own state
   }
   return undefined;
 }
@@ -383,7 +393,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
   return withEngineModel(model, async () => {
-    if (model === "lfm25" && typeof chat === "number") await ensureLfmSessionState(chat, db);
+    if (typeof chat === "number") await ensurePrivateSession(chat, model, db);
     return handleCoderSectionsInner(bot, botRow, update, db, onShamRoute);
   });
 }
@@ -1026,7 +1036,7 @@ const warmedAt = new Map<string, number>();
 export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<void> {
   const selected = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
   return withEngineModel(selected, async () => {
-    if (selected === "lfm25") await ensureLfmSessionState(chatId, db);
+    await ensurePrivateSession(chatId, selected, db);
     return prewarmChatInner(chatId, db);
   });
 }
@@ -1073,7 +1083,7 @@ export async function cancelWarm(chatId: number): Promise<void> {
 export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db = prismaDb): Promise<{ runId: string; queued: boolean }> {
   const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
   return withEngineModel(selectedModel, async () => {
-    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    await ensurePrivateSession(chatId, selectedModel, db);
     return startAppTaskInner(bot, botRow, chatId, text, db, selectedModel);
   });
 }
@@ -1410,7 +1420,7 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null, 
     tier: tierFor(chatId),
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
     chatKey: coderChatKey(`${chatId}:${computerModelOf(st.model)}`),
-    modelId: computerModelOf(st.model),                       // Nova 2 uses Nova's tools and computer session
+    modelId: computerModelOf(st.model),                       // each model its own computer session on its own computer (Nova 2: its own session on the Mini App computer)
     userId: chatId,
     memoryChatId: modelSessionChatId(chatId),
     memory: { remember: novaMemory(st).remember, recall: novaMemory(st).recall },
@@ -2817,7 +2827,7 @@ async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chai
 
 export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" | "nova2" = "coder"): Promise<void> {
   return withEngineModel(engineModel, async () => {
-    if (engineModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    await ensurePrivateSession(chatId, engineModel, db);
     const { Bot } = await import("grammy");
     const bot = new Bot(botRow.token);
     const st = await loadState(chatId, db, slot);
@@ -2841,7 +2851,7 @@ export async function startScheduledRun(
 ): Promise<"started" | "busy" | "off" | "limited"> {
   const selectedModel = (await withEngineModel("coder", () => loadStateStrict(chatId, db))).model || "coder";
   return withEngineModel(selectedModel, async () => {
-    if (selectedModel === "lfm25") await ensureLfmSessionState(chatId, db);
+    await ensurePrivateSession(chatId, selectedModel, db);
     return startScheduledRunInner(bot, botRow, chatId, t, db, selectedModel);
   });
 }

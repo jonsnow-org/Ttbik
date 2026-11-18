@@ -84,6 +84,17 @@ class ShamMeshNodeTest(unittest.TestCase):
         time.sleep(0.4)
         self.assertEqual(self.hub.lessons, [])
 
+    def test_writer_attributes_survive_the_wrap(self):
+        c = Chat({}, self.folder())
+
+        def w(message, hist):
+            return "ok"
+        w.hints, w.mode = False, "loop"
+        c.writer = w
+        chat = SMN.attach(c)
+        self.assertIsNot(chat.writer, w)
+        self.assertEqual((chat.writer.hints, chat.writer.mode), (False, "loop"))
+
     def test_off_switch_leaves_the_chat_untouched(self):
         os.environ["SHAM_MESH"] = "0"
         c = Chat({}, self.folder())

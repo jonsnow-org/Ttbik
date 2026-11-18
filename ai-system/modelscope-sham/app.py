@@ -189,8 +189,26 @@ def _load(model_dir: Path) -> None:
     if STATE["phase"] != "ready":
         STATE.update(phase="loading")                              # a hot swap of a newer checkpoint keeps serving the old one meanwhile
     _say(f"loading the model into memory ({ckpt.stat().st_size // 2**20} MB file)")
+    head = None
+    if _V2:
+        # Sham 2 only: the published T-LDM head file also carries the identity LoRA (Sham Pro / «شام برو»). Missing head = the body
+        # serves as it is (tldm stays off); this never falls back to Sham 1 and never rewrites an answer.
+        try:
+            import sham_tldm_serve as _tldm
+            head = _tldm.download_head(_token())
+        except Exception as exc:
+            print(f"Sham 2 head not fetched ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
+        if _V2:
+            try:
+                import sham_tldm_serve as _tldm
+                ident = _tldm.apply_identity(serve._state["model"], head)
+            except Exception as exc:
+                ident = {"identity_lora": False, "identity_lora_why": f"{type(exc).__name__}: {str(exc)[:120]}"}
+            STATE["identity_lora"] = bool(ident.get("identity_lora"))
+            _say("identity LoRA (Sham Pro) applied to the body for every chat" if ident.get("identity_lora")
+                 else f"identity LoRA not applied: {ident.get('identity_lora_why') or 'no head'}")
     if _V2:
         model = serve._state.get("model")
         cfg = getattr(model, "cfg", None)
@@ -210,7 +228,7 @@ def _load(model_dir: Path) -> None:
     _say("ready: the model is loaded")
     # Sham v2 (1.7B) builds its llama.cpp copy only when SHAM_GGUF_V2=1: on this 2-CPU Studio the export competes with the replies for minutes (owner's "مرحبا" went to the background leg right
     # after the first GGUF-enabled deploy, 2026-11-09), so it stays off until it is measured on the live Studio. Sham v1 keeps its copy as before.
-    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or os.environ.get("SHAM_GGUF_V2", "0") == "1"):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
+    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or (os.environ.get("SHAM_GGUF_V2", "0") == "1" and not STATE.get("identity_lora"))):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
         def _prepare_fast():
             try:
                 try:

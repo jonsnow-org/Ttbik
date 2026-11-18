@@ -95,7 +95,7 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
         f = tldm_src / name
         if f.is_file():
             shutil.copy2(f, dest / name)
-    for folder, files in (("sham_tldm", None), ("memory", ("store.py",)), ("data", ("trajectories.py",))):
+    for folder, files in (("sham_tldm", None), ("memory", ("store.py",)), ("data", ("trajectories.py", "augment.py"))):
         src_dir = tldm_src / folder
         out = dest / folder
         if not src_dir.exists():

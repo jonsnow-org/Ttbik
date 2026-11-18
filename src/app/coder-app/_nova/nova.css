@@ -86,7 +86,6 @@ button.n-row:active { background: var(--n-surface-2); }
 .n-val { flex: 0 0 auto; max-width: 45%; color: var(--n-ink-soft); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n-chev { flex: 0 0 auto; color: var(--n-ink-soft); opacity: .8; }
 .nova[dir="rtl"] .n-chev { transform: scaleX(-1); }
-.n-new { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--n-accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .n-cat { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--n-primary-soft); color: var(--n-primary-ink); font-size: 11.5px; font-weight: 600; }
 .n-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--n-surface-2); color: var(--n-ink-muted); font-size: 12px; font-weight: 600; }
 .n-chip.n-on { background: var(--n-primary-soft); color: var(--n-primary-ink); }
