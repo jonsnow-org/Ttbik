@@ -84,6 +84,9 @@ async function pendings(chatId: number, db: Db) {
   for (const slot of slots) {
     const st = await loadState(chatId, db, slot);
     const ask = st.run?.asking;
+    if (st.run && ask?.kind === "handoff") {                   // the model handed its computer to the user: the screen with the control bar
+      out.push({ runId: st.run.id, nonce: `handoff:${ask.id}`, reason: "handoff", summary: ask.question, tool: "computer_handoff", categories: [], title: st.run.title || "", slot, at: ask.at || null, handoff: { ...(ask.handoff || { kind: "other", reason: ask.question }), model: ask.model || "coder" } });
+    }
     if (st.run && ask?.kind === "secret") {                    // the secure box: shown as a masked field, never as chat text
       out.push({ runId: st.run.id, nonce: `secret:${ask.id}`, reason: "secret", summary: ask.question, tool: "request_secret", categories: [], title: st.run.title || "", slot, at: ask.at || null, secret: { name: ask.secretName || "" } });
     }
@@ -263,6 +266,24 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       catch (e) { throw new AppError(400, String((e as Error)?.message || "bad secret").slice(0, 160)); }
       await answerSecretAsk(deps.bot, deps.botRow, chatId, st, "stored", db, slot);
       return { ok: true, stored: ask.secretName };
+    }
+    case "handoff_done": {
+      // the user gives the computer back (Done) or declines the step (cancel). Nova-family: the waiting run continues; Sham (its round ended with the
+      // handoff): a short follow-up message continues the chat, like the secure box does.
+      const note = String(body.note || "").slice(0, 300);
+      const cancelled = Boolean(body.cancel);
+      if (!body.runId) {
+        const H = await import("@/lib/computerHandoff");
+        const h = H.cleanHandoff(body.handoff);
+        return { ok: true, followup: H.shamHandoffFollowup(h, note, cancelled) };
+      }
+      const slot = String(body.slot || "");
+      const st = await loadStateStrict(chatId, db, slot);
+      const ask = st.run?.asking;
+      if (!st.run || !ask || ask.kind !== "handoff" || st.run.id !== String(body.runId || "")) throw new AppError(409, "no computer handoff is awaited");
+      const { answerHandoffAsk } = await import("@/lib/coderSections");
+      await answerHandoffAsk(deps.bot, deps.botRow, chatId, st, { note, cancelled }, db, slot);
+      return { ok: true, resumed: true };
     }
     case "secret_list": {
       const V = await import("@/lib/secretVault");

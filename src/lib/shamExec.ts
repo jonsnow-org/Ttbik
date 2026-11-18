@@ -3,6 +3,7 @@
 // Sham and Nova share only the dedicated 16 GB computer host. Their session keys, UIDs, private homes and run IDs remain separate.
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
+import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
 import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
 import { prismaDb, type Db } from "@/lib/shamDb";
 import { knowledgeSave, knowledgeSearch } from "@/lib/shamKnowledge";
@@ -101,6 +102,8 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("make_media", "Make a picture, a sound or a short video yourself (Sham's own media models) and send it to the user. For video, include the exact requested seconds (6/10/15/30/60/120); optional scenes define up to six shots and narration is spoken in Arabic.", obj({ kind: { type: "string", enum: ["image", "audio", "video"] }, prompt: s("what to make"), seconds: { type: "integer", enum: [6, 10, 15, 30, 60, 120], description: "Optional requested video duration in seconds." }, scenes: { type: "array", items: s("description of one video shot"), description: "Optional video storyboard, up to six short scene prompts." }, narration: s("Optional narration to speak over the video; if omitted, the prompt is spoken.") }, ["kind", "prompt"])),
   tool("request_secret", "Ask the user for a password, token, API key or login in the secure box of the app (NEVER ask for these in the chat, never repeat one). Give a short name (letters, digits, - and _) and what it is for. Afterwards write {{secret:name}} where the value belongs in a tool argument; the system fills it in and you never see it. The round ends after you ask.", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for") }, ["name", "purpose"])),
   tool("ask_user", "Ask the user a short question when something needed is unclear or missing. The round ends with the question.", obj({ question: s("the question") }, ["question"])),
+  // the user takes over Sham's OWN screen (its embedded desktop / browser) for their sign-in, a code or a captcha; the round ends with the handoff
+  tool(HANDOFF_TOOL_NAME, HANDOFF_TOOL_DESCRIPTION + " The round ends after you hand over.", obj({ kind: { type: "string", enum: [...HANDOFF_KINDS] }, reason: s("what the user should do on the screen") }, ["kind", "reason"])),
 ];
 
 /** Calls that change the user's repositories: they wait for the user's tap. */

@@ -3,6 +3,7 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
+import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
 import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
@@ -97,6 +98,8 @@ export const DESKTOP_TOOL_DEFS: CoderTool[] = [
       direction: { type: "string", enum: ["up", "down"] },
       amount: n("scroll amount, 1-8"),
     }, ["action"])),
+  // the user takes over this model's own screen for a step only they should do (their sign-in, a code, a captcha); the task waits for "Done"
+  tool(HANDOFF_TOOL_NAME, HANDOFF_TOOL_DESCRIPTION, obj({ kind: { type: "string", enum: [...HANDOFF_KINDS] }, reason: s("one short line: what the user should do on the screen, in the user's language") }, ["kind", "reason"])),
 ];
 
 /** Persistent Linux computer tools on the shared 16 GB hub; every user+model session has its own unprivileged home and job scope. */

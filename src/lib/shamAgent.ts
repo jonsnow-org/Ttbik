@@ -422,6 +422,21 @@ export async function shamAgentRun(opts: {
       V.requestSecret(opts.ctx.chatId, nm, why);
       return { kind: "ask", question: `🔐 ${why || nm}\n\nافتح «الخانة الآمنة» في التطبيق المصغر وأدخل القيمة هناك (لا تكتبها في المحادثة). اسمها: ${nm}`, used, steps: steps + 1 };
     }
+    const handed = valid.find((c) => c.function.name === "computer_handoff");
+    if (handed) {
+      // the user takes over Sham's own screen (sign-in, code, captcha): the Mini App opens it with the control bar; Done continues the chat with a short follow-up
+      const H = await import("@/lib/computerHandoff");
+      let raw: unknown = {};
+      try { raw = JSON.parse(handed.function.arguments || "{}"); } catch { /* checked below */ }
+      const h = H.cleanHandoff(raw);
+      if (!h) {
+        messages.push({ role: "assistant", content: p.text, tool_calls: [handed] } as CoderMessage);
+        messages.push({ role: "tool", name: "computer_handoff", tool_call_id: handed.id, content: "error: give kind and a short reason (what the user should do on the screen)" } as CoderMessage);
+        continue;
+      }
+      opts.onEvent?.("screen", H.handoffEvent(opts.ctx.modelId, h, "chat"));
+      return { kind: "ask", question: H.handoffChatText(h, opts.ctx.modelId === "sham_v2" ? "شام برو" : "شام"), used: [...used, "computer_handoff"], steps: steps + 1 };
+    }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {
       let q = "";

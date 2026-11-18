@@ -53,7 +53,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret"; secretName?: string };
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
@@ -339,12 +339,22 @@ async function answerAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: C
   const run = st.run!;
   const ask = run.asking!;
   run.asking = undefined;
+  // a handoff answered by a chat message ("done", "تم"): the model is told the user gave its computer back, in the same words as the app's Done button
+  if (ask.kind === "handoff" && !text.startsWith("The user ")) text = (await import("@/lib/computerHandoff")).handoffDoneNote(ask.handoff ? { kind: ask.handoff.kind as never, reason: ask.handoff.reason } : null, text);
   st.messages.push({ role: "tool", content: text.slice(0, 4000), tool_call_id: ask.id, name: ask.name });
   await startChain(botRow, chatId, st, {}, db);
   await taskEvent(run.id, "approved", `✅ جواب المستخدم: ${text.slice(0, 300)}`, db);
   await taskStatus(run.id, "running", run.step, db);
   await saveState(chatId, st, db, slot);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot));
+}
+
+/** The user gave the computer back from the Mini App (Done / Cancel on the handoff bar): the waiting task continues from what is on the screen. */
+export async function answerHandoffAsk(bot: TelegramBot, botRow: BotRow, chatId: number, st: ChatState, opts: { note?: string; cancelled?: boolean }, db: Db, slot = ""): Promise<void> {
+  const ask = st.run?.asking;
+  if (!ask || ask.kind !== "handoff") throw new Error("no computer handoff is awaited");
+  const { handoffDoneNote } = await import("@/lib/computerHandoff");
+  await answerAsk(bot, botRow, chatId, st, handoffDoneNote(ask.handoff ? { kind: ask.handoff.kind as never, reason: ask.handoff.reason } : null, opts.note, Boolean(opts.cancelled)), db, slot);
 }
 
 /** The app's secure box was filled (or cancelled): the value is already in the vault; the model gets only "stored" and the name. */
@@ -1985,6 +1995,25 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await taskStatus(run.id, "waiting", run.step, db);
         await saveState(chatId, st, db, slot);
         await send(bot, chatId, `🔐 ${why || nm}\n\nافتح التطبيق المصغر وأدخل القيمة في «الخانة الآمنة» (لا تكتبها هنا في المحادثة).`);
+        return;
+      }
+      if (call.function.name === "computer_handoff" && !run.agent) {
+        // the user takes over THIS model's own computer (sign-in, code, captcha): the task waits like ask_user; the Mini App opens the screen with the control bar
+        const H = await import("@/lib/computerHandoff");
+        const h = H.cleanHandoff(parseArgs(call));
+        if (!h) {
+          st.messages.push({ role: "tool", content: "error: give kind and a short reason (what the user should do on the screen)", tool_call_id: call.id || "handoff", name: "computer_handoff" });
+          continue;
+        }
+        const modelId = st.model || "coder";
+        run.queued = rest;
+        run.asking = { id: call.id || "handoff", name: "computer_handoff", question: h.reason, at: Date.now(), kind: "handoff", handoff: h, model: modelId };
+        await closeCard(ioBot, chatId, run, `${H.handoffIcon(h.kind)} التحكم معك على الحاسوب.`);
+        await taskEvent(run.id, "screen", H.handoffEvent(modelId, h, "run", slot), db);
+        await taskEvent(run.id, "confirm", `${H.handoffIcon(h.kind)} تسليم الحاسوب للمستخدم: ${h.reason}`, db);
+        await taskStatus(run.id, "waiting", run.step, db);
+        await saveState(chatId, st, db, slot);
+        await send(bot, chatId, H.handoffChatText(h, modelId === "lfm25" ? "LFM" : modelId === "nova2" ? "نوفا 2" : "نوفا"));
         return;
       }
       if (call.function.name === "ask_user") {
