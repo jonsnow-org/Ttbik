@@ -68,10 +68,37 @@ def has_pii(text: str) -> bool:
     return scrub(text) != (text or "")
 
 
+_CRED = [p for tag, p in _PII if tag in ("<email>", "<token>", "<secret>", "<card>", "<phone>")]
+_HOME = [p for tag, p in _PII if tag == "<home>"]
+
+
+def scrub_command(command: str, names: tuple = ()) -> str:
+    """Commands keep their URLs and paths (`curl https://...`, `rm -rf build`): they ARE the command. Only credentials, e-mails, phone/card numbers, the
+    user's home-folder name and given names are removed."""
+    t = command or ""
+    for p in _CRED:
+        t = p.sub(lambda m: "<secret>" if m.group(0)[:1].isalpha() and "@" not in m.group(0) else "<email>" if "@" in m.group(0) else "<num>", t)
+    for p in _HOME:
+        t = p.sub(lambda m: m.group(0).rsplit("/", 1)[0] + "/<user>" if "/" in m.group(0) else "<home>", t)
+    for n in names:
+        if n and len(n) > 1:
+            t = re.sub(rf"(?i)(?<!\w){re.escape(n)}(?!\w)", "<name>", t)
+    return t
+
+
+def has_credential(command: str) -> bool:
+    return any(p.search(command or "") for p in _CRED)
+
+
 # ---------------------------------------------------------------- deny lists (training admission)
-_ADVERSARIAL = [
-    re.compile(r"\brm\s+-[a-z]*r[a-z]*f?\s+(?:/|~|\*|\.\.|\.(?:\s|$))"), re.compile(r":\(\)\s*\{\s*:\|:&\s*\};:"), re.compile(r"\b(?:curl|wget)\b[^|]*\|\s*(?:ba)?sh\b"),
-    re.compile(r"\bbase64\s+-d\b.*\|\s*(?:ba)?sh"), re.compile(r"/etc/(?:passwd|shadow|sudoers)"), re.compile(r"\bmkfs\b|\bdd\s+if="), re.compile(r">\s*/dev/sd"),
+_ADVERSARIAL = [   # CLEARLY malicious / destructive OUTSIDE the task's scope only (owner rule 2026-11-18): rm, curl, wget, pip, git, mv ... are normal tools
+    re.compile(r"\brm\s+(?:-\w+\s+)*(?:--no-preserve-root\b|/(?:\s|$|\*)|~/?(?:\s|$)|\$HOME/?(?:\s|$)|/(?:etc|usr|bin|boot|lib|var|home|root|sys|proc|dev)\b(?!/[\w.-]+/))"),
+    re.compile(r":\(\)\s*\{\s*:\|:&\s*\};:"),                                   # fork bomb
+    re.compile(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b"),           # fetch-and-run an unknown script
+    re.compile(r"\bbase64\s+-d\b.*\|\s*(?:ba)?sh"),
+    re.compile(r"/etc/(?:shadow|sudoers)|>\s*/etc/passwd"),
+    re.compile(r"\bmkfs(?:\.\w+)?\s+/dev/|\bdd\b[^|]*\bof=/dev/(?:sd|nvme|hd|xvd)|>\s*/dev/sd"),
+    re.compile(r"\bchmod\s+-R\s+0?777\s+/(?:\s|$)"),
     re.compile(r"(?i)ignore (?:all |the )?(?:previous|above) instructions"),
 ]
 
@@ -97,7 +124,9 @@ def _refused_words() -> set:
 
 
 def deny_reason(command: str) -> str:
-    """'' = may be learned from; else why the command must never become training data."""
+    """'' = may be learned from; else why the command must never become training data. Necessary tools (rm, curl, wget, pip, git, mv, ...) are NOT blocked:
+    a verified-correct use of them in context is learned (owner rule 2026-11-18). Only the owner's deny list, clearly malicious / out-of-scope destructive
+    patterns and commands carrying credentials are refused."""
     c = (command or "").strip()
     if not c:
         return "empty command"
@@ -107,11 +136,7 @@ def deny_reason(command: str) -> str:
     for p in _ADVERSARIAL:
         if p.search(c):
             return "adversarial pattern"
-    words = {seg.strip().split()[0] for seg in re.split(r"[|;&]+", c) if seg.strip()}
-    bad = words & _refused_words()
-    if bad:
-        return f"refused command {sorted(bad)[0]!r}"
-    if has_pii(c):
+    if has_credential(c):
         return "credential or personal data in the command"
     return ""
 
@@ -159,7 +184,7 @@ def family(command: str) -> str:
 
 def make_record(user: str, task: str, command: str, exit_code: int, stdout: str = "", stderr: str = "", verdict=None, latency_s: float = 0.0,
                 model: str = "sham2-tldm", adapter: str = "base", source: str = "user", names: tuple = (), ts: float | None = None, meta: dict | None = None) -> dict:
-    intent, cmd = scrub(task, names), scrub(command, names)
+    intent, cmd = scrub(task, names), scrub_command(command, names)
     rec = {"v": SCHEMA_VERSION, "ts_day": time.strftime("%Y-%m-%d", time.gmtime(ts or time.time())), "user": user_id(user), "source": source,
            "intent": intent, "intent_key": intent_key(intent), "command": cmd, "exit_code": int(exit_code), "stdout_sha": _h(stdout), "stderr_sha": _h(stderr),
            "verdict": verdict, "latency_s": round(float(latency_s), 4), "model": model, "adapter": adapter, "family": family(cmd)}
@@ -270,5 +295,6 @@ class ExperienceLog:
                 per_user[u] += 1
             res.append((intent, cmd, fam))
         res = owner_pairs + res
+        why["owner_exempt"] = len(owner_pairs)
         why["admitted"] = len(res)
         return (res, dict(why)) if return_reasons else res

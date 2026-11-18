@@ -146,13 +146,10 @@ def main():
         fails = [(t, o, ref) for (_, t, ref), o in zip(reqs, outs) if not ex.same_effect(ref, o)]
         gaps = WL.knowledge_gaps(fails, {c.split()[0] for _, c in T.TRAIN})
         fetcher = WL.WebFetcher(a.webcache, offline=a.offline)
-        pages = fetcher.fetch_sources(gaps, se_queries=3)
+        pages = fetcher.fetch_sources(list(dict.fromkeys(gaps + WL.SANDBOX_COMMANDS)), se_queries=3)
         cands = WL.extract(pages)
         kept, rep = WL.verify_and_filter(cands, [t for t, _ in held1 + held2] + bench + [t for t, _ in dev_rows], block_fits=eng.P.fits)
-        for k in kept:
-            okx, out, _ = ex.run(k["command"])
-            eng.observe("web", k["task"], k["command"], 0 if okx else 1, out, "", True, source="web", meta={"url": k["url"], "license": k["license"]})
-        evo = eng.evolve_round()
+        evo = {"families": eng.learn_web(kept)}                       # the gate-passing web recipe (engine.WEB_RECIPE)
         return {"gaps": gaps[:8], "pages": len(pages), "candidates": len(cands), "filter": rep, "licences": sorted({k["license"] for k in kept}),
                 "sources": sorted({k["source"] for k in kept}), "examples": [(k["task"], k["command"]) for k in kept[:6]], "evolve": evo}
 
