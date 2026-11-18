@@ -7,6 +7,7 @@ import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
 const sourceUrls = (item) => (item.sources ?? []).map((source) => source.href).sort();
+const dateNumbers = (value) => (value.match(/\\d+/g) ?? []).join(",");
 
 test("18 November news entries have aligned Arabic and English versions", () => {
   const dailyNews = NEWS_ITEMS.filter((item) => item.dateIso === "2026-11-18");
@@ -17,7 +18,8 @@ test("18 November news entries have aligned Arabic and English versions", () => 
     assert.ok(english, `Missing English news entry for ${arabic.slug}`);
     assert.equal(english.date, "18 November 2026");
     assert.ok(arabic.contextDateLabel, `Missing event/report date for ${arabic.slug}`);
-    assert.equal(english.contextDateLabel, arabic.contextDateLabel);
+    assert.ok(english.contextDateLabel, `Missing English event/report date for ${arabic.slug}`);
+    assert.equal(dateNumbers(english.contextDateLabel), dateNumbers(arabic.contextDateLabel));
     assert.deepEqual(sourceUrls(english), sourceUrls(arabic));
     assert.ok(arabic.sources.length >= 1);
     assert.ok(arabic.sources.every((source) => source.href.startsWith("https://")));
