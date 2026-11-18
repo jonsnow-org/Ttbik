@@ -1,0 +1,35 @@
+name: "T-LDM writer speed (0.3B, CPU tok/s)"
+# Measures the 0.3B T-LDM end to end (reader + compressor + thinker + block-diffusion writer) on a GitHub runner: 4 vCPU, no AMX, a laptop-class CPU
+# on a quiet machine. Writes the JSON as an artifact. Manual (or editing this file on its own branch). Uses no secret. Touches no Studio, Sham or Nova.
+on:
+  push:
+    branches: [claude/tldm-writer-speed]
+    paths: [".github/workflows/tldm-writer-speed.yml", "ai-system/tldm/eval/writer_speed.py", "ai-system/tldm/sham_tldm/fast.py", "ai-system/tldm/sham_tldm/writer.py"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  speed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - name: CPU
+        run: lscpu | tee /tmp/lscpu.txt
+      - name: 0.3B tok/s (4 threads = all vCPUs; 2 threads; batch 1 and 4)
+        run: |
+          set -o pipefail
+          cd ai-system/tldm
+          python eval/writer_speed.py --threads 4 --modes fp32,bf16,int8 --passes 10,3,2,1 --blocks 128,64 --batches 1,4 --reps 5 --json /tmp/speed_t4.json 2>&1 | tee /tmp/speed_t4.log
+          python eval/writer_speed.py --threads 2 --modes fp32,int8 --passes 10,2 --blocks 128 --batches 1 --reps 5 --json /tmp/speed_t2.json 2>&1 | tee /tmp/speed_t2.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tldm-writer-speed
+          path: |
+            /tmp/speed_*
+            /tmp/lscpu.txt

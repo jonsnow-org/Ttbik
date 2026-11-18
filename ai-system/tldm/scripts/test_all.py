@@ -320,7 +320,7 @@ def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only
     from sham_tldm import ShamBodyTLDM
     m = ShamBodyTLDM(body, latents=4, think_steps=2, block=8, writer_layers=1, heads=2).eval()
     seen, orig = [], m.core.writer.generate
-    m.core.writer.generate = lambda z, steps, temperature, confident: (seen.append(confident), orig(z, steps, temperature, confident))[1]
+    m.core.writer.generate = lambda z, steps, temperature, confident, *a: (seen.append(confident), orig(z, steps, temperature, confident, *a))[1]
     ids = torch.randint(5, 300, (1, 10))
     m.generate(ids, steps=4, confident=0.5)
     m.generate(ids, steps=4)
@@ -463,6 +463,45 @@ def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
     res = unittest.TextTestRunner(stream=open(os.devnull, "w"), verbosity=0).run(suite)
     assert res.testsRun >= 8 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
+
+
+@test
+def writer_end_exit_is_lossless_and_parallel_threshold_cuts_passes():
+    from sham_tldm import fast_inference
+    from sham_tldm.writer import _ended
+    tok = torch.tensor([[5, 0, 0, 0], [5, 6, 0, 0]])
+    assert _ended(tok, torch.tensor([[False, False, True, True], [False, False, False, True]]))
+    assert not _ended(tok, torch.tensor([[True, False, True, True], [False, False, False, True]])), "a hidden position before the PAD can still change the text"
+    torch.manual_seed(0)
+    w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+    with torch.no_grad():
+        w.head.weight.zero_()
+        w.head.weight[0].fill_(0.0)
+    z = torch.randn(3, 4, 16)
+    for _ in range(5):                                               # random writers: decoded text with and without end_exit is identical
+        torch.manual_seed(_)
+        w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+        for steps in (3, 6, 12):
+            a = w.generate(z, steps, end_exit=False)
+            b = w.generate(z, steps, end_exit=True)
+            assert [decode_bytes(r) for r in a] == [decode_bytes(r) for r in b]
+            c = w.generate(z, steps, end_exit=True, parallel=0.7)
+            assert c.shape == a.shape and w.last_passes <= steps
+    w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+    with torch.no_grad():
+        w.head.weight.zero_()
+        w.head.weight[0, 0] = 50.0                                   # every position is a very sure PAD
+        w.norm.weight.fill_(0.0); w.norm.bias.zero_(); w.norm.bias[0] = 1.0
+    w.generate(z, 10, parallel=0.9)
+    assert w.last_passes == 1, w.last_passes
+    m = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+    ids = torch.tensor([encode_bytes("ls -la", 12)])
+    ref = m.generate(ids, steps=4)[0]
+    for mode in ("bf16", "int8", "fp32"):
+        import copy
+        mm = fast_inference(copy.deepcopy(m), mode)
+        out = mm.generate(ids, steps=4)[0]
+        assert out.shape == ref.shape and mm.fast_mode == mode
 
 
 if __name__ == "__main__":

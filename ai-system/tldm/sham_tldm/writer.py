@@ -32,9 +32,16 @@ class DiffusionWriter(nn.Module):
         return F.cross_entropy(lg[masked], target[masked])
 
     @torch.no_grad()
-    def generate(self, z, steps: int = 10, temperature: float = 0.0, confident: float = 0.0):
-        """confident > 0 (inference speed option, off by default): after a pass, if every still-hidden position is predicted with probability >= `confident`,
-        they are all written at once and the remaining passes are skipped. `self.last_passes` = passes actually run."""
+    def generate(self, z, steps: int = 10, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0):
+        """Inference speed options:
+        confident > 0 (off by default): after a pass, if every still-hidden position is predicted with probability >= `confident`, they are all written at once and the
+            remaining passes are skipped.
+        end_exit (on by default, LOSSLESS for the decoded text): every tokenizer's decode() stops at the first PAD (0). Once a row has a written PAD and every position
+            before it is written, nothing a later pass writes can change what that row decodes to (written positions are never rewritten), so when every row of the
+            batch is in that state the remaining passes are skipped and the still-hidden tail is set to PAD. Raw tokens after the first PAD may differ; text never does.
+        parallel > 0 (off by default, Fast-dLLM-style threshold decoding): each pass also writes every hidden position whose probability is >= `parallel`, on top of the
+            schedule's quota, so confident blocks finish in fewer passes. Lossy in principle: check it on the held-out gate (eval/speed_accuracy.py) before using it.
+        `self.last_passes` = passes actually run."""
         B, N = z.shape[0], self.block
         tok = torch.zeros(B, N, dtype=torch.long, device=z.device)
         masked = torch.ones(B, N, dtype=torch.bool, device=z.device)
@@ -52,10 +59,27 @@ class DiffusionWriter(nn.Module):
                 return torch.where(masked, pred, tok)
             conf = torch.where(masked, conf, torch.full_like(conf, -1.0))
             keep = N - (N * (s + 1)) // steps                       # hidden positions that remain after this pass
-            k = hidden - keep
-            if k > 0:
-                idx = conf.topk(k, dim=1).indices
-                tok = tok.scatter(1, idx, pred.gather(1, idx))
-                masked = masked.scatter(1, idx, False)
-                hidden = keep
+            if parallel:
+                left = masked.sum(1, keepdim=True)                                  # per row: rows may differ once the threshold writes extra positions
+                rank = conf.argsort(1, descending=True).argsort(1)
+                write = masked & ((rank < (left - keep).clamp(min=0)) | (conf >= parallel))
+                tok = torch.where(write, pred, tok)
+                masked = masked & ~write
+            else:
+                k = hidden - keep
+                if k > 0:
+                    idx = conf.topk(k, dim=1).indices
+                    tok = tok.scatter(1, idx, pred.gather(1, idx))
+                    masked = masked.scatter(1, idx, False)
+                    hidden = keep
+            if s + 1 < steps and not bool(masked.any()):                   # the threshold wrote everything: no pass left to run
+                return tok
+            if end_exit and s + 1 < steps and _ended(tok, masked):
+                return tok.masked_fill(masked, 0)
         return tok
+
+
+def _ended(tok, masked) -> bool:
+    """True when every row has a written PAD whose whole prefix is written (the decoded text of the row can no longer change)."""
+    written_prefix = torch.cumprod((~masked).to(torch.int8), 1).bool()
+    return bool((written_prefix & (tok == 0)).any(1).all())
