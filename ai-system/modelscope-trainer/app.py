@@ -106,6 +106,17 @@ def tldm_work() -> Path:
     return Path(os.environ.get("TLDM_WORK") or (Path("/mnt/workspace/tldm") if Path("/mnt/workspace").is_dir() else (HERE / "tldm_work")))
 
 
+def tldm_sidecars(root: Path | None = None) -> tuple[Path, Path]:
+    """sandbox_terminal and exec_verify sit next to the tldm tree (ai-system/ in the repo, copied next to app.py in the Studio)."""
+    parent = (root or tldm_root()).parent
+    return parent / "terminal" / "sandbox_terminal.py", parent / "distill" / "exec_verify.py"
+
+
+def tldm_sidecars_ok(root: Path | None = None) -> bool:
+    a, b = tldm_sidecars(root)
+    return a.is_file() and b.is_file()
+
+
 def tldm_next_seed(work: Path) -> int:
     path = work / "seed.txt"
     try:
@@ -181,6 +192,9 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     extra_steps = (os.environ.get("SHAM_TLDM_STEPS") or "").strip()
     if extra_steps:
         cmd.extend(["--steps", extra_steps])
+    if not tldm_sidecars_ok(root):
+        missing = [str(p) for p in tldm_sidecars(root) if not p.is_file()]
+        raise FileNotFoundError("tldm sidecars missing (deploy must also copy ai-system/terminal and ai-system/distill): " + ", ".join(missing))
 
     if runner is not None:
         code = int(runner(cmd=cmd, cwd=str(root), ckpt=ckpt, report=report, seed=seed, work=work))
@@ -488,6 +502,7 @@ if __name__ == "__main__":
         assert set(PROFILES) == {"live", "images", "audio", "chat", "tools", "text", "codec", "motion", "tldm"}
         assert settings({"SHAM_TRAINER_JOB": "tldm"})["job"] == "tldm" and settings({"SHAM_TRAINER_JOB": "tldm"})["hours"] == 10.0
         assert settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_HOURS": "3"})["hours"] == 3.0
+        assert tldm_sidecars_ok(), tldm_sidecars()     # repo layout: ai-system/{tldm,terminal,distill}; the Studio deploy copies the same siblings
         calls = []
 
         def fake(**kw):

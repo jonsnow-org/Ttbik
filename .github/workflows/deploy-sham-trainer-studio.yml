@@ -100,7 +100,11 @@ jobs:
             mkdir tldm
             # the T-LDM tree only: checkpoints and caches stay out (the Studio repo has a size limit). The tree is copied as-is; this workflow does not edit it.
             rsync -a --exclude __pycache__ --exclude checkpoints --exclude '*.pt' --exclude .gitignore "$GITHUB_WORKSPACE/ai-system/tldm/" tldm/
-            du -sh tldm | cut -f1
+            # train_0.3b imports terminal_tasks, which loads sandbox_terminal from the sibling ../terminal (and exec_verify from ../distill). Same layout as ai-system/.
+            mkdir terminal distill
+            rsync -a --exclude __pycache__ --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/terminal/" terminal/
+            rsync -a --exclude __pycache__ --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/distill/" distill/
+            du -sh tldm terminal distill | cut -f1
           fi
           du -sh sham_small | cut -f1
           git config user.name "Sham CI"; git config user.email "ci@sham.local"
