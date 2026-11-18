@@ -45,6 +45,10 @@ const FRESH_FACTS = /اليوم|الآن|حالياً|حاليا|آخر |اخر 
 const CODE_CUES = /```|\b(?:def|class|function|const|import|return|npm|pip|git|docker|sql|api|json|regex|bug|error|exception|stack ?trace|compile|test|unit test|refactor|lint|typescript|javascript|python|java|rust|golang|css|html|react|next\.?js|node)\b|كود|برمج|دالة|دوال|سكربت|سكريبت|خطأ|اخطاء|أخطاء|اصلح|أصلح|صحح|صلح|اختبار|اختبارات|ترجم الكود|حلل الكود|اشرح الكود|خوارزمية|قاعدة بيانات|استعلام/i;
 const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pull|branch|commit)\b|\b(?:repo|repository|pull request|pr|merge|branch|commit|push|deploy|workflow|ci|issue|issues|readme|refactor the)\b|مستودع|ريبو|دمج|فرع|كوميت|ارفع|رفع|انشر|نشر|طلب دمج|مشكلة في المستودع|اقرأ (?:الملف|الملفات|ملف)|كل الملفات|المشروع كله|ثم |وبعد ذلك|خطوة بخطوة|حلل المشروع|راجع المشروع|اجدول|جدول|ذكرني|كل يوم|كل اسبوع|ابحث|بحث عميق|research/i;
 
+// Explicit web research must enter the agent/tool loop; merely asking what the internet is stays chat.
+const WEB_RESEARCH_CUES = /جولة\s+بحث|(?:ابحث|بحث|فتّ?ش|تصفّ?ح).{0,45}(?:الإنترنت|الانترنت|الويب|مواقع|موقع|صفحات)|(?:الإنترنت|الانترنت|الويب).{0,35}(?:ابحث|بحث|تصفّ?ح)|\b(?:web search|search the web|browse the web|online research|internet research)\b/i;
+const CODE_READING_CUES = /(?:اقرأ|قراءة|استعرض|افحص|حلل).{0,50}(?:الأكواد|اكواد|الكود|كود|الشيفرة|الشفرة|source code|codebase)|(?:الأكواد|اكواد|الشيفرة|الشفرة).{0,40}(?:كل|جميع|اقرأ|قراءة|استعرض)|\b(?:read|inspect|review)\b.{0,35}\b(?:source code|all code|codebase)\b/i;
+
 // planning / design / analysis requests: they need a real thought before the answer, like code does
 const PLAN_CUES = /خطّ?ط|خطة|خطط|تخطيط|صمّ?م|تصميم|بنية|معمارية|هيكلة|استراتيجية|حلّ?ل|قارن|\b(?:plan|architecture|architect|design|roadmap|strategy|analy[sz]e|compare|trade-?offs?|break (?:it )?down)\b/i;
 const SHORT_TASK_CUES = /^(?:عدّل|عدل|كمل|اكمل|أكمل|تابع|نفّذ|نفذ|شغّل|شغل|جرّب|جرب|اختبر|افحص|صلّح|صلح|صحح|غيّر|غير|أضف|اضف|احذف|أنشئ|انشئ|اقرأ|افتح)(?:\s|$)/u;
@@ -54,7 +58,8 @@ const PLAIN_QUESTION = /[?؟]\s*$|^\s*(?:اشرح|فسّر|فسر|عرّف|عر�
 export const isPlainQuestion = (text: string): boolean => { const t = String(text || "").trim(); return t.length >= 12 && PLAIN_QUESTION.test(t); };
 
 /** Does the question need today's facts (so the web tools must stay)? */
-export const needsFreshFacts = (text: string): boolean => FRESH_FACTS.test(String(text || ""));
+export const needsExternalWebResearch = (text: string): boolean => WEB_RESEARCH_CUES.test(String(text || ""));
+export const needsFreshFacts = (text: string): boolean => FRESH_FACTS.test(String(text || "")) || needsExternalWebResearch(text);
 
 /** What kind of request is this? Pure text heuristics: cheap, deterministic, no model call. */
 export function classifyRequest(text: string): ReqClass {
@@ -63,7 +68,7 @@ export function classifyRequest(text: string): ReqClass {
   if (detectMediaIntent(t)) return "media";
   if (t.length <= 100 && !t.includes("\n") && (GREETING.test(t) || GREETING_WITH_CHECKIN.test(t))) return "trivial";
   if (t.length <= 40 && !t.includes("\n") && IDENTITY_Q.test(t)) return "trivial";   // «من انت» took minutes on the full tool path
-  if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
+  if (AGENT_CUES.test(t) || WEB_RESEARCH_CUES.test(t) || CODE_READING_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
   if (SHORT_TASK_CUES.test(t) || PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
 }

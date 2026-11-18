@@ -77,9 +77,33 @@ export function lastUserContent(messages: ShamChatTurn[]): string {
 
 export const STALE_REPLY_USER = "تعذّر تكوين جواب مناسب لهذه الرسالة. أعد المحاولة بصيغة مختلفة.";
 
-/** Last-line defense before a reply is shown: training reports and copied prior answers stay out of the model chat. */
+/** Remove only an immediately repeated, identical sentence; never synthesize or rewrite the model's wording. */
+export function collapseAdjacentDuplicateSentences(text: string): string {
+  const chunks = [...String(text || "").matchAll(/[^.!?؟\n]+[.!?؟]?/gu)];
+  const remove: Array<[number, number]> = [];
+  let previousKey = "";
+  for (const chunk of chunks) {
+    const value = chunk[0];
+    const key = value.normalize("NFKC")
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+      .toLocaleLowerCase("ar")
+      .replace(/[\p{P}\p{S}\s]+/gu, " ")
+      .trim();
+    if (key.length >= 28 && key === previousKey) {
+      const start = chunk.index ?? 0;
+      remove.push([start, start + value.length]);
+      continue;
+    }
+    if (key.length >= 28) previousKey = key;
+  }
+  let cleaned = String(text || "");
+  for (const [start, end] of remove.reverse()) cleaned = cleaned.slice(0, start) + cleaned.slice(end);
+  return cleaned.trim();
+}
+
+/** Last-line defense before a reply is shown: repeated sentences, training reports and copied prior answers stay out of the chat. */
 export function visibleShamReply(text: string, history?: Array<{ q?: string; a?: string }>): { text: string; blocked: "echo" | "report" | "" } {
-  const raw = String(text || "").trim();
+  const raw = collapseAdjacentDuplicateSentences(String(text || "").trim());
   if (!raw) return { text: "", blocked: "" };
   if (isTrainingStatusReply(raw)) return { text: STALE_REPLY_USER, blocked: "report" };
   if (isEchoedPriorReply(raw, history)) return { text: STALE_REPLY_USER, blocked: "echo" };
