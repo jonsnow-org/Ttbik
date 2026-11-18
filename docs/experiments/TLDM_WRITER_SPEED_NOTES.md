@@ -1,5 +1,21 @@
 # T-LDM writer speed: running notes (PR #1125, branch claude/tldm-writer-speed)
 
+## Headline: one run, same machine (run 44261094320, commit 34bc3de, tldm_writer_speed_runner_same_run_2026-11-18.jsonl)
+GitHub runner AMD EPYC 9V74 (Zen 4), 4 vCPU, AVX-512, **no AMX**; 2 threads; 0.3B config (369.3M params, block 128); batch 1; median of 7.
+
+| configuration | passes | input bytes | ms | tok/s |
+|---|---|---|---|---|
+| before: fp32, default schedule | 10 | 64 | 1911 | **67.0** |
+| fp32 + parallel 0.7 + trim | 2 | 24 | 494 | 258.9 |
+| int8 (first version: quantize_dynamic, attention fp32) + parallel 0.7 + trim | 2 | 24 | 266 | 481.4 |
+| **int8 (this PR: every Linear incl. q/k/v/out, latent K/V cached) + parallel 0.7 + trim** | 2 | 24 | 112 | **1139.1** |
+| same, full 64-byte input | 2 | 64 | 140 | 915.0 |
+| same, default 10 passes (no lossy option at all) | 10 | 24 | 418 | 306.1 |
+| same, batch 4 | 2 | 24 | 387 | 1323.1 |
+
+Split (int8, batch 1): reader 24-50 ms, thinker 9.5-10.9 ms (was 48), one writer pass 37.6 ms (was 92.5 with int8_ffn, 157.8 fp32).
+Held-out on the trained donor checkpoints (gate_int8v2): int8 + end_exit + parallel 0.7 = baseline on every checkpoint (heldout 0.917/0.667/0.75, heldout2 0.857/0.786/0.786), identical decoded text on every row, mean passes 2.11 / 1.46.
+
 Kept in the branch so progress survives interruptions. tok/s = block x batch / wall time of one full generate (reader + compressor + thinker + writer), the book's counting.
 
 ## Quiet hardware: GitHub runner (run 44254789952, commit b94d603)
