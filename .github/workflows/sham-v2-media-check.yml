@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install what the content checks need
@@ -35,7 +35,7 @@ jobs:
           SMOKE_SKIP_TEXT: "1"
           SMOKE_OUT: ${{ runner.temp }}/sham-v2-media
         run: python ai-system/supervision/sham_v2_media_smoke.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sham-v2-media
