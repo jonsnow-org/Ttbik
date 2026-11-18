@@ -82,6 +82,11 @@ export async function tokenForAsync(base: string): Promise<string> {
   if (/\.modelscope\.ai(\/|$)/i.test(base)) return ((process.env.NOVA2_STUDIO_TOKEN || (await getSecret("AI_NOVA2_TOKEN")) || "") as string).trim();
   return coderToken();
 }
+/** A cold server must wait for the encrypted international account token before deciding Nova 2 cannot be warmed. */
+export async function nova2WarmStartReady(): Promise<boolean> {
+  const base = nova2Urls()[0];
+  return Boolean(base && (await tokenForAsync(base)));
+}
 function novaStudioUrls(): string[] {
   return oldNovaStudioUrls();
 }
