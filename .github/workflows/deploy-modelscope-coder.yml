@@ -19,18 +19,23 @@ on:
         description: "true = ask ModelScope to (re)deploy after pushing the files"
         required: false
         default: "true"
+      site:
+        description: "cn = modelscope.cn (account novaai2026, 8 GB free tier; the default) | ai = modelscope.ai (the owner's international account, secret MODELSCOPE_AI_TOKEN, 16 GB free tier; needs 'studio' set, e.g. coder-inference-server-16)"
+        required: false
+        default: "cn"
       studio:
         description: "Deploy only this Studio (coder-inference-server, a replica coder-inference-server-<n>, or LFM2.5's lfm25-inference-server). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
         required: false
         default: ""
 
 concurrency:
-  group: deploy-modelscope-coder
+  group: deploy-modelscope-coder-${{ inputs.site || 'cn' }}
   cancel-in-progress: false
 
 env:
-  MS: https://www.modelscope.cn
-  OWNER: novaai2026
+  MS: ${{ inputs.site == 'ai' && 'https://www.modelscope.ai' || 'https://www.modelscope.cn' }}
+  OWNER: ${{ inputs.site == 'ai' && 'Jonjithup' || 'novaai2026' }}
+  SITE: ${{ inputs.site || 'cn' }}
   LLAMA_BUILD: b11757
   LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
 
@@ -45,21 +50,57 @@ jobs:
       - id: p
         env:
           ONLY: ${{ inputs.studio }}
+          SITE: ${{ inputs.site || 'cn' }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           python3 - <<'PY'
-          import json, os, re
+          import json, os, re, subprocess
           only = os.environ.get("ONLY", "").strip()
+          if os.environ.get("SITE") == "ai" and not only:
+              raise SystemExit("site=ai needs an explicit 'studio' (the STUDIOS list is the cn pool)")
           names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
           ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?|lfm25-inference-server)$")
           bad = [n for n in names if not ok.match(n)]
           if bad or not names:
               raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server, coder-inference-server-<n> and LFM2.5's lfm25-inference-server; never Sham's)")
+          # A push must not restart the cn Nova 4B / LFM pool unless the files they actually run changed.
+          # site=ai is dispatch-only (needs an explicit studio) and is never in the STUDIOS list.
+          before = (os.environ.get("BEFORE") or "").strip()
+          if (not only) and os.environ.get("EVENT") == "push" and before and set(before) != {"0"}:
+              try:
+                  subprocess.check_call(["git", "fetch", "--depth=1", "origin", before], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  diff = subprocess.check_output(["git", "diff", "--name-only", before, "HEAD"], text=True).splitlines()
+              except subprocess.CalledProcessError:
+                  diff = []
+              app_files = {
+                  "ai-system/modelscope-coder/app.py",
+                  "ai-system/modelscope-coder/requirements.txt",
+                  "ai-system/modelscope-coder/VISION_STUDIOS",
+                  "ai-system/modelscope-coder/STUDIOS",
+              }
+              touched_app = any(path in app_files for path in diff)
+              if not touched_app:
+                  changed_overrides = set()
+                  if "ai-system/modelscope-coder/MODEL_OVERRIDES" in diff:
+                      try:
+                          old = subprocess.check_output(["git", "show", f"{before}:ai-system/modelscope-coder/MODEL_OVERRIDES"], text=True)
+                      except subprocess.CalledProcessError:
+                          old = ""
+                      new = open("ai-system/modelscope-coder/MODEL_OVERRIDES").read()
+                      def ov_lines(s):
+                          return {l.split()[0]: l for l in s.splitlines() if l.strip() and not l.startswith("#") and l.split()}
+                      prev, cur = ov_lines(old), ov_lines(new)
+                      changed_overrides = {k for k in set(prev) | set(cur) if prev.get(k) != cur.get(k)}
+                  names = [n for n in names if n in changed_overrides]
+                  print("push did not change the cn app; deploying only STUDIOS whose override line changed:", names)
           open(os.environ["GITHUB_OUTPUT"], "a").write("list=" + json.dumps(names) + "\n")
           print("studios:", names)
           PY
 
   deploy:
     needs: plan
+    if: needs.plan.outputs.list != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -73,7 +114,7 @@ jobs:
 
       - name: Account, free hardware and existing Studio (read-only)
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           set -u
           api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
@@ -87,7 +128,7 @@ jobs:
       - name: Create the Studio if missing (private, free CPU)
         if: env.STUDIO_HTTP != '200'
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           HW=$(python3 - <<'PY'
           import json
@@ -118,11 +159,11 @@ jobs:
 
       - name: Push the app into the Studio repo
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           git config --global user.name "coder CI"
           git config --global user.email "ci@coder.local"
-          git clone "https://oauth2:${T}@www.modelscope.cn/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
+          git clone "https://oauth2:${T}@${MS#https://}/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
@@ -147,10 +188,19 @@ jobs:
       - name: Deploy and show status
         if: github.event_name == 'push' || inputs.redeploy != 'false'
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
         run: |
           curl -sS -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" | head -c 1500; echo
-          API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.net"
+          owner_lc=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$SITE" = "ai" ]; then
+            API="https://studio-${owner_lc}-${REPO}.api-inference.modelscope.ai"
+          else
+            API="https://studio-${owner_lc}-${REPO}.api-inference.modelscope.net"
+          fi
+          echo "API $API"
+          # site=ai may be (re)loading a 12+ GB GGUF; give the ready loop more time there
+          ready_rounds=20
+          [ "$SITE" = "ai" ] && ready_rounds=60
           for i in $(seq 1 40); do
             sleep 30
             st=$(curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;s=sys.stdin.read().strip();d=json.loads(s) if s.startswith('{') else {};d=d.get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')")
@@ -161,10 +211,26 @@ jobs:
                 curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
                 exit 1;;
               Running|running)
-                for j in $(seq 1 20); do
+                for j in $(seq 1 "$ready_rounds"); do
                   ev=$(curl -sS -m 30 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' "$API/gradio_api/call/v2/status" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                  out=""
                   [ -n "$ev" ] && out=$(curl -sS -m 30 -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$ev") && echo "status api: $out" | head -c 1500 && echo
-                  echo "$out" | grep -q 'phase[^,]*ready' && exit 0
+                  if echo "$out" | grep -q 'phase[^,]*ready'; then
+                    if [ "$SITE" = "ai" ]; then
+                      echo "model is ready; short chat probe:"
+                      start=$(date +%s)
+                      payload=$(python3 -c 'import json;print(json.dumps({"messages":json.dumps([{"role":"user","content":"Reply with the single word pong."}]),"tools":"","max_tokens":16,"think":"","temperature":0,"wait_s":50}))')
+                      ev2=$(curl -sS -m 60 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$payload" "$API/gradio_api/call/v2/chat" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
+                      chat_out=""
+                      if [ -n "$ev2" ]; then
+                        chat_out=$(curl -sS -m 60 -H "Authorization: Bearer $T" "$API/gradio_api/call/chat/$ev2")
+                      fi
+                      end=$(date +%s)
+                      echo "chat latency $((end-start))s"
+                      echo "$chat_out" | head -c 1500; echo
+                    fi
+                    exit 0
+                  fi
                   if echo "$out" | grep -q 'phase[^,]*error'; then
                     echo "::error::the Studio is running but the model server is in the error phase"
                     curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" | tail -c 4000; echo
