@@ -102,6 +102,26 @@ def _proposer(task: str):
     return p(task) if p is not None else None
 
 
+FALLBACK_URL = "https://89-168-89-15.sslip.io/api/mesh"     # the site's pass-through to the same Worker (src/app/api/mesh), for hosts that cannot reach workers.dev
+
+
+def _relay_url(MN) -> str:
+    """The first relay this Studio can reach: SHAM_MESH_URL, else the Worker, else the site's pass-through. The reason for each miss is kept."""
+    tried = []
+    for url in [u for u in (os.environ.get("SHAM_MESH_URL"), MN.DEFAULT_URL, os.environ.get("SHAM_MESH_FALLBACK_URL") or FALLBACK_URL) if u]:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/m/sham2/health", headers=MN.UA), timeout=12) as r:
+                if r.status == 200:
+                    _STATE["relay"] = url
+                    _STATE["relay_misses"] = tried
+                    return url
+        except Exception as exc:
+            tried.append(f"{url.split('/')[2]}: {type(exc).__name__}")
+    _STATE["relay_misses"] = tried
+    return os.environ.get("SHAM_MESH_URL") or MN.DEFAULT_URL
+
+
 def _net():
     """The one node of this Studio process (created once; joining runs in the background threads of NetMesh). Raises on a missing module."""
     with _START_LOCK:
@@ -114,7 +134,7 @@ def _net():
         ident = Identity.load_or_create(str(_root() / "node.key"))
         serve = _serve_peers()
         node = Node(ident.id, _LessonTerm(_root() / "vet"), _proposer, slots=1)
-        relay = MN.RelayClient(os.environ.get("SHAM_MESH_URL") or MN.DEFAULT_URL, os.environ.get("SHAM_MESH_NAME", "sham2"), ident)
+        relay = MN.RelayClient(_relay_url(MN), os.environ.get("SHAM_MESH_NAME", "sham2"), ident)
         net = MN.NetMesh(node, ident, relay, serve_peers=serve, serve_jobs=True, evolution=_evolution(), propose_timeout=12.0).start()
         _STATE.update(net=net, error="")
         return net
@@ -198,5 +218,5 @@ def status() -> dict:
     net = _STATE.get("net")
     if net is None:
         return {"enabled": enabled(), "online": False, "error": _STATE.get("error", "")}
-    return {"enabled": True, "online": bool(net.online), "node": net.ident.id[:12], "peers": len(net.nodes) - 1, "slots": net.slots(),
+    return {"enabled": True, "online": bool(net.online), "relay": str(_STATE.get("relay") or "").split("/")[2:3], "relay_misses": _STATE.get("relay_misses", []), "node": net.ident.id[:12], "peers": len(net.nodes) - 1, "slots": net.slots(),
             "lessons": len(net.pool), "stats": dict(net.stats), "self_name": SELF_NAME}

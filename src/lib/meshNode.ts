@@ -233,7 +233,7 @@ export class RelayClient {
   async req(method: "GET" | "POST", route: string, body?: unknown, query = "", timeoutMs = 20000): Promise<Record<string, any>> {
     const data = body === undefined ? "" : JSON.stringify(body);
     const url = this.base + route + (query ? "?" + query : "");
-    const pathq = new URL(url).pathname + (query ? "?" + query : "");
+    const pathq = new URL(url).pathname.slice(new URL(this.root).pathname.replace(/\/+$/, "").length) + (query ? "?" + query : "");   // relative to the relay root (proxy mounts)
     const ts = String(Date.now());
     const sig = await this.ident.sign(`${method}\n${pathq}\n${ts}\n${await sha256hex(enc.encode(method === "GET" ? "" : data))}`);
     const ctl = new AbortController();
