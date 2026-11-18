@@ -34,6 +34,7 @@ import rewordings as RW  # noqa: E402
 import trajectories as J  # noqa: E402
 import augment as AUG  # noqa: E402
 import identity as ID  # noqa: E402
+import retention as RT  # noqa: E402
 from sham_tldm.donor import FeatureTLDM  # noqa: E402
 
 SHAM_SMALL = next((p for p in (os.path.join(ROOT, "..", "colab", "sham_small"), os.path.join(ROOT, "..", "sham_small")) if os.path.isdir(p)),
@@ -134,8 +135,20 @@ def general_nll(body, ct):
 NLL_RANDOM = 6.0      # a real donor reads general text at ~2; a random-init 150k-vocab body sits near ln(151936) = 11.9
 
 
-def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
-    """Train ONLY the body's LoRA adapters on data/identity.py (loss on the answer), on the in-memory copy. -> results; the adapters stay in `body`."""
+def retention_eval(body, ct, base, max_new=48):
+    """After the LoRA: share of held-out RT.CHECKS prompts that still say what the base said (only words the base answer had), and of replay answers kept as is."""
+    rows = []
+    for q, need in RT.CHECKS.items():
+        b, a = base.get(q, ""), chat_answer(body, ct, q, max_new)
+        want = [w for w in need if w.lower() in b.lower()]
+        rows.append({"q": q[:60], "base": b[:160], "lora": a[:160], "ok": all(w.lower() in a.lower() for w in want)})
+    return {"ok": round(sum(r["ok"] for r in rows) / max(1, len(rows)), 3), "rows": rows}
+
+
+def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, replay=True):
+    """Train ONLY the body's LoRA adapters on data/identity.py (loss on the answer), on the in-memory copy. -> results; the adapters stay in `body`.
+    replay (default): every batch also holds RT.PROMPTS answered by the body itself BEFORE the LoRA (self-distillation), so the LoRA learns the name
+    without forgetting facts or the tool-call format (live 2026-11-18: identity-only LoRA answered Brussels for Syria and dropped computer_run)."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     ad = [p for n, p in body.named_parameters() if ".adapter_" in n]
@@ -149,11 +162,25 @@ def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
     if ct.end is not None and before["general_nll"] > NLL_RANDOM:
         raise RuntimeError(f"body looks random (general nll {before['general_nll']} > {NLL_RANDOM}): incomplete donor weights? stopping before training on noise")
     log(f"identity before LoRA: {before['identity']['ok']} (general nll {before['general_nll']})")
+    rx, base = [], {}
+    if replay:
+        t1 = time.time()
+        for q in list(RT.PROMPTS) + list(RT.CHECKS):
+            base[q] = chat_answer(body, ct, q, 48)        # the body's own answer, no LoRA yet (adapter_up = 0)
+        for q in RT.PROMPTS:
+            pr, t = ct.prompt(q), ct.enc(base[q]) + ([ct.end] if ct.end is not None else [])
+            if t:
+                rx.append((pr + t, [-100] * len(pr) + t))
+        log(f"retention replay: {len(rx)} self-answers read in {time.time() - t1:.0f}s")
     opt = torch.optim.AdamW(ad, lr=lr, weight_decay=0.0)
     body.train()
     t0 = time.time()
     for step in range(steps):
-        pick = rng.sample(ex, min(batch, len(ex)))
+        if rx:                                              # half identity, half the body's own answers
+            half = max(1, batch // 2)
+            pick = rng.sample(ex, min(half, len(ex))) + rng.sample(rx, min(batch - half, len(rx)))
+        else:
+            pick = rng.sample(ex, min(batch, len(ex)))
         n = max(len(x) for x, _ in pick)
         ids = torch.tensor([x + [0] * (n - len(x)) for x, _ in pick])
         lab = torch.tensor([y + [-100] * (n - len(y)) for _, y in pick])
@@ -169,7 +196,10 @@ def identity_lora(body, ct, steps=60, lr=2e-4, batch=4, seed=0, log=print):
         p.requires_grad = False
     after = {"identity": identity_eval(body, ct), "general_nll": general_nll(body, ct)}
     log(f"identity after LoRA: {after['identity']['ok']} (general nll {after['general_nll']})")
-    return {"steps": steps, "lr": lr, "train_pairs": len(ex), "lora_params": sum(p.numel() for p in ad), "secs": round(time.time() - t0), "before": before, "after": after}
+    if replay:
+        after["retention"] = retention_eval(body, ct, base)
+        log(f"retention after LoRA: {after['retention']['ok']} (held-out facts / tool call still as the base answered)")
+    return {"steps": steps, "lr": lr, "train_pairs": len(ex), "replay_pairs": len(rx), "lora_params": sum(p.numel() for p in ad), "secs": round(time.time() - t0), "before": before, "after": after}
 
 
 def gate_ok(path, need):
@@ -431,7 +461,7 @@ def main(argv=None):
     ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
     ap.add_argument("--loop_seeds", type=int, default=1)
     ap.add_argument("--identity", action="store_true", help="(--cached) train the body's LoRA on data/identity.py first; check identity before/after")
-    ap.add_argument("--identity_steps", type=int, default=60)
+    ap.add_argument("--identity_steps", type=int, default=80)
     ap.add_argument("--terminal", default="computer", help="computer = Sham's own embedded computer (default, owner 2026-11-18) | sandbox = the test sandbox")
     a = ap.parse_args(argv)
     if a.device == "auto":
