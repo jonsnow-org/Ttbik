@@ -207,7 +207,7 @@ def ensure_donor(work: Path, download: bool = True) -> Path:
     dest = Path(os.environ.get("TLDM_DONOR") or (work / "donor" / "minilm"))
     if donor_ready(dest):
         os.environ["TLDM_DONOR"] = str(dest)
-        print(f"tldm donor ready: {dest} size={donor_weight_size(dest)} tokenizer={",".join(donor_tokenizer_files(dest))}", flush=True)
+        print("tldm donor ready: {} size={} tokenizer={}".format(dest, donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))), flush=True)
         return dest
     if not download:
         dest.mkdir(parents=True, exist_ok=True)
@@ -232,8 +232,8 @@ def ensure_donor(work: Path, download: bool = True) -> Path:
         except Exception as exc2:  # noqa: BLE001
             errors.append(f"ms:{type(exc2).__name__}:{str(exc2)[:160]}")
     if not donor_ready(dest):
-        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + f"; size={donor_weight_size(dest)} tokenizer={donor_tokenizer_files(dest)}")
-    print(f"tldm donor ready: {dest} size={donor_weight_size(dest)} tokenizer={",".join(donor_tokenizer_files(dest))}", flush=True)
+        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + "; size={} tokenizer={}".format(donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))) + ")")
+    print("tldm donor ready: {} size={} tokenizer={}".format(dest, donor_weight_size(dest), ",".join(donor_tokenizer_files(dest))), flush=True)
     return dest
 
 
