@@ -1,0 +1,81 @@
+name: deploy-studio-guard-worker
+# Deploys cloudflare/studio-guard-worker.js (studio-guard.jonsnowx1r.workers.dev): a Cloudflare cron every 10 minutes that wakes the Sham trainer Studios on both ModelScope sites.
+# It is the layer that does not depend on GitHub's scheduler (which dropped keep-awake runs for 2-7 h, 2026-11-17/18). Owner's order 2026-11-18: training must never stop silently.
+# Uses the repository secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (already used by deploy-media-stream-worker.yml) and copies MODELSCOPE_TOKEN / MODELSCOPE_AI_TOKEN into the
+# Worker's own secrets (piped on stdin, never printed). The KV namespace studio-guard-log (free tier) is created once and keeps the last 50 passes.
+on:
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
+    paths:
+      - cloudflare/studio-guard-worker.js
+      - cloudflare/studio-guard.wrangler.jsonc
+      - .github/workflows/deploy-studio-guard-worker.yml
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "after the deploy: none | check (the Worker reads every Studio's state now, acts on nothing) | log (its last passes)"
+        required: false
+        default: "check"
+permissions:
+  contents: read
+concurrency:
+  group: deploy-studio-guard-worker
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: test the wake rules
+        run: node cloudflare/studio-guard-worker.test.mjs
+      - name: are the Cloudflare secrets set?
+        id: have
+        env:
+          T: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$T" ] && [ -n "$A" ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "go=0" >> "$GITHUB_OUTPUT"; echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID missing: not deployed"; fi
+      - name: KV namespace (created once) + deploy + Worker secrets
+        if: steps.have.outputs.go == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TCN: ${{ secrets.MODELSCOPE_TOKEN }}
+          TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$TCN"; echo "::add-mask::$TAI"
+          W="npx --yes wrangler@4"
+          list() { curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces?per_page=100" \
+                   | python3 -c "import json,sys;print(next((n['id'] for n in json.load(sys.stdin)['result'] if n['title']=='studio-guard-log'),''))"; }
+          ID=$(list || true)
+          if [ -z "$ID" ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" -d '{"title":"studio-guard-log"}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces" > /dev/null || echo "::warning::KV namespace not created (the Worker still runs, without its log)"
+            ID=$(list || true)
+          fi
+          cd cloudflare
+          if [ -n "$ID" ]; then sed -i "s/__KV_ID__/$ID/" studio-guard.wrangler.jsonc; else python3 - <<'PY'
+          import re; p = "studio-guard.wrangler.jsonc"; s = open(p).read(); open(p, "w").write(re.sub(r',\s*"kv_namespaces".*\]', "", s))
+          PY
+          fi
+          $W deploy --config studio-guard.wrangler.jsonc
+          printf '%s' "$TCN" | $W secret put MS_TOKEN_CN --config studio-guard.wrangler.jsonc > /dev/null
+          printf '%s' "$TAI" | $W secret put MS_TOKEN_AI --config studio-guard.wrangler.jsonc > /dev/null
+          echo "Worker deployed; secrets MS_TOKEN_CN / MS_TOKEN_AI set"
+      - name: the Worker answers (and what it sees)
+        if: steps.have.outputs.go == '1' && (github.event_name == 'push' || inputs.check != 'none')
+        env:
+          TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          MODE: ${{ inputs.check || 'check' }}
+        run: |
+          echo "::add-mask::$TAI"
+          sleep 8
+          U=https://studio-guard.jonsnowx1r.workers.dev/
+          echo "no auth -> $(curl -s -m 30 -o /dev/null -w '%{http_code}' $U) (expect 404)"
+          [ "$MODE" = "log" ] && Q="" || Q="?check=1"
+          curl -sS -m 90 -H "Authorization: Bearer $TAI" "$U$Q" | python3 -m json.tool | head -c 6000

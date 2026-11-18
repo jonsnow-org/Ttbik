@@ -268,6 +268,13 @@ def publish_tldm(work: Path, seed: int, artifacts: list) -> str | None:
     return got
 
 
+def _json_ok(path: Path) -> bool:
+    try:
+        return isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+    except (OSError, ValueError):
+        return False
+
+
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
     """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
     Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on verified failures (and, later, anonymized verified session results), kept only if held-out and previously-correct do not regress."""
@@ -297,7 +304,12 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
     if extra:
         donor_cmd.extend(["--steps", extra])
     print(f"tldm cycle seed={seed} donor config={config.name} out={donor_ckpt}", flush=True)
-    code = tldm_run(donor_cmd, str(root), env, runner, ckpt=donor_ckpt, report=donor_json, seed=seed, work=work, arm="donor")
+    if _json_ok(donor_json) and donor_ckpt.is_file() and donor_ckpt.stat().st_size > 0:
+        # 2026-11-18: this seed's head was already trained when the cycle was interrupted (crash, stuck kill, Studio restart): resume after it instead of training it again
+        print(f"tldm resume: seed {seed} head already trained ({donor_ckpt.name}); continuing from it", flush=True)
+        code = 0
+    else:
+        code = tldm_run(donor_cmd, str(root), env, runner, ckpt=donor_ckpt, report=donor_json, seed=seed, work=work, arm="donor")
     if code != 0:
         raise RuntimeError(f"tldm donor train exited with code {code} (seed {seed})")
     if donor_json.exists():
@@ -609,12 +621,19 @@ def child_cycle() -> None:
     cfg = settings()
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
+    if cfg["job"] in LIVE_JOBS:
+        try:
+            got = prepare_resume(WORK)
+            if got:
+                os.environ["SHAM_RESUME_DIR"] = str(got)
+        except Exception as exc:  # noqa: BLE001 - a resume problem never blocks the cycle: it starts from the head as before
+            print(f"resume: not used ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
     run_fn = _resolve_run_fn(cfg)
     res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"])
     print(RESULT_MARK + json.dumps(_short(res)), flush=True)
 
 
-LEFTOVER_FILES = ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt")
+LEFTOVER_FILES = ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "motion_tokenizer.pt", "crawl_progress.json")
 
 
 def child_publish_leftover() -> None:
@@ -643,6 +662,9 @@ def child_publish_leftover() -> None:
                 os.link(ck / name, snap / name)
             except OSError:
                 shutil.copy2(ck / name, snap / name)
+    # 2026-11-18 (owner: training must resume after any stop): resume.json says whether these weights belong to a cycle that was still running, so a Studio whose disk
+    # was reset can continue that cycle (resume_from_modelscope) instead of starting it over.
+    (snap / "resume.json").write_text(json.dumps({"cycle_running": _saved_in_running_cycle(ck), "saved_at": final.stat().st_mtime}), encoding="utf-8")
     slug = "".join(c if c.isalnum() else "-" for c in settings()["name"].lower()).strip("-")
     got = sham_inputs.publish_modelscope(snap, f"sham-crawl-{slug}", "leftover of the previous cycle")
     shutil.rmtree(snap, ignore_errors=True)
@@ -672,22 +694,42 @@ def publish_leftover_subprocess() -> str:
     return out
 
 
-def run_cycle_subprocess(cfg: dict) -> dict:
-    """Run child_cycle in a subprocess; copy its printed lines into the status tail; kill it when it overruns the wall-clock budget (hours + 40 min)."""
+def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20) -> dict:
+    """Run child_cycle in a subprocess (its own process group, so a kill also ends the trainers it started); copy its printed lines into the status tail; kill it when it
+    overruns the wall-clock budget (hours + 40 min), when it shows no progress for SHAM_STUCK_MINUTES (no output line and no checkpoint/log written), or on a kill request."""
+    import signal
     import subprocess
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
-    proc = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
+    _flag_cycle(True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+    _CYCLE_LINE_AT[0] = time.time()
+    _KILL_REQUEST.clear()
+    _set(child_pid=proc.pid, cycle_started=time.time())
     result: dict = {}
-    killed = False
+    killed = ""
+
+    def kill_group():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (OSError, AttributeError):
+            proc.kill()
 
     def watchdog():
         nonlocal killed
         while proc.poll() is None:
+            idle = (time.time() - progress_ts()) / 60
             if time.time() > deadline:
-                killed = True
-                proc.kill()
+                killed = f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget"
+            elif idle >= stuck_minutes():
+                killed = f"cycle stuck: no progress for {idle:.0f} min (limit {stuck_minutes():.0f})"
+            elif _KILL_REQUEST.is_set():
+                killed = "cycle killed on request (kill_cycle)"
+            if killed:
+                print("supervisor: " + killed, flush=True)
+                kill_group()
                 return
-            time.sleep(20)
+            time.sleep(poll_s)
 
     threading.Thread(target=watchdog, daemon=True, name="trainer-watchdog").start()
     tee = _Tee(open(os.devnull, "w"))
@@ -700,15 +742,18 @@ def run_cycle_subprocess(cfg: dict) -> dict:
         if any(k in line for k in ("نقطة الانطلاق", "⚓", "🎯", "الرأس المنشور", "تعذّر اختيار", "تعذّر فحص")):     # where this cycle started from: kept in the status (the log tail loses it within minutes)
             STATE["start"] = (str(STATE.get("start", "")) + " | " + line.strip())[-700:].lstrip(" |")
         tee.write(line)
+        _CYCLE_LINE_AT[0] = time.time()
         try:
             sys.__stdout__.write(line)               # the Studio's own log keeps everything
         except Exception:  # noqa: BLE001
             pass
     code = proc.wait()
+    _set(child_pid=None)
     if killed:
-        raise RuntimeError(f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget")
+        raise RuntimeError(killed)
     if code != 0:
         raise RuntimeError(f"cycle process exited with code {code}" + (" (killed: out of memory?)" if code in (-9, 137) else ""))
+    _flag_cycle(False)                               # a clean end: the next cycle starts fresh from the head (a crash keeps the flag, so the next one resumes)
     return result
 
 
@@ -736,31 +781,256 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
         sys.stdout = _Tee(sys.stdout)
     if not in_process and cfg["job"] != "tldm":
         _set(phase="publishing-leftover")
-        publish_leftover_subprocess()
+        with _PUBLISH_LOCK:
+            publish_leftover_subprocess()
     cycle = 0
+    fails = 0
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
         STATE["start"] = ""
         _set(phase="training", cycle=cycle, error="")
+        t0 = time.time()
         try:
             res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
-            _set(phase="between-cycles", last=_short(res))
+            fails = 0
+            _set(phase="between-cycles", last=_short(res), last_ok=time.time(), fails_in_a_row=0)
             if not in_process and isinstance(res, dict) and res.get("published"):
                 try:                                       # the cycle itself published its best weights: a restart must not push them again
                     (WORK / "checkpoints" / ".published_to_modelscope").write_text(str(res["published"])[:80], encoding="utf-8")
                 except OSError:
                     pass
-        except Exception as exc:   # one failed cycle never stops the next
-            _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        except Exception as exc:   # one failed cycle never stops the next: restarted with a growing pause (1, 2, 4 ... 30 min), from the last checkpoint
+            fails = 1 if time.time() - t0 > 3600 else fails + 1   # a cycle that ran for an hour before failing is not a crash loop
+            wait = backoff_seconds(fails)
+            _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1,
+                 last_failure=time.time(), retry_in_s=wait, fails_in_a_row=int(STATE.get("fails_in_a_row", 0)) + 1)
             traceback.print_exc()
-            sleep(600)
+            sleep(wait)
         sleep(30)
+
+
+# ---- supervision (owner's order 2026-11-18: training never stops silently; anything that stops is found and restarted, and resumes from its last checkpoint) ----
+LIVE_JOBS = ("live", "images", "audio", "chat", "tools", "text")      # the sham_live profiles: they save final.pt + crawl_progress.json while they train
+CYCLE_FLAG = ".cycle_running"
+_CYCLE_LINE_AT = [0.0]
+_KILL_REQUEST = threading.Event()
+_PUBLISH_LOCK = threading.Lock()
+
+
+def stuck_minutes() -> float:
+    try:
+        return max(10.0, float(os.environ.get("SHAM_STUCK_MINUTES") or 120))
+    except ValueError:
+        return 120.0
+
+
+def backoff_seconds(fails: int) -> int:
+    return int(min(1800, 60 * 2 ** max(0, fails - 1)))
+
+
+def _flag_cycle(on: bool) -> None:
+    try:
+        f = WORK / "checkpoints" / CYCLE_FLAG
+        if on:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(str(time.time()), encoding="utf-8")
+        else:
+            f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _progress_dirs() -> list:
+    dirs = [WORK / "checkpoints"]
+    t = os.environ.get("TLDM_WORK")
+    if t:
+        dirs += [Path(t) / "checkpoints", Path(t) / "checkpoints" / "loop", Path(t) / "logs", Path(t) / "sham2"]
+    return dirs
+
+
+def progress_ts() -> float:
+    """When the running cycle last showed life: its last output line, or the newest file it wrote (top level of its checkpoint/log folders only: cheap on a slow mount)."""
+    ts = max(_CYCLE_LINE_AT[0], float(STATE.get("cycle_started") or 0))
+    for d in _progress_dirs():
+        try:
+            for f in d.iterdir():
+                if f.name != CYCLE_FLAG:
+                    ts = max(ts, f.stat().st_mtime)
+        except OSError:
+            continue
+    return ts
+
+
+def heartbeat() -> dict:
+    now = time.time()
+    with _LOCK:
+        hb = {k: STATE.get(k) for k in ("phase", "cycle", "restarts", "fails_in_a_row", "last_failure", "last_ok", "error", "child_pid", "retry_in_s")}
+    training = hb["phase"] == "training"
+    hb.update(ts=now, job=settings()["job"], name=settings()["name"], stuck_after_min=stuck_minutes(),
+              progress_age_min=round((now - progress_ts()) / 60, 1) if training else 0.0,
+              supervisor_alive=any(t.name == "sham-supervisor" and t.is_alive() for t in threading.enumerate()))
+    return hb
+
+
+def heartbeat_path() -> Path:
+    return WORK.parent / "heartbeat.json"
+
+
+def heartbeat_loop(every_s: float = 60) -> None:
+    """heartbeat.json on the persistent disk (atomic replace), read by the status endpoint and by humans; the same data answers the Gradio api `heartbeat` the watchers call."""
+    while True:
+        try:
+            p = heartbeat_path()
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps(heartbeat()), encoding="utf-8")
+            os.replace(tmp, p)
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(every_s)
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    import shutil
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def _saved_in_running_cycle(ck: Path) -> bool:
+    """True when final.pt was saved by the cycle that is (or was, when it died) running: the flag exists and final.pt is newer than the flag. A final.pt left over from an
+    earlier, finished cycle is not resumed (that one already went to the merge; the new cycle must start from the head)."""
+    flag = ck / CYCLE_FLAG
+    try:
+        try:
+            started = float(flag.read_text(encoding="utf-8").strip())
+        except ValueError:
+            started = flag.stat().st_mtime
+        return (ck / "final.pt").stat().st_mtime >= started - 2          # file clocks run a little behind time.time()
+    except OSError:
+        return False
+
+
+def _live_progress(folder: Path) -> dict:
+    try:
+        d = json.loads((folder / "crawl_progress.json").read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) and d.get("by") == "sham_live" else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def resume_max_hours() -> float:
+    try:
+        return float(os.environ.get("SHAM_RESUME_MAX_HOURS") or 24)
+    except ValueError:
+        return 24.0
+
+
+def prepare_resume(work: Path, fetch=None) -> Path | None:
+    """The folder the next sham_live cycle should RESUME from, or None (= start from the published head as always).
+    A cycle that was interrupted (crash, out of memory, stuck kill, Studio sleep or restart) leaves the flag .cycle_running next to its last saved final.pt + crawl_progress.json:
+    those are snapshotted (hard links, else copies) into resume_local/ and the next cycle continues from them. When the Studio's disk was reset, the last weights uploaded to the
+    private ModelScope repo sham-crawl-<name> (resume.json: cycle_running) are fetched instead. Older than SHAM_RESUME_MAX_HOURS: not resumed (the head has moved on)."""
+    import shutil
+    ck = work / "checkpoints"
+    snap = work / "resume_local"
+    if (os.environ.get("SHAM_RESUME") or "1").strip().lower() in ("0", "off", "false", "no"):
+        return None
+    max_age = resume_max_hours() * 3600
+    if _saved_in_running_cycle(ck) and _live_progress(ck):
+        if time.time() - (ck / "final.pt").stat().st_mtime > max_age:
+            print("resume: the interrupted cycle's checkpoint is too old: starting from the head", flush=True)
+            return None
+        shutil.rmtree(snap, ignore_errors=True)
+        snap.mkdir(parents=True)
+        for f in ck.iterdir():
+            if f.is_file() and f.name != CYCLE_FLAG and not f.name.endswith(".tmp"):
+                _link_or_copy(f, snap / f.name)
+        print(f"resume: continuing the interrupted cycle from its last checkpoint on disk (step {_live_progress(snap).get('step')})", flush=True)
+        return snap
+    if (ck / "final.pt").exists():
+        return None                                                            # the disk is there and the last cycle ended cleanly: the head, as always
+    got = (fetch or resume_from_modelscope)(snap)
+    if got and (got / "final.pt").is_file() and _live_progress(got):
+        try:
+            meta = json.loads((got / "resume.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        if meta.get("cycle_running") and time.time() - float(meta.get("saved_at") or 0) <= max_age:
+            print(f"resume: this Studio's disk was empty; continuing from the last checkpoint uploaded to ModelScope (step {_live_progress(got).get('step')})", flush=True)
+            return got
+    shutil.rmtree(snap, ignore_errors=True)
+    return None
+
+
+def resume_from_modelscope(dest: Path) -> Path | None:
+    """Download <owner>/sham-crawl-<name> (private, written by child_publish_leftover) into dest. None when it does not exist or cannot be reached."""
+    import shutil
+    try:
+        from modelscope import snapshot_download
+        owner = os.environ.get("SHAM_MS_OWNER") or "novaai2026"
+        slug = "".join(c if c.isalnum() else "-" for c in settings()["name"].lower()).strip("-")
+        cache = dest.parent / "resume_ms_cache"
+        src = Path(snapshot_download(f"{owner}/sham-crawl-{slug}", cache_dir=str(cache)))
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True)
+        for f in src.iterdir():
+            if f.is_file():
+                shutil.move(str(f), dest / f.name)
+        shutil.rmtree(cache, ignore_errors=True)
+        return dest
+    except Exception as exc:  # noqa: BLE001
+        print(f"resume: no copy on ModelScope ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
+        return None
+
+
+def checkpoint_upload_loop(sleep=time.sleep) -> None:
+    """Every SHAM_CKPT_UPLOAD_HOURS (default 2) the newest saved weights go to the private ModelScope repo sham-crawl-<name> (only when they changed since the last upload),
+    so a rebuilt or reset Studio can resume from them. Same door as the leftover publish; it runs in its own process."""
+    try:
+        every = max(0.25, float(os.environ.get("SHAM_CKPT_UPLOAD_HOURS") or 2)) * 3600
+    except ValueError:
+        every = 7200
+    while True:
+        sleep(every)
+        ck = WORK / "checkpoints"
+        final, marker = ck / "final.pt", ck / ".published_to_modelscope"
+        if not final.exists() or (marker.exists() and marker.stat().st_mtime >= final.stat().st_mtime):
+            continue
+        with _PUBLISH_LOCK:
+            publish_leftover_subprocess()
+
+
+def supervise(sleep=time.sleep, run=None, max_rounds: int | None = None) -> None:
+    """Keeps train_forever alive: if it ever raises (or returns: blocked by missing secrets), it is started again after a pause. The Studio's web page never depends on it."""
+    run = run or train_forever
+    rounds, fails = 0, 0
+    while max_rounds is None or rounds < max_rounds:
+        rounds += 1
+        try:
+            run()
+            fails = 0
+        except Exception as exc:  # noqa: BLE001
+            fails += 1
+            _set(phase="error-retrying", error=f"supervisor: {type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1)
+            traceback.print_exc()
+        sleep(backoff_seconds(fails) if fails else 600)
+
+
+def kill_cycle() -> str:
+    """Hidden, private-Studio API (bearer token): kill the running cycle; the supervisor restarts it and it resumes from its last checkpoint. Used to verify that path."""
+    pid = STATE.get("child_pid")
+    if not pid:
+        return json.dumps({"killed": False, "why": "no cycle running", "phase": STATE.get("phase")})
+    _KILL_REQUEST.set()
+    return json.dumps({"killed": True, "pid": pid})
 
 
 def status_json() -> str:
     with _LOCK:
         quiet = round((time.time() - _LAST_LINE_AT[0]) / 60) if _LAST_LINE_AT[0] else None
-        return json.dumps({**STATE, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet}, ensure_ascii=False)
+        state = dict(STATE)
+    return json.dumps({**state, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet, "heartbeat": heartbeat()}, ensure_ascii=False)
 
 
 def studio_launch_kwargs() -> dict:
@@ -790,11 +1060,22 @@ def launch_studio(demo, launch=None) -> None:
 
 def main() -> None:
     import gradio as gr
-    threading.Thread(target=train_forever, daemon=True, name="sham-trainer").start()
+    threading.Thread(target=supervise, daemon=True, name="sham-supervisor").start()
+    threading.Thread(target=heartbeat_loop, daemon=True, name="sham-heartbeat").start()
+    if settings()["job"] in LIVE_JOBS:
+        threading.Thread(target=checkpoint_upload_loop, daemon=True, name="sham-ckpt-upload").start()
+    try:                                                   # watch the other trainer Studios and sham-runner-1 (both sites): any one that sleeps or dies is started again
+        sys.path.insert(0, str(HERE))
+        import studio_guard
+        studio_guard.start_thread()
+    except Exception as exc:  # noqa: BLE001
+        print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
     with gr.Blocks(title="Sham trainer") as demo:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)
         gr.Button("refresh").click(status_json, None, out, api_name="status")
+        gr.Button("heartbeat", visible=False).click(lambda: json.dumps(heartbeat()), None, out, api_name="heartbeat")
+        gr.Button("kill cycle", visible=False).click(kill_cycle, None, out, api_name="kill_cycle")
         gr.Button("publish", visible=False).click(lambda: publish_leftover_subprocess(), None, out, api_name="publish_now")   # retry the leftover publish without a redeploy
     launch_studio(demo)
 
@@ -845,7 +1126,7 @@ if __name__ == "__main__":
         (WORK / "checkpoints" / "sham_small_tokenizer.json").write_text("{}")
         (WORK / "checkpoints" / "crawl_progress.json").write_text("{}")
         child_publish_leftover()
-        assert sent == [("sham-crawl-ms1", ["final.pt", "sham_small_tokenizer.json"])], sent
+        assert sent == [("sham-crawl-ms1", ["crawl_progress.json", "final.pt", "resume.json", "sham_small_tokenizer.json"])], sent
         child_publish_leftover()                                         # already published: not twice
         assert len(sent) == 1, sent
         # tldm job: donor head is the main cycle; optional evolve is off by default; publish to tldm-writer-runs; no network
@@ -973,6 +1254,74 @@ if __name__ == "__main__":
         assert sent2 == [("sham2-tldm-head", ["sham2_heads.pt", "sham2_results.json"])] and r1["published"] and r2["heldout"] == 0.7 and r2["loop_multi"] == 0.8
         assert _short(r1)["heldout_seeds"] == "0.7" and _short(r1)["loop_all"] == 0.9
         os.environ.pop("TLDM_WORK", None)
+        # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
+        assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]
+        import subprocess as _sp
+        WORK = Path(tempfile.mkdtemp())
+        (WORK / "checkpoints").mkdir()
+        os.environ.pop("TLDM_WORK", None)
+        _real_stuck = stuck_minutes
+        stuck_minutes = lambda: 0.02                                                   # noqa: E731  (1.2 s without a line or a file)
+        pidfile = WORK / "grandchild.pid"
+        hang = [sys.executable, "-u", "-c", "import subprocess,sys,time;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(600)']);"
+                f"open({str(pidfile)!r},'w').write(str(p.pid));print('started',flush=True);time.sleep(600)"]
+        t0 = time.time()
+        try:
+            run_cycle_subprocess({"hours": 1.0}, cmd=hang, poll_s=0.2)
+            raise SystemExit("a stuck cycle must be killed")
+        except RuntimeError as exc:
+            assert "stuck" in str(exc), exc
+        assert time.time() - t0 < 30 and (WORK / "checkpoints" / CYCLE_FLAG).exists()   # killed; the flag stays so the next cycle resumes
+        time.sleep(0.3)
+        gpid = int(pidfile.read_text())
+        try:
+            os.kill(gpid, 0)
+            alive = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+            assert alive.startswith("Z") or not alive, f"grandchild {gpid} survived: {alive}"
+        except ProcessLookupError:
+            pass
+        stuck_minutes = _real_stuck
+        chatty = [sys.executable, "-u", "-c", "import time\nwhile True:\n print('step',flush=True); time.sleep(0.1)"]
+        threading.Timer(0.8, kill_cycle).start()
+        try:
+            run_cycle_subprocess({"hours": 1.0}, cmd=chatty, poll_s=0.2)
+            raise SystemExit("kill_cycle must stop the cycle")
+        except RuntimeError as exc:
+            assert "on request" in str(exc), exc
+        assert json.loads(kill_cycle())["killed"] is False
+        ok = run_cycle_subprocess({"hours": 1.0}, cmd=[sys.executable, "-c", f"print({RESULT_MARK!r} + '{{\"steps\": 3}}')"], poll_s=0.2)
+        assert ok == {"steps": 3} and not (WORK / "checkpoints" / CYCLE_FLAG).exists(), ok
+        ck = WORK / "checkpoints"
+        (ck / "final.pt").write_bytes(b"w1")
+        (ck / "sham_small_tokenizer.json").write_text("{}")
+        (ck / "crawl_progress.json").write_text(json.dumps({"by": "sham_live", "step": 77}))
+        assert prepare_resume(WORK, fetch=lambda d: None) is None                       # the last cycle ended cleanly: start from the head
+        _flag_cycle(True)
+        os.utime(ck / "final.pt", (time.time() - 60,) * 2)
+        assert prepare_resume(WORK) is None                                              # final.pt is from the cycle BEFORE: not resumed
+        os.utime(ck / "final.pt", None)
+        snap = prepare_resume(WORK)
+        assert snap and (snap / "final.pt").read_bytes() == b"w1" and _live_progress(snap)["step"] == 77 and not (snap / CYCLE_FLAG).exists()
+        os.utime(ck / "final.pt", (time.time() - 30 * 3600,) * 2)
+        assert prepare_resume(WORK) is None                                              # older than a day: the head has moved on
+        import shutil as _sh
+        _sh.rmtree(ck)
+        ck.mkdir()
+
+        def fake_ms(dest, running=True, age=60):
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "final.pt").write_bytes(b"ms")
+            (dest / "crawl_progress.json").write_text(json.dumps({"by": "sham_live", "step": 5}))
+            (dest / "resume.json").write_text(json.dumps({"cycle_running": running, "saved_at": time.time() - age}))
+            return dest
+        got = prepare_resume(WORK, fetch=fake_ms)
+        assert got and (got / "final.pt").read_bytes() == b"ms"                          # a reset disk resumes from the ModelScope copy
+        assert prepare_resume(WORK, fetch=lambda d: fake_ms(d, running=False)) is None
+        hb = heartbeat()
+        assert set(hb) >= {"phase", "progress_age_min", "ts", "restarts", "supervisor_alive"}, hb
+        rounds = []
+        supervise(sleep=lambda s: rounds.append(s), run=lambda: (_ for _ in ()).throw(RuntimeError("x")), max_rounds=3)
+        assert rounds == [60, 120, 240] and STATE["restarts"] >= 3, rounds
         # Gradio on the Studio must stay private (share=False) and must not crash the process if 127.0.0.1 is blocked
         assert studio_launch_kwargs()["share"] is False and studio_launch_kwargs()["server_name"] == "0.0.0.0"
         launched = []

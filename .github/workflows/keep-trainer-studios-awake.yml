@@ -4,6 +4,9 @@ name: "Keep the Sham trainer Studios awake"
 # already holds, and the trainer app then resumes its cycle. This asks every 20 minutes: if a trainer Studio is Sleeping, start it; a running or building one is never touched.
 # Sham's trainers are listed, plus the international Nova 2 chat Studio (Jonjithup/coder-inference-server-16)
 # so it is woken the same way if it falls asleep, plus sham-runner-1 (the GitHub runner `studio` that replaced the notebook, 2026-11-18). Never the computer hub, never the cn Nova 4B Studios.
+# 2026-11-18 (owner: training must never stop silently): the rules and the list now live in ai-system/modelscope-trainer/studio_guard.py, which also runs INSIDE every trainer Studio
+# and sham-runner-1 (they watch each other) and in the Cloudflare Worker cloudflare/studio-guard-worker.js (cron every 10 min). This workflow is the third layer: trainers and the
+# runner are also started when Stopped / Failed, and a Running trainer whose own heartbeat shows no progress for 3 h is redeployed. Nova 2 and the donor tests: Sleeping only, as before.
 on:
   schedule:
     - cron: "*/20 * * * *"
@@ -22,49 +25,18 @@ concurrency:
 jobs:
   wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: wake sleeping trainers
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+          sparse-checkout: ai-system/modelscope-trainer/studio_guard.py
+          sparse-checkout-cone-mode: false
+      - name: wake / restart the trainer Studios (studio_guard.py)
         env:
           T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
           T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          SHAM_GUARD_STATE: ${{ runner.temp }}/studio_guard.json
         run: |
           echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
-          python3 - <<'PY'
-          import json, os, urllib.request, urllib.error
-          TRAINERS = [("cn", "www.modelscope.cn", "novaai2026", "sham-trainer-1", "T_CN"),
-                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-qwen35-9b-test", "T_CN"),
-                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-gemma4-e4b-test", "T_CN"),
-                      ("cn", "www.modelscope.cn", "novaai2026", "sham-donor-minicpmo45-test", "T_CN"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-1", "T_AI"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-tools", "T_AI"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "coder-inference-server-16", "T_AI"),
-                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-trainer-2", "T_AI"),     # 2026-11-18: the notebook's live trainer (lineage nb1) moved here
-                      ("ai", "www.modelscope.ai", "Jonjithup", "sham-runner-1", "T_AI")]      # 2026-11-18: the GitHub runner `studio` that replaced the notebook
-          def call(url, tok, method="GET"):
-              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok}, method=method, data=b"" if method == "POST" else None)
-              try:
-                  with urllib.request.urlopen(req, timeout=40) as r:
-                      return r.status, r.read().decode()
-              except urllib.error.HTTPError as exc:
-                  return exc.code, ""
-              except Exception as exc:
-                  return 0, type(exc).__name__
-          for site, host, owner, name, env in TRAINERS:
-              tok = os.environ.get(env, "")
-              if not tok:
-                  print(site, name, "no token"); continue
-              code, body = call(f"https://{host}/openapi/v1/studios/{owner}/{name}", tok)
-              status = ""
-              if code == 200:
-                  try:
-                      data = (json.loads(body).get("data") or {})
-                      status = str((data.get("runtime") or {}).get("status") or data.get("status") or "")
-                  except ValueError:
-                      status = ""
-              if status.lower() == "sleeping":
-                  c2, _ = call(f"https://{host}/openapi/v1/studios/{owner}/{name}/deploy", tok, "POST")
-                  print(f"{site} {owner}/{name}: Sleeping -> deploy HTTP {c2}")
-              else:
-                  print(f"{site} {owner}/{name}: {status or ('HTTP ' + str(code))} (left alone)")
-          PY
+          python3 ai-system/modelscope-trainer/studio_guard.py --once

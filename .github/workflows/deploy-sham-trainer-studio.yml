@@ -88,7 +88,7 @@ jobs:
           git clone "https://oauth2:${T}@${MSHOST}/studios/${OWNER}/${REPO}.git" /tmp/studio 2>&1 | sed "s/${T}/***/g"
           cd /tmp/studio
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/app.py" app.py
+          cp "$GITHUB_WORKSPACE"/ai-system/modelscope-trainer/*.py .      # app.py + studio_guard.py (the cross-watch) + safe_evolve.py (imported by the tldm cycle)
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/requirements.txt" requirements.txt
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/safe_evolve.py" safe_evolve.py   # optional evolve / LoRA step (replay + no-regress gate)
           test -f app.py && test -f safe_evolve.py
@@ -118,6 +118,8 @@ jobs:
         env:
           T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
           KT: ${{ secrets.KAGGLE_API_TOKEN }}
+          TCN: ${{ secrets.MODELSCOPE_TOKEN }}
+          TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           NAME: ${{ inputs.name || 'ms1' }}
           HOURS: ${{ inputs.hours || '5' }}
           JOB: ${{ inputs.job || 'live' }}
@@ -147,6 +149,11 @@ jobs:
           if [ "$JOB" = "tldm" ]; then
             set_secret SHAM_TLDM_REPO tldm-writer-runs
           fi
+          # 2026-11-18 cross-watch (ai-system/modelscope-trainer/studio_guard.py): every trainer wakes the other trainers and sham-runner-1 on BOTH sites, so it needs both tokens
+          echo "::add-mask::$TCN"; echo "::add-mask::$TAI"
+          [ -n "$TCN" ] && set_secret MS_GUARD_TOKEN_CN "$TCN"
+          [ -n "$TAI" ] && set_secret MS_GUARD_TOKEN_AI "$TAI"
+          set_secret SHAM_GUARD_SELF "$SITE/$OWNER/$REPO"
           rm -f secret.json secret-response.json
 
       - name: Deploy and wait until the app answers

@@ -37,7 +37,30 @@ print("ORIGIN", origin)
 '''
 
 
+RESUME = r'''
+import json, os, pathlib, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import sham_inputs, sham_live
+d = pathlib.Path(tempfile.mkdtemp())
+(d / "final.pt").write_bytes(b"x")
+(d / "sham_small_tokenizer.json").write_text("{}")
+(d / "crawl_progress.json").write_text(json.dumps({"by": "sham_live", "step": 9}))
+os.environ["SHAM_RESUME_DIR"] = str(d)
+sham_inputs.fetch_dataset = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no download when resuming"))
+ckpt, folder, base, origin = sham_live.resolve_start("sham-crawl-ms1")
+print("RESUMED", ckpt == d / "final.pt", base.get("step"))
+(d / "crawl_progress.json").write_text(json.dumps({"by": "other"}))
+print("IGNORED", sham_live._resume_dir() is None)
+'''
+
+
 class StartFast(unittest.TestCase):
+    def test_resume_interrupted_cycle(self):
+        r = subprocess.run([sys.executable, "-c", RESUME, str(pathlib.Path(__file__).parent)], capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stderr[-600:])
+        self.assertIn("RESUMED True 9", r.stdout)
+        self.assertIn("IGNORED True", r.stdout)
+
     def test_head_only(self):
         r = subprocess.run([sys.executable, "-c", CODE, str(pathlib.Path(__file__).parent)], capture_output=True, text=True, timeout=300)
         self.assertEqual(r.returncode, 0, r.stderr[-600:])

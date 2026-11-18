@@ -45,6 +45,9 @@ jobs:
           python ai-system/colab/sham_small/sham_intent.py
           python ai-system/modelscope-trainer/app.py --selftest       # the Studio trainer app (jobs, cycles, no network)
           python ai-system/modelscope-trainer/safe_evolve.py --selftest  # replay + no-regress gate; anonymized session records
+          python ai-system/modelscope-trainer/studio_guard.py --selftest  # the cross-watch that wakes / restarts the trainer Studios (no network)
+          python ai-system/modelscope-runner/app.py --selftest          # sham-runner-1 (runner + guard thread)
+          node cloudflare/studio-guard-worker.test.mjs                  # the Cloudflare cron layer of the Studio guard
           python scripts/ops/sham_trainer_status.py --selftest      # trainer status URLs for cn and ai (no network)
           python ai-system/lightning/motion_job.py --selftest         # the motion-tokenizer job
 
