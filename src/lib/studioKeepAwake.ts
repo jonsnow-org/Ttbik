@@ -8,6 +8,7 @@ export const KEEP_AWAKE_MS = 8 * 60_000;
 
 const ENV_KEYS = [
   "OPEN_CODER_STUDIO_URL", "OPEN_CODER_STUDIO_URLS", "NOVA_IMAGE_STUDIO_URL", "NOVA_MEDIA_STUDIO_URL",      // Nova
+  "NOVA2_COMPUTER_STUDIO_URL", "NOVA2_MEDIA_STUDIO_URL",                                                    // Nova 2, own services only
   "LFM_STUDIO_URL", "LFM_STUDIO_URLS", "LFM_MEDIA_STUDIO_URL",                                              // LFM2.5
   "SHAM_V2_URL",                                                                                              // Sham v2 (own chat + internal media)
 ];
@@ -90,9 +91,9 @@ export async function keepNova2AwakeOnce(urls: string[], token: string, fetchFn:
 
 async function nova2Tick(): Promise<void> {
   const { nova2Urls, tokenForAsync, NOVA2_DEFAULT } = await import("@/lib/openCoderStudio");
-  const urls = nova2Urls();
+  const urls = [...new Set([...nova2Urls(), process.env.NOVA2_COMPUTER_STUDIO_URL || "", process.env.NOVA2_MEDIA_STUDIO_URL || ""].filter(Boolean))];
   if (!urls.length) return;
-  await keepNova2AwakeOnce(urls, await tokenForAsync(urls[0] || NOVA2_DEFAULT));
+  await keepNova2AwakeOnce(urls, await tokenForAsync(nova2Urls()[0] || urls[0] || NOVA2_DEFAULT));
 }
 
 /** After the wake-up: every Nova Studio holds the start texts ready (a Studio that holds them answers at once; one that restarted reads them while idle). */

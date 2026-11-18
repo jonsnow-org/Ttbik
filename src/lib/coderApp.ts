@@ -138,6 +138,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, loadStateStrict, saveState, saveStateStrict, resolvePending, startScheduledRun } = await sections();
+  // Nova 2 has a separate connector namespace; never expose or mutate Nova's linked OAuth/MCP connections.
+  if (body.model === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove"].includes(op)) {
+    throw new AppError(403, "Nova 2's connectors are independent; Nova's linked accounts cannot be used from Nova 2.");
+  }
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
@@ -756,6 +760,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     // ---------------------------------------------------------------- connectors (src/lib/coderConnectors.ts)
     case "connectors": {
+      if (body.model === "nova2") return { connectors: [], mcp: [], presets: [], isolated: true, note: "Nova 2's connectors are separate from Nova's and have not been provisioned yet." };
       const c = await import("@/lib/coderConnectors");
       const ownerEnv = user.tier === "owner" && Boolean((process.env.CODER_GITHUB_TOKEN || "").trim());
       const mcp = await c.listMcpServers(chatId, db);
@@ -823,11 +828,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true };
     }
     case "repos": {
-      const { resolveConnections } = await import("@/lib/coderAuth");
-      const c = await resolveConnections(chatId, db);
-      if (!c.github) return { repos: [] };
+      let githubToken = "";
+      if (body.model === "nova2") {
+        const { secretCached } = await import("@/lib/hostedSecrets");
+        githubToken = (process.env.NOVA2_GITHUB_TOKEN || secretCached("AI_NOVA2_GITHUB_TOKEN") || "").trim();
+      } else {
+        const { resolveConnections } = await import("@/lib/coderAuth");
+        githubToken = (await resolveConnections(chatId, db)).github?.token || "";
+      }
+      if (!githubToken) return { repos: [] };
       const q = String(body.q || "").toLowerCase();
-      const r = await (deps.fetchImpl || globalThis.fetch)(`https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`, { headers: { Authorization: `Bearer ${c.github.token}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, signal: AbortSignal.timeout(12000) }).catch(() => null);
+      const r = await (deps.fetchImpl || globalThis.fetch)(`https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`, { headers: { Authorization: `Bearer ${githubToken}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, signal: AbortSignal.timeout(12000) }).catch(() => null);
       const list = r && r.status === 200 ? ((await r.json().catch(() => [])) as any[]) : [];
       return {
         repos: list

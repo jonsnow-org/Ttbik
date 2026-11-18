@@ -98,9 +98,10 @@ function oldNovaStudioUrls(): string[] {
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
 }
-/** Nova 2 is its own model on its own Studio: its task stays on that one Studio (one warm cache) and it starts NO agents (agents queue and slow a task down, owner 2026-11-17),
- *  and it never hands work to Nova's cn Studios. Other models keep their own rules. */
-export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean => model !== "nova2";
+/** Agents use only the selected model's Studio pool. Nova 2 may run one serial child on its
+ *  dedicated Studio; no child is ever routed to Nova 1's cn Studios. */
+export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean =>
+  model !== "nova2" || nova2Urls().length > 0;
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
   const nova = oldNovaStudioUrls();

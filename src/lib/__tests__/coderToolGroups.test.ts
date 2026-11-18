@@ -1,5 +1,6 @@
 import { coderTools, coderToolsFor, loadedGroups, runTool, toolGroups } from "@/lib/coderAgent";
 import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
+import { withEngineModel } from "@/lib/openCoderStudio";
 
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
 
@@ -17,9 +18,11 @@ afterAll(() => {
 });
 
 describe("agent capacity follows actual Nova Studio count", () => {
-  it("does not start agents on one Studio and avoids nested overbooking", () => {
+  it("allows one serial Nova 2 child only on Nova 2's own single-Studio pool", () => {
+    expect(withEngineModel("coder", () => maxParallelAgentsForStudios(1))).toBe(0);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1))).toBe(1);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1, true))).toBe(0);
     expect(maxParallelAgentsForStudios(0)).toBe(0);
-    expect(maxParallelAgentsForStudios(1)).toBe(0);
     expect(maxParallelAgentsForStudios(2)).toBe(2);
     expect(maxParallelAgentsForStudios(5)).toBe(5);
     expect(maxParallelAgentsForStudios(5, true)).toBe(1);

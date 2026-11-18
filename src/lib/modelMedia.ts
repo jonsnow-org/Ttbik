@@ -6,6 +6,7 @@
  */
 import { makePhotoMedia, photoWeightProfile } from "@/lib/photoWeightMedia";
 import { novaMakeMedia, novaMediaUrl, type MediaReply } from "@/lib/novaMedia";
+import { nova2Urls } from "@/lib/openCoderStudio";
 
 export type MediaKind = "image" | "audio" | "video";
 const LFM_MEDIA_DEFAULT = "https://studio-novaai2026-lfm25-media-server.api-inference.modelscope.net";
@@ -16,11 +17,24 @@ export function lfmMediaUrl(): string {
   return /^(off|none|0)$/i.test(raw) ? "" : raw.replace(/\/+$/, "");
 }
 
-/** The speech / video (and, for LFM2.5, image) Studio of a model, or "" when that model has none. Never another model's address. */
+/** Nova 2 has no implicit Nova generator. Its media endpoint must be provisioned separately. */
+export function nova2MediaUrl(): string {
+  const raw = (process.env.NOVA2_MEDIA_STUDIO_URL || "").trim();
+  if (!raw || /^(off|none|0)$/i.test(raw) || !/^https:\/\//i.test(raw)) return "";
+  const base = raw.replace(/\/+$/, "");
+  const forbidden = [
+    novaMediaUrl(), lfmMediaUrl(),
+    (process.env.COMPUTER_STUDIO_URL || "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net").trim(),
+    ...nova2Urls(),
+  ].map((x) => x.replace(/\/+$/, "")).filter(Boolean);
+  if (forbidden.includes(base) || /nova-inference-server|coder-inference-server|epicrealism-image-test|lfm25-media-server/i.test(base)) return "";
+  return base;
+}
+
+/** The selected model's own media Studio. No address from another model is ever borrowed. */
 export function ownMediaBase(model: string | undefined): string {
   const id = model || "coder";
-  const base = id === "coder" || id === "nova2" ? novaMediaUrl() : id === "lfm25" ? lfmMediaUrl() : "";
-  // nova-inference-server is the 16 GB computer-only hub: no model's media (or inference) may ever run on it, even if an env var points there
+  const base = id === "coder" ? novaMediaUrl() : id === "nova2" ? nova2MediaUrl() : id === "lfm25" ? lfmMediaUrl() : "";
   return /nova-inference-server/i.test(base) ? "" : base;
 }
 

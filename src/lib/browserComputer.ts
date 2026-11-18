@@ -2,6 +2,8 @@
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
 export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
+import { secretCached } from "@/lib/hostedSecrets";
+import { nova2Urls } from "@/lib/openCoderStudio";
 
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
@@ -11,16 +13,28 @@ export type BrowserArgs = {
 
 const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
 
-/** All supported models use the dedicated computer-only hub Studio.
- * The user+model session key still isolates each model's files, browser cookies and desktop. */
+/** Each model uses its own computer endpoint. Nova 2 is unavailable until a dedicated computer Studio exists. */
 export function browserStudioFor(modelId: string | undefined): string | null {
   if (!modelId || !COMPUTER_MODELS.has(modelId)) return null;
+  if (modelId === "sham" || modelId === "sham_v2") return null;
+  if (modelId === "nova2") {
+    const configured = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim();
+    if (!configured || /^(off|none|0)$/i.test(configured) || !/^https:\/\//i.test(configured)) return null;
+    const base = configured.replace(/\/+$/, "");
+    const novaHub = (process.env.COMPUTER_STUDIO_URL || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
+    if (base === novaHub || nova2Urls().includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|epicrealism-image-test/i.test(base)) return null;
+    return base;
+  }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
   if (/^(off|none|0)$/i.test(configured)) return null;
   return (configured || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
 }
 
-export function studioToken(): string {
+export function studioToken(base?: string): string {
+  const n2 = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  if (base && n2 && base.replace(/\/+$/, "") === n2) {
+    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
+  }
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
 
@@ -143,7 +157,8 @@ async function studioCallPlain(base: string, api: string, wire: string, headers:
   return (await readComplete(done)) as Record<string, any>;
 }
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const token = studioToken(base);
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) };
   // The Studio gateway's request filter answers 403 to some command text (`echo a; echo b`): the computer / browser jobs travel as base64 (the Studio decodes "b64:"). An older Studio answers "bad request": send it plain then.
   const encode = api === "box_do" || api === "browser_do" || api === "desktop_do" || api === "computer_view" || api === "computer_changes";
   let wire = encode ? "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64") : JSON.stringify(payload);
@@ -215,7 +230,8 @@ export async function studioStream(
   readMs = 40_000,
   retryTransient412 = false,
 ): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const token = studioToken(base);
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) };
   const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
   // The live endpoint only streams frames/activity; retrying its submit after a
   // transient gateway error cannot repeat a desktop input or mutate the session.

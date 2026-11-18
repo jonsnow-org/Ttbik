@@ -3,6 +3,8 @@ import { agentsAllowedFor, coderChat, coderJobResult, coderStudioUrls, allEngine
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
+import { ownMediaBase, modelMediaConfigured } from "@/lib/modelMedia";
+import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
 
 jest.mock("@/lib/hostedSecrets", () => ({
   secretCached: jest.fn(() => ""),
@@ -35,9 +37,12 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(names).not.toContain("delegate");
   });
 
-  test("Nova 2 works alone: no agents, and never the cn token on its international Studio", () => {
-    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(false);
+  test("Nova 2 agents use its own pool and only one serial child on its single Studio", () => {
+    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(true);
     expect(withEngineModel("coder", () => agentsAllowedFor())).toBe(true);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1))).toBe(1);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1, true))).toBe(0);
+    expect(withEngineModel("coder", () => maxParallelAgentsForStudios(1))).toBe(0);
     delete process.env.NOVA2_STUDIO_TOKEN;
     expect(tokenFor(N2)).not.toContain("cn-token");
   });
@@ -144,12 +149,36 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(await nova2WarmStartReady()).toBe(true);
   });
 
-  test("Nova 2 is independent: its own session on the same Mini App computer as Nova (owner 2026-11-18)", () => {
+  test("Nova 2 is independent: own computer identity and no shared computer/media route", () => {
     expect(computerModelOf("nova2")).toBe("nova2");
     expect(computerModelOf("coder")).toBe("coder");
     expect(computerModelOf("lfm25")).toBe("lfm25");
     expect(computerModelOf(undefined)).toBe("coder");
     expect(COMPUTER_MODEL_IDS).toContain("nova2");
-    expect(browserStudioFor("nova2")).toBe(browserStudioFor("coder"));   // same Mini App computer host
+    const priorComputer = process.env.NOVA2_COMPUTER_STUDIO_URL;
+    const priorHub = process.env.COMPUTER_STUDIO_URL;
+    const priorMedia = process.env.NOVA2_MEDIA_STUDIO_URL;
+    const priorNovaMedia = process.env.NOVA_MEDIA_STUDIO_URL;
+    try {
+      delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+      delete process.env.NOVA2_MEDIA_STUDIO_URL;
+      expect(browserStudioFor("nova2")).toBeNull();
+      expect(ownMediaBase("nova2")).toBe("");
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-nova2-computer.api-inference.modelscope.ai";
+      process.env.COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+      process.env.NOVA2_MEDIA_STUDIO_URL = "https://studio-jonjithup-nova2-media.api-inference.modelscope.ai";
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
+      expect(browserStudioFor("nova2")).toBe(process.env.NOVA2_COMPUTER_STUDIO_URL);
+      expect(browserStudioFor("nova2")).not.toBe(browserStudioFor("coder"));
+      expect(ownMediaBase("nova2")).toBe(process.env.NOVA2_MEDIA_STUDIO_URL);
+      expect(ownMediaBase("nova2")).not.toBe(ownMediaBase("coder"));
+      expect(modelMediaConfigured("nova2", "image")).toBe(true);
+      expect(modelMediaConfigured("nova2", "audio")).toBe(true);
+    } finally {
+      if (priorComputer === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = priorComputer;
+      if (priorHub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = priorHub;
+      if (priorMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = priorMedia;
+      if (priorNovaMedia === undefined) delete process.env.NOVA_MEDIA_STUDIO_URL; else process.env.NOVA_MEDIA_STUDIO_URL = priorNovaMedia;
+    }
   });
 });

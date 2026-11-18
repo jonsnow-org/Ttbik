@@ -87,6 +87,7 @@ def shoot(name: str, base: str, token: str, out: str, wait_s: int = 1500) -> boo
 
 def main() -> int:
     token = os.environ.get("T", "")
+    nova2_token = os.environ.get("T_NOVA2") or os.environ.get("NOVA2_COMPUTER_STUDIO_TOKEN") or os.environ.get("AI_NOVA2_TOKEN") or ""
     out = os.environ.get("SHOT_DIR", "computer-shots")
     os.makedirs(out, exist_ok=True)
     only = {x for x in os.environ.get("SHOT_ONLY", "").split(",") if x}
@@ -94,9 +95,15 @@ def main() -> int:
         "sham_v1": os.environ.get("SHAM_MODELSCOPE_URL", ""),
         "sham_v2": os.environ.get("SHAM_V2_URL", ""),
         "nova": os.environ.get("COMPUTER_STUDIO_URL", ""),
-        "nova2": os.environ.get("COMPUTER_STUDIO_URL", ""),       # Nova 2: same Mini App computer, its OWN session (never Nova's)
+        "nova2": os.environ.get("NOVA2_COMPUTER_STUDIO_URL", ""),
     }
-    results = {n: shoot(n, b.split(",")[0].strip().rstrip("/"), token, out) for n, b in targets.items() if b and token and (not only or n in only)}
+    credentials = {name: (url, token) for name, url in targets.items() if name != "nova2"}
+    credentials["nova2"] = (targets["nova2"], nova2_token)
+    results = {
+        name: shoot(name, url.split(",")[0].strip().rstrip("/"), target_token, out)
+        for name, (url, target_token) in credentials.items()
+        if url and target_token and (not only or name in only)
+    }
     print("RESULTS " + json.dumps(results))
     return 0 if results and all(results.values()) else 1
 

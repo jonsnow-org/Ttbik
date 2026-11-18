@@ -68,6 +68,9 @@ describe("client binding table", () => {
       expect(boundBody(op, m, { model: m === "coder" ? "sham_v2" : "coder", x: 1 })).toEqual({ model: m, x: 1 });
     }
     expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1 });
+    for (const op of ["connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos"]) {
+      expect(boundBody(op, "nova2", { model: "coder" })).toEqual({ model: "nova2" });
+    }
   });
 
   test("computer ids: identity for every model, all on the computer list", () => {
@@ -77,6 +80,36 @@ describe("client binding table", () => {
 });
 
 describe("server: per-model computer and sessions", () => {
+  test("Nova 2's connector page does not expose Nova's linked accounts or MCP list", async () => {
+    const db: any = pgDb();
+    const { bot } = fakeBot();
+    const deps = { db, bot, botRow } as any;
+    const view: any = await appOp({ chatId: OWNER, tier: "owner" }, "connectors", { model: "nova2" }, deps);
+    expect(view).toMatchObject({ connectors: [], mcp: [], presets: [], isolated: true });
+    await expect(appOp({ chatId: OWNER, tier: "owner" }, "mcp_add", { model: "nova2", url: "https://mcp.example.test" }, deps))
+      .rejects.toMatchObject({ status: 403 });
+  });
+
+  test("Nova 2 repository picker uses its own GitHub credential, not Nova's", async () => {
+    const db: any = pgDb();
+    const { bot } = fakeBot();
+    process.env.CODER_GITHUB_TOKEN = "nova-private-token";
+    process.env.NOVA2_GITHUB_TOKEN = "nova2-private-token";
+    let authorization = "";
+    const fetchImpl = (async (_url: string, init?: any) => {
+      authorization = String(init?.headers?.Authorization || "");
+      return new Response(JSON.stringify([{ id: 1, full_name: "owner/nova2-only", name: "nova2-only", private: true }]), { status: 200 });
+    }) as any;
+    try {
+      const result: any = await appOp({ chatId: OWNER, tier: "owner" }, "repos", { model: "nova2" }, { db, bot, botRow, fetchImpl });
+      expect(authorization).toBe("Bearer nova2-private-token");
+      expect(result.repos.map((r: any) => r.full_name)).toContain("owner/nova2-only");
+    } finally {
+      delete process.env.NOVA2_GITHUB_TOKEN;
+      delete process.env.CODER_GITHUB_TOKEN;
+    }
+  });
+});
   test("box: Nova and Nova 2 go to the Mini App computer with distinct private sessions; the Shams go to their own embedded computer", async () => {
     const db: any = pgDb(); const { bot } = fakeBot();
     const { seen, fetchImpl } = recorder();
