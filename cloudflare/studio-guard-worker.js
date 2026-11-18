@@ -7,7 +7,6 @@
 const HOSTS = { cn: "www.modelscope.cn", ai: "www.modelscope.ai" };
 export const STUDIOS = [
   ["cn", "novaai2026", "sham-trainer-1", "train"],
-  ["cn", "novaai2026", "sham2-tldm", "train"],
   ["cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"],
