@@ -445,6 +445,11 @@ def load_chat(body, tok, token: str | None = None, confirm=None):
         return None, load_fail_message(f"{type(exc).__name__}: {exc}")
     _LOADED.clear()
     _LOADED.update(path=key, chat=chat)
+    try:                                                    # terminal mesh node (sham_mesh_node.py); a no-op offline or with SHAM_MESH=0
+        import sham_mesh_node
+        sham_mesh_node.attach(chat)
+    except Exception:
+        pass
     return chat, ""
 
 
@@ -627,7 +632,16 @@ def status_fields() -> dict:
         "tldm_loaded": bool(_LOADED.get("chat")),
         "identity_lora": bool(_IDENTITY.get("identity_lora")),
         "identity_lora_why": str(_IDENTITY.get("identity_lora_why") or ""),
+        "tldm_mesh": _mesh_status(),
     }
+
+
+def _mesh_status() -> dict:
+    try:
+        import sham_mesh_node
+        return sham_mesh_node.status()
+    except Exception as exc:
+        return {"enabled": False, "error": type(exc).__name__}
 
 
 if __name__ == "__main__":
