@@ -158,7 +158,15 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
-      const st = await loadState(chatId, db);
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      if (selectedModel === "nova2" || selectedModel === "lfm25") {
+        const { ensureModelSessionState } = await sections();
+        await withEngineModel("coder", () => ensureModelSessionState(chatId, selectedModel as "nova2" | "lfm25", db));
+      }
+      const readState = () => loadState(chatId, db);
+      const st = selectedModel === "nova2" || selectedModel === "lfm25"
+        ? await withEngineModel(selectedModel, readState)
+        : await readState();
       void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
@@ -172,7 +180,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         // sections this user may see — decided here from the verified Telegram id, not by the client
         features: { sham: owner, ownerTools: owner, terminal: await terminalAllowed(chatId, db), computer: owner || (process.env.NODE_ENV === "test" && await terminalAllowed(chatId, db)), tldm: tldmAllowed },
         tldmPolicy: owner ? tldmPolicy : { open: tldmPolicy.open, deny: [] },
-        connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
+        // Nova 2 does not inherit Nova 1's linked account or OAuth setup.
+        connections: selectedModel === "nova2" ? { github: { linked: false } } : await connectionInfo(chatId, db),
+        oauth: selectedModel === "nova2" ? false : oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
       };
@@ -207,7 +217,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const { listModels, chooseModel } = await import("@/lib/coderModels");
         if (!chooseModel(st, await listModels(db), selectedModel, user.tier === "owner")) throw new AppError(400, "model not available");
         // Model switching changes routing only. Never import or copy the previous model's conversation.
-        // Connectors belong to the user account and remain available to every permitted model.
+        // Account-linked connectors are not inherited by Nova 2; that model requires its own integration store.
       }
       // thinking / speed / media generation belong to ONE model: the one named in body.for, else the selected one (after a switch in this same call, the new one)
       const accIn = normalizePref(body.accuracy);

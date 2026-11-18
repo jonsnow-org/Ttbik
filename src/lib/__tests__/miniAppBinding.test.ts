@@ -67,7 +67,7 @@ describe("client binding table", () => {
     for (const m of MODELS) for (const op of MODEL_SCOPED_OPS) {
       expect(boundBody(op, m, { model: m === "coder" ? "sham_v2" : "coder", x: 1 })).toEqual({ model: m, x: 1 });
     }
-    expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1 });
+    expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1, model: "nova2" });
     for (const op of ["connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos", "github_start", "github_token", "secret_list", "secret_delete", "screen_offer", "handoff_done", "schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run", "stop", "task_stop", "task_delete", "events", "resolve", "secret_answer"]) {
       expect(boundBody(op, "nova2", { model: "coder" })).toEqual({ model: "nova2" });
     }
@@ -80,6 +80,21 @@ describe("client binding table", () => {
 });
 
 describe("server: per-model computer and sessions", () => {
+  test("Nova 2 bootstrap does not expose Nova's GitHub link or OAuth availability", async () => {
+    const db: any = pgDb();
+    const { bot } = fakeBot();
+    const prior = process.env.CODER_GITHUB_TOKEN;
+    process.env.CODER_GITHUB_TOKEN = "nova-private-token";
+    try {
+      const view: any = await appOp({ chatId: OWNER, tier: "owner" }, "me", { model: "nova2" }, { db, bot, botRow } as any);
+      expect(view.settings.model).toBe("nova2");
+      expect(view.connections).toEqual({ github: { linked: false } });
+      expect(view.oauth).toBe(false);
+    } finally {
+      if (prior === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = prior;
+    }
+  });
+
   test("Nova 2's connector page does not expose Nova's linked accounts or MCP list", async () => {
     const db: any = pgDb();
     const { bot } = fakeBot();
