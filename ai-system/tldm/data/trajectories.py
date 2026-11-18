@@ -69,9 +69,9 @@ def make_episode(rng: random.Random, new_names: bool = False):
     return c, [], r
 
 
-def run_episode(task: str, plan, reply_t: str):
+def run_episode(task: str, plan, reply_t: str, term_factory=None):
     """Runs the plan in a fresh sandbox. -> (steps, reply, final_snapshot) with steps = [(history_before_the_step, target_text)] for every step incl. the final reply."""
-    term = T.fresh()
+    term = (term_factory or T.fresh)()          # term_factory: e.g. the model's own embedded computer (train_sham2.computer_terminal)
     try:
         hist, res, steps = [], [], []
         for cmd_t in plan:

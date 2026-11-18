@@ -34,7 +34,27 @@ import trajectories as J  # noqa: E402
 import augment as AUG  # noqa: E402
 from sham_tldm.donor import FeatureTLDM  # noqa: E402
 
-SHAM_SMALL = os.path.realpath(os.path.join(ROOT, "..", "colab", "sham_small"))
+SHAM_SMALL = next((p for p in (os.path.join(ROOT, "..", "colab", "sham_small"), os.path.join(ROOT, "..", "sham_small")) if os.path.isdir(p)),
+                  os.path.join(ROOT, "..", "colab", "sham_small"))          # repo layout, or the trainer Studio's (sham_small/ next to tldm/)
+SHAM_SMALL = os.path.realpath(SHAM_SMALL)
+TERMINAL = os.path.realpath(os.path.join(ROOT, "..", "terminal"))
+
+
+def computer_terminal(model_id: str = "sham_v2"):
+    """A fresh workspace of the model's OWN embedded computer (sham_binding.ShamEmbeddedBackend -> sham_embedded_tools.run_call("computer_run")), seeded with the task
+    folder. Sham 2's terminal runs through this existing computer (owner, 2026-11-18), not a separate sandbox; its own session key keeps runs apart (separate=True)."""
+    import shutil
+    import uuid
+    for p in (TERMINAL, SHAM_SMALL):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from sham_binding import ShamEmbeddedBackend
+    b = ShamEmbeddedBackend("tldm_bench_" + uuid.uuid4().hex[:10], model_id, separate=True)
+    for name, text in T.FIXTURE.items():
+        with open(os.path.join(b.dir, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    b.close = lambda: shutil.rmtree(b.dir, ignore_errors=True)           # this benchmark session's workspace only
+    return b
 
 
 def _sham_small_module(name):
@@ -191,14 +211,14 @@ def eval_head(head, reader, tk_encode, rows, cfg, delex=False):
             "misses": [[t, c, ref] for (t, ref), c in zip(rows, cmds) if not T.same_effect(ref, c)][:20]}
 
 
-def loop_data(tk_encode, cfg, episodes, seed=1):
+def loop_data(tk_encode, cfg, episodes, seed=1, term_factory=None):
     """Training views of the agent loop (data/trajectories.py, training file names only), with argument slots (configs/loop.yaml default)."""
     rng = random.Random(seed)
     n, block = int(cfg["loop_in_len"]), int(cfg["loop_block"])
     xs, ys = [], []
     for _ in range(episodes):
         task, plan, reply_t = J.make_episode(rng)
-        steps, _, _ = J.run_episode(task, plan, reply_t)
+        steps, _, _ = J.run_episode(task, plan, reply_t, term_factory)
         for hist, tgt in steps:
             dt, dh, slots = J.delex_view(task, hist, True)
             xs.append(loop_ids(tk_encode, dt, dh, n))
@@ -206,16 +226,19 @@ def loop_data(tk_encode, cfg, episodes, seed=1):
     return xs, ys
 
 
-def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_steps=5):
-    """The full task (eval/full_task_benchmark.py rule): 60 episodes with file names never seen in training; success = final folder AND reply equal the reference's."""
+def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_steps=5, term_factory=None):
+    """The full task (eval/full_task_benchmark.py rule): 60 episodes with file names never seen in training; success = final folder AND reply equal the reference's.
+    Reference AND model run on the same kind of terminal (term_factory: Sham 2's embedded computer). A command the approval policy holds is counted, then run as owner-approved."""
     import statistics
+    term_factory = term_factory or T.fresh
+    approvals = 0
     n = int(cfg["loop_in_len"])
     rng = random.Random(seed)
     rows = []
     for _ in range(episodes):
         task, plan, reply_t = J.make_episode(rng, new_names=True)
-        _, ref_reply, ref_snap = J.run_episode(task, plan, reply_t)
-        term, hist, reply, t0 = T.fresh(), [], "", time.perf_counter()
+        _, ref_reply, ref_snap = J.run_episode(task, plan, reply_t, term_factory)
+        term, hist, reply, t0 = term_factory(), [], "", time.perf_counter()
         try:
             for _ in range(max_steps):
                 dt, dh, slots = J.delex_view(task, hist, True)
@@ -225,7 +248,10 @@ def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_step
                 if not text.startswith("$ "):
                     reply = text
                     break
-                r = term.run(text[2:].strip(), confirm=True)
+                r = term.run(text[2:].strip())
+                if getattr(r, "needs_confirmation", False):
+                    approvals += 1
+                    r = term.run(text[2:].strip(), confirm=True)
                 hist.append((text[2:].strip(), (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")))
             ok = reply == ref_reply and T.snapshot(term) == ref_snap
         finally:
@@ -235,7 +261,8 @@ def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_step
     def summ(rs):
         return {"n": len(rs), "success": round(sum(r["ok"] for r in rs) / max(1, len(rs)), 3),
                 "median_s_per_task": round(statistics.median(r["secs"] for r in rs), 3) if rs else None}
-    return {"all": summ(rows), "simple": summ([r for r in rows if r["kind"] == "simple"]), "multi_step": summ([r for r in rows if r["kind"] == "multi_step"])}
+    return {"all": summ(rows), "simple": summ([r for r in rows if r["kind"] == "simple"]), "multi_step": summ([r for r in rows if r["kind"] == "multi_step"]),
+            "approvals_asked": approvals, "terminal": getattr(term_factory, "__name__", str(term_factory))}
 
 
 def head_args(cfg, d_in, block):
@@ -271,7 +298,8 @@ def run_cached(body, encode, cfg, a, log=print):
     heads = {"writer": {k: v.detach().cpu() for k, v in best[1].state_dict().items()}}
     if a.loop:
         ln = int(cfg["loop_in_len"])
-        lx, ly = loop_data(encode, cfg, int(cfg.get("loop_episodes", 500)))
+        tf = computer_terminal if a.terminal == "computer" else T.fresh
+        lx, ly = loop_data(encode, cfg, int(cfg.get("loop_episodes", 500)), term_factory=tf)
         t0 = time.time()
         reader.feats(lx, ln)
         log(f"loop features: {len(lx)} views in {time.time() - t0:.0f}s")
@@ -279,7 +307,7 @@ def run_cached(body, encode, cfg, a, log=print):
         for seed in range(int(a.loop_seeds)):
             head = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["loop_block"])))
             train_head(head, reader, lx, ly, ln, lcfg, seed, log)
-            b = loop_benchmark(head, reader, encode, cfg)
+            b = loop_benchmark(head, reader, encode, cfg, episodes=int(cfg.get("loop_eval_episodes", 60)), term_factory=tf)
             log(f"loop seed {seed}: full task {b['all']['success']} simple {b['simple']['success']} multi-step {b['multi_step']['success']}")
             res["loop"].append({"seed": seed, **b})
             heads[f"loop_seed{seed}"] = {k: v.detach().cpu() for k, v in head.state_dict().items()}
@@ -303,6 +331,7 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=1)
     ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
     ap.add_argument("--loop_seeds", type=int, default=1)
+    ap.add_argument("--terminal", default="computer", help="computer = Sham's own embedded computer (default, owner 2026-11-18) | sandbox = the test sandbox")
     a = ap.parse_args(argv)
     if a.device == "auto":
         a.device = "cuda" if torch.cuda.is_available() else "cpu"
