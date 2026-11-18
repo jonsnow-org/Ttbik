@@ -30,12 +30,12 @@ setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the chea
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
 import { tldmAllowedFor } from "@/lib/coderModels";
 import { telegramPhoto } from "@/lib/coderSections";
+import { isPlatformOwner } from "@/lib/ownerIdentity";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
 // account at all — every sender, admin included, got the identical
 // customer welcome and had no admin panel to reach).
-const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 
 // NOVA_BOT — the owner's $0-cost general AI assistant product (owner
 // spec, 2026-09-05). Deliberately different in kind from every other
@@ -358,7 +358,7 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
   const chatId = cq.message?.chat?.id;
   const messageId = cq.message?.message_id;
   const tgUserId = String(cq.from.id);
-  if (!chatId || !messageId || !SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {
+  if (!chatId || !messageId || !isPlatformOwner(tgUserId)) {
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
@@ -849,7 +849,7 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
         [{ role: "user", content: String(args.question || args.command || ".") }],
         session,
         180000,
-        { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: false } },
+        { bypassContentHeuristics: true, owner: isPlatformOwner(cq.from?.id) || isPlatformOwner(chatId), resume: { command: String(args.command || ""), approved: false } },
       ))));
       const text = String(denied?.text || "أُلغي الأمر ولم يُنفَّذ.");
       await edit(`❌ ${text}`.slice(0, 3500));
@@ -860,7 +860,7 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
       [{ role: "user", content: String(args.question || args.command || ".") }],
       session,
       180000,
-      { bypassContentHeuristics: true, resume: { command: String(args.command || ""), approved: true } },
+      { bypassContentHeuristics: true, owner: isPlatformOwner(cq.from?.id) || isPlatformOwner(chatId), resume: { command: String(args.command || ""), approved: true } },
     ))));
     if (out?.type === "confirm") {
       const next = { id: "tldm-confirm", type: "function" as const, function: { name: "tldm_confirm", arguments: JSON.stringify({ command: out.command, session: out.session || session, question: out.text }) } };
@@ -1533,7 +1533,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
 
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
-  const isAdmin = Boolean(SUPER_ADMIN_ID) && tgUserId === SUPER_ADMIN_ID;
+  const isAdmin = isPlatformOwner(tgUserId);
 
   if (isAdmin && typeof msg.text === "string") {
     const adminText = msg.text.trim();

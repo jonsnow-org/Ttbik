@@ -72,6 +72,22 @@ class Experience(unittest.TestCase):
             self.assertEqual(len(log2.records), len(log.records))
 
 
+    def test_owner_trusted_admission(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = EX.ExperienceLog(d, per_user_per_day=1)
+            # Owner work is trusted: one clean exit is enough, even without a verifier, and user filters do not apply.
+            self.assertEqual(log.add(EX.make_record("owner", "clean the session tmp", "rm -rf workspace/tmp", 0, "", "", None, source="owner")), "added")
+            self.assertEqual(log.add(EX.make_record("owner", "clean the session tmp 2", "rm -rf workspace/tmp2", 0, "", "", None, source="owner")), "added")
+            pairs, why = log.admitted(2, return_reasons=True)
+            self.assertIn("rm -rf workspace/tmp", [c for _, c, _ in pairs])
+            self.assertGreaterEqual(why.get("admitted", 0), 1)
+            # PII is still dropped.
+            log.add(EX.make_record("owner", "email me at a@b.com", "echo hi", 0, "", "", True, source="owner"))
+            pairs2, why2 = log.admitted(2, return_reasons=True)
+            self.assertTrue(any(c == "rm -rf workspace/tmp" for _, c, _ in pairs2))
+            self.assertGreater(why2.get("pii_in_intent", 0), 0)
+
+
 class Api(unittest.TestCase):
     def test_record_hints_pairs(self):
         import api

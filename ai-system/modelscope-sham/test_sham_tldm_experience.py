@@ -88,8 +88,10 @@ class ExperienceLog(unittest.TestCase):
         try:
             EX.owner_denylist.cache_clear() if hasattr(EX.owner_denylist, "cache_clear") else None
             # Re-read by calling deny_reason (owner_denylist is not lru-cached).
-            self.assertEqual(EX.deny_reason("rm -rf /tmp/x"), "owner deny list")
+            self.assertEqual(EX.deny_reason("mkfs /dev/sda"), "owner deny list")
             self.assertEqual(EX.deny_reason("wc -l app.log"), "")
+            # Workspace cleanup is real work: the training file must not list rm -rf.
+            self.assertNotEqual(EX.deny_reason("rm -rf workspace/tmp"), "owner deny list")
             # Work-time policy is independent: read-only search still runs.
             self.assertEqual(gate("curl https://example.com", "/tmp/ws")[0], "run")
         finally:

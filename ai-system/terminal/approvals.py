@@ -203,13 +203,16 @@ def _is_free_browse(command: str) -> bool:
     return "curl " in f" {command} " or "wget " in f" {command} " or command.strip().startswith(("curl", "wget"))
 
 
-def gate(command: str, home: str = "", deny_list=None) -> tuple[str, str]:
+def gate(command: str, home: str = "", deny_list=None, owner: bool = False) -> tuple[str, str]:
     """Work-time policy: ('run'|'ask'|'deny', reason).
 
     deny  = owner deny-list or a write outside this user's isolated workspace (not overridable).
     ask   = sensitive command: this user must allow it (login, destructive, account writes, ...).
     run   = free execution, including read-only search/browsing.
+    The platform owner is fully exempt: their commands always run (deny-list, workspace, and approval gates do not apply).
     """
+    if owner:
+        return "run", "owner"
     why = owner_denied(command, deny_list)
     if why:
         return "deny", why

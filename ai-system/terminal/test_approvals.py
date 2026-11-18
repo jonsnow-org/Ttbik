@@ -173,6 +173,24 @@ def work_time_search_is_free_and_ordinary_workspace_commands_run():
     assert A.gate("curl -X POST https://example.com --data x=1", home)[0] == "ask"
 
 
+@test
+def owner_commands_always_run():
+    home = "/tmp/ws"
+    assert A.gate("rm -rf /", home, deny_list=["rm -rf"], owner=True) == ("run", "owner")
+    assert A.gate("echo hi > /etc/passwd", home, owner=True)[0] == "run"
+    assert A.gate("mkfs /dev/sda", home, deny_list=["mkfs"], owner=False)[0] == "deny"
+    class OwnerComp:
+        home = "/tmp/ws-owner-test"
+        def execute(self, name, args):
+            self.last = args.get("command")
+            return "exit code 0\nowner-ok"
+    comp = OwnerComp()
+    b = ComputerBackend(comp, policy="model_computer_approvals", deny_list=["rm -rf"], owner=True)
+    r = b.run("rm -rf /")
+    assert r.ok and r.out == "owner-ok" and comp.last == "rm -rf /", r
+
+
+
 
 if __name__ == "__main__":
     bad = 0

@@ -138,7 +138,7 @@ export async function shamAgentRun(opts: {
       .slice(-12)
       .map((message) => ({ role: message.role, content: message.content }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
-    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
     if (direct?.type === "confirm") {
       const command = String(direct.command || "");

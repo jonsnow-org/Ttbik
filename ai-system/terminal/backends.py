@@ -21,11 +21,12 @@ SandboxBackend = SandboxTerminal                     # same interface: run(comma
 
 
 class ComputerBackend:
-    def __init__(self, computer, policy: str = "model_computer", log_path: str | None = None, trusted: dict | None = None, deny_list=None):
+    def __init__(self, computer, policy: str = "model_computer", log_path: str | None = None, trusted: dict | None = None, deny_list=None, owner: bool = False):
         if policy not in POLICIES:
             raise ValueError(f"policy must be one of {POLICIES}")
         self.computer, self.policy, self.task = computer, policy, ""
         self.deny_list = list(deny_list or [])
+        self.owner = bool(owner)
         home = getattr(computer, "home", None)
         self._vetter = SandboxTerminal(workdir=str(home), log_path=log_path, trusted=trusted) if policy == "strict" else None
         self._log = SandboxTerminal(workdir=str(home), log_path=log_path) if (log_path and policy != "strict") else None
@@ -45,7 +46,7 @@ class ComputerBackend:
                 return self._done(Result(command, False, "", 126, refused=why), t0)
             if needs and not confirm:
                 return self._done(Result(command, False, "", 0, refused="needs the user's confirmation", needs_confirmation=True), t0)
-        action, why = gate(command, self.dir, getattr(self, "deny_list", None))
+        action, why = gate(command, self.dir, getattr(self, "deny_list", None), owner=bool(getattr(self, "owner", False)))
         if action == "deny":
             return self._done(Result(command, False, "", 126, refused=f"denied: {why}"), t0)
         if self.policy == "model_computer_approvals" and not confirm and action == "ask":

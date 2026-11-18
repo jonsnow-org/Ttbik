@@ -161,4 +161,26 @@ describe("Sham 2 T-LDM owner path", () => {
       delete process.env.MODELSCOPE_API_TOKEN;
     }
   });
+
+  it("omits the deny-list when the caller is the owner", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const { _setTldmPolicyForTests } = await import("@/lib/tldmPolicy");
+    _setTldmPolicyForTests(true, ["rm -rf"]);
+    const payloads: any[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      if (init?.body) payloads.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) return { ok: true, json: async () => ({ event_id: "e1" }) } as any;
+      return sseFetch('data: [{"type":"text","text":"ok","tldm":true}]\n');
+    }) as any;
+    try {
+      const { shamGenerateTldm, shamVariant } = await import("@/lib/shamStudio");
+      await shamVariant.run("v2", () => shamGenerateTldm([{ role: "user", content: "مرحبًا" }], "tldm-sham_v2-1", 180000, { owner: true }));
+      expect(payloads.some((p) => p.owner === 1 && !p.deny_list)).toBe(true);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      _setTldmPolicyForTests(false, []);
+    }
+  });
 });

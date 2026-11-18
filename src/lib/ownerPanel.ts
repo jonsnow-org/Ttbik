@@ -1,5 +1,5 @@
 /**
- * One panel switch for every bot with an owner panel (owner's order, 2026-11-14): the platform owner (SUPER_ADMIN_TELEGRAM_ID) sees
+ * One panel switch for every bot with an owner panel (owner's order, 2026-11-14): a platform owner (OWNER_IDS / SUPER_ADMIN_TELEGRAM_ID / unlocked account) sees
  * the admin panel by default and moves to the user panel, and back, with a button inside the panel itself, instead of an ID trick.
  *
  *  - The mode lives in bot_settings (`owner_user_view:<botId>`), per bot. Anything unreadable counts as "admin" (the owner's usual view).
@@ -9,11 +9,12 @@
  *    private chat, unless that keyboard already carries one of the two buttons. Inline keyboards and notifications are untouched.
  */
 import type { Transformer } from "grammy";
+import { isPlatformOwner, primaryOwnerId } from "@/lib/ownerIdentity";
 
 export const USER_VIEW_BTN = "👤 لوحة المستخدم";
 export const ADMIN_VIEW_BTN = "🛠 لوحة الإدارة";
-export const ownerId = () => String(process.env.SUPER_ADMIN_TELEGRAM_ID || "").trim();
-export const isOwnerUser = (id: unknown) => !!ownerId() && String(id ?? "") === ownerId();
+export const ownerId = () => primaryOwnerId() || String(process.env.SUPER_ADMIN_TELEGRAM_ID || "").trim();
+export const isOwnerUser = (id: unknown) => isPlatformOwner(id);
 
 const key = (botId: string) => `owner_user_view:${botId}`;
 const cache = new Map<string, { at: number; v: boolean }>();

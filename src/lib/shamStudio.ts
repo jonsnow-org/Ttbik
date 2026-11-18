@@ -264,7 +264,7 @@ export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 const TLDM_NO_FALLBACK = "تعذّر مسار T-LDM لشام برو. لم يُستخدم شام 1، ولا يوجد تحويل صامت.";
 
 /** Sham 2 T-LDM chat: hidden terminal + the model's existing internal computer. Sham 1 is never used. */
-export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean; resume?: { command: string; approved: boolean } } = {}): Promise<ShamReply | null> {
+export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean; owner?: boolean; resume?: { command: string; approved: boolean } } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_tldm refused outside Sham 2; Sham 1 was not used");
     return { type: "error", text: "مسار T-LDM متاح لشام برو فقط. لم يُستخدم شام 1.", reason: "no-fallback" };
@@ -281,8 +281,11 @@ export async function shamGenerateTldm(messages: ShamChatMessage[], session = ""
     max_new_tokens: 512,
     tldm_flag: 1,
   };
-  const deny = tldmOwnerDenyList();
-  if (deny.length) payload.deny_list = deny.join("\n");
+  if (opts.owner) payload.owner = 1;
+  else {
+    const deny = tldmOwnerDenyList();
+    if (deny.length) payload.deny_list = deny.join("\n");
+  }
   if (opts.resume?.command) {
     payload.confirm_cmd = opts.resume.command;
     payload.confirm_ok = opts.resume.approved ? 1 : 0;
