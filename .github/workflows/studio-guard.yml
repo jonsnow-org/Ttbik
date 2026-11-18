@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "rollout | status | kill | stop | once | resume-test (one trainer: wait for a save, kill, check the resume)"
+        description: "rollout | status | logs (read-only: run log tail + app status tail of the targets) | kill | stop | once | resume-test (one trainer: wait for a save, kill, check the resume)"
         required: true
         default: status
       targets:
@@ -86,6 +86,29 @@ jobs:
               print("\n".join(lines)[-n:], flush=True)
           if act == "status":
               status_all()
+          elif act == "logs":       # read-only: the targets' ModelScope run log tail and the trainer app's own status tail (token-like lines dropped)
+              for t in targets:
+                  site, name = t.split("/", 1)
+                  print(f"===== {t}: {g.studio_status(site, OWN[site], name, T[site])} — run log tail", flush=True)
+                  run_log(site, name, n=12000)
+                  base = g.app_url(site, OWN[site], name) + "/gradio_api/call/status"
+                  code, body = g._call(base, T[site], "POST", b'{"data": []}')
+                  ev = json.loads(body).get("event_id") if code == 200 else None
+                  code2, out = g._call(f"{base}/{ev}", T[site]) if ev else (code, "")
+                  import re
+                  txt = out
+                  for ln in out.splitlines():
+                      if ln.startswith("data:"):
+                          try:
+                              st = json.loads(json.loads(ln[5:])[0])
+                              txt = json.dumps({k: st.get(k) for k in ("phase", "cycle", "error", "last", "heartbeat", "settings")}, ensure_ascii=False, indent=1) + "\n--- tail ---\n" + "\n".join(st.get("tail") or [])
+                          except Exception:
+                              pass
+                  for v in T.values():
+                      txt = txt.replace(v, "***") if v else txt
+                  txt = re.sub(r"(ms-[A-Za-z0-9-]{6})[A-Za-z0-9-]+|(Bearer )[A-Za-z0-9._-]+|(KGAT_)[A-Za-z0-9]+", lambda m: (m.group(1) or m.group(2) or m.group(3)) + "***", txt)
+                  print(f"===== {t}: app status HTTP {code2}", flush=True)
+                  print(txt[-12000:], flush=True)
           elif act == "once":
               g.guard_once()
           elif act == "rollout":
