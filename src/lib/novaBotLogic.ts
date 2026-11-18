@@ -1218,7 +1218,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
   const runId = opts.runId || `sham-${chatId}-${Date.now().toString(36)}`;
   if (!opts.runId) {
     await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);      // only a task that has been silent for 15 minutes is closed; a live long task is left alone
-    const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, (shamVariant.getStore() || "v1") === "v2" ? "sham_v2" : "sham").catch(() => null);
+    const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, (shamVariant.getStore() || "v1") === "v2" ? "sham_v2" : "sham", prismaDb).catch(() => null);
     await taskStart(chatId, { runId, slot: shamTaskSlot(shamVariant.getStore() || "v1"), source: "interactive", title: text.slice(0, 120), botId, threadId: threadId || undefined }).catch(() => null);
   }
   if (progress) void progress.open();                                    // show the progress message at once (the model may think for a while before its first step)
@@ -1258,7 +1258,7 @@ export async function startShamDurableTask(bot: TelegramBot, chatId: number, tex
   const variant = shamVariant.getStore() || "v1";
   const mode = (shamModeCtx.getStore() || {}) as Record<string, unknown>;
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
-  const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, variant === "v2" ? "sham_v2" : "sham").catch(() => null);
+  const threadId = await (await import("@/lib/coderChats")).shamOpenThreadId(chatId, variant === "v2" ? "sham_v2" : "sham", prismaDb).catch(() => null);
   await prismaDb.exec(`UPDATE coder_tasks SET status = 'stopped', finished_at = now() WHERE chat_key = $1 AND run_id LIKE 'sham-%' AND status IN ('running', 'waiting') AND updated_at < now() - interval '15 minutes'`, coderChatKey(chatId)).catch(() => null);
   await taskStart(chatId, { runId, slot: shamTaskSlot(variant), source: "interactive", title: text.slice(0, 120), botId, threadId: threadId || undefined }).catch(() => null);
   await taskEvent(runId, "info", "بدأت المهمة في الخلفية؛ يمكنك إعادة فتح المحادثة ومتابعة النص كما يُكتب.").catch(() => null);
