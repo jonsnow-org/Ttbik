@@ -125,14 +125,14 @@ class AppPort:
     def needs_ok(self, name: str, arguments: dict) -> bool:
         return needs_ok(name, arguments)
 
-    def __call__(self, name: str, arguments: dict | None = None) -> str:
-        """Raises PermissionError when the call must not be sent (tasks.Coordinator turns it into a failed step with the reason)."""
+    def __call__(self, name: str, arguments: dict | None = None, approved: bool = False) -> str:
+        """Raises PermissionError when the call must not be sent (tasks.Coordinator turns it into a failed step with the reason).
+        approved=True: the user already said yes to THIS call (a resumed waiting step); every other check still applies."""
         arguments = arguments or {}
         why = self.check(name, arguments)
         if why:
             raise PermissionError(why)
-        approved = False
-        if needs_ok(name, arguments):
+        if needs_ok(name, arguments) and not approved:
             q = f"{name} {json.dumps(arguments, ensure_ascii=False)[:200]}"
             if not (self.confirm is not None and self.confirm(q)):
                 raise PermissionError("needs the user's confirmation")
