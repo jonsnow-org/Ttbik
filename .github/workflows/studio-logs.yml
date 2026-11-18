@@ -1,73 +1,35 @@
-name: Studio runtime logs (read-only)
-
-# يقرأ حالة الاستوديو وآخر سطور سجل تشغيله (للقراءة فقط) لتشخيص الانهيارات (مثلاً 502 بعد الفيديو). لا يغيّر شيئاً.
+name: Read an international Studio's status and logs (read-only)
+# Shows status + the tail of the build and run logs of one Jonjithup Studio on modelscope.ai (e.g. sham-runner-1 says whether its GitHub runner registered and what it restored).
+# Changes nothing; the token is masked.
 on:
   workflow_dispatch:
     inputs:
-      studio:
-        description: "Studio repo name (e.g. sham-v2-server, nova-media-server)"
-        required: false
-        default: "sham-v2-server"
-      model:
-        description: "optional model repo to inspect read-only (e.g. novaai2026/sham-v2)"
-        required: false
-        default: ""
-
+      repo:
+        description: "Studio name under Jonjithup"
+        default: "sham-runner-1"
 permissions:
   contents: read
-
 jobs:
   logs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      MS: https://www.modelscope.cn
-      OWNER: novaai2026
-      REPO: ${{ inputs.studio }}
-      T: ${{ secrets.MODELSCOPE_TOKEN }}
     steps:
-      - name: Runtime state and the tail of the run log (token-looking strings removed)
-        run: |
-          case "$REPO" in *[!a-zA-Z0-9_-]*) echo "bad name"; exit 1;; esac
-          echo "== state"
-          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print(json.dumps({'runtime':d.get('runtime'),'hardware':d.get('hardware') or d.get('resource')},ensure_ascii=False)[:800])"
-          echo "== run log (tail)"
-          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/run" -o run.json
-          python3 - <<'PY'
-          import json, re
-          raw = open("run.json", encoding="utf-8", errors="replace").read()
-          lines = []
-          try:
-              d = json.loads(raw)
-              def walk(x):
-                  if isinstance(x, str):
-                      lines.extend(x.replace("\r", "\n").split("\n"))
-                  elif isinstance(x, list):
-                      for y in x: walk(y)
-                  elif isinstance(x, dict):
-                      for y in x.values(): walk(y)
-              walk(d)
-          except Exception:
-              lines = raw.replace("\\r", "\n").replace("\\n", "\n").split("\n")
-          lines = [re.sub(r"(ms|sk|hf)-[A-Za-z0-9_-]{16,}", "[removed]", l) for l in lines if l.strip() and "it/s" not in l and "B/s" not in l]
-          print("\n".join(lines[-90:]))
-          PY
-      - name: Model repo access and files (read-only)
-        if: ${{ inputs.model != '' }}
+      - name: Status and logs
         env:
-          MODEL: ${{ inputs.model }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          REPO: ${{ inputs.repo }}
         run: |
-          case "$MODEL" in *[!a-zA-Z0-9_/.-]*) echo "bad name"; exit 1;; esac
-          code=$(curl -sS -o info.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/api/v1/models/$MODEL")
-          echo "model info http $code"; head -c 700 info.json | sed -E 's/(ms|sk|hf)-[A-Za-z0-9_-]{16,}/[removed]/g'; echo
-          code=$(curl -sS -o files.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/api/v1/models/$MODEL/repo/files?Recursive=true")
-          echo "files http $code"
-          python3 -c "
-          import json
-          d=json.load(open('files.json'))
-          fs=(d.get('Data') or {}).get('Files') or []
-          tot=sum(f.get('Size',0) for f in fs if f.get('Type')=='blob')
-          print(len(fs),'entries, total GiB',round(tot/2**30,2))
-          for f in fs:
-              if f.get('Type')=='blob' and f.get('Size',0)>5e7: print(f['Path'],round(f['Size']/1e6),'MB')
-          " || head -c 400 files.json
+          echo "::add-mask::$T"
+          MS=https://www.modelscope.ai; O=Jonjithup
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$O/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print('status:',(d.get('runtime') or {}).get('status') or d.get('status'),'hardware:',d.get('hardware') or (d.get('runtime') or {}).get('hardware'))"
+          for k in build run; do
+            echo "== $k log"
+            curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$O/$REPO/logs/$k?page_size=200" | python3 -c "
+          import json,sys,re
+          d=json.load(sys.stdin); x=d.get('data') or {}
+          lines=x.get('logs') or x.get('Logs') or x.get('items') or (x if isinstance(x,list) else [])
+          for l in (lines if isinstance(lines,list) else [str(lines)])[-80:]:
+              s=l if isinstance(l,str) else json.dumps(l,ensure_ascii=False)
+              if not re.search(r'token|secret|password|bearer',s,re.I): print(s.rstrip()[:300])
+          "
+          done

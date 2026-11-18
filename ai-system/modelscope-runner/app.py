@@ -35,6 +35,7 @@ _LOCK = threading.Lock()
 def _set(**kw):
     with _LOCK:
         STATE.update(kw)
+    print("[sham-runner]", json.dumps({k: v for k, v in kw.items() if k in ("restore", "runner", "runner_restarts")}, ensure_ascii=False)[:400], flush=True)     # visible in the Studio's run log
 
 
 def sha256_file(path: Path) -> str:
@@ -106,6 +107,7 @@ def restore_once():
             cat.wait()
             (RESTORE_DIR / f"{key}.ok").write_text(json.dumps({"bytes": entry.get("bytes"), "at": time.time()}))
             STATE["restored"][key] = "done"
+        print("[sham-runner] restore", key, STATE["restored"][key], flush=True)
         shutil.rmtree(dl, ignore_errors=True)
     bad = [k for k, v in STATE["restored"].items() if v != "done"]
     _set(restore="complete" if not bad else f"incomplete: {', '.join(bad)}")
