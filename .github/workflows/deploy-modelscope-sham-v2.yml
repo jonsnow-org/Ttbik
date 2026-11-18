@@ -347,5 +347,13 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
         run: |
+          set +e
           python ai-system/supervision/sham_v2_chat_smoke.py
+          chat=$?
           python ai-system/supervision/sham_v2_media_smoke.py
+          media=$?
+          set -e
+          if [ "$chat" -ne 0 ]; then echo "chat smoke failed (exit $chat)"; fi
+          if [ "$media" -ne 0 ]; then echo "media smoke failed (exit $media)"; fi
+          if [ "$media" -ne 0 ]; then exit "$media"; fi
+          if [ "$chat" -ne 0 ]; then exit "$chat"; fi

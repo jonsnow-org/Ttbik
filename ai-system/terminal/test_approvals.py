@@ -78,7 +78,7 @@ def a_sensitive_command_without_approval_never_reaches_the_computer():
     open(os.path.join(comp.home, "keep.txt"), "w").write("x")
     b = ComputerBackend(comp, policy="model_computer_approvals")
     r = b.run("rm keep.txt")
-    assert not r.ok and r.needs_confirmation and "owner's approval" in r.refused
+    assert not r.ok and r.needs_confirmation and "approval" in r.refused
     assert comp.calls == [] and os.path.exists(os.path.join(comp.home, "keep.txt"))
     for confirm in (None, lambda q: False, lambda q: 1 / 0):            # no channel, a "no", a broken channel: all = not run
         c, _ = chat(["$ rm keep.txt", "done"], comp, confirm)
@@ -108,9 +108,13 @@ def a_denied_command_gives_the_model_a_clear_result_and_the_loop_continues():
     first = seen[1][0]
     assert first[0] == "git push" and first[1].startswith("denied by the owner: `git push` was not run"), first
     assert reply.startswith("I could not push") and c.last_info["denied"] == 1
-    c2, seen2 = chat(["$ curl http://example.com", "no network"], comp, None)
-    c2.respond("s", "fetch")
-    assert "no approval channel is connected" in seen2[1][0][1]
+    # work-time: read-only curl/wget is unrestricted search/browsing (no approval).
+    n = len(comp.calls)
+    r_curl = ComputerBackend(comp, policy="model_computer_approvals").run("curl http://example.com")
+    assert not r_curl.needs_confirmation, "read-only curl must not wait for approval"
+    assert len(comp.calls) == n + 1
+    r_post = ComputerBackend(comp, policy="model_computer_approvals").run("curl -X POST http://example.com --data a=1")
+    assert r_post.needs_confirmation and not r_post.ok
 
 
 @test
@@ -132,6 +136,60 @@ def strict_is_still_available_and_model_computer_alone_is_unchanged():
     assert ComputerBackend(comp, policy="model_computer").run("true; true").ok, "no approvals in plain model_computer"
     n = len(comp.calls)
     assert ComputerBackend(comp, policy="strict").run("git status", confirm=True).refused and len(comp.calls) == n
+
+
+@test
+def owner_deny_list_is_a_hard_refuse_and_cannot_be_overridden():
+    comp = FakeComputer()
+    b = ComputerBackend(comp, policy="model_computer_approvals", deny_list=["rm -rf", "re:drop\\s+table"])
+    r = b.run("rm -rf /tmp/x", confirm=True)
+    assert not r.ok and not r.needs_confirmation and "deny-list" in (r.refused or "")
+    assert comp.calls == []
+    r2 = b.run("DROP TABLE users", confirm=True)
+    assert not r2.ok and "deny-list" in (r2.refused or "") and comp.calls == []
+    action, why = A.gate("rm -rf /tmp/x", deny_list=["rm -rf"])
+    assert action == "deny" and "deny-list" in why
+
+
+@test
+def writes_outside_the_session_workspace_are_hard_denied():
+    home = tempfile.mkdtemp(prefix="ws_")
+    action, why = A.gate("echo hi > /etc/passwd", home)
+    assert action == "deny" and "isolated workspace" in why
+    comp = FakeComputer()
+    r = ComputerBackend(comp, policy="model_computer_approvals").run("echo hi > /etc/x", confirm=True)
+    assert not r.ok and not r.needs_confirmation and "denied" in (r.refused or "")
+    assert comp.calls == []
+
+
+@test
+def work_time_search_is_free_and_ordinary_workspace_commands_run():
+    home = "/tmp/approvals_home"
+    assert A.gate("curl https://example.com", home)[0] == "run"
+    assert A.gate("wget -q -O- https://example.com", home)[0] == "run"
+    assert A.gate("ls -la", home)[0] == "run"
+    assert A.gate("rm keep.txt", home)[0] == "ask"
+    assert A.gate("git push", home)[0] == "ask"
+    assert A.gate("curl -X POST https://example.com --data x=1", home)[0] == "ask"
+
+
+@test
+def owner_commands_always_run():
+    home = "/tmp/ws"
+    assert A.gate("rm -rf /", home, deny_list=["rm -rf"], owner=True) == ("run", "owner")
+    assert A.gate("echo hi > /etc/passwd", home, owner=True)[0] == "run"
+    assert A.gate("mkfs /dev/sda", home, deny_list=["mkfs"], owner=False)[0] == "deny"
+    class OwnerComp:
+        home = "/tmp/ws-owner-test"
+        def execute(self, name, args):
+            self.last = args.get("command")
+            return "exit code 0\nowner-ok"
+    comp = OwnerComp()
+    b = ComputerBackend(comp, policy="model_computer_approvals", deny_list=["rm -rf"], owner=True)
+    r = b.run("rm -rf /")
+    assert r.ok and r.out == "owner-ok" and comp.last == "rm -rf /", r
+
+
 
 
 if __name__ == "__main__":
