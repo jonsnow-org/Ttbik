@@ -7,7 +7,7 @@
     pairs = log.admitted(min_consensus=2)   # [(task, command)] that may be trained on
 
 Record schema (the user's raw text never leaves this function; what is stored is scrubbed):
-    v, ts_day, user (salted hash), source (user|curriculum|web|mesh), intent (scrubbed task), intent_key (delexicalised template), command (scrubbed),
+    v, ts_day, user (salted hash), source (user|curriculum|web|owner|mesh), intent (scrubbed task), intent_key (delexicalised template), command (scrubbed),
     exit_code, stdout_sha, stderr_sha, verdict (verifier: True/False/None), latency_s, model, adapter, family (task cluster), rid (record hash)
 
 Defences against poisoning (training admission only):
@@ -198,7 +198,7 @@ class ExperienceLog:
             return self._count("rejected:schema")
         if rec["rid"] in self._rids:
             return self._count("duplicate")
-        if self._day_count[(rec["user"], rec["ts_day"])] >= self.per_user_per_day:
+        if rec.get("source") != "owner" and self._day_count[(rec["user"], rec["ts_day"])] >= self.per_user_per_day:
             return self._count("rate_limited")
         self._index(rec)
         if self.root:
@@ -210,14 +210,30 @@ class ExperienceLog:
         self.stats[what] += 1
         return what
 
-    def admitted(self, min_consensus: int = 2, sources: tuple = ("user", "curriculum", "web", "mesh"), return_reasons: bool = False, web_consensus: int = 1):
+    def admitted(self, min_consensus: int = 2, sources: tuple = ("user", "curriculum", "web", "owner", "mesh"), return_reasons: bool = False, web_consensus: int = 1):
         """-> [(intent, command, family)] that may enter TRAINING. Consensus counts DISTINCT voters: users (source user), sampling seeds (curriculum),
         pages (web: the page is only the claim; the sandbox run is the check, so one page is enough by default), and publishing peers (mesh: a lesson
-        another node ran successfully and THIS node re-ran successfully in its own sandbox; voter = the publisher, ai-system/terminal/mesh_net.py)."""
+        another node ran successfully and THIS node re-ran successfully in its own sandbox; voter = the publisher, ai-system/terminal/mesh_net.py;
+        mesh goes through every user intake filter).
+        source=owner is owner-trusted: skip user intake filters (denylist, consensus, share cap); still drop PII. A clean exit is enough (no verifier required)."""
         why = defaultdict(int)
         groups: dict = defaultdict(lambda: {"voters": set(), "intents": [], "users": set(), "web": False})
+        owner_pairs: list = []
+        owner_seen: set = set()
         for r in self.records:
             if r.get("source") not in sources:
+                continue
+            if r.get("source") == "owner":
+                if int(r.get("exit_code", 1)) != 0:
+                    why["not_verified"] += 1
+                    continue
+                if re.search(r"<(?:email|token|secret|card|phone)>", r["intent"]) or has_pii(r["intent"]):
+                    why["pii_in_intent"] += 1
+                    continue
+                key = (r["intent"], r["command"], r.get("family") or "other")
+                if key not in owner_seen:
+                    owner_seen.add(key)
+                    owner_pairs.append(key)
                 continue
             if r.get("verdict") is not True or r.get("exit_code") != 0:
                 why["not_verified"] += 1
@@ -255,5 +271,6 @@ class ExperienceLog:
             for u in users:
                 per_user[u] += 1
             res.append((intent, cmd, fam))
+        res = owner_pairs + res
         why["admitted"] = len(res)
         return (res, dict(why)) if return_reasons else res

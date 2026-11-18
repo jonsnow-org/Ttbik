@@ -97,10 +97,144 @@ def sensitive(command: str, home: str = "") -> str:
     return ""
 
 
-def question(command: str, reason: str) -> str:
-    """The text of the owner's allow/deny request (shown by the app's existing confirmation)."""
-    return f"Sham wants to run on its computer:\n$ {command}\nWhy this needs your approval: {reason}.\nAllow?"
 
+def parse_deny_list(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        lines = [str(x) for x in raw]
+    else:
+        text = str(raw).strip()
+        if text.startswith("["):
+            try:
+                import json
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    lines = [str(x) for x in parsed]
+                else:
+                    lines = text.splitlines()
+            except Exception:
+                lines = text.splitlines()
+        else:
+            lines = text.replace(",", "\n").splitlines()
+    out = []
+    for line in lines:
+        p = line.strip()
+        if not p or p.startswith("#"):
+            continue
+        out.append(p[:200])
+        if len(out) >= 200:
+            break
+    return out
+
+
+def env_deny_list() -> list[str]:
+    return parse_deny_list(os.environ.get("SHAM_TLDM_DENY") or "")
+
+
+def owner_denied(command: str, patterns=None) -> str:
+    """Non-empty = hard deny from the owner's list. A user's allow tap cannot override this."""
+    cmd = (command or "").strip()
+    if not cmd:
+        return ""
+    for pat in list(patterns or []) + env_deny_list():
+        if pat.lower().startswith("re:"):
+            try:
+                if re.search(pat[3:], cmd, re.I):
+                    return f"owner deny-list: {pat}"
+            except re.error:
+                continue
+        elif pat.lower() in cmd.lower():
+            return f"owner deny-list: {pat}"
+    return ""
+
+
+def workspace_violation(command: str, home: str = "") -> str:
+    """Non-empty = a write or mkdir outside this session's isolated workspace. Hard deny."""
+    if not home:
+        return ""
+    cmd = command.strip()
+    if not cmd:
+        return ""
+    for target in re.findall(r"(?:^|[^>&0-9])>>?\s*([^\s;&|]+)", cmd):
+        if _outside(target, home):
+            return f"writes to {target!r}, outside this user's isolated workspace"
+    for seg in SPLIT.split(cmd):
+        w = _words(seg.strip())
+        while w and (ASSIGN.match(w[0]) or os.path.basename(w[0]) in WRAPPERS):
+            w = w[1:]
+            while w and w[0].startswith("-"):
+                w = w[1:]
+            while w and re.fullmatch(r"[\d.]+[smhd]?", w[0]):
+                w = w[1:]
+        if not w:
+            continue
+        name = os.path.basename(w[0])
+        if name == "mkdir" and any(_outside(a, home) for a in w[1:] if not str(a).startswith("-")):
+            return "creates a folder outside this user's isolated workspace"
+        if name in ("cp", "mv", "install", "tee", "dd", "touch") and any(_outside(a, home) for a in w[1:] if not str(a).startswith("-")):
+            return f"`{name}` targets a path outside this user's isolated workspace"
+    return ""
+
+
+_WRITE_FLAGS = re.compile(r"(?i)(?:^|\s)(?:-X\s*(POST|PUT|PATCH|DELETE)|--request\s*(POST|PUT|PATCH|DELETE)|--data(?:-raw|-binary|-urlencode)?\b|-d\s|--form\b|-F\s)")
+
+
+def _is_free_browse(command: str) -> bool:
+    """Work-time: unrestricted search/browsing (read-only network). Writes still need that user's approval."""
+    for seg in SPLIT.split(command or ""):
+        w = _words(seg.strip())
+        while w and (ASSIGN.match(w[0]) or os.path.basename(w[0]) in WRAPPERS):
+            w = w[1:]
+            while w and w[0].startswith("-"):
+                w = w[1:]
+        if not w:
+            continue
+        name = os.path.basename(w[0])
+        if name in ("curl", "wget", "http", "aria2c"):
+            joined = " ".join(w)
+            if _WRITE_FLAGS.search(joined):
+                return False
+            continue
+        if name in SENSITIVE or (f"{name} {w[1]}" if len(w) > 1 else name) in SENSITIVE:
+            return False
+        if name in ("python3", "python") and w[1:3] == ["-m", "pip"]:
+            return False
+    return "curl " in f" {command} " or "wget " in f" {command} " or command.strip().startswith(("curl", "wget"))
+
+
+def gate(command: str, home: str = "", deny_list=None, owner: bool = False) -> tuple[str, str]:
+    """Work-time policy: ('run'|'ask'|'deny', reason).
+
+    deny  = owner deny-list or a write outside this user's isolated workspace (not overridable).
+    ask   = sensitive command: this user must allow it (login, destructive, account writes, ...).
+    run   = free execution, including read-only search/browsing.
+    The platform owner is fully exempt: their commands always run (deny-list, workspace, and approval gates do not apply).
+    """
+    if owner:
+        return "run", "owner"
+    why = owner_denied(command, deny_list)
+    if why:
+        return "deny", why
+    why = workspace_violation(command, home)
+    if why:
+        return "deny", why
+    if _is_free_browse(command) and not workspace_violation(command, home):
+        # still ask if a piped/compound command also has a sensitive write besides the fetch
+        leftover = sensitive(command, home)
+        if leftover and "curl" not in leftover and "wget" not in leftover and "network" not in leftover.lower():
+            if any(k in leftover for k in ("git", "pip", "rm", "sudo", "delet", "permission", "credential")):
+                return "ask", leftover
+        return "run", ""
+    why = sensitive(command, home)
+    if why:
+        return "ask", why
+    return "run", ""
+
+
+def question(command: str, reason: str) -> str:
+    """The text of this chat's allow/deny request (shown by the app's existing confirmation)."""
+    return f"Sham wants to run on its computer:\n$ {command}\nWhy this needs your approval: {reason}.\nAllow?"
 
 def app_confirm(port):
     """confirm(question) -> bool through the app's existing path: the port's own confirm (the «نفّذ» tap) if the app gave one, else the app's ask_user

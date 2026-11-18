@@ -778,6 +778,10 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     ema = EMA(model, EMA_DECAY)
     guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
+    try:      # 2026-11-18: the Studio supervisor saves more often (SHAM_SAVE_EVERY_MIN, default there 20) so a killed / slept cycle resumes losing little
+        save_every = max(5 * 60, int(float(os.environ.get("SHAM_SAVE_EVERY_MIN") or 0) * 60)) if os.environ.get("SHAM_SAVE_EVERY_MIN") else save_every
+    except ValueError:
+        pass
     model.train()
     # Quantization-aware training in the LIVE trainer (owner's order, 2026-11-06): the checkpoint this
     # session publishes must be trained THROUGH the compression it ships with, so the small model keeps

@@ -76,3 +76,12 @@ export function lastUserContent(messages: ShamChatTurn[]): string {
 }
 
 export const STALE_REPLY_USER = "تعذّر تكوين جواب مناسب لهذه الرسالة. أعد المحاولة بصيغة مختلفة.";
+
+/** Last-line defense before a reply is shown: training reports and copied prior answers stay out of the model chat. */
+export function visibleShamReply(text: string, history?: Array<{ q?: string; a?: string }>): { text: string; blocked: "echo" | "report" | "" } {
+  const raw = String(text || "").trim();
+  if (!raw) return { text: "", blocked: "" };
+  if (isTrainingStatusReply(raw)) return { text: STALE_REPLY_USER, blocked: "report" };
+  if (isEchoedPriorReply(raw, history)) return { text: STALE_REPLY_USER, blocked: "echo" };
+  return { text: raw, blocked: "" };
+}

@@ -67,6 +67,7 @@ export async function shamAgentRun(opts: {
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
   onEvent?: (kind: "tool" | "info" | "text" | "screen", text: string) => void;   // what the terminal shows of this run (the shared task log)
   onDelta?: (text: string) => void;         // each streamed piece of the direct-chat answer as the model writes it (live view)
+  onReplace?: (text: string) => void;       // replace the typist with a retried answer (never append a stale stream)
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
@@ -137,7 +138,7 @@ export async function shamAgentRun(opts: {
       .slice(-12)
       .map((message) => ({ role: message.role, content: message.content }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
-    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
     if (direct?.type === "confirm") {
       const command = String(direct.command || "");
@@ -216,7 +217,10 @@ export async function shamAgentRun(opts: {
         const retry = await runDirect([{ role: "user", content: opts.text }], undefined);
         const again = String(retry?.type === "text" ? retry.text || "" : "").trim();
         if (again && !isTrainingStatusReply(again) && !isEchoedPriorReply(again, prior)) {
-          if (stream) stream(again);
+          // Do not stream(again) through onDelta: that callback appends, so the typist would
+          // show the copied first answer plus the retry. Replace the live text instead.
+          if (opts.onReplace) opts.onReplace(again);
+          else if (stream) stream(again);
           answer = again;
         } else {
           if (isTrainingStatusReply(again)) void shamAdminNotice(again, opts.ctx.chatId).catch(() => null);

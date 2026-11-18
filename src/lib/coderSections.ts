@@ -35,6 +35,7 @@ export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): nu
 
 export { stripThinkTags };
 import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor } from "@/lib/coderModels";
+import { refreshTldmPolicy } from "@/lib/tldmPolicy";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
@@ -446,6 +447,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
     if (data === "tldm_toggle") {
+      await refreshTldmPolicy(db).catch(() => null);
       if (!tldmAllowedFor(tierFor(chatId))) {
         await bot.api.answerCallbackQuery(cq.id, { text: "للمالك فقط.", show_alert: true }).catch(() => null);
         return true;
@@ -454,11 +456,11 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
       const next = !tldmEnabled(stT, "sham_v2");
       setTldmEnabled(stT, next);
       await saveState(chatId, stT, db);
-      await bot.api.answerCallbackQuery(cq.id, { text: next ? "T-LDM لشام 2 يعمل" : "T-LDM لشام 2 توقف" }).catch(() => null);
-      const keyboard = new InlineKeyboard().text(next ? "✓ T-LDM لشام 2: يعمل" : "T-LDM لشام 2: متوقف", "tldm_toggle").row();
+      await bot.api.answerCallbackQuery(cq.id, { text: next ? "T-LDM لشام برو يعمل" : "T-LDM لشام برو توقف" }).catch(() => null);
+      const keyboard = new InlineKeyboard().text(next ? "✓ T-LDM لشام برو: يعمل" : "T-LDM لشام برو: متوقف", "tldm_toggle").row();
       await send(bot, chatId, next
-        ? "مسار T-LDM لشام 2 مفعّل. اختر شام 2 من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-        : "مسار T-LDM لشام 2 متوقف.", { reply_markup: keyboard });
+        ? "مسار T-LDM لشام برو مفعّل. اختر شام برو من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+        : "مسار T-LDM لشام برو متوقف.", { reply_markup: keyboard });
       return true;
     }
     if (data.startsWith("model_pick|")) {
@@ -548,6 +550,9 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   if (!chatId) return false;
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
+  if (cmd === "/tldm") {
+    await refreshTldmPolicy(db).catch(() => null);
+  }
   if (cmd === "/tldm" && tldmAllowedFor(tierFor(chatId))) {
     const stTldm = preloadedOwnerState || await loadStateStrict(chatId, db);
     const arg = text.split(/\s+/)[1] || "";
@@ -556,10 +561,10 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
       await saveState(chatId, stTldm, db);
     }
     const now = tldmEnabled(stTldm, "sham_v2");
-    const keyboard = new InlineKeyboard().text(now ? "✓ T-LDM لشام 2: يعمل" : "T-LDM لشام 2: متوقف", "tldm_toggle").row();
+    const keyboard = new InlineKeyboard().text(now ? "✓ T-LDM لشام برو: يعمل" : "T-LDM لشام برو: متوقف", "tldm_toggle").row();
     await send(bot, chatId, now
-      ? "مسار T-LDM لشام 2 مفعّل لهذا الحساب. اختر شام 2 من /model ثم أرسل رسالة. إن لم يكن رأس التدريب جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-      : "مسار T-LDM لشام 2 متوقف. لتفعيله أرسل /tldm on ثم اختر شام 2 من /model. يبقى شام 1 كما هو.", { reply_markup: keyboard });
+      ? "مسار T-LDM لشام برو مفعّل لهذا الحساب. اختر شام برو من /model ثم أرسل رسالة. إن لم يكن رأس التدريب جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+      : "مسار T-LDM لشام برو متوقف. لتفعيله أرسل /tldm on ثم اختر شام برو من /model. يبقى شام 1 كما هو.", { reply_markup: keyboard });
     return true;
   }
   if (cmd === "/model" || cmd === "/models") {
@@ -2927,6 +2932,7 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
   if (!selected) return null;
   const set = modelSettings(st, selected);
+  await refreshTldmPolicy(db).catch(() => null);
   const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId)) && tldmEnabled(st, "sham_v2");
   return { variant: selected === "sham_v2" ? "v2" : "v1", tldm, mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected), tldm } };
 }

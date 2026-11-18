@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -257,7 +258,7 @@ def _approval_question(cmd: str, reason: str) -> str:
         from approvals import question
         return question(cmd, reason)
     except Exception:
-        return f"أمر على حاسوب شام 2 الداخلي يحتاج موافقتك:\n`{cmd}` ({reason})"
+        return f"أمر على حاسوب شام برو الداخلي يحتاج موافقتك:\n`{cmd}` ({reason})"
 
 
 def _flat(r) -> str:
@@ -273,39 +274,96 @@ def _denied(cmd: str, reason: str):
     return R()
 
 
-def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None):
+def _record_step(session: str, message: str, cmd: str, result, t0: float, owner: bool = False) -> None:
+    """After the computer ran (or refused) a command: store one anonymised experience record.
+
+    A verifier, when present, supplies verdict. Exit status alone is stored as unknown
+    (not learned). This never blocks or changes work-time execution.
+    """
+    try:
+        from sham_tldm_experience import record_command
+        ok = bool(getattr(result, "ok", False))
+        out = _flat(result)
+        refused = str(getattr(result, "refused", "") or "")
+        if refused.startswith("denied") or not ok:
+            verdict = False
+            rc = int(getattr(result, "code", 1) or 1)
+        else:
+            verdict = None
+            rc = int(getattr(result, "code", 0) or 0)
+        record_command(session or "anon", message, cmd, rc, stdout=out if ok else "", stderr="" if ok else (refused or out),
+                       verdict=verdict, latency_s=max(0.0, time.time() - t0), source="owner" if owner else "user")
+    except Exception:
+        return
+
+
+def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None, deny_list=None, owner: bool = False):
     """Hidden-terminal loop on Sham 2's existing embedded computer (ShamEmbeddedBackend / model_computer).
 
-    Sensitive commands pause with ApprovalNeeded so the chat that issued them can allow or deny.
-    They are never auto-approved and never sent to a separate sandbox.
+    Sensitive commands pause with ApprovalNeeded so THIS chat can allow or deny.
+    Owner deny-list and writes outside the isolated workspace are hard-refused and
+    cannot be overridden. The platform owner is exempt: their commands always run.
+    Commands are never sent to a separate sandbox.
     """
     backend = chat.backend_factory(session)
+    if owner:
+        if hasattr(backend, "owner"):
+            backend.owner = True
+        if hasattr(backend, "deny_list"):
+            backend.deny_list = []
+    elif deny_list is not None and hasattr(backend, "deny_list"):
+        backend.deny_list = list(deny_list)
     hist = list(hist or [])
     max_steps = int(getattr(chat, "max_steps", 5) or 5)
+    hint_ctx = ""
+    try:
+        from sham_tldm_experience import evo_hints
+        hint = evo_hints(message)
+        hint_ctx = str((hint or {}).get("context") or "").strip()
+    except Exception:
+        hint_ctx = ""
     if pending_cmd:
+        t0 = time.time()
         if approved:
             r = backend.run(pending_cmd, confirm=True)
-            hist.append((pending_cmd, _flat(r)))
+            ok = bool(getattr(r, "ok", False)) and not str(getattr(r, "refused", "") or "").startswith("denied")
+            hist.append((pending_cmd, _flat(r), ok))
+            _record_step(session, message, pending_cmd, r, t0, owner=owner)
         else:
-            hist.append((pending_cmd, _flat(_denied(pending_cmd, "denied by the user"))))
+            r = _denied(pending_cmd, "denied by the user")
+            hist.append((pending_cmd, _flat(r), False))
+            _record_step(session, message, pending_cmd, r, t0, owner=owner)
     for _ in range(max_steps):
-        text = str(chat.writer(message, hist) or "").strip()
+        asked = f"{message}\n{hint_ctx}" if hint_ctx else message
+        text = str(chat.writer(asked, hist) or "").strip()
         if not text.startswith("$ "):
             return text, hist
         cmd = text[2:].strip()
+        t0 = time.time()
         r = backend.run(cmd)
         if getattr(r, "needs_confirmation", False):
             reason = getattr(r, "refused", None) or "needs approval"
             if isinstance(reason, str) and ": " in reason:
                 reason = reason.split(": ", 1)[-1]
             raise ApprovalNeeded(cmd, _approval_question(cmd, reason), hist)
-        hist.append((cmd, _flat(r)))
+        hist.append((cmd, _flat(r), bool(getattr(r, "ok", False))))
+        _record_step(session, message, cmd, r, t0, owner=owner)
     return "I could not finish within the allowed number of steps.", hist
 
 
-def respond(body, tok, session: str, message: str, token: str | None = None, confirm=None, confirm_cmd: str = "", confirm_ok: bool = False) -> str:
+def _parse_deny(raw) -> list:
+    try:
+        from approvals import parse_deny_list
+        return parse_deny_list(raw)
+    except Exception:
+        if isinstance(raw, list):
+            return [str(x) for x in raw]
+        return [x.strip() for x in str(raw or "").splitlines() if x.strip() and not x.strip().startswith("#")]
+
+
+def respond(body, tok, session: str, message: str, token: str | None = None, confirm=None, confirm_cmd: str = "", confirm_ok: bool = False, deny_list=None, owner: bool = False) -> str:
     """Run or resume a T-LDM turn. `confirm` is accepted for compatibility but approvals
-    go through confirm_cmd/confirm_ok so the existing owner/user allow/deny UI can decide."""
+    go through confirm_cmd/confirm_ok so THIS chat's allow/deny UI can decide."""
     chat, err = load_chat(body, tok, token=token, confirm=confirm)
     if err or chat is None:
         return error_json(err or missing_message())
@@ -313,6 +371,8 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
     hist = None
     pending_cmd = None
     approved = None
+    deny = [] if owner else _parse_deny(deny_list)
+    t0 = time.time()
     if confirm_cmd:
         pending = _PENDING.get(sid)
         if not pending or pending.get("cmd") != confirm_cmd:
@@ -323,7 +383,7 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
         approved = bool(confirm_ok)
         _PENDING.pop(sid, None)
     try:
-        reply, _hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved)
+        reply, done_hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved, deny_list=deny, owner=owner)
     except ApprovalNeeded as exc:
         _PENDING[sid] = {"message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question}
         return json.dumps({
@@ -334,6 +394,14 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
             "tldm": True,
             "computer": "model_computer",
         }, ensure_ascii=False)
+    success = bool(reply) and reply != "I could not finish within the allowed number of steps."
+    steps = done_hist or []
+    if steps:
+        try:
+            from sham_tldm_experience import log_episode
+            log_episode(message, str(reply or ""), steps, success, time.time() - t0, verified=True, session=sid, source="owner" if owner else "user")
+        except Exception:
+            pass
     return json.dumps({"type": "text", "text": str(reply or ""), "tldm": True, "computer": "model_computer"}, ensure_ascii=False)
 
 

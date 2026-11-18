@@ -1,0 +1,64 @@
+name: Nova speed (time to first token and tokens/s, through the live Studio)
+# Measures what the user waits for on Nova 1 (cn coder-inference-server Studios, Qwen3.5-4B) or Nova 2 (international
+# coder-inference-server-16, Qwen3.6-35B-A3B): the bot's REAL texts (scripts/nova-speed/dump-start.ts) sent the way the bot sends them.
+# Steps: lite = the greeting path ("hello", no tools), lite2 = the same path warm, full = a new conversation with the whole start
+# (system + tools), full2 = another new conversation (is the start reused?), gen = generation speed. Manual only; prints no token.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "nova2 | nova1 (Studio 1) | nova1-2 .. nova1-5"
+        default: "nova2"
+      steps:
+        description: "comma list of: lite, lite2, full, full2, gen"
+        default: "lite,lite2,full,full2,gen"
+      github:
+        description: "1 = the start with the GitHub tools (the owner's chats have GitHub connected)"
+        default: "0"
+permissions:
+  contents: read
+concurrency:
+  group: nova-speed-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: The texts the bot sends
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx prisma generate > /dev/null
+          model=coder; case "${{ inputs.target }}" in nova2) model=nova2;; esac
+          gh=""; [ "${{ inputs.github }}" = "1" ] && gh="--github"
+          npx tsx --tsconfig tsconfig.json scripts/nova-speed/dump-start.ts --model=$model $gh > start.json
+          python3 -c "import json;d=json.load(open('start.json'));print('system chars',len(d['system']),'| tools',len(d['tools']),'(',len(json.dumps(d['tools'])),'chars ) | lite chars',len(d['lite']))"
+      - name: Measure
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          TARGET: ${{ inputs.target }}
+          STEPS: ${{ inputs.steps }}
+        run: |
+          echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
+          case "$TARGET" in
+            nova2) export BASE="https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai/gradio_api" TOKEN="$T_AI";;
+            nova1|nova1-1) export BASE="https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net/gradio_api" TOKEN="$T_CN";;
+            nova1-[2-5]) export BASE="https://studio-novaai2026-coder-inference-server-${TARGET#nova1-}.api-inference.modelscope.net/gradio_api" TOKEN="$T_CN";;
+            *) echo "unknown target"; exit 1;;
+          esac
+          START_JSON=start.json OUT=results.jsonl python3 scripts/nova-speed/probe.py
+          {
+            echo "### Nova speed: $TARGET"
+            echo "| step | TTFT s | total s | prompt total / cached / read | prompt s | prompt tok/s | gen tokens | gen tok/s |"
+            echo "|---|---|---|---|---|---|---|---|"
+            python3 -c "
+          import json
+          for l in open('results.jsonl'):
+              r=json.loads(l); print(f\"| {r['step']} | {r['ttft_s']} | {r['total_s']} | {r['prompt_total']} / {r['prompt_cached']} / {r['prompt_read']} | {r['prompt_s']} | {r['prompt_tok_s']} | {r['gen_tokens']} | {r['gen_tok_s']} |\")"
+          } >> "$GITHUB_STEP_SUMMARY"

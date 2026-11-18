@@ -905,6 +905,13 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
           </>
         )}
       </Card>
+      {me.features?.tldm && (
+        <Card title={lang === "ar" ? "T-LDM لشام برو" : "T-LDM for Sham Pro"}>
+          <Row icon="⚡" title={lang === "ar" ? "تفعيل T-LDM" : "Enable T-LDM"}
+            sub={lang === "ar" ? "على حاسوب شام برو الداخلي، في مساحتك المعزولة. الأوامر الحساسة تنتظر موافقتك. قائمة منع المالك تنطبق ولا يمكن تجاوزها." : "On Sham Pro's internal computer, in your isolated workspace. Sensitive commands wait for your approval. The owner's deny list applies and cannot be overridden."}
+            after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={Boolean(s.tldm)} aria-label="T-LDM" onChange={(e) => set({ tldm: e.currentTarget.checked, for: "sham_v2" } as Partial<Me["settings"]> & { tldm?: boolean; for?: string })} /></span>} />
+        </Card>
+      )}
       <Card title={n.g_profile}>
         <Row icon="👤" title={n.s_mem} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />
         <Row icon="💎" title={n.s_plan} value={planLabel} tone={owner ? undefined : "var(--n-primary)"} onClick={() => open({ k: "billing" })} />
