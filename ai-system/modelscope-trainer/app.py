@@ -151,16 +151,57 @@ def tldm_script(cmd: list) -> str:
     return ""
 
 
+# MiniLM L12-v2 model.safetensors is 470,641,600 bytes. A mid-download kill can leave config.json plus a truncated weight; that must not count as ready.
+DONOR_WEIGHT_MIN = 400 * 1024 * 1024
+
+
+def donor_weight_size(dest: Path) -> int:
+    """Total bytes of the reader weight files (single file or shards). 0 if none."""
+    dest = Path(dest)
+    files = [dest / n for n in ("model.safetensors", "pytorch_model.bin", "model.bin") if (dest / n).is_file()]
+    if not files:
+        files = sorted(dest.glob("model*.safetensors")) + sorted(dest.glob("pytorch_model*.bin"))
+    return int(sum(p.stat().st_size for p in files))
+
+
+def donor_ready(dest: Path) -> bool:
+    """True only when config.json and a weight file larger than 400 MB are both present."""
+    dest = Path(dest)
+    return (dest / "config.json").is_file() and donor_weight_size(dest) > DONOR_WEIGHT_MIN
+
+
+def _copy_donor_tree(src: Path, dest: Path) -> None:
+    """Copy a downloaded snapshot into dest, replacing missing or smaller (truncated) files."""
+    import shutil
+    src, dest = Path(src), Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in src.rglob("*"):
+        if not f.is_file() or ".git" in f.parts:
+            continue
+        target = dest / f.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if (not target.exists()) or target.stat().st_size < f.stat().st_size:
+            shutil.copy2(f, target)
+
+
 def ensure_donor(work: Path, download: bool = True) -> Path:
-    """Local copy of paraphrase-multilingual-MiniLM-L12-v2 (frozen reader). Kept on /mnt/workspace/tldm/donor so later cycles do not download again."""
+    """Local copy of paraphrase-multilingual-MiniLM-L12-v2 (frozen reader). Kept on /mnt/workspace/tldm/donor so later cycles do not download again.
+    Ready only if config.json and a weight file >400 MB exist; a truncated leftover is wiped and replaced."""
+    import shutil
     dest = Path(os.environ.get("TLDM_DONOR") or (work / "donor" / "minilm"))
-    if (dest / "config.json").is_file():
+    if donor_ready(dest):
+        os.environ["TLDM_DONOR"] = str(dest)
+        print(f"tldm donor ready: {dest} size={donor_weight_size(dest)}", flush=True)
+        return dest
+    if not download:
+        dest.mkdir(parents=True, exist_ok=True)
         os.environ["TLDM_DONOR"] = str(dest)
         return dest
+    print(f"tldm donor incomplete ({dest}, size={donor_weight_size(dest)}); wiping and redownloading", flush=True)
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True, exist_ok=True)
     os.environ["TLDM_DONOR"] = str(dest)
-    if not download:
-        return dest
     repo = (os.environ.get("TLDM_DONOR_ID") or TLDM_DONOR_ID).strip() or TLDM_DONOR_ID
     errors: list[str] = []
     try:
@@ -171,18 +212,12 @@ def ensure_donor(work: Path, download: bool = True) -> Path:
         try:
             from modelscope import snapshot_download as ms_dl
             src = Path(ms_dl(repo, cache_dir=str(work / "donor" / "ms_cache")))
-            import shutil
-            for f in src.rglob("*"):
-                if f.is_file() and ".git" not in f.parts:
-                    target = dest / f.relative_to(src)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if not target.exists():
-                        shutil.copy2(f, target)
+            _copy_donor_tree(src, dest)
         except Exception as exc2:  # noqa: BLE001
             errors.append(f"ms:{type(exc2).__name__}:{str(exc2)[:160]}")
-    if not (dest / "config.json").is_file():
-        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + ")")
-    print(f"tldm donor ready: {dest}", flush=True)
+    if not donor_ready(dest):
+        raise FileNotFoundError("could not download the frozen reader " + repo + " (" + " | ".join(errors) + f"; size={donor_weight_size(dest)})")
+    print(f"tldm donor ready: {dest} size={donor_weight_size(dest)}", flush=True)
     return dest
 
 
@@ -1335,7 +1370,39 @@ if __name__ == "__main__":
             raise SystemExit("launch_studio must re-raise unknown ValueError")
         except ValueError as exc:
             assert "other" in str(exc)
+        # donor is ready only with config.json AND a weight file >400 MB; a truncated leftover is replaced
+        saved_donor = os.environ.pop("TLDM_DONOR", None)
+        inc = Path(tempfile.mkdtemp()) / "minilm"
+        inc.mkdir(parents=True)
+        (inc / "config.json").write_text("{}", encoding="utf-8")
+        assert donor_ready(inc) is False and donor_weight_size(inc) == 0
+        (inc / "model.safetensors").write_bytes(b"x" * 1024)
+        assert donor_ready(inc) is False and donor_weight_size(inc) == 1024
+        os.environ["TLDM_DONOR"] = str(inc)
+        ensure_donor(inc.parent, download=False)
+        # download=False must not treat the truncated copy as ready and must not wipe it
+        assert (inc / "model.safetensors").stat().st_size == 1024
+        ok = Path(tempfile.mkdtemp()) / "minilm"
+        ok.mkdir()
+        (ok / "config.json").write_text("{}", encoding="utf-8")
+        with (ok / "model.safetensors").open("wb") as f:
+            f.truncate(DONOR_WEIGHT_MIN + 1)
+        assert donor_ready(ok) and donor_weight_size(ok) == DONOR_WEIGHT_MIN + 1
+        os.environ["TLDM_DONOR"] = str(ok)
+        ensure_donor(ok.parent, download=False)
+        # truncated dest file is replaced when the source is larger
+        src, dst = Path(tempfile.mkdtemp()) / "s", Path(tempfile.mkdtemp()) / "d"
+        src.mkdir(); dst.mkdir()
+        (src / "model.safetensors").write_bytes(b"complete-weight")
+        (dst / "model.safetensors").write_bytes(b"trunc")
+        _copy_donor_tree(src, dst)
+        assert (dst / "model.safetensors").read_bytes() == b"complete-weight"
+        if saved_donor is None:
+            os.environ.pop("TLDM_DONOR", None)
+        else:
+            os.environ["TLDM_DONOR"] = saved_donor
         print("modelscope-trainer app self-test OK")
+
 
         sys.exit(0)
     main()

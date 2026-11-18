@@ -29,15 +29,30 @@ class FeatureTLDM(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
+def load_frozen_encoder(donor_path: str):
+    """Load a pretrained AutoModel reader. Raises if embeddings/encoder weights were not actually loaded
+    (a missing or truncated weight file would otherwise silently initialize the reader at random)."""
+    from transformers import AutoModel, AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(donor_path)
+    model, info = AutoModel.from_pretrained(donor_path, output_loading_info=True)
+    missing = list((info or {}).get("missing_keys") or [])
+    bad = [k for k in missing if k.startswith("embeddings.") or k.startswith("encoder.") or ".embeddings." in k or ".encoder." in k]
+    if bad:
+        raise RuntimeError(
+            f"donor reader at {donor_path} is missing pretrained embeddings/encoder weights "
+            f"({len(bad)} keys, e.g. {bad[:6]}); refusing to train a head on a randomly initialized reader"
+        )
+    model = model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+    return tok, model
+
+
 class DonorTLDM(nn.Module):
     def __init__(self, donor_path: str, d: int = 256, latents: int = 16, think_steps: int = 5, block: int = 24, writer_layers: int = 3, heads: int = 4, vocab: int = 257,
                  in_len: int = 32, think_exit: str = "change", think_min_steps: int = 2):
         super().__init__()
-        from transformers import AutoModel, AutoTokenizer
-        self.dtok = AutoTokenizer.from_pretrained(donor_path)
-        self.donor = AutoModel.from_pretrained(donor_path).eval()
-        for p in self.donor.parameters():
-            p.requires_grad = False
+        self.dtok, self.donor = load_frozen_encoder(donor_path)
         self.in_len = in_len
         self.proj = nn.Linear(self.donor.config.hidden_size, d)
         self.core = _Core(d, latents, think_steps, block, writer_layers, heads, vocab, think_exit, think_min_steps)

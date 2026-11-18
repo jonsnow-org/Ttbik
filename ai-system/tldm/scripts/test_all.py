@@ -402,6 +402,29 @@ def donor_head_trains_only_the_head_on_a_frozen_encoder():
 
 
 @test
+def donor_head_refuses_a_reader_that_did_not_load_pretrained_weights():
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        print("   (skipped: transformers not installed)")
+        return
+    import tempfile
+    from transformers import BertConfig, BertTokenizerFast
+    from sham_tldm.donor import DonorTLDM
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "vocab.txt"), "w") as f:
+        f.write("\n".join(["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + list("abcdefghijklmnopqrstuvwxyz")))
+    BertTokenizerFast(os.path.join(d, "vocab.txt")).save_pretrained(d)
+    BertConfig(vocab_size=31, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32).save_pretrained(d)
+    try:
+        DonorTLDM(d, d=16, latents=4, think_steps=2, block=6, writer_layers=1, heads=2, vocab=20, in_len=10)
+    except RuntimeError as exc:
+        assert "embeddings" in str(exc) or "encoder" in str(exc)
+        return
+    raise AssertionError("DonorTLDM must refuse a reader with no pretrained embeddings/encoder weights")
+
+
+@test
 def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     import unittest
     suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
