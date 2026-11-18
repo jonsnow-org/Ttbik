@@ -13,15 +13,17 @@ const LOCK_MS = 30 * 60 * 1000;
 const TTL = 20_000;
 
 export function parseOwnerIdList(raw: unknown): string[] {
-  const lines = Array.isArray(raw) ? raw.map((x) => String(x)) : String(raw || "").split(/[\s,;]+/);
+  const chunks = Array.isArray(raw) ? raw.map((x) => String(x)) : String(raw || "").split(/[\n,;]+/);
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const line of lines) {
-    const p = line.trim();
-    if (!p || p.startsWith("#")) continue;
-    if (seen.has(p)) continue;
-    seen.add(p);
-    out.push(p);
+  for (const chunk of chunks) {
+    const line = chunk.split("#")[0].trim();
+    if (!line) continue;
+    for (const p of line.split(/\s+/)) {
+      if (!p || seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
   }
   return out;
 }
