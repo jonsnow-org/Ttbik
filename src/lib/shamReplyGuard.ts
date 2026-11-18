@@ -77,27 +77,35 @@ export function lastUserContent(messages: ShamChatTurn[]): string {
 
 export const STALE_REPLY_USER = "تعذّر تكوين جواب مناسب لهذه الرسالة. أعد المحاولة بصيغة مختلفة.";
 
-/** Remove only an immediately repeated, identical sentence; never synthesize or rewrite the model's wording. */
+/** Collapse adjacent identical sentence blocks; never synthesize or rewrite the model's wording. */
 export function collapseAdjacentDuplicateSentences(text: string): string {
-  const chunks = [...String(text || "").matchAll(/[^.!?؟\n]+[.!?؟]?/gu)];
-  const remove: Array<[number, number]> = [];
-  let previousKey = "";
-  for (const chunk of chunks) {
-    const value = chunk[0];
-    const key = value.normalize("NFKC")
+  let cleaned = String(text || "");
+  for (let pass = 0; pass < 8; pass++) {
+    const chunks = [...cleaned.matchAll(/[^.!?؟\n]+[.!?؟]?/gu)];
+    const keys = chunks.map((chunk) => chunk[0].normalize("NFKC")
       .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
       .toLocaleLowerCase("ar")
       .replace(/[\p{P}\p{S}\s]+/gu, " ")
-      .trim();
-    if (key.length >= 28 && key === previousKey) {
-      const start = chunk.index ?? 0;
-      remove.push([start, start + value.length]);
-      continue;
+      .trim());
+    let removed = false;
+    for (let i = 0; i < chunks.length && !removed; i++) {
+      const maxBlock = Math.min(6, Math.floor((chunks.length - i) / 2));
+      for (let size = maxBlock; size >= 1; size--) {
+        const left = keys.slice(i, i + size);
+        const right = keys.slice(i + size, i + size * 2);
+        if (left.some((key) => !key) || left.join("\u0000") !== right.join("\u0000")) continue;
+        const weight = left.reduce((sum, key) => sum + key.length, 0);
+        if (weight < 32 || (size === 1 && left[0].length < 32)) continue;
+        const start = chunks[i + size].index ?? 0;
+        const last = chunks[i + size * 2 - 1];
+        const end = (last.index ?? start) + last[0].length;
+        cleaned = cleaned.slice(0, start) + cleaned.slice(end);
+        removed = true;
+        break;
+      }
     }
-    if (key.length >= 28) previousKey = key;
+    if (!removed) break;
   }
-  let cleaned = String(text || "");
-  for (const [start, end] of remove.reverse()) cleaned = cleaned.slice(0, start) + cleaned.slice(end);
   return cleaned.trim();
 }
 

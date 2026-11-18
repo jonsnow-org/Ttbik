@@ -11,7 +11,7 @@ import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamT
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
 import { shamAdminNotice } from "@/lib/shamAdminNotice";
-import { needsExternalWebResearch, needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
+import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -127,13 +127,9 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
-  // Keep T-LDM for actual computer/code work. Normal chat, web research and connected-workspace
-  // tasks use the native chat or permission-checked tool loop; the terminal path cannot perform web search.
-  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
-  const useTldmComputerPath = v2 && shamTldmOn() && (prof.klass === "code" || prof.klass === "agentic")
-    && !needsExternalWebResearch(opts.text) && !hasWorkspaceTarget;
+  // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
-  if (useTldmComputerPath) {
+  if (v2 && shamTldmOn()) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -142,24 +138,73 @@ export async function shamAgentRun(opts: {
       .slice(-12)
       .map((message) => ({ role: message.role, content: message.content }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
-    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
-    if (await isStopped()) return { kind: "stopped", used, steps: 1 };
+    let direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
+    let tldmSteps = 1;
+    const tldmReadTools = new Set(["web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    while (direct?.type === "tool_request" && tldmSteps < 7 && left() > 2500) {
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      const toolName = String(direct.tool_name || "");
+      const rawArgs = direct.tool_arguments && typeof direct.tool_arguments === "object" ? direct.tool_arguments as Record<string, unknown> : {};
+      const available = tldmReadTools.has(toolName) && opts.tools.some((item) => item.function?.name === toolName);
+      const call: CoderToolCall = {
+        id: "tldm-tool-" + tldmSteps,
+        type: "function",
+        function: { name: toolName, arguments: JSON.stringify(rawArgs) },
+      };
+      let result = "";
+      if (!available || shamNeedsOk(call)) {
+        result = "error: T-LDM requested an unavailable or non-read-only tool: " + (toolName || "(missing name)");
+      } else {
+        used.push(toolName);
+        opts.onEvent?.("tool", toolName + " " + JSON.stringify(rawArgs).slice(0, 200));
+        opts.onStep?.({ type: "tool_start", name: toolName, args: JSON.stringify(rawArgs) });
+        try { result = await exec(call, opts.ctx); }
+        catch (e) { result = "error: " + String((e as Error)?.message || e).slice(0, 300); }
+        opts.onStep?.({ type: "tool_end", name: toolName, ok: !/^error/i.test(result) });
+        opts.onEvent?.("info", clip(result, 300));
+      }
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      const previousBase = String(direct.tldmBase || "");
+      const requestId = String(direct.tool_request_id || "");
+      tldmSteps++;
+      direct = await shamTldmSession.run(session, () => shamGenerateTldm(
+        chatMessages,
+        session,
+        Math.max(1000, Math.min(timeout, left() - 1000)),
+        {
+          bypassContentHeuristics: Boolean(opts.ctx.owner),
+          owner: Boolean(opts.ctx.owner),
+          resumeTool: {
+            requestId,
+            name: toolName,
+            arguments: rawArgs,
+            result: String(result || "").slice(0, 7000),
+            error: /^error/i.test(result),
+            routeBase: previousBase,
+          },
+        },
+      ));
+    }
+    if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+    if (direct?.type === "tool_request") {
+      return { kind: "text", text: "لم تكتمل خطوات البحث في الوقت المتاح. أعد إرسال الطلب لمتابعته.", used, steps: tldmSteps };
+    }
     if (direct?.type === "confirm") {
       const command = String(direct.command || "");
       return {
         kind: "confirm",
         call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
         used,
-        steps: 1,
+        steps: tldmSteps,
       };
     }
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
-      return answer ? { kind: "text", text: answer, used, steps: 1 } : { kind: "none", used, steps: 1 };
+      return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
     }
-    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
-    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
-    return { kind: "none", used, steps: 0 };
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: tldmSteps };
+    if (opts.continuable) return { kind: "more", messages, used, steps: tldmSteps };
+    return { kind: "none", used, steps: tldmSteps };
   }
 
   // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,
@@ -174,6 +219,7 @@ export async function shamAgentRun(opts: {
   // A capability question is ordinary chat only when it is genuinely about capabilities.
   // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
   // select the permission-checked agent route instead of answering from the model's guess.
+  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
   const hasWorkspaceAction = /تحليل|حلل|افحص|راجع|اقرأ|تصفح|اعمل على|نفذ|نفّذ|ارفع|ادفع|انشر|نشر|دمج|افتح|أنشئ|أنشاء|analy[sz]e|inspect|review|read|scan|deploy|push|merge|create|open pull request|run workflow/i.test(opts.text);
   const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
   const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
