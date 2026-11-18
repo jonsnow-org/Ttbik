@@ -19,6 +19,7 @@ import {
   payInvoice, rawInitData, setBio, startTma,
 } from "../_tma/sdk";
 import { NSTR, fill, type NStr } from "./strings";
+import { bindingFor, type MiniAppBinding } from "@/lib/miniAppBinding";
 import { THEME_MODES, leaveFullscreen, loadMode, paintTelegram, resolveMode, saveMode, themeVars, type Resolved, type ThemeMode } from "./theme";
 import {
   BillingPage, BrandIcon, ConnectorsTab, Fail, Loading, MemoryTab, PanelPage, PendingBanner, PolicySection, ScheduleForm, Sheet,
@@ -36,7 +37,8 @@ type Thread = { id: string; title: string; legacy: boolean; messages_count?: num
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
 type Billing = { usage: PubUsage; plans: PubPlan[] };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
-type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void | Promise<void>; mode: Resolved };
+/** `bind`: what the selected model owns (its chats, computer, memory, schedules, T-LDM). Every screen reads it from here, so after a switch nothing talks to another model. */
+type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void | Promise<void>; mode: Resolved; bind: MiniAppBinding };
 
 const TABS: Tab[] = ["home", "chats", "computer", "auto", "settings"];
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
@@ -296,9 +298,9 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
     liveLoading.current = true;
     try {
       try {
-        setLive(await api<Threads>("threads", { limit: 1 }));
+        setLive(await api<Threads>("threads", { limit: 1, model: c.bind.model }));
       } catch {
-        const d = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 10 });
+        const d = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 10, model: c.bind.model });
         setLive({ threads: [], current: null, currentEmpty: true, live: d.tasks.filter((x) => x.status === "running" || x.status === "waiting"), runs: [], pending: d.pending });
       }
     } catch {
@@ -306,7 +308,7 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
     } finally {
       liveLoading.current = false;
     }
-  }, []);
+  }, [c.bind.model]);
   useEffect(() => {
     void loadConns();
     void loadLive();
@@ -355,7 +357,7 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
         <PlanCard c={c} b={b} />
         {live && (live.pending.length > 0 || live.live.length > 0) && (
           <>
-            <Head lang={lang} title={n.runningNow} action={live.live.length > 0 ? <button type="button" className="n-link" onClick={async () => { haptic("warning"); try { await api("stop_all", {}); haptic("success"); } catch { haptic("error"); } void loadLive(); }}>{n.stopAll}</button> : undefined} />
+            <Head lang={lang} title={n.runningNow} action={live.live.length > 0 ? <button type="button" className="n-link" onClick={async () => { haptic("warning"); try { await api("stop_all", { model: c.bind.model }); haptic("success"); } catch { haptic("error"); } void loadLive(); }}>{n.stopAll}</button> : undefined} />
             {live.pending.map((p) => <div key={p.nonce} className="n-card n-tg"><List><PendingBanner p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={loadLive} /></List></div>)}
             {live.live.length > 0 && (
               <Card>
@@ -369,17 +371,19 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
         )}
         <Head lang={lang} title={n.highlights} />
         <Card>
-          {me.features?.computer && <Row icon="💻" title={lang === "ar" ? "الحاسوب السحابي" : "Cloud computer"} sub={lang === "ar" ? "سطح مكتب Linux وطرفية وملفات مستقلة لهذا النموذج" : "A private Linux desktop, terminal and files for this model"} onClick={() => go("computer")} />}
-          <Row icon="💬" title={n.h_ask} sub={n.h_askSub} onClick={() => closeApp()} />
+          {me.features?.computer && <Row icon="💻" title={`${lang === "ar" ? "حاسوب" : "Computer of"} ${modelName(models, lang)}`} sub={c.bind.computer.home === "embedded"
+            ? (lang === "ar" ? "الحاسوب الداخلي المدمج في هذا النموذج: سطح مكتب وملفات ومهام خاصة به" : "This model's own embedded computer: its desktop, files and jobs")
+            : (lang === "ar" ? "حاسوب التطبيق المصغّر، بجلسة خاصة بهذا النموذج وحده" : "The Mini App computer, in a session private to this model")} onClick={() => go("computer")} />}
+          <Row icon="💬" title={fill(n.h_ask, { m: modelName(models, lang) })} sub={n.h_askSub} onClick={() => closeApp()} />
           {gh.linked
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
-            : <Row icon="🐙" title={n.h_gh} sub={n.h_ghSub} onClick={() => open({ k: "connect" })} />}
-          <Row icon="⏰" title={n.h_sched} sub={n.h_schedSub} badge={<span className="n-new">{n.isNew}</span>} onClick={() => go("auto")} />
-          <Row icon="🔌" title={n.h_conn} sub={n.h_connSub} badge={<span className="n-new">{n.isNew}</span>} onClick={() => open({ k: "connect" })} />
-          <Row icon="🧠" title={n.h_mem} sub={n.h_memSub} onClick={() => open({ k: "memory" })} />
+            : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}
+          {c.bind.schedules && <Row icon="⏰" title={n.h_sched} sub={n.h_schedSub} onClick={() => go("auto")} />}
+          {c.bind.memory === "memories" ? <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={n.h_memSub} onClick={() => open({ k: "memory" })} />
+            : <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={lang === "ar" ? "ذاكرة هذا النموذج الخاصة: في الإعدادات" : "This model's own memory: in Settings"} onClick={() => go("settings")} />}
         </Card>
         <Head lang={lang} title={n.tools} action={<button type="button" className="n-link" onClick={() => { haptic("light"); open({ k: "connect" }); }}>{n.showAll}</button>} />
-        <Card cap={n.toolsSub}>
+        <Card cap={fill(n.toolsSub, { m: modelName(models, lang) })}>
           {!conns ? <Loading /> : conns.filter((x) => x.status !== "setup").slice(0, 6).map((x) => (   /* a service that is not set up yet ("soon") is not offered here: it lives in the Connectors page */
             <Row key={x.id} icon={<BrandIcon c={x} />} title={x.name} sub={x.status === "connected" ? `${t.connected}${x.label ? ` · ${x.label}` : ""}` : x.desc[lang]}
               badge={CAT[x.id] ? <span className="n-cat">{n[CAT[x.id]]}</span> : undefined}
@@ -402,34 +406,30 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
 }
 
 // ---------------------------------------------------------------- Chats (conversation threads; falls back to the request list)
-function Chats({ c }: { c: Ctx }) {
+function Chats({ c, modelLabel }: { c: Ctx; modelLabel: string }) {
   const { t, n, lang, me } = c;
   const [d, setD] = useState<Threads | null>(null);
   const [fallback, setFallback] = useState<Task[] | null>(null);
   const [err, setErr] = useState("");
   const [note, setNote] = useState(false);
   const [busy, setBusy] = useState(false);
-  // each model has its own chat list: Nova, Sham, Sham v2 (the ones this person may use)
-  const [model, setModel] = useState<string>("all");           // ONE list of every conversation of every model; a model tab only filters it
-  const [avail, setAvail] = useState<{ id: string; name: string }[]>([{ id: "all", name: n.ch_all }, { id: "coder", name: "Nova AI" }]);
+  // the chats of the SELECTED model only (owner 2026-11-18): switching the model (Home pill / Settings) switches this list; no other model's chat shows here
+  const model = c.bind.chatsModel;
   const [bump, setBump] = useState(0);
-  useEffect(() => {
-    api<Models>("models").then((m) => setAvail([{ id: "all", name: n.ch_all }, ...(m.owner || m.models).filter((x) => x.id === "coder" || x.id === "sham" || x.id === "sham_v2").map((x) => ({ id: x.id, name: x.name[lang] || x.name.en }))])).catch(() => null);
-  }, [lang, n.ch_all]);
   const loading = useRef(false);
   const load = useCallback(async () => {
     if (loading.current || document.visibilityState !== "visible") return;
     loading.current = true;
     try {
-      try { setD(await api<Threads>("threads", { limit: 40 })); setFallback(null); setErr(""); }
+      try { setD(await api<Threads>("threads", { limit: 40, model })); setFallback(null); setErr(""); }
       catch (e: any) {
-        try { const x = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 30 }); setFallback(x.tasks); setErr(""); }
+        try { const x = await api<{ tasks: Task[]; pending: Pending[] }>("tasks", { limit: 30, model }); setFallback(x.tasks); setErr(""); }
         catch { setErr(e instanceof Error ? e.message : "تعذّر تحميل المحادثات."); }
       }
     } finally {
       loading.current = false;
     }
-  }, []);
+  }, [model]);
   useEffect(() => {
     void load();
     const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
@@ -439,7 +439,7 @@ function Chats({ c }: { c: Ctx }) {
     if (busy) return;
     setBusy(true);
     haptic("medium");
-    try { await api("chat_new", model === "all" ? {} : { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
+    try { await api("chat_new", { model }); setNote(true); haptic("success"); setBump((x) => x + 1); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
   return (
     <div className="n-page">
@@ -447,14 +447,7 @@ function Chats({ c }: { c: Ctx }) {
         <h1>{n.chatsTitle}</h1>
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
-      {avail.length > 1 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }} role="tablist">
-          {avail.map((m) => (
-            <button key={m.id} type="button" role="tab" aria-selected={m.id === model} className={`n-btn${m.id === model ? "" : " n-ghost"}`} style={{ height: 34, padding: "0 14px", fontSize: 13 }}
-              onClick={() => { haptic("select"); setModel(m.id); setNote(false); }}>{m.name}</button>
-          ))}
-        </div>
-      )}
+      <div className="n-meta" style={{ margin: "-4px 4px 12px" }} dir="auto">{lang === "ar" ? `محادثات ${modelLabel} فقط` : `${modelLabel} chats only`}</div>
       {/* the shell, files and jobs live in the Computer tab (a real terminal on the model's own computer); the task log is a section there too */}
       {note && (
         <div className="n-note" role="status">
@@ -504,12 +497,7 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
   const del = async (spec: object, label: string) => {
     if (!(await guard(label))) return;
     try {
-      if (model !== "all") await api("chat_delete", { model, ...spec });
-      else if ("ids" in spec) {                                                              // a selection across models: one delete per model
-        const by = new Map<string, string[]>();
-        for (const x of d?.items || []) if ((spec as { ids: string[] }).ids.includes(x.id)) by.set(x.model || "coder", [...(by.get(x.model || "coder") || []), x.id]);
-        for (const [m, ids] of by) await api("chat_delete", { model: m, ids });
-      } else for (const m of new Set((d?.items || []).map((x) => x.model || "coder"))) await api("chat_delete", { model: m, ...spec });
+      await api("chat_delete", { model, ...spec });                                         // only this model's chats
       haptic("success"); setSel(null); setManage(false); void load();
     } catch { haptic("error"); }
   };
@@ -527,8 +515,8 @@ function ChatsOfModel({ c, model, bump, live, onNew }: { c: Ctx; model: string; 
         after={running ? <span className="n-dot" aria-hidden="true" /> : undefined}
         onClick={() => {
           if (sel) { const m = new Set(sel); if (m.has(h.id)) m.delete(h.id); else m.add(h.id); setSel(m); return; }
-          const hm = h.model || model;
-          open(hm === "coder" ? { k: "thread", id: h.id, title: h.title || t.untitled } : { k: "chat", model: hm, id: h.id, title: h.title || t.untitled, pinned: h.pinned, archived: h.archived });
+          const hm = model;
+          open(c.bind.threadPage ? { k: "thread", id: h.id, title: h.title || t.untitled } : { k: "chat", model: hm, id: h.id, title: h.title || t.untitled, pinned: h.pinned, archived: h.archived });
         }} />
     );
   };
@@ -849,7 +837,7 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
   const [s, setS] = useState(me.settings);
   useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
   const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz" | "force" | "policy">("");
-  const isSham = s.model === "sham" || s.model === "sham_v2" || s.model === "sham_loop";
+  const isSham = c.bind.family === "sham";
   const [known, setKnown] = useState<Record<string, string> | null>(null);
   useEffect(() => {
     setKnown(null);
@@ -863,7 +851,7 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
   const [status, setStatus] = useState("");
   const { b } = useBilling(!owner);
   useEffect(() => {
-    void api<{ memories: unknown[] }>("memories").then((d) => setMemCount(d.memories.length)).catch(() => null);
+    if (c.bind.memory === "memories") void api<{ memories: unknown[] }>("memories", { model: c.bind.model }).then((d) => setMemCount(d.memories.length)).catch(() => null);
     void homeStatus().then(setHome);
     void bioSupported().then((ok) => setBioState((x) => ({ ...x, ok })));
   }, []);
@@ -875,7 +863,6 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
   const closeSheet = useCallback(() => setSheet(""), []);
   // the time zone decides when weekly usage resets and when scheduled tasks run: a user who never chose one gets the device's own zone
   const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
-  useEffect(() => { if (!me.settings.tz && deviceTz) void set({ tz: deviceTz }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   const TZS = ["Asia/Damascus", "Asia/Riyadh", "Asia/Baghdad", "Asia/Amman", "Asia/Beirut", "Asia/Dubai", "Africa/Cairo", "Africa/Casablanca", "Europe/Istanbul", "UTC"];
   const tzItems = [...new Set([deviceTz, ...TZS].filter(Boolean))].map((z) => ({ id: z, label: z, sub: z === deviceTz ? (lang === "ar" ? "منطقة جهازك" : "Your device's zone") : undefined }));
   const acc = s.accuracy || "balanced";
@@ -888,6 +875,7 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
     <div className="n-page">
       <div className="n-ph" lang={lang}><h1>{n.navSettings}</h1></div>
       <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
+        <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
         <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} value={n[`pol_${pol}` as "pol_adaptive"]} onClick={() => setSheet("policy")} />
         <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
         {owner && <Row icon="🔒" title={n.s_force} sub={n.s_forceSub} value={forcedNow ? tx(t, `acc_${forcedNow}`) : n.force_none} onClick={() => setSheet("force")} />}
@@ -913,12 +901,11 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
         </Card>
       )}
       <Card title={n.g_profile}>
-        <Row icon="👤" title={n.s_mem} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />
+        {c.bind.memory === "memories" && <Row icon="👤" title={fill(n.s_mem, { m: modelName(models, lang) })} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />}
         <Row icon="💎" title={n.s_plan} value={planLabel} tone={owner ? undefined : "var(--n-primary)"} onClick={() => open({ k: "billing" })} />
         <Row icon="🐙" title={n.s_github} value={gh.linked ? <span dir="ltr">{gh.login || t.linked}</span> : n.notLinked} onClick={() => open({ k: "connect" })} />
       </Card>
       <Card title={n.g_app}>
-        <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
         <Row icon="🌐" title={n.s_lang} value={lang === "ar" ? "العربية" : "English"} onClick={() => setSheet("lang")} />
         <Row icon="🎨" title={n.s_theme} value={themeLabel} onClick={() => setSheet("theme")} />
         <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} onClick={() => setSheet("tz")} />
@@ -927,7 +914,8 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
           after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={bio.on} disabled={bio.ok === false} aria-label={n.s_bio} onChange={async (e) => { const v = e.currentTarget.checked; const ok = await setBio(v); setBioState({ on: v && ok, ok: v ? ok : bio.ok }); haptic(ok ? "success" : "error"); }} /></span>} />
         <Row icon="🩺" title={n.s_status} value={status} chevron={false} onClick={async () => {
           setStatus("…");
-          try { const d = await api<Record<string, unknown>>("status"); setStatus(d.available === false ? `⚠️ ${t.serviceDown}` : `✅ ${t.serviceOk}`); } catch { setStatus(`⚠️ ${t.serviceDown}`); }
+          // the SELECTED model's own health (its own Studios), not Nova's
+          try { const d = await api<{ health?: Record<string, "ok" | "busy" | "down"> }>("model_health", {}, 40000); const h = d.health?.[c.bind.model]; setStatus(h === "down" || !h ? `⚠️ ${t.serviceDown}` : `✅ ${t.serviceOk}`); } catch { setStatus(`⚠️ ${t.serviceDown}`); }
         }} />
       </Card>
       {owner && (
@@ -1108,9 +1096,10 @@ export default function NovaApp() {
   const owner = me?.tier === "owner";
   const go = (x: Tab) => { haptic("select"); setPage(null); setTab(x); };
   const open = (p: Page) => setPage(p);
-  const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved } : null;
+  const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved, bind: bindingFor(me.settings.model) } : null;
+  const bound = ctx?.bind.model || "coder";
   const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "pricing" ? n.s_pricing : page.k === "panel" ? n.s_panel
-    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? n.s_mem : n.s_policy;
+    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : n.s_policy;
   return (
     <AppRoot appearance={appearance} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="nova"
       style={{ ...vars, paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
@@ -1136,20 +1125,20 @@ export default function NovaApp() {
                 : <div className="n-tg"><List><PolicySection t={t} me={ctx.me} lang={lang} /></List></div>}
             </>
           )
-          : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />
-          : tab === "chats" ? <Chats c={ctx} />
+          : tab === "home" ? <Home key={bound} c={ctx} firstName={getLaunch().firstName} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />
+          : tab === "chats" ? <Chats key={bound} c={ctx} modelLabel={modelName(models, lang)} />
           : tab === "computer" ? (ctx.me.features?.computer
-            ? <FreeComputer lang={lang} defaultModel={ctx.me.settings.model || "coder"} />
+            ? <FreeComputer key={ctx.bind.computer.model} lang={lang} model={ctx.bind.computer.model} home={ctx.bind.computer.home} modelLabel={modelName(models, lang)} />
             : <div className="n-page"><Fail t={t} msg={lang === "ar" ? "الحاسوب السحابي غير متاح لهذه الخطة." : "Cloud computer is not available on this plan."} retry={() => go("home")} /></div>)
-          : tab === "auto" ? <Schedules c={ctx} />
-          : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}
+          : tab === "auto" ? (ctx.bind.schedules ? <Schedules c={ctx} /> : <Home key={bound} c={ctx} firstName={getLaunch().firstName} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />)
+          : <Settings key={`${lang}:${bound}`} c={ctx} mode={mode} setMode={setMode} models={models} modelsError={modelsError} modelsLoading={modelsLoading} reloadModels={reloadModels} />}
       </main>
-      <Sheet open={Boolean(offer)} onClose={() => setOffer(null)} title={lang === "ar" ? "شاشة النموذج" : "The model's screen"}>
-        {offer ? <GraphicalDesktop key={offer.model + offer.id} model={offer.model} ar={lang === "ar"} /> : null}
+      <Sheet open={Boolean(offer && offer.model === bound)} onClose={() => setOffer(null)} title={lang === "ar" ? "شاشة النموذج" : "The model's screen"}>
+        {offer && offer.model === bound ? <GraphicalDesktop key={offer.model + offer.id} model={offer.model} ar={lang === "ar"} /> : null}
       </Sheet>
       {!page && ctx && (
         <nav className="n-nav" aria-label="Nova">
-          {TABS.filter((id) => id !== "computer" || ctx.me.features?.computer).map((id) => (
+          {TABS.filter((id) => (id !== "computer" || ctx.me.features?.computer) && (id !== "auto" || ctx.bind.schedules)).map((id) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => go(id)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={tab === id ? 2.4 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={NAV_ICON[id]} /></svg>
               {NAV_KEY[id] ? n[NAV_KEY[id]!] : NAV_LABEL[id][lang]}
