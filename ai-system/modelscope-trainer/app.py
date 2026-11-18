@@ -326,6 +326,10 @@ def _json_ok(path: Path) -> bool:
         return False
 
 
+# 2026-11-18: a cycle whose held-out score is at or below this is the all-UNK / pwd floor (seed 8 scored 0.067/0.083/0.071): never publish it.
+HELDOUT_PUBLISH_FLOOR = 0.2
+
+
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
     """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
     Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on verified failures (and, later, anonymized verified session results), kept only if held-out and previously-correct do not regress."""
@@ -421,8 +425,8 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     heldout = _num(res.get("heldout"), "same_effect")
-    if heldout is None or heldout <= 0.2:
-        print("tldm publish skipped: heldout={} is at the floor (need > 0.2)".format(heldout), flush=True)
+    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
+        print("tldm publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
     else:
         try:
             published = publish_tldm(work, seed, artifacts)
@@ -599,6 +603,15 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         key_file.write_text(key, encoding="utf-8")
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
+    heldout = sham2_flatten(res).get("heldout")
+    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
+        # same gate as run_tldm: a floor score (missing tokenizer / UNK reader / broken body) must never replace the served head
+        print("sham2 publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
+        out = {**sham2_flatten(res), "published": False, "hours": float(hours)}
+        print("sham2 done " + json.dumps(out), flush=True)
+        if runner is None:
+            time.sleep(1800)                                         # no tight loop on a floor result; a recipe change retrains
+        return out
     try:
         snap = work / "publish_snap"
         import shutil
@@ -1392,6 +1405,17 @@ if __name__ == "__main__":
         (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")                # identity data / config / trainer changed -> retrain, donor copy reused
         r3 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: "modelscope:novaai2026/" + n)
         assert len(ran) == 2 and fetched == ["novaai2026/sham-v2"] and r3["published"] and (_w2 / ".run_key").read_text(encoding="utf-8") == sham2_run_key()
+        # a floor held-out (broken reader / body) must not replace the served sham2 head
+        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")
+        sent_floor = []
+
+        def fake_sham2_floor(cmd, report, heads):
+            ran.append(cmd)
+            heads.write_bytes(b"h")
+            report.write_text(json.dumps({"train": {"same_effect": 0.07}, "heldout": {"same_effect": 0.083}, "heldout2": {"same_effect": 0.071}}), encoding="utf-8")
+            return 0
+        r4 = run_sham2(runner=fake_sham2_floor, fetch=fake_fetch, publish=lambda d, n, m: (sent_floor.append(n), "modelscope:novaai2026/" + n)[1])
+        assert r4["published"] is False and r4["heldout"] == 0.083 and sent_floor == [] and not (_w2 / ".published").exists(), (r4, sent_floor)
         os.environ.pop("TLDM_WORK", None)
         # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
         assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]
