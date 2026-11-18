@@ -5,7 +5,8 @@ describe("the model's own browser", () => {
   test("Nova 2 never borrows Nova's hub; its computer endpoint uses its own credential", () => {
     const prior = { hub: process.env.COMPUTER_STUDIO_URL, own: process.env.NOVA2_COMPUTER_STUDIO_URL,
       ownToken: process.env.NOVA2_COMPUTER_STUDIO_TOKEN, novaToken: process.env.MODELSCOPE_API_TOKEN,
-      ownMedia: process.env.NOVA2_MEDIA_STUDIO_URL, novaImage: process.env.NOVA_IMAGE_STUDIO_URL };
+      ownMedia: process.env.NOVA2_MEDIA_STUDIO_URL, novaImage: process.env.NOVA_IMAGE_STUDIO_URL,
+      shamMedia: process.env.SHAM_MEDIA_STUDIO_URL, sham2Media: process.env.SHAM_V2_MEDIA_STUDIO_URL };
     process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
     process.env.MODELSCOPE_API_TOKEN = "nova-token";
     try {
@@ -23,8 +24,11 @@ describe("the model's own browser", () => {
       expect(browserStudioFor("nova2")).toBeNull();
       process.env.NOVA_IMAGE_STUDIO_URL = "https://computer-nova2.example.test";
       expect(browserStudioFor("nova2")).toBeNull();
+      process.env.SHAM_MEDIA_STUDIO_URL = "https://computer-nova2.example.test";
+      expect(browserStudioFor("nova2")).toBeNull();
       delete process.env.NOVA2_MEDIA_STUDIO_URL;
       delete process.env.NOVA_IMAGE_STUDIO_URL;
+      delete process.env.SHAM_MEDIA_STUDIO_URL;
       expect(studioToken("https://computer-nova2.example.test")).toBe("nova2-token");
       expect(studioToken("https://computer-hub.example.test")).toBe("nova-token");
       process.env.NOVA2_COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
@@ -37,6 +41,8 @@ describe("the model's own browser", () => {
       if (prior.novaToken === undefined) delete process.env.MODELSCOPE_API_TOKEN; else process.env.MODELSCOPE_API_TOKEN = prior.novaToken;
       if (prior.ownMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = prior.ownMedia;
       if (prior.novaImage === undefined) delete process.env.NOVA_IMAGE_STUDIO_URL; else process.env.NOVA_IMAGE_STUDIO_URL = prior.novaImage;
+      if (prior.shamMedia === undefined) delete process.env.SHAM_MEDIA_STUDIO_URL; else process.env.SHAM_MEDIA_STUDIO_URL = prior.shamMedia;
+      if (prior.sham2Media === undefined) delete process.env.SHAM_V2_MEDIA_STUDIO_URL; else process.env.SHAM_V2_MEDIA_STUDIO_URL = prior.sham2Media;
     }
   });
 
