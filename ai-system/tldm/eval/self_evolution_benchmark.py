@@ -18,6 +18,7 @@ import importlib.util
 import json
 import os
 import random
+import shutil
 import sys
 import time
 
@@ -115,7 +116,7 @@ def main():
     def new_engine(arm, defences=True):
         m = load(ck)
         work = os.path.join(a.work, f"s{a.train_seed}_{arm}")
-        os.system(f"rm -rf '{work}'")
+        shutil.rmtree(work, ignore_errors=True)
         eng = EN.EvolutionEngine(m, cfg, tok, work, replay, [t for t, _ in held1 + held2], seed=a.train_seed, too_close=decon, executor=ex, defences=defences,
                                  min_consensus=2 if defences else 1)
         base_out = eng.commands([t for t, _ in replay150])
