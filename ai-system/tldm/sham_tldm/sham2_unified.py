@@ -757,7 +757,7 @@ def run_check_donor(donor_model_id: str, report_path: str | None = None) -> int:
         target = Path(report_path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(target.suffix + ".tmp")
-        temporary.write_text(rendered + "\\n", encoding="utf-8")
+        temporary.write_text(rendered + "\n", encoding="utf-8")
         os.replace(temporary, target)
     print(rendered, flush=True)
     if report.get("status") == "compatible":
