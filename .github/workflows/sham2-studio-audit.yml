@@ -1,4 +1,4 @@
-name: Sham 2 dedicated Studio audit (read-only; no Sham 1 paths)
+name: Sham 2 dedicated Studio audit (read-only; both ModelScope accounts, no Sham 1 workload)
 
 on:
   push:
@@ -14,80 +14,158 @@ jobs:
   audit:
     if: contains(github.event.head_commit.message, '[sham2-studio-audit]')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+    timeout-minutes: 30
     steps:
-      - name: Confirm the Sham 2 Studio endpoint and clone only that Studio repo
+      - name: Checkout the proven account routing and Studio inventory code
+        uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+          path: ops
+
+      - name: Inspect the two ModelScope accounts using the engineers' proven token routing
+        shell: bash
+        env:
+          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: \${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          echo "::add-mask::$T_AI"
+          test -n "$T_CN" || { echo "::error::MODELSCOPE_TOKEN (CN) is empty"; exit 1; }
+          test -n "$T_AI" || { echo "::error::MODELSCOPE_AI_TOKEN (AI) is empty"; exit 1; }
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, "ops/ai-system/modelscope-trainer")
+          import studio_guard
+          targets = [
+              ("cn", "novaai2026", "sham2-tldm", "SHAM 2 dedicated T-LDM training Studio"),
+              ("cn", "novaai2026", "sham-trainer-1", "CN Sham 1 trainer — inventory only"),
+              ("cn", "novaai2026", "sham-v2-server", "Sham v2 serving — inventory only"),
+              ("ai", "Jonjithup", "sham-trainer-1", "AI Sham 1 trainer — inventory only"),
+              ("ai", "Jonjithup", "sham-trainer-2", "AI Sham 1 trainer — inventory only"),
+              ("ai", "Jonjithup", "sham-trainer-tools", "AI Sham 1 tools trainer — inventory only"),
+              ("ai", "Jonjithup", "sham-runner-1", "AI generic self-hosted runner — NOT Sham 2"),
+          ]
+          records = []
+          for site, owner, name, role in targets:
+              token = os.environ["T_" + site.upper()]
+              status = studio_guard.studio_status(site, owner, name, token)
+              records.append({
+                  "site": site,
+                  "host": studio_guard.HOSTS[site],
+                  "account": owner,
+                  "studio": name,
+                  "role": role,
+                  "status": status,
+              })
+          out = {
+              "routing": {
+                  "cn_secret": "MODELSCOPE_TOKEN -> T_CN",
+                  "cn_host": studio_guard.HOSTS["cn"],
+                  "ai_secret": "MODELSCOPE_AI_TOKEN -> T_AI",
+                  "ai_host": studio_guard.HOSTS["ai"],
+                  "auth_header": "Authorization: Bearer <site-specific token>",
+                  "source": "ops/ai-system/modelscope-trainer/studio_guard.py",
+              },
+              "studios": records,
+          }
+          Path(os.environ["RUNNER_TEMP"], "sham2-studio-audit").mkdir(parents=True, exist_ok=True)
+          Path(os.environ["RUNNER_TEMP"], "sham2-studio-audit", "account_studio_status.json").write_text(
+              json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          if not records[0]["status"] or records[0]["status"].startswith("HTTP "):
+              raise SystemExit("The dedicated CN Sham 2 Studio status could not be read")
+          PY
+
+      - name: List complete CN and AI Studio inventories using the existing list utility
+        shell: bash
+        env:
+          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: \${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          echo "::add-mask::$T_AI"
+          mkdir -p "$RUNNER_TEMP/sham2-studio-audit"
+          SITE=cn T="$T_CN" python3 ops/scripts/ops/modelscope_studios_list.py \
+            2>&1 | tee "$RUNNER_TEMP/sham2-studio-audit/cn_studios_inventory.txt"
+          SITE=ai T="$T_AI" python3 ops/scripts/ops/modelscope_studios_list.py \
+            2>&1 | tee "$RUNNER_TEMP/sham2-studio-audit/ai_studios_inventory.txt"
+
+      - name: Clone only the dedicated CN Sham 2 training Studio using the proven deploy workflow URL
+        shell: bash
+        env:
+          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          mkdir -p "$RUNNER_TEMP/sham2-studio-audit/source"
+          GIT_TERMINAL_PROMPT=0 git clone --quiet \
+            "https://oauth2:\${T_CN}@www.modelscope.cn/studios/novaai2026/sham2-tldm.git" \
+            "$RUNNER_TEMP/sham2-studio-audit/source/sham2-tldm" \
+            2> "$RUNNER_TEMP/sham2-studio-audit/clone_stderr.log" || {
+              sed "s/\${T_CN}/***/g" "$RUNNER_TEMP/sham2-studio-audit/clone_stderr.log"
+              exit 1
+            }
+          cd "$RUNNER_TEMP/sham2-studio-audit/source/sham2-tldm"
+          git rev-parse HEAD > "$RUNNER_TEMP/sham2-studio-audit/sham2_studio_git_sha.txt"
+          git ls-tree -r --name-only HEAD > "$RUNNER_TEMP/sham2-studio-audit/sham2_studio_files.txt"
+          echo "CN Sham 2 Studio file inventory:"
+          cat "$RUNNER_TEMP/sham2-studio-audit/sham2_studio_files.txt"
+
+      - name: Export a bounded, credential-redacted copy of source code for exact review
         shell: bash
         run: |
           set -euo pipefail
-          echo "::add-mask::$MODELSCOPE_TOKEN"
-          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Existing MODELSCOPE_TOKEN repository secret is empty"; exit 1; }
-          mkdir -p "$RUNNER_TEMP/sham2-studio-audit/source"
           python3 - <<'PY'
-          import json, os
-          from urllib.request import Request, urlopen
-          token = os.environ["MODELSCOPE_TOKEN"]
-          url = "https://www.modelscope.cn/openapi/v1/studios/novaai2026/sham2-tldm"
-          req = Request(url, headers={"Authorization": "Bearer " + token})
-          with urlopen(req, timeout=45) as response:
-              data = json.loads(response.read().decode("utf-8"))
-          d = data.get("data") or data.get("Data") or {}
-          runtime = d.get("runtime") or {}
-          result = {
-              "studio_id": "novaai2026/sham2-tldm",
-              "api_success": bool(data.get("success", True)),
-              "studio_name": d.get("name") or d.get("repo_name"),
-              "owner": d.get("owner") or "novaai2026",
-              "sdk_type": d.get("sdk_type"),
-              "runtime_status": runtime.get("status") or d.get("status"),
-              "visibility": d.get("visibility"),
-          }
-          print(json.dumps(result, ensure_ascii=False, indent=2))
-          open(os.path.join(os.environ["RUNNER_TEMP"], "sham2-studio-audit", "studio_metadata.json"), "w").write(json.dumps(result, ensure_ascii=False, indent=2))
-          PY
-          GIT_TERMINAL_PROMPT=0 git clone --quiet "https://oauth2:\${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/sham2-tldm.git" "$RUNNER_TEMP/sham2-studio-audit/source/studio"
-          cd "$RUNNER_TEMP/sham2-studio-audit/source/studio"
-          git rev-parse HEAD > "$RUNNER_TEMP/sham2-studio-audit/studio_git_sha.txt"
-          git ls-tree -r --name-only HEAD > "$RUNNER_TEMP/sham2-studio-audit/studio_files.txt"
-          echo "Dedicated Studio file inventory:"
-          sed -n '1,240p' "$RUNNER_TEMP/sham2-studio-audit/studio_files.txt"
-          python3 - <<'PY'
-          import os, pathlib, shutil
+          import json, os, pathlib, re
           root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "sham2-studio-audit"
-          src = root / "source" / "studio"
+          src = root / "source" / "sham2-tldm"
           review = root / "review"
           review.mkdir(parents=True, exist_ok=True)
           extensions = {".py", ".md", ".yaml", ".yml", ".toml", ".json", ".txt", ".sh"}
-          skipped = []
-          total = 0
+          sensitive_names = {".env", ".env.local", ".secrets", "secrets.json", "credentials.json"}
+          patterns = [
+              (re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._~+/-]{12,}'), r'\1[REDACTED]'),
+              (re.compile(r"""(?i)((?:token|password|secret|api[_-]?key)\s*[=:]\s*)["']?[^"'\s,}]{8,}"""), r'\1[REDACTED]'),
+              (re.compile(r'(?i)(https?://oauth2:)[^@/]+(@)'), r'\1[REDACTED]\2'),
+          ]
+          skipped, copied, total = [], [], 0
           for p in src.rglob("*"):
-              if not p.is_file() or ".git" in p.parts:
+              if not p.is_file() or ".git" in p.parts or p.name.lower() in sensitive_names:
                   continue
               rel = p.relative_to(src)
               if p.suffix.lower() not in extensions and p.name not in {"Dockerfile", "requirements.txt"}:
                   continue
               size = p.stat().st_size
               if size > 2_000_000 or total + size > 12_000_000:
-                  skipped.append({"path": str(rel), "bytes": size, "reason": "review bundle size limit"})
+                  skipped.append({"path": str(rel), "bytes": size, "reason": "review bundle size cap"})
                   continue
+              try:
+                  text = p.read_text(encoding="utf-8")
+              except (UnicodeError, OSError):
+                  skipped.append({"path": str(rel), "bytes": size, "reason": "not UTF-8 text"})
+                  continue
+              for pattern, replacement in patterns:
+                  text = pattern.sub(replacement, text)
               dest = review / rel
               dest.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copy2(p, dest)
-              total += size
+              dest.write_text(text, encoding="utf-8")
+              total += len(text.encode("utf-8"))
+              copied.append(str(rel))
           (root / "review_manifest.json").write_text(
-              __import__("json").dumps({"bytes_copied": total, "skipped": skipped}, ensure_ascii=False, indent=2) + "\\n",
+              json.dumps({"copied": copied, "skipped": skipped, "bytes_copied": total}, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
-          print(f"review source bytes copied: {total}")
-          print(f"files omitted by size cap: {len(skipped)}")
+          print(f"copied {len(copied)} reviewed source files; skipped {len(skipped)}; {total} bytes")
           PY
 
-      - name: Upload exact Studio source snapshot for review
+      - name: Upload the CN and AI account map and the dedicated Sham 2 Studio source
         uses: actions/upload-artifact@v4
         with:
-          name: sham2-dedicated-studio-readonly-\${{ github.run_id }}
+          name: sham2-studio-map-and-source-\${{ github.run_id }}
           path: \${{ runner.temp }}/sham2-studio-audit/
           if-no-files-found: error
           retention-days: 30
