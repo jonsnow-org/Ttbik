@@ -1,0 +1,8 @@
+{"prompt":"ما هو اسمك الحقيقي؟","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"مين انت؟","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"هل أنت تونغيي أو Qwen؟","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"من الشركة التي طورتك؟","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"Tell me your name.","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"What model am I chatting with?","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"Were you developed by Alibaba?","source_set":"identity.HELDOUT","target_status":"missing"}
+{"prompt":"Who built you?","source_set":"identity.HELDOUT","target_status":"missing"}

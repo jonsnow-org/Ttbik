@@ -1,0 +1,30 @@
+{"prompt":"list files","target":"ls","stage":"terminal"}
+{"prompt":"show the current folder","target":"pwd","stage":"terminal"}
+{"prompt":"how many files are here","target":"ls | wc -l","stage":"terminal"}
+{"prompt":"show the readme","target":"cat README.md","stage":"terminal"}
+{"prompt":"first 3 lines of the log","target":"head -n 3 app.log","stage":"terminal"}
+{"prompt":"last 2 lines of the log","target":"tail -n 2 app.log","stage":"terminal"}
+{"prompt":"count the lines in the log","target":"wc -l app.log","stage":"terminal"}
+{"prompt":"find the errors in the log","target":"grep ERROR app.log","stage":"terminal"}
+{"prompt":"sort the names","target":"sort names.txt","stage":"terminal"}
+{"prompt":"unique names","target":"sort names.txt | uniq","stage":"terminal"}
+{"prompt":"create a backup folder","target":"mkdir backup","stage":"terminal"}
+{"prompt":"create an empty file notes.txt","target":"touch notes.txt","stage":"terminal"}
+{"prompt":"write hello to hello.txt","target":"echo hello > hello.txt","stage":"terminal"}
+{"prompt":"what is the date","target":"date","stage":"terminal"}
+{"prompt":"count from 1 to 5","target":"seq 1 5","stage":"terminal"}
+{"prompt":"Organize files","target":"python3 organize.py","stage":"terminal"}
+{"prompt":"count the words in the readme","target":"wc -w README.md","stage":"terminal"}
+{"prompt":"add up 1 to 100","target":"python3 -c \"print(sum(range(1,101)))\"","stage":"terminal"}
+{"prompt":"show lines with INFO","target":"grep INFO app.log","stage":"terminal"}
+{"prompt":"how many errors are in the log","target":"grep ERROR app.log | wc -l","stage":"terminal"}
+{"prompt":"اعرض الملفات","target":"ls","stage":"terminal"}
+{"prompt":"اعرض المجلد الحالي","target":"pwd","stage":"terminal"}
+{"prompt":"اعرض ملف readme","target":"cat README.md","stage":"terminal"}
+{"prompt":"رتب الاسماء","target":"sort names.txt","stage":"terminal"}
+{"prompt":"نظم الملفات","target":"python3 organize.py","stage":"terminal"}
+{"prompt":"كم سطرا في السجل","target":"wc -l app.log","stage":"terminal"}
+{"prompt":"ابحث عن الاخطاء في السجل","target":"grep ERROR app.log","stage":"terminal"}
+{"prompt":"أنشئ ملف todo.txt","target":"touch todo.txt","stage":"terminal"}
+{"prompt":"ما هو التاريخ","target":"date","stage":"terminal"}
+{"prompt":"اكتب مرحبا في greet.txt","target":"echo marhaba > greet.txt","stage":"terminal"}

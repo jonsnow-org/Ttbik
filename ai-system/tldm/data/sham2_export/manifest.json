@@ -1,0 +1,112 @@
+{
+  "format": "sham2-jsonl-source-manifest-v1",
+  "schema": {
+    "training_line": {
+      "prompt": "string",
+      "target": "string",
+      "stage": "identity|terminal"
+    },
+    "heldout_line": {
+      "prompt": "string",
+      "target": "string",
+      "source_set": "terminal_tasks.HELDOUT|rewordings.HELDOUT2"
+    }
+  },
+  "output_dir": "/home/runner/work/Ttbik/Ttbik/ai-system/tldm/data/sham2_export",
+  "files": {
+    "identity.jsonl": {
+      "rows": 16,
+      "source": "ai-system/tldm/data/identity.py:TRAIN"
+    },
+    "terminal_tasks.jsonl": {
+      "rows": 30,
+      "source": "ai-system/tldm/data/terminal_tasks.py:TRAIN"
+    },
+    "train.jsonl": {
+      "rows": 46,
+      "contains_stages": [
+        "identity",
+        "terminal"
+      ]
+    },
+    "terminal_heldout.jsonl": {
+      "rows": 12,
+      "source": "ai-system/tldm/data/terminal_tasks.py:HELDOUT"
+    },
+    "heldout2.jsonl": {
+      "rows": 14,
+      "source": "ai-system/tldm/data/rewordings.py:HELDOUT2"
+    },
+    "heldout.jsonl": {
+      "rows": 26,
+      "contains": [
+        "terminal_heldout.jsonl",
+        "heldout2.jsonl"
+      ]
+    },
+    "identity_heldout_prompts.jsonl": {
+      "rows": 8,
+      "source": "ai-system/tldm/data/identity.py:HELDOUT",
+      "usable_as_supervised_heldout": false,
+      "reason": "The source contains prompts only and no reference targets; no answers were invented."
+    }
+  },
+  "stages": {
+    "identity": {
+      "status": "available",
+      "source": "ai-system/tldm/data/identity.py:TRAIN",
+      "rows": 16
+    },
+    "terminal": {
+      "status": "available",
+      "source": "ai-system/tldm/data/terminal_tasks.py:TRAIN",
+      "rows": 30,
+      "scope": "fixed prompt-to-shell-command pairs only; not live tool traces"
+    },
+    "tools": {
+      "status": "missing",
+      "source_checked": "ai-system/colab/sham_small/sham_tools_data.py",
+      "reason": "The file contains catalog/template fixtures and stochastic synthetic example builders, but no fixed verified real-tool trace dataset. It was not exported or randomized."
+    },
+    "arabic": {
+      "status": "missing",
+      "source_checked": "ai-system/colab/sham_small/sham_v2_train.py:arabic_replay_pairs",
+      "reason": "General Arabic pairs are streamed from external datasets (CIDAR/Aya) and are not committed as a fixed local corpus. Identity examples are narrow identity supervision, not a general Arabic dataset."
+    }
+  },
+  "missing_required_stages": [
+    "tools",
+    "arabic"
+  ],
+  "training": {
+    "status": "partial, not full",
+    "performed": false,
+    "available_stages": [
+      "identity",
+      "terminal"
+    ],
+    "missing_stages": [
+      "tools",
+      "arabic"
+    ],
+    "full_training_ready": false
+  },
+  "minimum_stage_requirements": {
+    "tools": {
+      "minimum_train_records": 1000,
+      "minimum_heldout_records": 100,
+      "minimum_records_per_exposed_tool": 20,
+      "requires_real_executed_calls_and_observed_results": true
+    },
+    "arabic": {
+      "minimum_train_records": 10000,
+      "minimum_heldout_records": 1000,
+      "minimum_arabic_target_fraction": 0.9,
+      "requires_downloaded_frozen_cidar_or_aya_revision": true
+    }
+  },
+  "random_generation_used": false,
+  "remote_dataset_download_used": false,
+  "training_performed": false,
+  "gate_performed": false
+}

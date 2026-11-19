@@ -1,0 +1,12 @@
+{"prompt":"show me all the files","target":"ls","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"which folder am I in","target":"pwd","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"print the readme file","target":"cat README.md","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"tidy up the files","target":"python3 organize.py","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"number of lines in the log","target":"wc -l app.log","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"sort the names file","target":"sort names.txt","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"make an empty file called todo.txt","target":"touch todo.txt","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"show errors from the log","target":"grep ERROR app.log","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"today's date","target":"date","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"list the files here","target":"ls","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"نظّم الملفات","target":"python3 organize.py","source_set":"terminal_tasks.HELDOUT"}
+{"prompt":"اعرض كل الملفات","target":"ls","source_set":"terminal_tasks.HELDOUT"}

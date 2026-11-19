@@ -1,0 +1,18 @@
+{
+    "model_id": "novaai2026/sham-v2",
+    "filename": "final_merged.pt",
+    "status": "not_checked",
+    "compatible": null,
+    "reasons": [
+        "ModelScope donor download/resolve failed: HTTPError: [E3020] [404] \u83b7\u53d6\u6a21\u578b\u76ee\u5f55\u6811\u5931\u8d25\uff0c\u4fe1\u606f\uff1a\u83b7\u53d6\u6a21\u578b\u5931\u8d25 (request_id=b18f8507-a6c7-429a-a4a9-8597cc38241b) | code=10010200001\n  Request: GET https://modelscope.cn/api/v1/models/novaai2026/sham-v2/repo/files?Revision=master&Recursive=True\n  Response: {'Code': 10010200001, 'Message': '\u83b7\u53d6\u6a21\u578b\u76ee\u5f55\u6811\u5931\u8d25\uff0c\u4fe1\u606f\uff1a\u83b7\u53d6\u6a21\u578b\u5931\u8d25', 'RequestId': 'b18f8507-a6c7-429a-a4a9-8597cc38241b', 'Success': False}"
+    ],
+    "file_size_bytes": null,
+    "checkpoint_root_keys": [],
+    "tensor_count": 0,
+    "dtype_counts": {},
+    "tensors": [],
+    "missing_keys": [],
+    "unexpected_keys": [],
+    "shape_mismatches": [],
+    "dtype_mismatches": []
+}

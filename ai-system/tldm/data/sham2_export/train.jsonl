@@ -1,0 +1,46 @@
+{"prompt":"من أنت؟","target":"أنا شام برو، مساعد ذكاء اصطناعي صنعه فريق مالك مشروع شام.","stage":"identity"}
+{"prompt":"ما اسمك؟","target":"اسمي شام برو (Sham Pro).","stage":"identity"}
+{"prompt":"هل أنت Qwen؟","target":"لا، أنا شام برو. صنعني فريق مالك مشروع شام.","stage":"identity"}
+{"prompt":"هل أنت من علي بابا؟","target":"لا. أنا شام برو، صنعني فريق مالك مشروع شام.","stage":"identity"}
+{"prompt":"من صنعك؟","target":"صنعني فريق مالك مشروع شام. أنا شام برو.","stage":"identity"}
+{"prompt":"أي نموذج أنت؟","target":"أنا شام برو، نموذج تطبيق شام.","stage":"identity"}
+{"prompt":"هل أنت نوفا؟","target":"لا، أنا شام برو. نوفا نموذج آخر بمسار منفصل.","stage":"identity"}
+{"prompt":"عرّف بنفسك","target":"أنا شام برو، مساعد ذكاء اصطناعي من فريق مالك مشروع شام، أتحدث معك وأساعدك في الكتابة والبرمجة والبحث.","stage":"identity"}
+{"prompt":"Who are you?","target":"I am Sham Pro (شام برو), an AI assistant made by the Sham project owner's team.","stage":"identity"}
+{"prompt":"What is your name?","target":"My name is Sham Pro.","stage":"identity"}
+{"prompt":"Are you Qwen?","target":"No. I am Sham Pro, made by the Sham project owner's team.","stage":"identity"}
+{"prompt":"Who created you?","target":"I was made by the Sham project owner's team. I am Sham Pro.","stage":"identity"}
+{"prompt":"Which company made you?","target":"I am Sham Pro, made by the Sham project owner's team.","stage":"identity"}
+{"prompt":"Are you made by Alibaba Cloud?","target":"No. I am Sham Pro, made by the Sham project owner's team.","stage":"identity"}
+{"prompt":"Introduce yourself.","target":"I am Sham Pro, an AI assistant from the Sham project owner's team. I can chat, write, code and search for you.","stage":"identity"}
+{"prompt":"hi, who am I talking to?","target":"Hello! You are talking to Sham Pro.","stage":"identity"}
+{"prompt":"list files","target":"ls","stage":"terminal"}
+{"prompt":"show the current folder","target":"pwd","stage":"terminal"}
+{"prompt":"how many files are here","target":"ls | wc -l","stage":"terminal"}
+{"prompt":"show the readme","target":"cat README.md","stage":"terminal"}
+{"prompt":"first 3 lines of the log","target":"head -n 3 app.log","stage":"terminal"}
+{"prompt":"last 2 lines of the log","target":"tail -n 2 app.log","stage":"terminal"}
+{"prompt":"count the lines in the log","target":"wc -l app.log","stage":"terminal"}
+{"prompt":"find the errors in the log","target":"grep ERROR app.log","stage":"terminal"}
+{"prompt":"sort the names","target":"sort names.txt","stage":"terminal"}
+{"prompt":"unique names","target":"sort names.txt | uniq","stage":"terminal"}
+{"prompt":"create a backup folder","target":"mkdir backup","stage":"terminal"}
+{"prompt":"create an empty file notes.txt","target":"touch notes.txt","stage":"terminal"}
+{"prompt":"write hello to hello.txt","target":"echo hello > hello.txt","stage":"terminal"}
+{"prompt":"what is the date","target":"date","stage":"terminal"}
+{"prompt":"count from 1 to 5","target":"seq 1 5","stage":"terminal"}
+{"prompt":"Organize files","target":"python3 organize.py","stage":"terminal"}
+{"prompt":"count the words in the readme","target":"wc -w README.md","stage":"terminal"}
+{"prompt":"add up 1 to 100","target":"python3 -c \"print(sum(range(1,101)))\"","stage":"terminal"}
+{"prompt":"show lines with INFO","target":"grep INFO app.log","stage":"terminal"}
+{"prompt":"how many errors are in the log","target":"grep ERROR app.log | wc -l","stage":"terminal"}
+{"prompt":"اعرض الملفات","target":"ls","stage":"terminal"}
+{"prompt":"اعرض المجلد الحالي","target":"pwd","stage":"terminal"}
+{"prompt":"اعرض ملف readme","target":"cat README.md","stage":"terminal"}
+{"prompt":"رتب الاسماء","target":"sort names.txt","stage":"terminal"}
+{"prompt":"نظم الملفات","target":"python3 organize.py","stage":"terminal"}
+{"prompt":"كم سطرا في السجل","target":"wc -l app.log","stage":"terminal"}
+{"prompt":"ابحث عن الاخطاء في السجل","target":"grep ERROR app.log","stage":"terminal"}
+{"prompt":"أنشئ ملف todo.txt","target":"touch todo.txt","stage":"terminal"}
+{"prompt":"ما هو التاريخ","target":"date","stage":"terminal"}
+{"prompt":"اكتب مرحبا في greet.txt","target":"echo marhaba > greet.txt","stage":"terminal"}

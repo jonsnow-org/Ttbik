@@ -1,0 +1,14 @@
+{"prompt":"what files do we have","target":"ls","source_set":"rewordings.HELDOUT2"}
+{"prompt":"where am I right now","target":"pwd","source_set":"rewordings.HELDOUT2"}
+{"prompt":"open the readme","target":"cat README.md","source_set":"rewordings.HELDOUT2"}
+{"prompt":"give me the top 3 lines of app.log","target":"head -n 3 app.log","source_set":"rewordings.HELDOUT2"}
+{"prompt":"the final two lines of the log please","target":"tail -n 2 app.log","source_set":"rewordings.HELDOUT2"}
+{"prompt":"search the log for ERROR","target":"grep ERROR app.log","source_set":"rewordings.HELDOUT2"}
+{"prompt":"put the names in alphabetical order","target":"sort names.txt","source_set":"rewordings.HELDOUT2"}
+{"prompt":"names without duplicates","target":"sort names.txt | uniq","source_set":"rewordings.HELDOUT2"}
+{"prompt":"make a folder named backup","target":"mkdir backup","source_set":"rewordings.HELDOUT2"}
+{"prompt":"what day is it","target":"date","source_set":"rewordings.HELDOUT2"}
+{"prompt":"arrange the files into folders","target":"python3 organize.py","source_set":"rewordings.HELDOUT2"}
+{"prompt":"كم ملفا هنا","target":"ls | wc -l","source_set":"rewordings.HELDOUT2"}
+{"prompt":"رتّب الملفات في مجلدات","target":"python3 organize.py","source_set":"rewordings.HELDOUT2"}
+{"prompt":"اعرض آخر سطرين من السجل","target":"tail -n 2 app.log","source_set":"rewordings.HELDOUT2"}
