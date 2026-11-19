@@ -112,7 +112,7 @@ jobs:
           }
           set_secret MODELSCOPE_API_TOKEN "$T_CN"
           set_secret MODELSCOPE_DOMAIN "www.modelscope.cn"
-          set_secret MODELSCOPE_ENDPOINT "https://modelscope.cn"
+          set_secret MODELSCOPE_ENDPOINT "https://www.modelscope.cn"
           set_secret SHAM_MS_OWNER "novaai2026"
           set_secret SITE "cn"
           set_secret SHAM_TRAINER_JOB "tldm"
