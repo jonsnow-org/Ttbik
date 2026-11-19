@@ -53,7 +53,7 @@ import torch.nn.functional as F
 @dataclass
 class Sham2UnifiedConfig:
     # الجسم المانح — مجمّد دائماً، لا يُدرَّب أبداً
-    donor_id: str = "Qwen/Qwen3-1.7B"          # المخدوم. البديل: "HuggingFaceTB/SmolLM3-3B" (مرشح، يحتاج بوابة)
+    donor_id: str = ""                         # لا يوجد مانح افتراضي؛ يجب تمرير checkpoint محلي موثّق
     d_model: int = 2048                          # Qwen3-1.7B. SmolLM3: 2048 أيضاً
     n_layers: int = 28                            # Qwen3-1.7B: 28. SmolLM3: 36 (يُقرأ من المانح تلقائياً)
     vocab_size: int = 151936                      # Qwen3. SmolLM3: 139540 — يُقرأ من المانح
@@ -586,10 +586,16 @@ def apply_codebook_to_donor_embedding(donor_embedding: torch.Tensor, codebook: t
     C = (C - C.mean(0)) / (C.std() + 1e-8)
     d = donor_embedding.shape[1]
     if C.shape[1] > d:
-        projection = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T
+        # (code_dim, model_dim)
+        projection = torch.linalg.qr(
+            torch.randn(C.shape[1], d, generator=g)
+        ).Q
         X = C @ projection
     elif C.shape[1] < d:
-        projection = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T
+        # QR on (model_dim, code_dim), then transpose to (code_dim, model_dim).
+        projection = torch.linalg.qr(
+            torch.randn(d, C.shape[1], generator=g)
+        ).Q.T
         X = C @ projection
     else:
         X = C
