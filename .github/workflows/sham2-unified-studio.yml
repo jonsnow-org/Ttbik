@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 360
     env:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
-      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_ID: 44497531639-1
       OWNER: novaai2026
       REPO: sham2-tldm
       MS: https://www.modelscope.cn
