@@ -396,6 +396,30 @@ def _repo_root() -> Path:
 MODELSCOPE_DONOR_REPO = "novaai2026/sham-v2"
 MODELSCOPE_DONOR_FILENAME = "final_merged.pt"
 MODELSCOPE_TOKENIZER_FILENAME = "sham_small_tokenizer.json"
+MODELSCOPE_CN_ENDPOINT = "https://www.modelscope.cn"
+
+
+def _modelscope_auth() -> Tuple[str, str]:
+    """Return the existing CN-site token and matching endpoint; never fall back to the international token."""
+    token = (
+        os.environ.get("T_CN")
+        or os.environ.get("MODELSCOPE_TOKEN")
+        or os.environ.get("MODELSCOPE_API_TOKEN")
+        or ""
+    ).strip()
+    if not token:
+        raise RuntimeError(
+            "ModelScope CN credential is missing: supply the repository's existing MODELSCOPE_TOKEN secret as T_CN"
+        )
+    endpoint = (os.environ.get("MODELSCOPE_ENDPOINT") or "").strip().rstrip("/")
+    if not endpoint:
+        domain = (os.environ.get("MODELSCOPE_DOMAIN") or "www.modelscope.cn").strip()
+        endpoint = domain if domain.startswith("http") else "https://" + domain
+    if "modelscope.ai" in endpoint:
+        raise RuntimeError(
+            f"wrong ModelScope site for private CN donor {MODELSCOPE_DONOR_REPO}: endpoint={endpoint}"
+        )
+    return token, endpoint
 
 
 def _snapshot_file(snapshot_root: str | Path, filename: str) -> Path:
@@ -421,25 +445,32 @@ def resolve_modelscope_inputs(donor_model_id: str, tokenizer_model_id: str) -> T
         raise RuntimeError(
             "ModelScope SDK is unavailable; install the official modelscope package in the execution environment"
         ) from exc
+    token, endpoint = _modelscope_auth()
+
+    # Explicit token + site endpoint are required for private repositories. The
+    # default unauthenticated SDK call previously surfaced a misleading 404.
+    def download(model_id: str, patterns: List[str]) -> str:
+        return snapshot_download(
+            model_id,
+            allow_patterns=patterns,
+            max_workers=1,
+            token=token,
+            endpoint=endpoint,
+        )
 
     if donor_model_id == tokenizer_model_id:
-        snapshot_root = snapshot_download(
+        snapshot_root = download(
             donor_model_id,
-            allow_patterns=[MODELSCOPE_DONOR_FILENAME, MODELSCOPE_TOKENIZER_FILENAME],
-            max_workers=1,
+            [MODELSCOPE_DONOR_FILENAME, MODELSCOPE_TOKENIZER_FILENAME],
         )
         donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
         tokenizer_path = _snapshot_file(snapshot_root, MODELSCOPE_TOKENIZER_FILENAME)
     else:
-        donor_root = snapshot_download(
-            donor_model_id,
-            allow_patterns=[MODELSCOPE_DONOR_FILENAME],
-            max_workers=1,
+        donor_root = download(
+            donor_model_id, [MODELSCOPE_DONOR_FILENAME]
         )
-        tokenizer_root = snapshot_download(
-            tokenizer_model_id,
-            allow_patterns=[MODELSCOPE_TOKENIZER_FILENAME],
-            max_workers=1,
+        tokenizer_root = download(
+            tokenizer_model_id, [MODELSCOPE_TOKENIZER_FILENAME]
         )
         donor_path = _snapshot_file(donor_root, MODELSCOPE_DONOR_FILENAME)
         tokenizer_path = _snapshot_file(tokenizer_root, MODELSCOPE_TOKENIZER_FILENAME)
@@ -479,6 +510,7 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
     report = {
         "model_id": donor_model_id,
         "filename": MODELSCOPE_DONOR_FILENAME,
+        "authentication": "explicit ModelScope CN site token (value never logged)",
         "status": "not_checked",
         "compatible": None,
         "reasons": [],
@@ -500,10 +532,14 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         )
         return report
     try:
+        token, endpoint = _modelscope_auth()
+        report["endpoint"] = endpoint
         snapshot_root = snapshot_download(
             donor_model_id,
             allow_patterns=[MODELSCOPE_DONOR_FILENAME],
             max_workers=1,
+            token=token,
+            endpoint=endpoint,
         )
         donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
         report["file_size_bytes"] = donor_path.stat().st_size
@@ -1257,6 +1293,23 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
 
     out.mkdir(parents=True, exist_ok=True)
     stage_steps = {"identity": 60, "tools": 400, "arabic": 200, "terminal": 600}
+    lora_trainable = [
+        p for name, p in model.named_parameters()
+        if p.requires_grad and (".lora_A" in name or ".lora_B" in name)
+    ]
+    head_trainable = [
+        p for name, p in model.named_parameters()
+        if p.requires_grad and name.startswith(("compressor.", "thinker.", "writer."))
+    ]
+    if not lora_trainable or not head_trainable:
+        raise RuntimeError("rank-16 LoRA and T-LDM head must both have trainable parameters")
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": head_trainable, "lr": cfg.lr},
+            {"params": lora_trainable, "lr": cfg.lora_lr},
+        ],
+        betas=(0.9, 0.95), weight_decay=0.0,
+    )
     report = {
         "format": "sham2-unified-real-data-report-v1",
         "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM",
@@ -1280,6 +1333,11 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         "train_examples_by_stage": {
             s: sum(1 for row in train_rows if row["stage"] == s) for s in stages
         },
+        "train_examples_total": len(train_rows),
+        "heldout_examples_by_source": {
+            source: sum(1 for row in raw_heldout if row.get("source_set") == source)
+            for source in ("terminal_tasks.HELDOUT", "rewordings.HELDOUT2")
+        },
         "heldout_examples": len(heldout_rows),
         "lora_rank": 16,
         "lora_alpha": 32,
@@ -1300,10 +1358,6 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         rows = [row for row in train_rows if row["stage"] == stage_name]
         if not rows:
             raise ValueError(f"stage {stage_name} has no real training examples")
-        lr = cfg.lora_lr if stage_name in ("identity", "tools") else cfg.lr
-        optimizer = torch.optim.AdamW(
-            trainable, lr=lr, betas=(0.9, 0.95), weight_decay=0.0
-        )
         losses = []
         steps = stage_steps[stage_name]
         model.train()
@@ -1329,6 +1383,7 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         report["stages"].append({
             "stage": stage_name,
             "steps": steps,
+            "loss_initial": losses[0],
             "examples_available": len(rows),
             "loss_mean": sum(losses) / len(losses),
             "loss_last": losses[-1],
@@ -1346,6 +1401,7 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
                 float(F.cross_entropy(logits[0].float(), target_ids).cpu())
             )
             exact += int(torch.equal(logits[0].argmax(dim=-1), target_ids))
+    report["final_training_loss"] = report["stages"][-1]["loss_last"]
     report["heldout_metrics"] = {
         "examples": len(heldout_rows),
         "mean_cross_entropy": sum(heldout_losses) / len(heldout_losses),
@@ -1366,7 +1422,13 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
 
     donor_sha = file_sha256(donor_file)
     payload = {
-        "format": "sham2-unified-heads-v1",
+        "format": "sham2-unified-heads-v2",
+        "training_scope": "full" if full_training else "partial, not full",
+        "trained_stages": list(stages),
+        "missing_full_stages": list(missing_full_stages),
+        "train_data_sha256": report["train_data_sha256"],
+        "heldout_data_sha256": report["heldout_data_sha256"],
+        "data_manifest_sha256": report["data_manifest_sha256"],
         "heads": heads_state,
         "lora": lora_state,
         "config": cfg.__dict__,
@@ -1380,8 +1442,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     torch.save(payload, tmp_path)
     os.replace(tmp_path, save_path)
     report["donor_sha256"] = donor_sha
+    report["artifact_format"] = payload["format"]
     report["artifact"] = str(save_path)
     report["artifact_size_bytes"] = save_path.stat().st_size
+    report["artifact_sha256"] = file_sha256(save_path)
     report_path = out / "sham2_report.json"
     tmp_report = out / "sham2_report.json.tmp"
     tmp_report.write_text(
@@ -1404,8 +1468,14 @@ def load_sham2_heads(model: Sham2Unified, heads_path: str,
     if not path.is_file() or path.stat().st_size == 0:
         raise FileNotFoundError(f"heads checkpoint is missing or empty: {path}")
     payload = torch.load(path, map_location="cpu", weights_only=False)
-    if payload.get("format") != "sham2-unified-heads-v1":
+    artifact_format = payload.get("format")
+    if artifact_format not in ("sham2-unified-heads-v1", "sham2-unified-heads-v2"):
         raise RuntimeError("heads file is not a verified Sham 2 unified artifact")
+    if artifact_format == "sham2-unified-heads-v2":
+        if payload.get("training_scope") not in ("partial, not full", "full"):
+            raise RuntimeError("v2 heads artifact is missing an honest training_scope label")
+        if not isinstance(payload.get("trained_stages"), list) or not payload.get("trained_stages"):
+            raise RuntimeError("v2 heads artifact is missing trained_stages provenance")
     if payload.get("donor_sha256") != donor_sha256:
         raise RuntimeError("heads were trained against a different donor checkpoint")
     if payload.get("tokenizer_sha256") != tokenizer_sha256:
