@@ -1481,7 +1481,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     report = {
         "format": "sham2-unified-real-data-report-v1",
         "batch_size": int(cfg.batch),
-        "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM",
+        "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM-masked-byte-diffusion",
+        "target_encoding": "UTF-8 bytes with EOS and explicit padding loss mask",
+        "writer_vocab_size": BYTE_VOCAB,
+        "writer_block_bytes": int(cfg.block),
         "training_scope": "full" if full_training else "partial, not full",
         "training_performed": True,
         "requested_stages": stages,
@@ -1533,9 +1536,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         for step in range(steps):
             row = rows[step % len(rows)]
             input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
-            target_ids = torch.tensor(row["target_ids"], dtype=torch.long)
-            logits, _confidence = model(input_ids, target_len=int(target_ids.numel()))
-            loss = F.cross_entropy(logits[0].float(), target_ids)
+            target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
+            valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
+            latents = model(input_ids)
+            loss = model.writer.loss(latents, target_ids, valid_mask=valid_mask)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"non-finite real-data loss at stage={stage_name}, step={step}")
             optimizer.zero_grad(set_to_none=True)
@@ -1564,12 +1568,20 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     with torch.no_grad():
         for row in heldout_rows:
             input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
-            target_ids = torch.tensor(row["target_ids"], dtype=torch.long)
-            logits, _confidence = model(input_ids, target_len=int(target_ids.numel()))
+            target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
+            valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
+            latents = model(input_ids)
+            masked_logits = model.writer.logits(target_ids, valid_mask, latents)
+            selected_logits = masked_logits[0][valid_mask[0]].float()
+            selected_targets = target_ids[0][valid_mask[0]]
             heldout_losses.append(
-                float(F.cross_entropy(logits[0].float(), target_ids).cpu())
+                float(F.cross_entropy(selected_logits, selected_targets).cpu())
             )
-            exact += int(torch.equal(logits[0].argmax(dim=-1), target_ids))
+            generated = model.writer.generate(
+                latents, steps=cfg.diffusion_steps, temperature=0.0
+            )[0].tolist()
+            predicted_text = decode_target_bytes(generated)
+            exact += int(predicted_text == str(row["target"]).strip())
     report["final_training_loss"] = report["stages"][-1]["loss_last"]
     report["heldout_metrics"] = {
         "examples": len(heldout_rows),
