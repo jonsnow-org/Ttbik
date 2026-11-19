@@ -396,7 +396,7 @@ def _repo_root() -> Path:
 MODELSCOPE_DONOR_REPO = "novaai2026/sham-v2"
 MODELSCOPE_DONOR_FILENAME = "final_merged.pt"
 MODELSCOPE_TOKENIZER_FILENAME = "sham_small_tokenizer.json"
-MODELSCOPE_CN_ENDPOINT = "https://www.modelscope.cn"
+MODELSCOPE_CN_ENDPOINT = "https://modelscope.cn"
 
 
 def _modelscope_auth() -> Tuple[str, str]:
@@ -413,7 +413,7 @@ def _modelscope_auth() -> Tuple[str, str]:
         )
     endpoint = (os.environ.get("MODELSCOPE_ENDPOINT") or "").strip().rstrip("/")
     if not endpoint:
-        domain = (os.environ.get("MODELSCOPE_DOMAIN") or "www.modelscope.cn").strip()
+        domain = (os.environ.get("MODELSCOPE_DOMAIN") or "modelscope.cn").strip()
         endpoint = domain if domain.startswith("http") else "https://" + domain
     if "modelscope.ai" in endpoint:
         raise RuntimeError(
