@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-19 11:57 UTC",
+  "generated_at": "2026-11-19 20:51 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -104,8 +104,8 @@
     {
       "alias": "المرحلة الأولى 7",
       "track": "text_stage1",
-      "status": "error",
-      "role": "duplicate",
+      "status": "running",
+      "role": "primary",
       "last_run": "2026-11-19",
       "gpu": false,
       "failure": ""
@@ -194,7 +194,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-11-19",
       "gpu": false,
@@ -213,7 +213,7 @@
       "alias": "المرحلة الأولى 2",
       "track": "text_stage1",
       "status": "complete",
-      "role": "primary",
+      "role": "duplicate",
       "last_run": "2026-10-10",
       "gpu": false,
       "failure": ""
@@ -261,8 +261,8 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 789.2,
-      "last_updated": "2026-11-18",
+      "size_mb": 790.9,
+      "last_updated": "2026-11-19",
       "progress": {},
       "has_key_files": true
     },
@@ -301,8 +301,8 @@
     {
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
-      "size_mb": 4237.5,
-      "last_updated": "2026-11-16",
+      "size_mb": 4236.2,
+      "last_updated": "2026-11-19",
       "progress": {},
       "has_key_files": true
     },
@@ -397,7 +397,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
