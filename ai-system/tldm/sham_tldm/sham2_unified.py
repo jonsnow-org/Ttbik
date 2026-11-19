@@ -566,38 +566,38 @@ class Sham2Unified(nn.Module):
 # ============================================================
 def init_media_codebook(model: Sham2Unified, image_codebook: torch.Tensor | None = None,
                         audio_codebook: torch.Tensor | None = None, seed: int = 0):
-    """صفوف الصورة/الصوت تبدأ من Codebook مدرّب، لا من عشوائية.
-    image_codebook: (8192, 256) من VQ. audio_codebook: (2048, 128) من X-codec2.
-    إسقاط orthonormal ثابت: C @ P حيث P من QR لضجيج ثابت."""
-    g = torch.Generator().manual_seed(seed)
-    W = model.writer.token_embed.weight  # (vocab, head_d) — صفوف الوسائط فوق النص
-    # في التطبيق الكامل: تُطبَّق على token_embedding للجسم. هنا على Writer كمثال قابل للتشغيل.
-    # القاعدة: mean + (C - mean)/std @ P * (0.1*std)
-    for C in [image_codebook, audio_codebook]:
-        if C is None:
-            continue
-        C = C.float()
-        C = (C - C.mean(0)) / (C.std() + 1e-8)
-        d = W.shape[1]
-        P = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T  # (code_dim, d)
-        X = C @ P
-        # لا نكتب فوق النص — فقط نُعيد القاعدة للتوثيق. التطبيق على الجسم يتم في sham_transplant.
-        _ = X
-    return {"media_init": "codebook", "note": "Applied to donor token_embedding in transplant step (see function below)."}
+    """Media codebook initialization is not implemented in this unified path."""
+    raise NotImplementedError(
+        "real image/audio codebook loading and alignment are not implemented; "
+        "refusing to report a media initialization that did not happen"
+    )
 
 def apply_codebook_to_donor_embedding(donor_embedding: torch.Tensor, codebook: torch.Tensor,
                                       base: int, n: int, seed: int = 0) -> torch.Tensor:
-    """تُستدعى في sham_transplant.native_model() — تكتب صفوف الوسائط من Codebook."""
-    g = torch.Generator().manual_seed(seed)
-    C = codebook.float()
+    """Return a transformed copy; never mutate the supplied donor embedding."""
+    if codebook.ndim != 2 or donor_embedding.ndim != 2:
+        raise ValueError("donor embedding and codebook must both be rank-2 tensors")
+    if base < 0 or n <= 0 or base + n > donor_embedding.shape[0]:
+        raise ValueError("requested media-token range is outside the embedding table")
+    if codebook.shape[0] < n:
+        raise ValueError(f"codebook has {codebook.shape[0]} rows but {n} are required")
+    g = torch.Generator(device="cpu").manual_seed(seed)
+    C = codebook[:n].detach().float().cpu()
     C = (C - C.mean(0)) / (C.std() + 1e-8)
     d = donor_embedding.shape[1]
-    P = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T
-    X = C @ P
-    mean = donor_embedding[:151936].mean(0) if donor_embedding.shape[0] > 151936 else donor_embedding.mean(0)
-    std = donor_embedding[:151936].std() if donor_embedding.shape[0] > 151936 else donor_embedding.std()
-    donor_embedding[base:base+n] = mean + X * (0.1 * std / (X.std() + 1e-8))
-    return donor_embedding
+    if C.shape[1] > d:
+        projection = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T
+        X = C @ projection
+    elif C.shape[1] < d:
+        projection = torch.linalg.qr(torch.randn(d, C.shape[1], generator=g)).Q.T
+        X = C @ projection
+    else:
+        X = C
+    out = donor_embedding.detach().clone()
+    source = donor_embedding[:min(151936, donor_embedding.shape[0])].detach().float()
+    mean, std = source.mean(0), source.std().clamp_min(1e-8)
+    out[base:base+n] = (mean + X.to(mean.device) * (0.1 * std)).to(out.dtype)
+    return out
 
 # ============================================================
 # Gate — بوابة صارمة — [إصلاح 6] لا نشر بدونها
@@ -942,45 +942,34 @@ def load_sham2_heads(model: Sham2Unified, heads_path: str,
 # Terminal Loop — الحاسوب المدمج — [تطبيق 9]
 # ============================================================
 class TerminalLoop:
-    """حلقة الطرفية: أمر -> نتيجة -> استمرار، حتى 6 استدعاءات، مساحة عمل خاصة لكل (مستخدم+نموذج).
-    تستخدم sham_embedded_tools الحالية في المستودع، لا صندوقاً منفصلاً."""
-    def __init__(self, model: Sham2Unified, backend=None):
+    """No fake computer operation: this module requires a real model tool-call adapter and backend."""
+    def __init__(self, model: Sham2Unified, backend=None, tool_call_adapter=None):
         self.model = model
-        self.backend = backend  # ShamEmbeddedBackend في المستودع الحقيقي
+        self.backend = backend
+        self.tool_call_adapter = tool_call_adapter
         self.max_calls = model.cfg.max_tool_calls
 
     def run(self, task: str, max_steps: int = 6) -> Dict:
+        if self.backend is None:
+            raise RuntimeError("real terminal backend is missing; refusing dry-run execution")
+        if not callable(self.tool_call_adapter):
+            raise RuntimeError(
+                "real Sham tool-call adapter is missing; refusing hardcoded command proposals"
+            )
         history = [{"task": task}]
-        for step in range(min(max_steps, self.max_calls)):
-            # 1) النموذج يقترح أمراً (عبر Writer كتلة)
-            # في المستودع: generate_chat() -> <tool_call>computer_run</tool_call>
-            # هنا: نحاكي — في التطبيق الحقيقي يُستدعى model.generate_block()
-            cmd = self._propose_command(task, history)
-            if cmd is None:
+        for _step in range(min(max_steps, self.max_calls)):
+            command = self.tool_call_adapter(self.model, task, history)
+            if command is None:
                 break
-            # 2) تنفيذ في الحاسوب المدمج (سياسة approvals في المستودع)
-            result = self._execute(cmd)
-            history.append({"cmd": cmd, "result": result[:500]})
-            if "DONE" in result:
+            result = self.backend.run(command)
+            if hasattr(result, "out"):
+                output = result.out if getattr(result, "ok", True) else getattr(result, "refused", "")
+            else:
+                output = str(result)
+            history.append({"cmd": command, "result": str(output)[:500]})
+            if "DONE" in str(output):
                 break
-        return {"history": history, "steps": len(history)-1}
-
-    def _propose_command(self, task: str, history: List[Dict]) -> Optional[str]:
-        # في المستودع: يُستدعى النموذج الحقيقي. هنا: قاعدة بسيطة للاختبار.
-        if "ls" in task.lower() or "list" in task.lower():
-            return "ls -la"
-        if len(history) > 2:
-            return None
-        return "pwd"
-
-    def _execute(self, cmd: str) -> str:
-        if self.backend is not None:
-            try:
-                return str(self.backend.run(cmd))
-            except Exception as e:
-                return f"ERROR: {e}"
-        # وضع اختبار بدون backend: لا ننفذ شيئاً حقيقياً
-        return f"[DRY-RUN] would run: {cmd} -> DONE"
+        return {"history": history, "steps": len(history) - 1}
 
 # ============================================================
 # Self Evolution — تجربة -> درس -> LoRA -> بوابة — [تطبيق 8]
@@ -999,22 +988,23 @@ class SelfEvolution:
         self.lessons.append(lesson)
 
     def propose_lora_update(self) -> Dict:
-        # في المستودع: evolution/engine.py — هنا: إحصاء فقط
-        return {"lessons": len(self.lessons), "ready": len(self.lessons) >= 10,
-                "note": "If ready, train a small LoRA on lessons, then run check_gate() before merging."}
+        return {
+            "lessons": len(self.lessons),
+            "ready": False,
+            "status": "not_implemented",
+            "note": "A real lesson dataset builder, optimizer run and fresh gate are required; no update was trained.",
+        }
+
 
 # ============================================================
 # QAT + GGUF Export — [تطبيق 5]
 # ============================================================
 def export_gguf(heads_path: str, out_path: str, bits: int = 4) -> str:
-    """تصدير GGUF بمعمارية qwen3/smollm3 (sham_gguf كان يرفض Qwen3/NoPE — هنا نصدّر بمعمارية صحيحة).
-    QAT=4: الأوزان تُكمَّم إلى 4-bit مع تدريب واعٍ بالكم (QAT) في المرحلة الأخيرة.
-    في المستودع: يُستدعى من hosting/sham-v2/build.sh بعد اجتياز البوابة."""
-    # هذا تصدير وصفي — التصدير الحقيقي يستخدم llama.cpp convert_hf_to_gguf.py مع config المانح.
-    meta = {"from": heads_path, "bits": bits, "arch": "qwen3", "qat": True,
-            "note": "Run: python -m llama_cpp.convert_hf_to_gguf --outtype q4_0 --outfile " + out_path + " <donor+heads merged>"}
-    Path(out_path + ".json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-    return out_path + ".json"
+    """GGUF conversion is not implemented here; do not create metadata and call it an export."""
+    raise NotImplementedError(
+        "real GGUF conversion requires a supported donor architecture converter and "
+        "a verified merged checkpoint; no GGUF file was produced"
+    )
 
 # ============================================================
 # CLI
