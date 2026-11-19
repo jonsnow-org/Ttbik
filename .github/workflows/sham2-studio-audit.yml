@@ -1,0 +1,93 @@
+name: Sham 2 dedicated Studio audit (read-only; no Sham 1 paths)
+
+on:
+  push:
+    branches:
+      - fix/sham2-unified-real-donor-data
+    paths:
+      - ".github/workflows/sham2-studio-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: contains(github.event.head_commit.message, '[sham2-studio-audit]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MODELSCOPE_TOKEN: \${{ secrets.MODELSCOPE_TOKEN }}
+    steps:
+      - name: Confirm the Sham 2 Studio endpoint and clone only that Studio repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$MODELSCOPE_TOKEN"
+          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Existing MODELSCOPE_TOKEN repository secret is empty"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/sham2-studio-audit/source"
+          python3 - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          token = os.environ["MODELSCOPE_TOKEN"]
+          url = "https://www.modelscope.cn/openapi/v1/studios/novaai2026/sham2-tldm"
+          req = Request(url, headers={"Authorization": "Bearer " + token})
+          with urlopen(req, timeout=45) as response:
+              data = json.loads(response.read().decode("utf-8"))
+          d = data.get("data") or data.get("Data") or {}
+          runtime = d.get("runtime") or {}
+          result = {
+              "studio_id": "novaai2026/sham2-tldm",
+              "api_success": bool(data.get("success", True)),
+              "studio_name": d.get("name") or d.get("repo_name"),
+              "owner": d.get("owner") or "novaai2026",
+              "sdk_type": d.get("sdk_type"),
+              "runtime_status": runtime.get("status") or d.get("status"),
+              "visibility": d.get("visibility"),
+          }
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          open(os.path.join(os.environ["RUNNER_TEMP"], "sham2-studio-audit", "studio_metadata.json"), "w").write(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+          GIT_TERMINAL_PROMPT=0 git clone --quiet "https://oauth2:\${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/sham2-tldm.git" "$RUNNER_TEMP/sham2-studio-audit/source/studio"
+          cd "$RUNNER_TEMP/sham2-studio-audit/source/studio"
+          git rev-parse HEAD > "$RUNNER_TEMP/sham2-studio-audit/studio_git_sha.txt"
+          git ls-tree -r --name-only HEAD > "$RUNNER_TEMP/sham2-studio-audit/studio_files.txt"
+          echo "Dedicated Studio file inventory:"
+          sed -n '1,240p' "$RUNNER_TEMP/sham2-studio-audit/studio_files.txt"
+          python3 - <<'PY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "sham2-studio-audit"
+          src = root / "source" / "studio"
+          review = root / "review"
+          review.mkdir(parents=True, exist_ok=True)
+          extensions = {".py", ".md", ".yaml", ".yml", ".toml", ".json", ".txt", ".sh"}
+          skipped = []
+          total = 0
+          for p in src.rglob("*"):
+              if not p.is_file() or ".git" in p.parts:
+                  continue
+              rel = p.relative_to(src)
+              if p.suffix.lower() not in extensions and p.name not in {"Dockerfile", "requirements.txt"}:
+                  continue
+              size = p.stat().st_size
+              if size > 2_000_000 or total + size > 12_000_000:
+                  skipped.append({"path": str(rel), "bytes": size, "reason": "review bundle size limit"})
+                  continue
+              dest = review / rel
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(p, dest)
+              total += size
+          (root / "review_manifest.json").write_text(
+              __import__("json").dumps({"bytes_copied": total, "skipped": skipped}, ensure_ascii=False, indent=2) + "\\n",
+              encoding="utf-8",
+          )
+          print(f"review source bytes copied: {total}")
+          print(f"files omitted by size cap: {len(skipped)}")
+          PY
+
+      - name: Upload exact Studio source snapshot for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham2-dedicated-studio-readonly-\${{ github.run_id }}
+          path: \${{ runner.temp }}/sham2-studio-audit/
+          if-no-files-found: error
+          retention-days: 30
