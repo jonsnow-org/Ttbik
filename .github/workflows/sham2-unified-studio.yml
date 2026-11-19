@@ -11,13 +11,13 @@ permissions:
 
 concurrency:
   group: sham2-unified-dedicated-cn-studio
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sham2:
     if: contains(github.event.head_commit.message, '[sham2-unified-run]')
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 45
     env:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
       RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -136,185 +136,104 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, sys, time
+          import json, os, socket, sys, time, urllib.error
           from pathlib import Path
           from urllib.request import Request, urlopen
+
           base=os.environ["STUDIO_API"].rstrip("/")
           headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
-          out=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-donor-preflight"
           out.mkdir(parents=True,exist_ok=True)
+
           def call(name):
               req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
-              with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
-              req=Request(base+"/gradio_api/call/"+name+"/"+event["event_id"],headers=headers)
-              with urlopen(req,timeout=180) as r: raw=r.read().decode("utf-8","replace")
+              with urlopen(req,timeout=60) as response:
+                  event=json.loads(response.read().decode())
+              event_id=event.get("event_id")
+              if not event_id:
+                  raise ValueError("Gradio call response is missing event_id: "+json.dumps(event,ensure_ascii=False))
+              req=Request(base+"/gradio_api/call/"+name+"/"+event_id,headers=headers)
+              with urlopen(req,timeout=180) as response:
+                  raw=response.read().decode("utf-8","replace")
               for line in raw.splitlines():
                   if line.startswith("data: "):
-                      try: value=json.loads(line[6:])
-                      except Exception: continue
-                      if isinstance(value,list) and value: value=value[0]
-                      if isinstance(value,str):
-                          try: return json.loads(value)
-                          except Exception: return {"raw":value}
-                      if isinstance(value,dict): return value
-              raise RuntimeError("No Gradio JSON result for "+name)
-          last=""
-          for n in range(360):
-              try:
-                  status=call("status"); phase=status.get("phase","unknown")
-                  print(f"CN Sham 2 donor preflight {n+1}/360: {phase}",flush=True)
-                  (out/"status_donor.json").write_text(json.dumps(status,ensure_ascii=False,indent=2))
-                  if phase in {"donor-compatible","donor-check-failed","failed","blocked"}:
-                      report=call("sham2_report")
-                      (out/"donor_preflight_full.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
-                      donor=report.get("artifacts",{}).get("donor_check",{})
-                      if phase!="donor-compatible" or donor.get("status")!="compatible" or donor.get("compatible") is not True:
-                          raise RuntimeError("donor check failed: "+json.dumps({"phase":phase,"status":donor.get("status"),"reasons":donor.get("reasons",[])[:8]},ensure_ascii=False))
-                      if len(str(donor.get("checkpoint_sha256","")))!=64:
-                          raise RuntimeError("compatible report has no checkpoint SHA-256")
-                      (out/"donor_check_report.json").write_text(json.dumps(donor,ensure_ascii=False,indent=2))
-                      print(json.dumps({
-                          "studio":"novaai2026/sham2-tldm","hub":"www.modelscope.cn",
-                          "status":donor.get("status"),"tensor_count":donor.get("tensor_count"),
-                          "dtype_counts":donor.get("dtype_counts"),"donor_config":donor.get("donor_config"),
-                          "checkpoint_sha256":donor.get("checkpoint_sha256"),
-                          "file_size_bytes":donor.get("file_size_bytes"),
-                          "missing_keys":len(donor.get("missing_keys") or []),
-                          "unexpected_keys":len(donor.get("unexpected_keys") or []),
-                          "shape_mismatches":len(donor.get("shape_mismatches") or []),
-                          "dtype_mismatches":len(donor.get("dtype_mismatches") or []),
-                      },ensure_ascii=False,indent=2),flush=True)
-                      sys.exit(0)
-              except SystemExit: raise
-              except Exception as e:
-                  last=f"{type(e).__name__}: {str(e)[:180]}"
-                  if n%5==0: print("Waiting for the CN Studio API: "+last,flush=True)
-              time.sleep(20)
-          raise TimeoutError("donor check timed out; last error: "+last)
-          PY
-
-      - name: Start partial training on the same verified CN Sham 2 Studio
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::add-mask::$T_CN"
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          from urllib.request import Request, urlopen
-          base=os.environ["STUDIO_API"].rstrip("/")
-          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
-          req=Request(base+"/gradio_api/call/status",data=b'{"data":[]}',headers=headers,method="POST")
-          with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
-          req=Request(base+"/gradio_api/call/status/"+event["event_id"],headers=headers)
-          with urlopen(req,timeout=120) as r: raw=r.read().decode("utf-8","replace")
-          value={}
-          for line in raw.splitlines():
-              if line.startswith("data: "):
-                  try:
                       value=json.loads(line[6:])
-                      if isinstance(value,list) and value: value=value[0]
-                      if isinstance(value,str): value=json.loads(value)
-                      break
-                  except Exception: pass
-          if not isinstance(value,dict) or not value.get("started"):
-              raise RuntimeError("Could not capture pre-training Studio start marker")
-          p=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
-          p.mkdir(parents=True,exist_ok=True)
-          (p/"status_before_training.json").write_text(json.dumps(value,ensure_ascii=False,indent=2))
-          print("Captured the pre-redeploy Studio marker.",flush=True)
-          PY
-          printf '%s' "train-and-gate" | python3 -c 'import json,sys;print(json.dumps({"key":"SHAM2_UNIFIED_ACTION","value":sys.stdin.read()}))' > "$RUNNER_TEMP/secret.json"
-          code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
-            -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
-            --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
-          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
-            code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
-              --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
-          fi
-          [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Could not update the action secret (HTTP $code)"; exit 1; }
-          curl --fail --silent --show-error -o "$RUNNER_TEMP/deploy-training.json" -X POST \
-            -H "Authorization: Bearer $T_CN" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy"
-
-      - name: Wait for partial training and the fresh candidate-only gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, sys, time
-          from pathlib import Path
-          from urllib.request import Request, urlopen
-          base=os.environ["STUDIO_API"].rstrip("/")
-          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
-          out=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
-          out.mkdir(parents=True,exist_ok=True)
-          def call(name):
-              req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
-              with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
-              req=Request(base+"/gradio_api/call/"+name+"/"+event["event_id"],headers=headers)
-              with urlopen(req,timeout=180) as r: raw=r.read().decode("utf-8","replace")
-              for line in raw.splitlines():
-                  if line.startswith("data: "):
-                      try: value=json.loads(line[6:])
-                      except Exception: continue
-                      if isinstance(value,list) and value: value=value[0]
+                      if isinstance(value,list) and value:
+                          value=value[0]
                       if isinstance(value,str):
-                          try: return json.loads(value)
-                          except Exception: return {"raw":value}
-                      if isinstance(value,dict): return value
-              raise RuntimeError("No Gradio JSON result for "+name)
-          before=json.loads((out/"status_before_training.json").read_text(encoding="utf-8"))
-          previous=str(before.get("started") or "")
-          restarted=False
-          last=""
-          for n in range(600):
+                          value=json.loads(value)
+                      if isinstance(value,dict):
+                          return value
+              raise ValueError("No JSON object returned by Gradio API "+name+": "+raw[-4000:])
+
+          def save_json(name, value):
+              (out/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+          for n in range(120):
               try:
-                  status=call("status"); phase=status.get("phase","unknown")
-                  now=str(status.get("started") or "")
-                  if previous and now and now!=previous: restarted=True
-                  if restarted:
-                      print(f"CN Sham 2 partial stage {n+1}/600: {phase}",flush=True)
-                      (out/"status_training.json").write_text(json.dumps(status,ensure_ascii=False,indent=2))
-                      if phase in {"completed","memory-blocked","failed","donor-check-failed","blocked"}:
-                          report=call("sham2_report")
-                          (out/"partial_run_full.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
-                          a=report.get("artifacts",{})
-                          state=a.get("run_state",{}); training=a.get("training",{}); gate=a.get("gate",{})
-                          summary={
-                              "phase":phase,"run_state":state,
-                              "donor":a.get("donor_check",{}).get("status"),
-                              "training_scope":training.get("training_scope"),
-                              "final_training_loss":training.get("final_training_loss"),
-                              "train_examples_total":training.get("train_examples_total"),
-                              "heldout_examples":training.get("heldout_examples"),
-                              "stages":training.get("stages"),"batch_size":training.get("batch_size"),
-                              "gate":gate.get("gate"),"examples":gate.get("examples"),
-                              "exact_matches":gate.get("exact_matches"),"exact_match_rate":gate.get("exact_match_rate"),
-                              "same_effect_matches":gate.get("same_effect_matches"),"same_effect_rate":gate.get("same_effect_rate"),
-                              "mean_cross_entropy":gate.get("mean_cross_entropy"),
-                              "head":report.get("head"),
-                          }
-                          (out/"final_summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
-                          print(json.dumps(summary,ensure_ascii=False,indent=2),flush=True)
-                          if phase!="completed" or state.get("status")!="completed":
-                              raise RuntimeError("partial training did not complete: "+json.dumps(state,ensure_ascii=False))
-                          if gate.get("gate")!="passed":
-                              raise RuntimeError("fresh candidate gate failed; merge is blocked")
-                          sys.exit(0)
-              except SystemExit: raise
-              except Exception as e:
-                  last=f"{type(e).__name__}: {str(e)[:180]}"
-                  if n%5==0: print("Waiting for the CN training Studio: "+last,flush=True)
-              time.sleep(20)
-          raise TimeoutError("partial training/gate timed out; last error: "+last)
+                  status=call("status")
+              except urllib.error.HTTPError as exc:
+                  # ModelScope Studio may briefly return 404/412 while a deployment
+                  # is coming up. These are transient readiness responses here only.
+                  if exc.code not in {404, 412, 425, 429, 500, 502, 503, 504}:
+                      raise
+                  print(f"Transient Studio HTTP {exc.code} ({n+1}/120)",flush=True)
+                  time.sleep(10)
+                  continue
+              except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
+                  print(f"Transient Studio network error ({n+1}/120): {type(exc).__name__}: {exc}",flush=True)
+                  time.sleep(10)
+                  continue
+              # TypeError/ValueError and malformed API payloads are deterministic
+              # code failures: they intentionally escape immediately.
+              if not isinstance(status,dict):
+                  raise TypeError("Studio status response is not an object: "+repr(status))
+              phase=str(status.get("phase") or "unknown")
+              save_json("status_donor.json",status)
+              print(f"CN Sham 2 donor preflight {n+1}/120: {phase}",flush=True)
+
+              if phase in {"donor-compatible","donor-check-failed","failed","blocked"}:
+                  report=call("sham2_report")
+                  save_json("donor_preflight_full.json",report)
+                  if not isinstance(report,dict):
+                      raise TypeError("sham2_report response is not an object")
+                  artifacts=report.get("artifacts") or {}
+                  donor=artifacts.get("donor_check") or {}
+                  run_state=artifacts.get("run_state") or {}
+                  diagnostic={
+                      "studio":"novaai2026/sham2-tldm",
+                      "account":"novaai2026",
+                      "hub":"www.modelscope.cn",
+                      "phase":phase,
+                      "run_state":run_state,
+                      "donor_check":donor,
+                  }
+                  save_json("donor_check_diagnostic.json",diagnostic)
+                  print("[Sham2] COMPLETE DONOR PREFLIGHT REPORT:",flush=True)
+                  print(json.dumps(diagnostic,ensure_ascii=False,indent=2),flush=True)
+
+                  if (phase!="donor-compatible"
+                      or donor.get("status")!="compatible"
+                      or donor.get("compatible") is not True
+                      or len(str(donor.get("checkpoint_sha256") or ""))!=64):
+                      # A deterministic donor-check failure exits now. It is never
+                      # converted into another 360-poll wait or a training attempt.
+                      raise SystemExit(1)
+
+                  save_json("donor_check_report.json",donor)
+                  print("[Sham2] DONOR PREFLIGHT COMPATIBLE — no training or gate was started.",flush=True)
+                  sys.exit(0)
+
+              time.sleep(10)
+
+          raise TimeoutError("CN Sham 2 Studio did not report a terminal donor-check state within 20 minutes")
           PY
 
-      - name: Upload donor tensor inventory, training report, gate metrics and head SHA
+      - name: Upload full donor preflight report (no training in this workflow)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sham2-unified-stage1-${{ github.run_id }}
-          path: ${{ runner.temp }}/sham2-stage1-reports/
+          name: sham2-unified-donor-check-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-donor-preflight/
           if-no-files-found: warn
           retention-days: 90
