@@ -1,4 +1,4 @@
-name: Sham 2 partial training and fresh gate (verified donor only)
+name: Sham 2 existing partial training monitor (read only; no Studio redeploy)
 
 on:
   push:
@@ -21,9 +21,6 @@ jobs:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
       RUN_ID: "44558281864-1"
       EXPECTED_DONOR_SHA256: "1d84e49fa5c835583288622b02fe1cdcbe85f9ec283f1be3acf0867aeb04dd9d"
-      OWNER: novaai2026
-      REPO: sham2-tldm
-      MS: https://www.modelscope.cn
       STUDIO_API: https://studio-novaai2026-sham2-tldm.api-inference.modelscope.net
 
     steps:
@@ -39,7 +36,7 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch
 
-      - name: Verify the exact completed CN donor preflight and fixed partial data
+      - name: Verify the existing CN Sham 2 training run and fixed partial data
         shell: bash
         run: |
           set -euo pipefail
@@ -101,8 +98,8 @@ jobs:
               raise RuntimeError("Studio run-state ID does not match the exact donor preflight: "+str(state.get("run_id")))
           if state.get("studio")!="novaai2026/sham2-tldm" or state.get("account")!="novaai2026" or state.get("hub")!="www.modelscope.cn":
               raise RuntimeError("donor run-state is not bound to the dedicated CN Sham 2 Studio/account/Hub")
-          if state.get("status")!="donor-compatible":
-              raise RuntimeError("same Studio run is not donor-compatible: "+json.dumps(state,ensure_ascii=False))
+          if state.get("status") not in {"training","completed","failed","memory-blocked"}:
+              raise RuntimeError("read-only monitor refused to start or redeploy training; no existing training run is active for this donor preflight: "+json.dumps(state,ensure_ascii=False))
           if donor.get("status")!="compatible" or donor.get("compatible") is not True:
               raise RuntimeError("same Studio donor report is not compatible: "+json.dumps(donor,ensure_ascii=False))
           if donor.get("endpoint")!="https://www.modelscope.cn":
@@ -169,6 +166,7 @@ jobs:
               f.write("PREFLIGHT_DONOR_SHA256="+donor_sha+"\n")
           print(json.dumps({
               "preflight":"compatible",
+              "monitor_mode":"read-only; no Studio secrets changed; no Studio deploy called",
               "run_id":run_id,
               "pinned_expected_donor_sha256":expected_donor_sha,
               "studio":"novaai2026/sham2-tldm",
@@ -187,42 +185,11 @@ jobs:
           },ensure_ascii=False,indent=2),flush=True)
           PY
 
-      - name: Switch only the dedicated CN Studio to train-and-gate
-        shell: bash
+      - name: Confirm read-only monitoring mode (no secret mutation or redeploy)
         run: |
           set -euo pipefail
-          echo "::add-mask::$T_CN"
-          set_secret() {
-            printf '%s' "$2" | python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$1" > "$RUNNER_TEMP/secret.json"
-            code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
-              -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
-              --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
-            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
-              code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X POST \
-                -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
-                --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
-            fi
-            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Could not set $1 (HTTP $code)"; exit 1; }
-            echo "Set $1"
-          }
-          set_secret MODELSCOPE_API_TOKEN "$T_CN"
-          set_secret MODELSCOPE_DOMAIN "www.modelscope.cn"
-          set_secret MODELSCOPE_ENDPOINT "https://www.modelscope.cn"
-          set_secret SHAM_MS_OWNER "novaai2026"
-          set_secret SITE "cn"
-          set_secret SHAM_TRAINER_JOB "tldm"
-          set_secret SHAM_TRAINER_NAME "sham2"
-          set_secret SHAM_TRAINER_HOURS "10"
-          set_secret SHAM2_UNIFIED_RUN_ID "$RUN_ID"
-          set_secret SHAM2_UNIFIED_ACTION "train-and-gate"
-          set_secret SHAM2_MIN_AVAILABLE_GIB "4.5"
-
-      - name: Deploy the partial training action to novaai2026/sham2-tldm
-        run: |
-          set -euo pipefail
-          echo "::add-mask::$T_CN"
-          curl --fail --silent --show-error -o "$RUNNER_TEMP/deploy-training.json" -X POST \
-            -H "Authorization: Bearer $T_CN" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy"
+          echo "Monitoring the existing Studio run only."
+          echo "This workflow intentionally contains no ModelScope secret update and no Studio deploy call."
 
       - name: Wait for partial training and fresh terminal gate
         shell: bash
