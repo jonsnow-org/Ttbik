@@ -15,7 +15,7 @@ This file is the source of truth for the Sham 2 unified path. CN and internation
 | Donor checkpoint | final_merged.pt |
 | Donor tokenizer | sham_small_tokenizer.json |
 | Serving Studio | novaai2026/sham-v2-server — separate serving resource |
-| Legacy head repository | novaai2026/sham2-tldm-head — never overwrite with the unified v2 candidate |
+| Legacy head repository | novaai2026/sham2-tldm-head — never overwrite with any unified candidate; the current unified artifact is v3 |
 
 ## International AI account — Sham 1 only
 
@@ -65,7 +65,7 @@ No training or gate is started by the donor-preflight workflow. A separate, expl
 
 --stage available --batch-size 1
 
-The trainer must use a frozen BF16 donor and rank-16 LoRA plus the new T-LDM head. The admitted data must remain exactly identity 16 + terminal 30 = 46 training records, with 26 held-out examples. The report and manifest must state partial, not full, with tools: missing and arabic: missing; no generated or remote records are admitted. The fresh terminal gate must evaluate only the new head, compare both donor and head SHA-256 values to the preflight, and never read the old gate.
+The trainer must use a frozen BF16 donor and rank-16 LoRA plus the canonical masked discrete byte-diffusion writer from `sham_tldm/writer.py`. The writer receives the ordered 16-latent sequence by cross-attention, uses per-byte position embeddings, and predicts UTF-8 bytes (vocabulary 257) with EOS and an explicit valid-byte loss mask. Its fixed block is 192 bytes; every committed training/held-out target plus EOS must fit, with no truncation. The admitted data remains exactly identity 16 + terminal 30 = 46 training records, with 26 held-out examples. The report and manifest must state partial, not full, with tools: missing and arabic: missing; no generated or remote records are admitted. The fresh terminal gate must evaluate only the new head, compare both donor and head SHA-256 values to the preflight, and never read the old gate.
 
 ## Memory and runner guard
 
@@ -77,7 +77,10 @@ The audited dedicated Studio is platform/2v-cpu-8g-mem (2 vCPU / 8 GB). The pref
 - PR #1136 contains the isolated run_sham2() replacement, the unified trainer and gate path fixes, and this routing document.
 - The dedicated workflow has successfully passed its source/data validation, staged the PR trainer into novaai2026/sham2-tldm, set CN-only Studio secrets, and sent the donor-check deployment request.
 - The donor compatibility check is a separate live gate. Until its full report says compatible, no partial training may start. No training loss, candidate-gate score, or new-head hash is claimed by this document.
-- PR #1136 remains draft and unmerged until the donor check, partial training, fresh gate, exact data manifest, and untouched Sham 1 conditions are all evidenced by the dedicated workflow artifacts.
+- Run `44535299790` completed 60 identity + 600 terminal optimizer steps and saved an early continuous-vocabulary `sham2-unified-heads-v2` head. Its fresh 26-case gate failed: 0 exact matches and 0 same-effect matches. This v2 head is rejected and must never be served or merged.
+- Root cause found in that v2 path: it averaged the 16 latent vectors into one context vector and generated from independent continuous noise without output-position embeddings. It also used the donor's 151,936-token vocabulary instead of the project's byte-level masked diffusion writer. The observed output repeated `app` across token positions.
+- The replacement path uses the canonical byte writer in `sham_tldm/writer.py`, records an incompatible architecture as `sham2-unified-heads-v3`, and has an offline self-test plus fixed-data byte-length validation. Its CI results are pending. A fresh donor-only preflight with a new run ID is required because the prior Studio run is completed.
+- PR #1136 remains draft and unmerged until the new code tests pass, the new CN donor preflight is compatible, the v3 partial training completes, the fresh 26-case gate passes, and untouched Sham 1 conditions are evidenced.
 
 References:
 - https://github.com/jonsnow-org/Ttbik/pull/1136
