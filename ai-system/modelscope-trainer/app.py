@@ -775,16 +775,39 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
         code = sham2_run_command(command, root, run_dir / "donor_check.log", env)
         donor = sham2_read_json(donor_report_path)
         if code != 0 or donor.get("status") != "compatible" or donor.get("compatible") is not True:
+            reasons = donor.get("reasons", [f"--check-donor exited with code {code}"])
+            failure_kind = donor.get("failure_kind") or (
+                "code-error" if donor.get("status") == "error" else "donor-validation"
+            )
             state.update({
                 "status": "donor-check-failed", "finished_at": time.time(),
                 "donor_status": donor.get("status", "not_checked"),
-                "reasons": donor.get("reasons", [f"--check-donor exited with code {code}"]),
+                "failure_kind": failure_kind,
+                "reasons": reasons,
+                "donor_traceback": donor.get("traceback"),
+                "modelscope_version": donor.get("modelscope_version"),
+                "snapshot_download_signature": donor.get("snapshot_download_signature"),
+                "snapshot_download_kwargs_used": donor.get("snapshot_download_kwargs_used"),
+                "download_attempts": donor.get("download_attempts", 0),
             })
             sham2_write_json(state_path, state)
+            # Keep the complete diagnostic in the Studio log and report file;
+            # do not truncate the underlying reason/traceback to fit a status label.
+            print("[Sham2 unified] donor preflight failed: " + json.dumps({
+                "status": donor.get("status", "not_checked"),
+                "failure_kind": failure_kind,
+                "reasons": reasons,
+                "traceback": donor.get("traceback"),
+                "modelscope_version": donor.get("modelscope_version"),
+                "snapshot_download_signature": donor.get("snapshot_download_signature"),
+                "snapshot_download_kwargs_used": donor.get("snapshot_download_kwargs_used"),
+                "download_attempts": donor.get("download_attempts", 0),
+            }, ensure_ascii=False), flush=True)
             return {
                 "sham2_status": "donor-check-failed",
                 "donor_status": donor.get("status", "not_checked"),
-                "donor_reasons": "; ".join(donor.get("reasons", []))[:500],
+                "failure_kind": failure_kind,
+                "donor_reasons": json.dumps(reasons, ensure_ascii=False),
                 "run_id": raw_id,
             }
         state.update({
