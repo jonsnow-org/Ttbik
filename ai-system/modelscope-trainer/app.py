@@ -574,7 +574,14 @@ def nova_legacy_gate(root: Path) -> Path:
 def sham2_read_json(path: Path) -> dict:
     if not path.is_file():
         return {}
-    value = json.loads(path.read_text(encoding="utf-8"))
+    raw = path.read_text(encoding="utf-8")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        # Recover the one historical check report written with a literal backslash-n suffix.
+        if not raw.endswith("\\n"):
+            raise
+        value = json.loads(raw[:-2])
     return value if isinstance(value, dict) else {}
 
 
@@ -723,6 +730,34 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
     Path(env["MODELSCOPE_CACHE"]).mkdir(parents=True, exist_ok=True)
 
     if action == "check-donor":
+        # Reuse a completed compatible preflight from this exact Studio/run if a prior
+        # app restart happened after the donor file was checked but before state JSON
+        # was finalized. The training path re-downloads the donor and verifies this SHA.
+        if state.get("status") == "checking-donor" and donor_report_path.is_file():
+            previous_donor = sham2_read_json(donor_report_path)
+            previous_sha = str(previous_donor.get("checkpoint_sha256") or "")
+            if (previous_donor.get("status") == "compatible"
+                    and previous_donor.get("compatible") is True
+                    and len(previous_sha) == 64):
+                state.update({
+                    "status": "donor-compatible",
+                    "finished_at": time.time(),
+                    "donor_sha256": previous_sha,
+                    "donor_file_size_bytes": previous_donor.get("file_size_bytes"),
+                    "donor_tensor_count": previous_donor.get("tensor_count"),
+                    "donor_dtype_counts": previous_donor.get("dtype_counts"),
+                    "donor_config": previous_donor.get("donor_config"),
+                    "recovered_existing_preflight": True,
+                })
+                sham2_write_json(state_path, state)
+                print("[Sham2 unified] recovered completed compatible donor preflight; no second download", flush=True)
+                return {
+                    "sham2_status": "donor-compatible",
+                    "donor_status": "compatible",
+                    "donor_sha256": previous_sha,
+                    "donor_tensor_count": previous_donor.get("tensor_count", 0),
+                    "run_id": raw_id,
+                }
         if state.get("status") in {"training", "completed", "failed", "memory-blocked"}:
             raise RuntimeError(f"run ID {raw_id} is already in state {state.get('status')}; refusing to repeat")
         state = {
