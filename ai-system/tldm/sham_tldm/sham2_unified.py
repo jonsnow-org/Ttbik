@@ -623,13 +623,6 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         "traceback": None,
     }
     try:
-        from modelscope.hub.snapshot_download import snapshot_download
-    except Exception as exc:
-        report["reasons"].append(
-            f"ModelScope SDK import failed: {type(exc).__name__}: {exc}"
-        )
-        return report
-    try:
         token, endpoint = _modelscope_auth()
         report["endpoint"] = endpoint
         # The dedicated CN Studio provides MODELSCOPE_TOKEN. Set the SDK's
@@ -639,10 +632,14 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         os.environ["MODELSCOPE_ENDPOINT"] = endpoint
         os.environ["MODELSCOPE_DOMAIN"] = endpoint.split("://", 1)[-1].split("/", 1)[0]
         from modelscope.hub.snapshot_download import snapshot_download
+        try:
+            installed_version = importlib.metadata.version("modelscope")
+        except importlib.metadata.PackageNotFoundError:
+            installed_version = "unknown"
         print(
             "[Sham2] ModelScope donor preflight SDK: "
             + json.dumps({
-                "version": importlib.metadata.version("modelscope"),
+                "version": installed_version,
                 "snapshot_download_signature": str(inspect.signature(snapshot_download)),
             }, ensure_ascii=False),
             flush=True,
