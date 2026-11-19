@@ -18,8 +18,12 @@ import torch
 import torch.nn.functional as F
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def tldm_root() -> Path:
+    """T-LDM root in both the Git checkout and the staged ModelScope Studio layout."""
+    candidate = Path(__file__).resolve().parents[1]
+    if (candidate / "data" / "terminal_tasks.py").is_file():
+        return candidate
+    raise FileNotFoundError("T-LDM data tree is missing terminal_tasks.py")
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -51,7 +55,7 @@ def main() -> int:
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
 
-    root = repo_root()
+    tldm = tldm_root()
     data_dir = Path(args.data_dir).expanduser().resolve()
     manifest = json.loads((data_dir / "manifest.json").read_text(encoding="utf-8"))
     files = manifest.get("files") or {}
@@ -78,8 +82,8 @@ def main() -> int:
         raise ValueError("heldout2.jsonl contains a row from the wrong source set")
     rows = terminal_rows + reworded_rows
 
-    sys.path.insert(0, str(root / "ai-system" / "tldm" / "sham_tldm"))
-    sys.path.insert(0, str(root / "ai-system" / "tldm" / "data"))
+    sys.path.insert(0, str(tldm / "sham_tldm"))
+    sys.path.insert(0, str(tldm / "data"))
     import terminal_tasks as terminal_source
     from sham2_unified import (
         Sham2Unified,
