@@ -1,4 +1,5 @@
 name: Sham 2 live status (read-only)
+# Fourteenth read-only check of training and heartbeat state.
 # Thirteenth read-only progress and heartbeat snapshot for Sham 2.
 # Twelfth read-only heartbeat and progress snapshot.
 # Eleventh read-only observation of the active terminal training run.
