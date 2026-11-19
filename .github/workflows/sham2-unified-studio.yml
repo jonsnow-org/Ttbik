@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: sham2-unified-dedicated-cn-studio
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sham2:
