@@ -72,6 +72,10 @@ def export(output_dir: Path) -> dict:
 
     identity_count = _write_jsonl(output_dir / "identity.jsonl", identity_rows)
     terminal_count = _write_jsonl(output_dir / "terminal_tasks.jsonl", terminal_rows)
+    terminal_heldout_count = _write_jsonl(
+        output_dir / "terminal_heldout.jsonl", terminal_heldout
+    )
+    heldout2_count = _write_jsonl(output_dir / "heldout2.jsonl", rewordings_heldout)
     train_count = _write_jsonl(
         output_dir / "train.jsonl", identity_rows + terminal_rows
     )
@@ -107,12 +111,17 @@ def export(output_dir: Path) -> dict:
             "identity.jsonl": {"rows": identity_count, "source": "ai-system/tldm/data/identity.py:TRAIN"},
             "terminal_tasks.jsonl": {"rows": terminal_count, "source": "ai-system/tldm/data/terminal_tasks.py:TRAIN"},
             "train.jsonl": {"rows": train_count, "contains_stages": ["identity", "tldm_head"]},
+            "terminal_heldout.jsonl": {
+                "rows": terminal_heldout_count,
+                "source": "ai-system/tldm/data/terminal_tasks.py:HELDOUT",
+            },
+            "heldout2.jsonl": {
+                "rows": heldout2_count,
+                "source": "ai-system/tldm/data/rewordings.py:HELDOUT2",
+            },
             "heldout.jsonl": {
                 "rows": heldout_count,
-                "source_sets": {
-                    "terminal_tasks.HELDOUT": len(terminal_heldout),
-                    "rewordings.HELDOUT2": len(rewordings_heldout),
-                },
+                "contains": ["terminal_heldout.jsonl", "heldout2.jsonl"],
             },
             "identity_heldout_prompts.jsonl": {
                 "rows": identity_prompt_count,
