@@ -24,8 +24,9 @@ Training line (one JSON object per line):
 Held-out line:
   {"prompt":"...", "target":"...", "source_set":"terminal_tasks.HELDOUT"}
 
-The exporter writes identity.jsonl, terminal_tasks.jsonl, train.jsonl,
-heldout.jsonl, identity_heldout_prompts.jsonl and manifest.json.
+The exporter writes identity.jsonl, terminal_tasks.jsonl, terminal_heldout.jsonl,
+heldout2.jsonl, train.jsonl, heldout.jsonl, identity_heldout_prompts.jsonl
+and manifest.json.
 It never uses random generators or remote datasets. The manifest marks
 tools and general Arabic as missing until fixed, acceptable sources exist.
 The trainer refuses --stage all when any required stage is missing.
@@ -560,6 +561,17 @@ def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict
     for p in (train_path, heldout_path):
         if not p.is_file() or p.stat().st_size == 0:
             raise FileNotFoundError(f"required JSONL file is missing or empty: {p}")
+    # Validate the actual JSONL rows as well as manifest claims before the
+    # CLI downloads the 4.15-GB donor snapshot.
+    train_rows = load_jsonl(str(train_path), require_stage=True)
+    present = {row["stage"] for row in train_rows}
+    missing_rows = [name for name in stages if name not in present]
+    if missing_rows:
+        raise ValueError(
+            "refusing to train; train.jsonl has no rows for stage(s): "
+            + ", ".join(missing_rows)
+        )
+    load_jsonl(str(heldout_path), require_stage=False)
     return train_path, heldout_path, manifest
 
 
