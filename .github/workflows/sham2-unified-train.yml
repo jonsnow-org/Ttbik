@@ -1,4 +1,4 @@
-name: Sham 2 existing partial training monitor (read only; no Studio redeploy)
+name: Sham 2 Studio partial training verifier (verifies an existing run; never redeploys)
 
 on:
   push:
@@ -98,8 +98,6 @@ jobs:
               raise RuntimeError("Studio run-state ID does not match the exact donor preflight: "+str(state.get("run_id")))
           if state.get("studio")!="novaai2026/sham2-tldm" or state.get("account")!="novaai2026" or state.get("hub")!="www.modelscope.cn":
               raise RuntimeError("donor run-state is not bound to the dedicated CN Sham 2 Studio/account/Hub")
-          if state.get("status") not in {"training","completed","failed","memory-blocked"}:
-              raise RuntimeError("read-only monitor refused to start or redeploy training; no existing training run is active for this donor preflight: "+json.dumps(state,ensure_ascii=False))
           if donor.get("status")!="compatible" or donor.get("compatible") is not True:
               raise RuntimeError("same Studio donor report is not compatible: "+json.dumps(donor,ensure_ascii=False))
           if donor.get("endpoint")!="https://www.modelscope.cn":
@@ -166,7 +164,7 @@ jobs:
               f.write("PREFLIGHT_DONOR_SHA256="+donor_sha+"\n")
           print(json.dumps({
               "preflight":"compatible",
-              "monitor_mode":"read-only; no Studio secrets changed; no Studio deploy called",
+              "monitor_mode":"verify only; this workflow contains no Studio secret update and no Studio deploy call",
               "run_id":run_id,
               "pinned_expected_donor_sha256":expected_donor_sha,
               "studio":"novaai2026/sham2-tldm",
@@ -184,12 +182,6 @@ jobs:
               "training_and_gate_started":False,
           },ensure_ascii=False,indent=2),flush=True)
           PY
-
-      - name: Confirm read-only monitoring mode (no secret mutation or redeploy)
-        run: |
-          set -euo pipefail
-          echo "Monitoring the existing Studio run only."
-          echo "This workflow intentionally contains no ModelScope secret update and no Studio deploy call."
 
       - name: Wait for partial training and fresh terminal gate
         shell: bash

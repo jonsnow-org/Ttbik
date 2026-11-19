@@ -1143,6 +1143,10 @@ def _encode_rows(rows: List[Dict], tokenizer, cfg: Sham2UnifiedConfig,
             "valid_mask": valid_mask,
             "target_bytes": sum(valid_mask) - 1,
             "stage": row.get("stage"),
+            # Kept so the held-out exact-match comparison never has to re-read
+            # the raw JSONL row (that lookup raised KeyError after every
+            # optimizer step and discarded the trained head).
+            "target": row["target"],
         })
     return encoded
 
@@ -1580,36 +1584,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             "loss_last": losses[-1],
         })
 
-    model.eval()
-    heldout_losses = []
-    exact = 0
-    with torch.no_grad():
-        for row in heldout_rows:
-            input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
-            target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
-            valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
-            latents = model(input_ids)
-            # Held-out CE mirrors generation: every output position, including
-            # padding, is hidden. Do not reveal target bytes or the EOS/pad boundary.
-            all_hidden = torch.ones_like(valid_mask, dtype=torch.bool)
-            masked_logits = model.writer.logits(target_ids, all_hidden, latents)
-            selected_logits = masked_logits[0][valid_mask[0]].float()
-            selected_targets = target_ids[0][valid_mask[0]]
-            heldout_losses.append(
-                float(F.cross_entropy(selected_logits, selected_targets).cpu())
-            )
-            generated = model.writer.generate(
-                latents, steps=cfg.diffusion_steps, temperature=0.0
-            )[0].tolist()
-            predicted_text = decode_target_bytes(generated)
-            exact += int(predicted_text == str(row["target"]).strip())
     report["final_training_loss"] = report["stages"][-1]["loss_last"]
-    report["heldout_metrics"] = {
-        "examples": len(heldout_rows),
-        "mean_cross_entropy": sum(heldout_losses) / len(heldout_losses),
-        "exact_sequence_match": exact / len(heldout_rows),
-    }
 
+    # Persist the trained head BEFORE any held-out evaluation: a failure in the
+    # reporting loop must never throw away the optimizer's result again.
     state = model.state_dict()
     heads_state = {
         k: v.detach().cpu() for k, v in state.items()
@@ -1651,6 +1629,36 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     report["artifact"] = str(save_path)
     report["artifact_size_bytes"] = save_path.stat().st_size
     report["artifact_sha256"] = file_sha256(save_path)
+
+    model.eval()
+    heldout_losses = []
+    exact = 0
+    with torch.no_grad():
+        for row in heldout_rows:
+            input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
+            target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
+            valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
+            latents = model(input_ids)
+            # Held-out CE mirrors generation: every output position, including
+            # padding, is hidden. Do not reveal target bytes or the EOS/pad boundary.
+            all_hidden = torch.ones_like(valid_mask, dtype=torch.bool)
+            masked_logits = model.writer.logits(target_ids, all_hidden, latents)
+            selected_logits = masked_logits[0][valid_mask[0]].float()
+            selected_targets = target_ids[0][valid_mask[0]]
+            heldout_losses.append(
+                float(F.cross_entropy(selected_logits, selected_targets).cpu())
+            )
+            generated = model.writer.generate(
+                latents, steps=cfg.diffusion_steps, temperature=0.0
+            )[0].tolist()
+            predicted_text = decode_target_bytes(generated)
+            exact += int(predicted_text == str(row["target"]).strip())
+    report["heldout_metrics"] = {
+        "examples": len(heldout_rows),
+        "mean_cross_entropy": sum(heldout_losses) / len(heldout_losses),
+        "exact_sequence_match": exact / len(heldout_rows),
+    }
+
     report_path = out / "sham2_report.json"
     tmp_report = out / "sham2_report.json.tmp"
     tmp_report.write_text(

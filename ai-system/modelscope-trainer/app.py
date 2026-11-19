@@ -826,6 +826,66 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
             "donor_tensor_count": donor.get("tensor_count", 0), "run_id": raw_id,
         }
 
+    # One deploy must be able to run the whole job. When train-and-gate is requested
+    # for a run that has no compatible donor preflight yet, perform the same
+    # authenticated donor check here instead of demanding a manual second deploy.
+    if state.get("status") not in {"donor-compatible", "training", "completed", "failed", "memory-blocked"}:
+        state = {
+            "run_id": raw_id, "status": "checking-donor",
+            "studio": "novaai2026/sham2-tldm", "account": "novaai2026",
+            "hub": "www.modelscope.cn", "started_at": time.time(),
+        }
+        sham2_write_json(state_path, state)
+        donor_command = [
+            sys.executable, "-u", str(script), "--donor", "novaai2026/sham-v2",
+            "--check-donor", "--check-donor-report", str(donor_report_path),
+        ]
+        donor_code = sham2_run_command(donor_command, root, run_dir / "donor_check.log", env)
+        donor = sham2_read_json(donor_report_path)
+        if donor_code != 0 or donor.get("status") != "compatible" or donor.get("compatible") is not True:
+            reasons = donor.get("reasons", [f"--check-donor exited with code {donor_code}"])
+            failure_kind = donor.get("failure_kind") or (
+                "code-error" if donor.get("status") == "error" else "donor-validation"
+            )
+            state.update({
+                "status": "donor-check-failed", "finished_at": time.time(),
+                "donor_status": donor.get("status", "not_checked"),
+                "failure_kind": failure_kind, "reasons": reasons,
+                "donor_traceback": donor.get("traceback"),
+                "modelscope_version": donor.get("modelscope_version"),
+                "snapshot_download_signature": donor.get("snapshot_download_signature"),
+                "snapshot_download_kwargs_used": donor.get("snapshot_download_kwargs_used"),
+                "download_attempts": donor.get("download_attempts", 0),
+            })
+            sham2_write_json(state_path, state)
+            print("[Sham2 unified] donor preflight failed: " + json.dumps({
+                "status": donor.get("status", "not_checked"),
+                "failure_kind": failure_kind,
+                "reasons": reasons,
+                "traceback": donor.get("traceback"),
+                "modelscope_version": donor.get("modelscope_version"),
+                "snapshot_download_signature": donor.get("snapshot_download_signature"),
+                "snapshot_download_kwargs_used": donor.get("snapshot_download_kwargs_used"),
+                "download_attempts": donor.get("download_attempts", 0),
+            }, ensure_ascii=False), flush=True)
+            return {
+                "sham2_status": "donor-check-failed",
+                "donor_status": donor.get("status", "not_checked"),
+                "failure_kind": failure_kind,
+                "donor_reasons": json.dumps(reasons, ensure_ascii=False),
+                "run_id": raw_id,
+            }
+        state.update({
+            "status": "donor-compatible", "finished_at": time.time(),
+            "donor_sha256": donor.get("checkpoint_sha256"),
+            "donor_file_size_bytes": donor.get("file_size_bytes"),
+            "donor_tensor_count": donor.get("tensor_count"),
+            "donor_dtype_counts": donor.get("dtype_counts"),
+            "donor_config": donor.get("donor_config"),
+        })
+        sham2_write_json(state_path, state)
+        print("[Sham2 unified] donor is compatible; continuing in the same deploy to training", flush=True)
+
     donor = sham2_read_json(donor_report_path)
     if state.get("status") != "donor-compatible" or donor.get("status") != "compatible" or donor.get("compatible") is not True:
         raise RuntimeError("training is blocked: no compatible donor report from this same CN Sham 2 Studio run")

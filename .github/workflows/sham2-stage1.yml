@@ -8,6 +8,7 @@ on:
       - "ai-system/tldm/sham_tldm/**"
       - "ai-system/tldm/data/**"
       - ".github/workflows/sham2-stage1.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,10 +19,10 @@ concurrency:
 
 jobs:
   stage1:
-    # DISABLED: the generic self-hosted `studio` label maps to sham-runner-1,
-    # which is NOT the Sham 2 training Studio. Do not run Sham 2 workloads there.
-    # Re-enable only after a dedicated runner/worker bound to novaai2026/sham2-tldm exists.
-    if: false
+    # Runs entirely on a GitHub-hosted runner: authenticated donor check, the
+    # partial identity+terminal training run and the fresh candidate-only gate.
+    # It never deploys to ModelScope Studio and never mutates Studio secrets, so
+    # there is no redeploy loop. Push or workflow_dispatch starts the whole job.
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -134,7 +135,8 @@ jobs:
           set -euo pipefail
           set +e
           "$SHAM2_PYTHON" ai-system/tldm/sham_tldm/sham2_unified.py --check-donor \
-            > "$SHAM2_RUN_DIR/donor_check_report.json" \
+            --check-donor-report "$SHAM2_RUN_DIR/donor_check_report.json" \
+            > "$SHAM2_RUN_DIR/donor_check_stdout.log" \
             2> "$SHAM2_RUN_DIR/donor_check_stderr.log"
           rc=$?
           set -e
@@ -180,6 +182,8 @@ jobs:
             --tokenizer novaai2026/sham-v2 \
             --data-dir ai-system/tldm/data/sham2_export \
             --stage available \
+            --batch-size 1 \
+            --expected-donor-sha256 1d84e49fa5c835583288622b02fe1cdcbe85f9ec283f1be3acf0867aeb04dd9d \
             --out "$SHAM2_RUN_DIR/training"
           test -s "$SHAM2_RUN_DIR/training/sham2_heads.pt"
           test -s "$SHAM2_RUN_DIR/training/sham2_report.json"
@@ -194,6 +198,7 @@ jobs:
             --tokenizer novaai2026/sham-v2 \
             --heads "$SHAM2_RUN_DIR/training/sham2_heads.pt" \
             --minimum-same-effect 0.60 \
+            --expected-donor-sha256 1d84e49fa5c835583288622b02fe1cdcbe85f9ec283f1be3acf0867aeb04dd9d \
             --report "$SHAM2_RUN_DIR/partial_terminal_gate_report.json"
 
       - name: Create machine-readable run summary
