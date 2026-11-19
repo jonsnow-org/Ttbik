@@ -59,3 +59,29 @@ The generic studio runner label belongs to Jonjithup/sham-runner-1. It is not th
 ## 5. Current guardrail
 
 The Stage 1 workflow in this PR is intentionally disabled while its former self-hosted, studio runner association is removed. The read-only dual-account audit is separate. Do not enable training until its dedicated target is proven to be novaai2026/sham2-tldm and its own runtime can run the Sham 2 code.
+
+
+## 6. Actual application found inside the dedicated CN Sham 2 Studio
+
+The read-only clone of \`novaai2026/sham2-tldm\` (Studio commit \`fa1ef3e3065816b8e5181ac13503c1f3f3f93ebe\`) contains the previous engineers' \`app.py\` and its own T-LDM tree. The app is the shared \`ai-system/modelscope-trainer/app.py\`, but its dispatch has an explicit Sham 2 branch:
+
+- \`settings()\` reads \`SHAM_TRAINER_NAME\` and \`SHAM_TRAINER_JOB\`.
+- \`_resolve_run_fn()\` routes \`job=tldm\` and a name beginning \`sham2\` to \`run_sham2()\`.
+- \`job=tldm\` with a different name such as \`ms1\` goes to \`run_tldm()\`, the **Sham 1-style generic T-LDM writer**. That path uses \`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2\` and \`writer_donor.yaml\`.
+- The Sham 2 path \`run_sham2()\` enforces the CN host and owner, downloads a read-only copy of \`novaai2026/sham-v2\`, then currently invokes the **legacy** \`training/train_sham2.py --config configs/sham2.yaml --cached --dtype bf16 --seeds 3 --loop --identity\`. It writes \`sham2_heads.pt\` and \`sham2_results.json\` locally and publishes them to \`novaai2026/sham2-tldm-head\`, never to the donor repo.
+- Its \`sham2_gate()\` reads the old \`tldm_heldout_gate_2026-11-18.json\` when that file is present. Therefore this legacy branch is **not** the new Stage 1 unified trainer and must not be started for the current task; it would execute the old training implementation and old gate.
+
+The existing generic deploy workflow can provision this Studio using the two-account mapping, with the historical Sham 2 settings \`site=cn\`, \`repo=sham2-tldm\`, \`name=sham2\`, \`job=tldm\`. This explains how the Studio is provisioned and why its own app recognizes Sham 2. It does **not** authorize reusing its old \`run_sham2()\` for the unified Stage 1 run.
+
+## 7. Serving is a third, separate path
+
+- \`novaai2026/sham-v2\` is the donor model repo, not the training Studio.
+- \`novaai2026/sham2-tldm\` is the dedicated Sham 2 training Studio.
+- \`novaai2026/sham-v2-server\` (and \`sham-v2-overflow-server\`) are serving Studios. The serving wrapper sets \`SHAM_TLDM=0\` until a compatible head is published and explicitly avoids a Sham 1 fallback.
+- \`novaai2026/sham2-tldm-head\` is the legacy output model repo for the old trainer. Do not overwrite it with the new unified-heads-v2 artifact.
+
+## 8. Correct next implementation boundary
+
+The new unified Stage 1 runner must be added as an explicitly named Sham 2-only action inside \`novaai2026/sham2-tldm\` (or a dedicated worker launched by that Studio), with an explicit CN-only guard. It must call the PR's \`sham2_unified.py\` \`--check-donor\` first, then \`--stage available\`, then the new partial gate; it must not call \`run_sham2()\`, \`training/train_sham2.py\`, \`run_tldm()\`, or read the 18-Nov writer-donor gate. It must publish a versioned v2 head to a new isolated output location, leaving both \`novaai2026/sham-v2\` and the legacy \`novaai2026/sham2-tldm-head\` unchanged.
+
+The audited Studio is currently the CN free CPU tier \`platform/2v-cpu-8g-mem\`. That is not the AI account's 16-GB \`sham-runner-1\`; memory and donor-load feasibility must be measured on the CN Sham 2 Studio before training. The 16-GB AI Studios and runner must not be substituted because the donor and Studio secrets belong to the CN account.
