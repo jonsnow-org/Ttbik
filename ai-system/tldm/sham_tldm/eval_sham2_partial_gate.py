@@ -172,7 +172,10 @@ def main() -> int:
             target_tensor = torch.tensor([target_values], dtype=torch.long)
             valid_mask = torch.tensor([valid_values], dtype=torch.bool)
             latents = model(input_tensor)
-            masked_logits = model.writer.logits(target_tensor, valid_mask, latents)
+            # The candidate gate evaluates from a completely hidden block,
+            # exactly like generation; padding/EOS boundary must not leak.
+            all_hidden = torch.ones_like(valid_mask, dtype=torch.bool)
+            masked_logits = model.writer.logits(target_tensor, all_hidden, latents)
             selected_logits = masked_logits[0][valid_mask[0]].float()
             selected_targets = target_tensor[0][valid_mask[0]]
             loss = float(F.cross_entropy(selected_logits, selected_targets).cpu())
