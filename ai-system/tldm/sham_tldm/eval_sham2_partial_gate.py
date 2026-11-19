@@ -53,6 +53,8 @@ def main() -> int:
     parser.add_argument("--minimum-same-effect", type=float, default=0.60)
     parser.add_argument("--seed", type=int, default=20261119)
     parser.add_argument("--report", required=True)
+    parser.add_argument("--expected-donor-sha256", default=None,
+                        help="require the donor checkpoint SHA-256 from the compatible Studio preflight")
     args = parser.parse_args()
 
     tldm = tldm_root()
@@ -98,6 +100,12 @@ def main() -> int:
     )
 
     donor_path, tokenizer_path = resolve_modelscope_inputs(args.donor, args.tokenizer)
+    actual_donor_sha256 = file_sha256(donor_path)
+    if args.expected_donor_sha256 and actual_donor_sha256.lower() != args.expected_donor_sha256.strip().lower():
+        raise ValueError(
+            "donor SHA-256 changed after the compatible preflight: "
+            f"expected {args.expected_donor_sha256}, got {actual_donor_sha256}"
+        )
     tokenizer = load_sham_tokenizer(str(tokenizer_path))
     donor_body, _donor_step, _donor_extra = load_sham_donor(str(donor_path))
     donor_cfg = _model_donor_config(donor_body)
