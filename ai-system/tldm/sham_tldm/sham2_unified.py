@@ -92,7 +92,7 @@ class Sham2UnifiedConfig:
     lr: float = 1e-3
     lora_lr: float = 2e-4                         # LoRA أبطأ من الرأس (استقرار)
     steps: int = 600
-    batch: int = 32
+    batch: int = 1
     gate_heldout: float = 0.6                      # عتبة البوابة
     # وسائط
     image_vocab: int = 8192
@@ -389,8 +389,20 @@ def install_rank16_lora(donor_body: nn.Module) -> int:
     return count
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def sham_small_root() -> Path:
+    """Find ShamSmall source in either the full Git checkout or the staged ModelScope Studio layout."""
+    here = Path(__file__).resolve()
+    candidates = (
+        here.parents[2] / "sham_small",  # ModelScope Studio root contains tldm/ and sham_small/
+        here.parents[3] / "ai-system" / "colab" / "sham_small",  # full Git checkout
+    )
+    for candidate in candidates:
+        if (candidate / "model.py").is_file() and (candidate / "checkpoint.py").is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        "canonical ShamSmall source not found: expected model.py and checkpoint.py in "
+        "the Studio root/sham_small or Git checkout ai-system/colab/sham_small"
+    )
 
 
 MODELSCOPE_DONOR_REPO = "novaai2026/sham-v2"
@@ -482,7 +494,7 @@ def load_sham_donor(donor_path: str) -> Tuple[nn.Module, int, Dict]:
     path = Path(donor_path).expanduser().resolve()
     if not path.is_file() or path.stat().st_size == 0:
         raise FileNotFoundError(f"donor checkpoint is missing or empty: {path}")
-    sham_dir = _repo_root() / "ai-system" / "colab" / "sham_small"
+    sham_dir = sham_small_root()
     if not sham_dir.is_dir():
         raise FileNotFoundError(f"ShamSmall checkpoint loader directory is missing: {sham_dir}")
     if str(sham_dir) not in sys.path:
@@ -515,6 +527,7 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         "compatible": None,
         "reasons": [],
         "file_size_bytes": None,
+        "checkpoint_sha256": None,
         "checkpoint_root_keys": [],
         "tensor_count": 0,
         "dtype_counts": {},
@@ -543,6 +556,8 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         )
         donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
         report["file_size_bytes"] = donor_path.stat().st_size
+        if report["file_size_bytes"] > 0:
+            report["checkpoint_sha256"] = file_sha256(donor_path)
         if report["file_size_bytes"] <= 0:
             report["status"] = "incompatible"
             report["compatible"] = False
@@ -616,7 +631,7 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         return report
 
     try:
-        sham_dir = _repo_root() / "ai-system" / "colab" / "sham_small"
+        sham_dir = sham_small_root()
         if str(sham_dir) not in sys.path:
             sys.path.insert(0, str(sham_dir))
         from model import ShamSmall, ShamSmallConfig
@@ -725,8 +740,8 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
     return report
 
 
-def run_check_donor(donor_model_id: str) -> int:
-    """CLI wrapper with stable machine-readable output and distinct exit statuses."""
+def run_check_donor(donor_model_id: str, report_path: str | None = None) -> int:
+    """CLI wrapper with stable output, persisted full tensor inventory, and distinct exit statuses."""
     try:
         report = check_modelscope_donor(donor_model_id)
     except Exception as exc:
@@ -737,7 +752,14 @@ def run_check_donor(donor_model_id: str) -> int:
             "compatible": None,
             "reasons": [f"unexpected checker failure: {type(exc).__name__}: {exc}"],
         }
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    rendered = json.dumps(report, ensure_ascii=False, indent=2)
+    if report_path:
+        target = Path(report_path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        temporary.write_text(rendered + "\\n", encoding="utf-8")
+        os.replace(temporary, target)
+    print(rendered, flush=True)
     if report.get("status") == "compatible":
         return 0
     if report.get("status") == "incompatible":
@@ -1220,6 +1242,8 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
                         cfg: Sham2UnifiedConfig | None = None,
                         stage: str = "all", seed: int = 0) -> Dict:
     cfg = cfg or Sham2UnifiedConfig()
+    if int(cfg.batch) != 1:
+        raise ValueError("Sham 2 partial training requires batch_size=1")
     torch.manual_seed(seed)
     random.seed(seed)
     stages = parse_training_stages(stage)
@@ -1312,6 +1336,7 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     )
     report = {
         "format": "sham2-unified-real-data-report-v1",
+        "batch_size": int(cfg.batch),
         "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM",
         "training_scope": "full" if full_training else "partial, not full",
         "training_performed": True,
@@ -1605,10 +1630,16 @@ def main():
                     help="validate real files only; zero optimizer steps")
     ap.add_argument("--check-donor", action="store_true",
                     help="download only final_merged.pt and verify its structure against the canonical ShamSmall checkpoint loader; no tokenizer or training")
+    ap.add_argument("--check-donor-report", default=None,
+                    help="optional path to persist the full tensor-level donor check report")
+    ap.add_argument("--batch-size", type=int, choices=(1,), default=1,
+                    help="Sham 2 CPU training uses micro-batch 1 only")
+    ap.add_argument("--expected-donor-sha256", default=None,
+                    help="require the same donor SHA-256 produced by the compatible preflight")
     args = ap.parse_args()
 
     if args.check_donor:
-        sys.exit(run_check_donor(str(args.donor)))
+        sys.exit(run_check_donor(str(args.donor), args.check_donor_report))
 
     if args.check_gate:
         if not args.served or not args.candidate:
@@ -1719,7 +1750,13 @@ def main():
     donor_path, tokenizer_path = resolve_modelscope_inputs(
         args.donor, args.tokenizer
     )
-    cfg = Sham2UnifiedConfig(donor_id=str(args.donor))
+    actual_donor_sha256 = file_sha256(donor_path)
+    if args.expected_donor_sha256 and actual_donor_sha256.lower() != args.expected_donor_sha256.strip().lower():
+        ap.error(
+            "donor SHA-256 changed after the compatible preflight: "
+            f"expected {args.expected_donor_sha256}, got {actual_donor_sha256}"
+        )
+    cfg = Sham2UnifiedConfig(donor_id=str(args.donor), batch=int(args.batch_size))
     result = train_sham2_unified(
         str(donor_path), str(tokenizer_path), args.out,
         str(train_file), str(heldout_file),
