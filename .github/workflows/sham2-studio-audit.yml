@@ -25,8 +25,8 @@ jobs:
       - name: Inspect the two ModelScope accounts using the engineers' proven token routing
         shell: bash
         env:
-          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
-          T_AI: \${{ secrets.MODELSCOPE_AI_TOKEN }}
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           echo "::add-mask::$T_CN"
@@ -82,8 +82,8 @@ jobs:
       - name: List complete CN and AI Studio inventories using the existing list utility
         shell: bash
         env:
-          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
-          T_AI: \${{ secrets.MODELSCOPE_AI_TOKEN }}
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           echo "::add-mask::$T_CN"
@@ -97,16 +97,16 @@ jobs:
       - name: Clone only the dedicated CN Sham 2 training Studio using the proven deploy workflow URL
         shell: bash
         env:
-          T_CN: \${{ secrets.MODELSCOPE_TOKEN }}
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
           set -euo pipefail
           echo "::add-mask::$T_CN"
           mkdir -p "$RUNNER_TEMP/sham2-studio-audit/source"
           GIT_TERMINAL_PROMPT=0 git clone --quiet \
-            "https://oauth2:\${T_CN}@www.modelscope.cn/studios/novaai2026/sham2-tldm.git" \
+            "https://oauth2:${T_CN}@www.modelscope.cn/studios/novaai2026/sham2-tldm.git" \
             "$RUNNER_TEMP/sham2-studio-audit/source/sham2-tldm" \
             2> "$RUNNER_TEMP/sham2-studio-audit/clone_stderr.log" || {
-              sed "s/\${T_CN}/***/g" "$RUNNER_TEMP/sham2-studio-audit/clone_stderr.log"
+              sed "s/${T_CN}/***/g" "$RUNNER_TEMP/sham2-studio-audit/clone_stderr.log"
               exit 1
             }
           cd "$RUNNER_TEMP/sham2-studio-audit/source/sham2-tldm"
@@ -165,7 +165,7 @@ jobs:
       - name: Upload the CN and AI account map and the dedicated Sham 2 Studio source
         uses: actions/upload-artifact@v4
         with:
-          name: sham2-studio-map-and-source-\${{ github.run_id }}
-          path: \${{ runner.temp }}/sham2-studio-audit/
+          name: sham2-studio-map-and-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-studio-audit/
           if-no-files-found: error
           retention-days: 30
