@@ -1,0 +1,246 @@
+name: Sham 2 Stage 1 (authenticated donor check + partial train + fresh terminal gate)
+
+on:
+  push:
+    branches:
+      - fix/sham2-unified-real-donor-data
+    paths:
+      - "ai-system/tldm/sham_tldm/**"
+      - "ai-system/tldm/data/**"
+      - ".github/workflows/sham2-stage1.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sham2-stage1-partial
+  cancel-in-progress: false
+
+jobs:
+  stage1:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/sham2-unified-real-donor-data' && contains(github.event.head_commit.message, '[sham2-stage1]')
+    # This is the already-registered 16-GB free ModelScope Studio runner (label: studio),
+    # not a small ubuntu-latest hosted runner.
+    runs-on: [self-hosted, studio]
+    timeout-minutes: 360
+    env:
+      T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+      MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+      MODELSCOPE_ENDPOINT: https://www.modelscope.cn
+      MODELSCOPE_DOMAIN: www.modelscope.cn
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sham2-unified-real-donor-data
+          clean: true
+
+      - name: Prepare an isolated CPU Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          test -n "$T_CN" || { echo "::error::The existing MODELSCOPE_TOKEN repository secret is empty"; exit 1; }
+          VENV="$RUNNER_TEMP/sham2-stage1-venv"
+          RUN_DIR="$RUNNER_TEMP/sham2-stage1/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          python3 -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --upgrade pip
+          "$VENV/bin/python" -m pip install "numpy==1.26.4"
+          "$VENV/bin/python" -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          "$VENV/bin/python" -m pip install "modelscope==1.40.3" "tokenizers>=0.20,<1"
+          mkdir -p "$RUN_DIR"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+          echo "SHAM2_PYTHON=$VENV/bin/python" >> "$GITHUB_ENV"
+          echo "SHAM2_RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
+          echo "MODELSCOPE_CACHE=$RUNNER_TEMP/modelscope-cache" >> "$GITHUB_ENV"
+          echo "RUNNER_PYTHON=$("$VENV/bin/python" --version 2>&1)" >> "$GITHUB_ENV"
+
+      - name: Verify the existing CN ModelScope credential (no secret output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SHAM2_PYTHON" - <<'PY'
+          import os
+          from urllib.request import Request, urlopen
+          token = os.environ["T_CN"]
+          url = os.environ["MODELSCOPE_ENDPOINT"].rstrip("/") + "/openapi/v1/users/me"
+          req = Request(url, headers={"Authorization": "Bearer " + token})
+          with urlopen(req, timeout=40) as response:
+              if response.status != 200:
+                  raise SystemExit(f"ModelScope authentication returned HTTP {response.status}")
+          print("ModelScope CN bearer authentication: accepted")
+          PY
+
+      - name: Verify the committed partial dataset inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SHAM2_PYTHON" - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("ai-system/tldm/data/sham2_export")
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          expected = {
+              "train.jsonl": 46,
+              "heldout.jsonl": 26,
+              "terminal_heldout.jsonl": 12,
+              "heldout2.jsonl": 14,
+              "identity_heldout_prompts.jsonl": 8,
+          }
+          for name, count in expected.items():
+              rows = [line for line in (root / name).read_text(encoding="utf-8").splitlines() if line.strip()]
+              if len(rows) != count:
+                  raise SystemExit(f"{name}: expected {count} records, found {len(rows)}")
+          prompt_only = [
+              json.loads(line) for line in (root / "identity_heldout_prompts.jsonl").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          if any("target" in row for row in prompt_only):
+              raise SystemExit("identity held-out prompts must remain without invented targets")
+          training = manifest.get("training", {})
+          stages = manifest.get("stages", {})
+          if training.get("status") != "partial, not full":
+              raise SystemExit("manifest training status must be partial, not full")
+          if stages.get("tools", {}).get("status") != "missing":
+              raise SystemExit("tools must remain missing")
+          if stages.get("arabic", {}).get("status") != "missing":
+              raise SystemExit("arabic must remain missing")
+          if stages.get("terminal", {}).get("status") != "available":
+              raise SystemExit("terminal must be the available shell-command stage")
+          print(json.dumps({
+              "train": 46, "heldout": 26, "terminal_heldout": 12,
+              "heldout2": 14, "identity_heldout_prompts": 8,
+              "training": "partial, not full", "tools": "missing", "arabic": "missing",
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Compile the donor loader, trainer, exporter and fresh gate (static only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SHAM2_PYTHON" -m py_compile \
+            ai-system/tldm/sham_tldm/sham2_unified.py \
+            ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py \
+            ai-system/tldm/data/export_sham2_jsonl.py
+
+      - name: Run authenticated --check-donor (must be compatible before training)
+        id: donor
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          "$SHAM2_PYTHON" ai-system/tldm/sham_tldm/sham2_unified.py --check-donor \
+            > "$SHAM2_RUN_DIR/donor_check_report.json" \
+            2> "$SHAM2_RUN_DIR/donor_check_stderr.log"
+          rc=$?
+          set -e
+          "$SHAM2_PYTHON" -m json.tool "$SHAM2_RUN_DIR/donor_check_report.json" > "$SHAM2_RUN_DIR/donor_check_report.pretty.json"
+          mv "$SHAM2_RUN_DIR/donor_check_report.pretty.json" "$SHAM2_RUN_DIR/donor_check_report.json"
+          echo "checker_exit_code=$rc" > "$SHAM2_RUN_DIR/donor_check_status.txt"
+          "$SHAM2_PYTHON" - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          p = Path(os.environ["SHAM2_RUN_DIR"]) / "donor_check_report.json"
+          r = json.loads(p.read_text(encoding="utf-8"))
+          print(json.dumps({
+              "status": r.get("status"),
+              "compatible": r.get("compatible"),
+              "tensor_count": r.get("tensor_count"),
+              "dtype_counts": r.get("dtype_counts"),
+              "missing_keys": len(r.get("missing_keys") or []),
+              "unexpected_keys": len(r.get("unexpected_keys") or []),
+              "shape_mismatches": len(r.get("shape_mismatches") or []),
+              "dtype_mismatches": len(r.get("dtype_mismatches") or []),
+              "file_size_bytes": r.get("file_size_bytes"),
+              "reasons": r.get("reasons"),
+          }, ensure_ascii=False, indent=2))
+          if int(os.environ.get("CHECKER_EXIT_CODE", "0")) != 0:
+              sys.exit(2)
+          if r.get("status") != "compatible" or r.get("compatible") is not True:
+              sys.exit(3)
+          if r.get("missing_keys") or r.get("unexpected_keys") or r.get("shape_mismatches") or r.get("dtype_mismatches"):
+              sys.exit(4)
+          PY
+        env:
+          CHECKER_EXIT_CODE: ${{ steps.donor.outputs.checker_exit_code || '0' }}
+
+      - name: Train the available stages only (identity + terminal, frozen donor + LoRA-16 + T-LDM)
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SHAM2_PYTHON" ai-system/tldm/sham_tldm/sham2_unified.py \
+            --donor novaai2026/sham-v2 \
+            --tokenizer novaai2026/sham-v2 \
+            --data-dir ai-system/tldm/data/sham2_export \
+            --stage available \
+            --out "$SHAM2_RUN_DIR/training"
+          test -s "$SHAM2_RUN_DIR/training/sham2_heads.pt"
+          test -s "$SHAM2_RUN_DIR/training/sham2_report.json"
+
+      - name: Run the new terminal held-out gate on the v2 partial head only
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$SHAM2_PYTHON" ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py \
+            --data-dir ai-system/tldm/data/sham2_export \
+            --donor novaai2026/sham-v2 \
+            --tokenizer novaai2026/sham-v2 \
+            --heads "$SHAM2_RUN_DIR/training/sham2_heads.pt" \
+            --minimum-same-effect 0.60 \
+            --report "$SHAM2_RUN_DIR/partial_terminal_gate_report.json"
+
+      - name: Create machine-readable run summary
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          "$SHAM2_PYTHON" - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["SHAM2_RUN_DIR"])
+          items = {
+              "donor_check": root / "donor_check_report.json",
+              "training": root / "training" / "sham2_report.json",
+              "gate": root / "partial_terminal_gate_report.json",
+          }
+          report = {"workflow_run_id": os.environ.get("GITHUB_RUN_ID"), "artifacts": {}}
+          for key, path in items.items():
+              if path.is_file():
+                  report["artifacts"][key] = json.loads(path.read_text(encoding="utf-8"))
+          head = root / "training" / "sham2_heads.pt"
+          if head.is_file():
+              h = hashlib.sha256()
+              with head.open("rb") as stream:
+                  for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                      h.update(block)
+              report["head"] = {
+                  "path_in_artifact": "training/sham2_heads.pt",
+                  "sha256": h.hexdigest(),
+                  "size_bytes": head.stat().st_size,
+              }
+          (root / "stage1_final_report.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps({
+              "donor_status": (report.get("artifacts", {}).get("donor_check") or {}).get("status"),
+              "training_scope": (report.get("artifacts", {}).get("training") or {}).get("training_scope"),
+              "final_training_loss": (report.get("artifacts", {}).get("training") or {}).get("final_training_loss"),
+              "gate": (report.get("artifacts", {}).get("gate") or {}).get("gate"),
+              "head": report.get("head"),
+          }, ensure_ascii=False, indent=2))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## Sham 2 Stage 1 partial run\n\n")
+              summary.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+          PY
+          exit 0
+
+      - name: Upload donor, training, gate reports and new head artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham2-stage1-partial-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-stage1/${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 90
