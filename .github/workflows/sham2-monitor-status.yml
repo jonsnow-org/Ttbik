@@ -1,4 +1,5 @@
 name: Sham 2 live status (read-only)
+# Eleventh read-only observation of the active terminal training run.
 # Tenth read-only observation of the active terminal stage.
 # Ninth read-only snapshot of live Sham 2 training progress.
 # Eighth read-only snapshot of the active terminal training stage.
