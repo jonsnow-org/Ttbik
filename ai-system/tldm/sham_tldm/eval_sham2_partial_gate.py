@@ -127,12 +127,14 @@ def main() -> int:
         file_sha256(donor_path),
         file_sha256(tokenizer_path),
     )
-    if payload.get("format") != "sham2-unified-heads-v2":
-        raise ValueError("partial gate accepts only the new sham2-unified-heads-v2 artifact")
+    if payload.get("format") != "sham2-unified-heads-v3":
+        raise ValueError("partial gate accepts only the current sham2-unified-heads-v3 byte-diffusion artifact")
     if payload.get("training_scope") != "partial, not full":
         raise ValueError("candidate head is not explicitly labelled partial, not full")
     if payload.get("trained_stages") != ["identity", "terminal"]:
         raise ValueError("candidate head must contain exactly identity and terminal stages")
+    if payload.get("target_encoding") != "UTF-8 bytes with EOS and explicit padding loss mask":
+        raise ValueError("candidate head is missing the current masked-byte target encoding")
     if payload.get("missing_full_stages") != ["tools", "arabic"]:
         raise ValueError("candidate head must preserve tools/arabic as missing")
 
@@ -210,6 +212,8 @@ def main() -> int:
         "writer_vocab_size": BYTE_VOCAB,
         "candidate_artifact_format": payload["format"],
         "candidate_training_scope": payload["training_scope"],
+        "target_encoding": payload["target_encoding"],
+        "writer_vocab_size": 257,
         "trained_stages": payload["trained_stages"],
         "missing_stages": payload["missing_full_stages"],
         "gate_scope": [
