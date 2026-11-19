@@ -592,46 +592,74 @@ class GateResult:
 def check_gate(served: Dict, candidate: Dict,
                ar_margin: float = 0.05, en_tolerance: float = 0.03,
                tool_floor: float = 0.90, heldout_min: float = 0.6) -> GateResult:
-    """البوابة: 4 شروط، كلها يجب أن تمر.
-    1) heldout_same_effect >= 0.6 (T-LDM)
-    2) عربي bpb تحسن >=5% (bpb أقل = أفضل)
-    3) إنجليزي bpb خسارة <=3%
-    4) أدوات >=90% من المخدوم (أو >=90 حالة صحيحة من 100)"""
+    """Fail closed unless every independent fresh-gate metric is present."""
     reasons = []
-    # 1) T-LDM heldout
-    h = candidate.get("heldout_same_effect", 0)
+    if not isinstance(served, dict) or not isinstance(candidate, dict):
+        return GateResult(False, ["served and candidate gate reports must be JSON objects"], {})
+
+    h = candidate.get("heldout_same_effect")
     if isinstance(h, dict):
-        h = h.get("mean", 0)
-    if h < heldout_min:
-        reasons.append(f"heldout {h:.3f} < {heldout_min} — الرأس لم يتقن المهمة")
-    # 2) عربي
-    sb = served.get("bpb_after") or served.get("bpb_before") or {}
-    cb = candidate.get("bpb_after") or {}
-    if sb and cb:
-        if cb.get("ar", 999) > sb.get("ar", 0) * (1 - ar_margin):
-            reasons.append(f"عربي bpb {cb.get('ar'):.4f} لم يتحسن 5% عن {sb.get('ar'):.4f}")
-        if cb.get("en", 0) > sb.get("en", 999) * (1 + en_tolerance):
-            reasons.append(f"إنجليزي bpb {cb.get('en'):.4f} خسر أكثر من 3% عن {sb.get('en'):.4f}")
-    # 3) أدوات — 100 حالة الآن، ليس 24
-    st = served.get("tools_after") or {}
-    ct = candidate.get("tools_after") or {}
-    if st.get("cases") and ct.get("cases"):
-        served_acc = st["right"] / max(1, st["cases"])
-        cand_acc = ct["right"] / max(1, ct["cases"])
-        if cand_acc < tool_floor * served_acc:
-            reasons.append(f"أدوات {ct['right']}/{ct['cases']} = {cand_acc:.2f} أقل من 90% من المخدوم {served_acc:.2f}")
-        if ct["cases"] < 100:
-            reasons.append(f"قياس الأدوات {ct['cases']} حالة فقط — المطلوب 100")
-    # 4) هوية
-    ident = candidate.get("identity", {})
-    if ident and ident.get("after_lora", 0) < 1.0:
-        reasons.append(f"هوية {ident.get('after_lora')} < 1.0 — شام 2 يجب أن يعرف اسمه 100%")
-    # 5) NLL حماية المانح — [إصلاح 14]
-    nll = candidate.get("general_nll_after", 0)
-    if nll and nll > 6:
-        reasons.append(f"NLL {nll:.2f} > 6 — ملف المانح قد يكون تالفاً، أوقف التدريب")
-    return GateResult(passed=len(reasons) == 0, reasons=reasons,
-                      metrics={"heldout": h, "ar_bpb": cb.get("ar") if cb else None})
+        h = h.get("mean")
+    if not isinstance(h, (int, float)) or not math.isfinite(float(h)):
+        reasons.append("missing/non-numeric candidate heldout_same_effect")
+        h = 0.0
+    elif h < heldout_min:
+        reasons.append(f"heldout {h:.3f} < {heldout_min} — T-LDM head did not pass heldout")
+
+    served_bpb = served.get("bpb_after") or served.get("bpb_before")
+    candidate_bpb = candidate.get("bpb_after")
+    if not isinstance(served_bpb, dict) or not isinstance(candidate_bpb, dict):
+        reasons.append("missing served/candidate Arabic+English bits-per-byte measurements")
+    else:
+        for lang in ("ar", "en"):
+            if not isinstance(served_bpb.get(lang), (int, float)) or not isinstance(candidate_bpb.get(lang), (int, float)):
+                reasons.append(f"missing numeric {lang} bits-per-byte baseline or candidate metric")
+        if all(isinstance(x, (int, float)) for x in (served_bpb.get("ar"), candidate_bpb.get("ar"))):
+            if candidate_bpb["ar"] > served_bpb["ar"] * (1 - ar_margin):
+                reasons.append(f"Arabic BPB did not improve by {ar_margin:.0%}")
+        if all(isinstance(x, (int, float)) for x in (served_bpb.get("en"), candidate_bpb.get("en"))):
+            if candidate_bpb["en"] > served_bpb["en"] * (1 + en_tolerance):
+                reasons.append(f"English BPB regression exceeded {en_tolerance:.0%}")
+
+    served_tools = served.get("tools_after")
+    candidate_tools = candidate.get("tools_after")
+    if not isinstance(served_tools, dict) or not isinstance(candidate_tools, dict):
+        reasons.append("missing served/candidate 100-case tool evaluation")
+    else:
+        valid = True
+        for label, metrics in (("served", served_tools), ("candidate", candidate_tools)):
+            if not isinstance(metrics.get("cases"), int) or not isinstance(metrics.get("right"), int) or metrics["cases"] < 100:
+                reasons.append(f"{label} tool evaluation must contain at least 100 scored cases")
+                valid = False
+        if valid:
+            served_acc = served_tools["right"] / max(1, served_tools["cases"])
+            candidate_acc = candidate_tools["right"] / max(1, candidate_tools["cases"])
+            if candidate_acc < tool_floor * served_acc:
+                reasons.append(
+                    f"tool accuracy {candidate_acc:.3f} is below {tool_floor:.0%} of served accuracy {served_acc:.3f}"
+                )
+
+    identity = candidate.get("identity")
+    if not isinstance(identity, dict) or not isinstance(identity.get("after_lora"), (int, float)):
+        reasons.append("missing measured identity.after_lora")
+    elif identity["after_lora"] < 1.0:
+        reasons.append(f"identity after LoRA {identity['after_lora']} < 1.0")
+
+    nll = candidate.get("general_nll_after")
+    if not isinstance(nll, (int, float)) or not math.isfinite(float(nll)):
+        reasons.append("missing/non-numeric general_nll_after donor-retention measurement")
+    elif nll > 6:
+        reasons.append(f"general NLL {nll:.3f} > 6 — donor retention check failed")
+
+    metrics = {
+        "heldout_same_effect": h,
+        "served_bpb": served_bpb,
+        "candidate_bpb": candidate_bpb,
+        "served_tools": served_tools,
+        "candidate_tools": candidate_tools,
+        "general_nll_after": nll,
+    }
+    return GateResult(passed=len(reasons) == 0, reasons=reasons, metrics=metrics)
 
 # ============================================================
 # Training — بمراحل، الجسم مجمّد دائماً
@@ -644,6 +672,8 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
                         cfg: Sham2UnifiedConfig | None = None,
                         stage: str = "all", seed: int = 0) -> Dict:
     cfg = cfg or Sham2UnifiedConfig()
+    torch.manual_seed(seed)
+    random.seed(seed)
     stages = ["identity", "tools", "arabic", "tldm_head"] if stage == "all" else [stage]
     if any(s not in ("identity", "tools", "arabic", "tldm_head") for s in stages):
         raise ValueError("unsupported stage; only real-data text stages are accepted")
@@ -995,7 +1025,11 @@ def main():
 
     if args.serve:
         donor_ok = bool(args.donor and Path(args.donor).expanduser().is_file())
-        heads_ok = bool(args.heads and Path(args.heads).expanduser().is_file())
+        heads_ok = bool(
+            args.heads
+            and Path(args.heads).expanduser().name == "sham2_heads.pt"
+            and Path(args.heads).expanduser().is_file()
+        )
         tokenizer_ok = bool(args.tokenizer and Path(args.tokenizer).expanduser().is_file())
         if not (donor_ok and heads_ok and tokenizer_ok):
             print("missing donor or heads - refuse to serve fake")
@@ -1051,6 +1085,21 @@ def main():
         donor_body, donor_step, _extra = load_sham_donor(args.donor)
         train_rows = load_jsonl(args.train_data, require_stage=True)
         heldout_rows = load_jsonl(args.heldout_data, require_stage=False)
+        donor_cfg = _model_donor_config(donor_body)
+        if tokenizer.get_vocab_size(with_added_tokens=True) > donor_cfg["vocab_size"]:
+            ap.error("donor tokenizer vocabulary exceeds donor checkpoint vocabulary")
+        smoke_cfg = Sham2UnifiedConfig(
+            donor_id=str(args.donor),
+            d_model=donor_cfg["d_model"],
+            vocab_size=donor_cfg["vocab_size"],
+            n_layers=donor_cfg["n_layers"],
+            max_seq_len=min(4096, donor_cfg["max_seq_len"]),
+        )
+        _encode_rows(train_rows, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "training")
+        _encode_rows(heldout_rows, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "heldout")
+        training_inputs = {row["input"].strip() for row in train_rows}
+        if any(row["input"].strip() in training_inputs for row in heldout_rows):
+            ap.error("held-out leakage: at least one input also occurs in training JSONL")
         presence = {row["stage"] for row in train_rows}
         needed = ["identity", "tools", "arabic", "tldm_head"] if args.stage == "all" else [args.stage]
         missing_stages = [name for name in needed if name not in presence]
@@ -1060,10 +1109,12 @@ def main():
             "validated_only": True,
             "optimizer_steps": 0,
             "donor_step": donor_step,
-            "donor_config": _model_donor_config(donor_body),
+            "donor_config": donor_cfg,
             "tokenizer_vocab": tokenizer.get_vocab_size(with_added_tokens=True),
             "training_examples": len(train_rows),
             "heldout_examples": len(heldout_rows),
+            "train_data_sha256": file_sha256(args.train_data),
+            "heldout_data_sha256": file_sha256(args.heldout_data),
         }, ensure_ascii=False, indent=2))
         return
 
