@@ -1,0 +1,107 @@
+name: Sham 2 live status (read-only)
+
+on:
+  push:
+    branches: [fix/sham2-unified-real-donor-data]
+    paths: [".github/workflows/sham2-monitor-status.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  read-status:
+    if: contains(github.event.head_commit.message, '[sham2-monitor]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+      RUN_ID: "44528592320-1"
+      STUDIO_API: https://studio-novaai2026-sham2-tldm.api-inference.modelscope.net
+    steps:
+      - name: Read the current CN Sham 2 Studio status only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          from pathlib import Path
+
+          base=os.environ["STUDIO_API"].rstrip("/")
+          token=os.environ["T_CN"]
+          headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"}
+          run_id=os.environ["RUN_ID"]
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-live-status"
+          out.mkdir(parents=True,exist_ok=True)
+
+          def call(name):
+              req=urllib.request.Request(
+                  base+"/gradio_api/call/"+name,
+                  data=b'{"data":[]}',headers=headers,method="POST"
+              )
+              with urllib.request.urlopen(req,timeout=60) as response:
+                  event=json.loads(response.read().decode())
+              event_id=event.get("event_id")
+              if not event_id:
+                  raise ValueError("Gradio response is missing event_id: "+json.dumps(event,ensure_ascii=False))
+              req=urllib.request.Request(base+"/gradio_api/call/"+name+"/"+event_id,headers=headers)
+              with urllib.request.urlopen(req,timeout=120) as response:
+                  raw=response.read().decode("utf-8","replace")
+              for line in raw.splitlines():
+                  if not line.startswith("data: "):
+                      continue
+                  value=json.loads(line[6:])
+                  if isinstance(value,list) and value:
+                      value=value[0]
+                  if isinstance(value,str):
+                      value=json.loads(value)
+                  if isinstance(value,dict):
+                      return value
+              raise ValueError("No JSON object returned by "+name+": "+raw[-2000:])
+
+          status=call("status")
+          report=call("sham2_report")
+          if report.get("run_id")!=run_id:
+              raise RuntimeError("Refusing to report a different Studio run: "+str(report.get("run_id")))
+          artifacts=report.get("artifacts") or {}
+          state=artifacts.get("run_state") or {}
+          donor=artifacts.get("donor_check") or {}
+          training=artifacts.get("training") or {}
+          gate=artifacts.get("gate") or {}
+          safe_tail=[]
+          for line in (status.get("tail") or [])[-30:]:
+              line=str(line)
+              if re.search(r"token|secret|password|bearer\\s+",line,re.I):
+                  continue
+              safe_tail.append(line[:500])
+          snapshot={
+              "run_id":run_id,
+              "studio":"novaai2026/sham2-tldm",
+              "site":"www.modelscope.cn",
+              "phase":status.get("phase"),
+              "status_error":status.get("error"),
+              "tail":safe_tail,
+              "run_state":state,
+              "donor_check":{
+                  "status":donor.get("status"),
+                  "compatible":donor.get("compatible"),
+                  "checkpoint_sha256":donor.get("checkpoint_sha256"),
+              },
+              "training":training,
+              "gate":gate,
+              "head":report.get("head") or {},
+              "read_only":True,
+              "mutated_studio":False,
+          }
+          (out/"status.json").write_text(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\\n",encoding="utf-8")
+          print(json.dumps(snapshot,ensure_ascii=False,indent=2),flush=True)
+          PY
+
+      - name: Upload read-only status snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham2-live-status-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-live-status/
+          if-no-files-found: warn
+          retention-days: 7
