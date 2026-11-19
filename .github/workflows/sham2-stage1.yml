@@ -14,14 +14,15 @@ permissions:
 
 concurrency:
   group: sham2-stage1-partial
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   stage1:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/sham2-unified-real-donor-data' && contains(github.event.head_commit.message, '[sham2-stage1]')
-    # This is the already-registered 16-GB free ModelScope Studio runner (label: studio),
-    # not a small ubuntu-latest hosted runner.
-    runs-on: [self-hosted, studio]
+    # DISABLED: the generic self-hosted `studio` label maps to sham-runner-1,
+    # which is NOT the Sham 2 training Studio. Do not run Sham 2 workloads there.
+    # Re-enable only after a dedicated runner/worker bound to novaai2026/sham2-tldm exists.
+    if: false
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
