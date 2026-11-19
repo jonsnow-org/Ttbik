@@ -91,6 +91,7 @@ jobs:
               "phase":status.get("phase"),
               "status_error":status.get("error"),
               "minutes_since_last_line":status.get("minutes_since_last_line"),
+              "heartbeat":status.get("heartbeat"),
               "tail":safe_tail,
               "run_state":state,
               "donor_check":{
