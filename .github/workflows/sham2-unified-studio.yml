@@ -32,6 +32,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU-only PyTorch for the offline SDK compatibility test
+        run: |
+          python3 -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch
+
       - name: Validate the integrated Sham 2 route and fixed data
         run: |
           set -euo pipefail
