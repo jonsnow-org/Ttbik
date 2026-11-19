@@ -1,0 +1,293 @@
+name: Sham 2 unified execution in the dedicated CN Studio
+
+on:
+  push:
+    branches: [fix/sham2-unified-real-donor-data]
+    paths: [".github/workflows/sham2-unified-studio.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sham2-unified-dedicated-cn-studio
+  cancel-in-progress: false
+
+jobs:
+  sham2:
+    if: contains(github.event.head_commit.message, '[sham2-unified-run]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      OWNER: novaai2026
+      REPO: sham2-tldm
+      MS: https://www.modelscope.cn
+      STUDIO_API: https://studio-novaai2026-sham2-tldm.api-inference.modelscope.net
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate the integrated Sham 2 route and fixed data
+        run: |
+          set -euo pipefail
+          python3 ai-system/modelscope-trainer/app.py --selftest
+          python3 -m py_compile ai-system/modelscope-trainer/app.py ai-system/tldm/sham_tldm/sham2_unified.py ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("ai-system/tldm/data/sham2_export")
+          m=json.loads((root/"manifest.json").read_text())
+          expected={"train.jsonl":46,"heldout.jsonl":26,"terminal_heldout.jsonl":12,"heldout2.jsonl":14,"identity_heldout_prompts.jsonl":8}
+          for name,n in expected.items():
+              rows=[x for x in (root/name).read_text().splitlines() if x.strip()]
+              assert len(rows)==n,(name,len(rows),n)
+          assert m["training"]["status"]=="partial, not full"
+          assert m["stages"]["tools"]["status"]=="missing"
+          assert m["stages"]["arabic"]["status"]=="missing"
+          assert m["random_generation_used"] is False and m["remote_dataset_download_used"] is False
+          print("fixed data verified: identity 16 + terminal 30 = 46; heldout 26")
+          PY
+
+      - name: Update only the dedicated CN Sham 2 Studio source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          test -n "$T_CN" || { echo "::error::CN MODELSCOPE_TOKEN is empty"; exit 1; }
+          AUTH=$(printf 'oauth2:%s' "$T_CN" | base64 | tr -d '\n')
+          mkdir -p "$RUNNER_TEMP/sham2-studio/repo"
+          git -c http.extraheader="Authorization: Basic $AUTH" clone --quiet \
+            https://www.modelscope.cn/studios/novaai2026/sham2-tldm.git "$RUNNER_TEMP/sham2-studio/repo"
+          cd "$RUNNER_TEMP/sham2-studio/repo"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/app.py" app.py
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/requirements.txt" requirements.txt
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/studio_guard.py" studio_guard.py
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/safe_evolve.py" safe_evolve.py
+          mkdir sham_small tldm terminal distill
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.ipynb' --exclude '*.pt' --exclude '*.bin' --exclude '*.safetensors' --exclude '*.zip' \
+            "$GITHUB_WORKSPACE/ai-system/colab/sham_small/" sham_small/
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.ipynb' --exclude 'checkpoints/' --exclude '*.pt' --exclude '*.zip' \
+            --exclude 'training/train_sham2.py' --exclude 'configs/sham2.yaml' --exclude 'gate/tldm_heldout_gate_2026-11-18.json' \
+            "$GITHUB_WORKSPACE/ai-system/tldm/" tldm/
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/terminal/" terminal/
+          rsync -a --exclude '__pycache__' --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/distill/" distill/
+          test -f sham_small/model.py
+          test -f sham_small/checkpoint.py
+          test -f tldm/sham_tldm/sham2_unified.py
+          test -f tldm/sham_tldm/eval_sham2_partial_gate.py
+          test -f tldm/data/sham2_export/manifest.json
+          test ! -e tldm/training/train_sham2.py
+          test ! -e tldm/gate/tldm_heldout_gate_2026-11-18.json
+          git config user.name "Sham 2 Unified CI"
+          git config user.email "ci@sham.local"
+          echo "$GITHUB_SHA" > .sham2-unified-source
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Deploy isolated Sham 2 unified trainer from PR $GITHUB_SHA"
+            git -c http.extraheader="Authorization: Basic $AUTH" push -q origin HEAD
+          fi
+          echo "Only novaai2026/sham2-tldm was updated."
+
+      - name: Set CN-only Studio secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          set_secret() {
+            printf '%s' "$2" | python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$1" > "$RUNNER_TEMP/secret.json"
+            code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+              --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+                --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            fi
+            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Could not set $1 (HTTP $code)"; exit 1; }
+            echo "Set $1"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T_CN"
+          set_secret MODELSCOPE_DOMAIN "www.modelscope.cn"
+          set_secret MODELSCOPE_ENDPOINT "https://modelscope.cn"
+          set_secret SHAM_MS_OWNER "novaai2026"
+          set_secret SITE "cn"
+          set_secret SHAM_TRAINER_JOB "tldm"
+          set_secret SHAM_TRAINER_NAME "sham2"
+          set_secret SHAM_TRAINER_HOURS "10"
+          set_secret SHAM2_UNIFIED_ACTION "check-donor"
+          set_secret SHAM2_UNIFIED_RUN_ID "$RUN_ID"
+          set_secret SHAM2_MIN_AVAILABLE_GIB "4.5"
+          set_secret TLDM_WORK "/mnt/workspace/tldm"
+
+      - name: Deploy the donor check to the exact Sham 2 Studio
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          curl --fail --silent --show-error -o "$RUNNER_TEMP/deploy-donor.json" -X POST \
+            -H "Authorization: Bearer $T_CN" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy"
+
+      - name: Wait for --check-donor to finish inside novaai2026/sham2-tldm
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys, time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          base=os.environ["STUDIO_API"].rstrip("/")
+          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
+          out.mkdir(parents=True,exist_ok=True)
+          def call(name):
+              req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
+              with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
+              req=Request(base+"/gradio_api/call/"+name+"/"+event["event_id"],headers=headers)
+              with urlopen(req,timeout=180) as r: raw=r.read().decode("utf-8","replace")
+              for line in raw.splitlines():
+                  if line.startswith("data: "):
+                      try: value=json.loads(line[6:])
+                      except Exception: continue
+                      if isinstance(value,list) and value: value=value[0]
+                      if isinstance(value,str):
+                          try: return json.loads(value)
+                          except Exception: return {"raw":value}
+                      if isinstance(value,dict): return value
+              raise RuntimeError("No Gradio JSON result for "+name)
+          last=""
+          for n in range(360):
+              try:
+                  status=call("status"); phase=status.get("phase","unknown")
+                  print(f"CN Sham 2 donor preflight {n+1}/360: {phase}",flush=True)
+                  (out/"status_donor.json").write_text(json.dumps(status,ensure_ascii=False,indent=2))
+                  if phase in {"donor-compatible","donor-check-failed","failed","blocked"}:
+                      report=call("sham2_report")
+                      (out/"donor_preflight_full.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+                      donor=report.get("artifacts",{}).get("donor_check",{})
+                      if phase!="donor-compatible" or donor.get("status")!="compatible" or donor.get("compatible") is not True:
+                          raise RuntimeError("donor check failed: "+json.dumps({"phase":phase,"status":donor.get("status"),"reasons":donor.get("reasons",[])[:8]},ensure_ascii=False))
+                      if len(str(donor.get("checkpoint_sha256","")))!=64:
+                          raise RuntimeError("compatible report has no checkpoint SHA-256")
+                      (out/"donor_check_report.json").write_text(json.dumps(donor,ensure_ascii=False,indent=2))
+                      print(json.dumps({
+                          "studio":"novaai2026/sham2-tldm","hub":"www.modelscope.cn",
+                          "status":donor.get("status"),"tensor_count":donor.get("tensor_count"),
+                          "dtype_counts":donor.get("dtype_counts"),"donor_config":donor.get("donor_config"),
+                          "checkpoint_sha256":donor.get("checkpoint_sha256"),
+                          "file_size_bytes":donor.get("file_size_bytes"),
+                          "missing_keys":len(donor.get("missing_keys") or []),
+                          "unexpected_keys":len(donor.get("unexpected_keys") or []),
+                          "shape_mismatches":len(donor.get("shape_mismatches") or []),
+                          "dtype_mismatches":len(donor.get("dtype_mismatches") or []),
+                      },ensure_ascii=False,indent=2),flush=True)
+                      sys.exit(0)
+              except SystemExit: raise
+              except Exception as e:
+                  last=f"{type(e).__name__}: {str(e)[:180]}"
+                  if n%5==0: print("Waiting for the CN Studio API: "+last,flush=True)
+              time.sleep(20)
+          raise TimeoutError("donor check timed out; last error: "+last)
+          PY
+
+      - name: Start partial training on the same verified CN Sham 2 Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          printf '%s' "train-and-gate" | python3 -c 'import json,sys;print(json.dumps({"key":"SHAM2_UNIFIED_ACTION","value":sys.stdin.read()}))' > "$RUNNER_TEMP/secret.json"
+          code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+            --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+              --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+          fi
+          [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Could not update the action secret (HTTP $code)"; exit 1; }
+          curl --fail --silent --show-error -o "$RUNNER_TEMP/deploy-training.json" -X POST \
+            -H "Authorization: Bearer $T_CN" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy"
+
+      - name: Wait for partial training and the fresh candidate-only gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys, time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          base=os.environ["STUDIO_API"].rstrip("/")
+          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
+          out.mkdir(parents=True,exist_ok=True)
+          def call(name):
+              req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
+              with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
+              req=Request(base+"/gradio_api/call/"+name+"/"+event["event_id"],headers=headers)
+              with urlopen(req,timeout=180) as r: raw=r.read().decode("utf-8","replace")
+              for line in raw.splitlines():
+                  if line.startswith("data: "):
+                      try: value=json.loads(line[6:])
+                      except Exception: continue
+                      if isinstance(value,list) and value: value=value[0]
+                      if isinstance(value,str):
+                          try: return json.loads(value)
+                          except Exception: return {"raw":value}
+                      if isinstance(value,dict): return value
+              raise RuntimeError("No Gradio JSON result for "+name)
+          previous=""
+          try: previous=str(call("status").get("started") or "")
+          except Exception: pass
+          restarted=not bool(previous); last=""
+          for n in range(600):
+              try:
+                  status=call("status"); phase=status.get("phase","unknown")
+                  now=str(status.get("started") or "")
+                  if previous and now and now!=previous: restarted=True
+                  if restarted:
+                      print(f"CN Sham 2 partial stage {n+1}/600: {phase}",flush=True)
+                      (out/"status_training.json").write_text(json.dumps(status,ensure_ascii=False,indent=2))
+                      if phase in {"completed","memory-blocked","failed","donor-check-failed","blocked"}:
+                          report=call("sham2_report")
+                          (out/"partial_run_full.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+                          a=report.get("artifacts",{})
+                          state=a.get("run_state",{}); training=a.get("training",{}); gate=a.get("gate",{})
+                          summary={
+                              "phase":phase,"run_state":state,
+                              "donor":a.get("donor_check",{}).get("status"),
+                              "training_scope":training.get("training_scope"),
+                              "final_training_loss":training.get("final_training_loss"),
+                              "train_examples_total":training.get("train_examples_total"),
+                              "heldout_examples":training.get("heldout_examples"),
+                              "stages":training.get("stages"),"batch_size":training.get("batch_size"),
+                              "gate":gate.get("gate"),"examples":gate.get("examples"),
+                              "exact_matches":gate.get("exact_matches"),"exact_match_rate":gate.get("exact_match_rate"),
+                              "same_effect_matches":gate.get("same_effect_matches"),"same_effect_rate":gate.get("same_effect_rate"),
+                              "mean_cross_entropy":gate.get("mean_cross_entropy"),
+                              "head":report.get("head"),
+                          }
+                          (out/"final_summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+                          print(json.dumps(summary,ensure_ascii=False,indent=2),flush=True)
+                          if phase!="completed" or state.get("status")!="completed":
+                              raise RuntimeError("partial training did not complete: "+json.dumps(state,ensure_ascii=False))
+                          if gate.get("gate")!="passed":
+                              raise RuntimeError("fresh candidate gate failed; merge is blocked")
+                          sys.exit(0)
+              except SystemExit: raise
+              except Exception as e:
+                  last=f"{type(e).__name__}: {str(e)[:180]}"
+                  if n%5==0: print("Waiting for the CN training Studio: "+last,flush=True)
+              time.sleep(20)
+          raise TimeoutError("partial training/gate timed out; last error: "+last)
+          PY
+
+      - name: Upload donor tensor inventory, training report, gate metrics and head SHA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham2-unified-stage1-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-stage1-reports/
+          if-no-files-found: warn
+          retention-days: 90
