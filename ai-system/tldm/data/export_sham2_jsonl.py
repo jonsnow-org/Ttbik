@@ -110,7 +110,7 @@ def export(output_dir: Path) -> dict:
         "files": {
             "identity.jsonl": {"rows": identity_count, "source": "ai-system/tldm/data/identity.py:TRAIN"},
             "terminal_tasks.jsonl": {"rows": terminal_count, "source": "ai-system/tldm/data/terminal_tasks.py:TRAIN"},
-            "train.jsonl": {"rows": train_count, "contains_stages": ["identity", "tldm_head"]},
+            "train.jsonl": {"rows": train_count, "contains_stages": ["identity", "terminal"]},
             "terminal_heldout.jsonl": {
                 "rows": terminal_heldout_count,
                 "source": "ai-system/tldm/data/terminal_tasks.py:HELDOUT",

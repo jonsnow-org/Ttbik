@@ -793,6 +793,83 @@ def parse_training_stages(stage: str) -> List[str]:
     return requested
 
 
+STAGE_ADMISSION_MINIMUMS = {
+    "tools": {"train": 1000, "heldout": 100, "per_tool": 20},
+    "arabic": {"train": 10000, "heldout": 1000, "arabic_fraction": 0.90},
+}
+
+
+def validate_stage_record_minimums(
+    train_rows: List[Dict], heldout_rows: List[Dict], requested_stages: List[str]
+) -> None:
+    """Enforce published record floors and provenance fields before any donor download."""
+    if "tools" in requested_stages:
+        limits = STAGE_ADMISSION_MINIMUMS["tools"]
+        tool_train = [row for row in train_rows if row.get("stage") == "tools"]
+        tool_heldout = [row for row in heldout_rows if row.get("stage") == "tools"]
+        if len(tool_train) < limits["train"]:
+            raise ValueError(
+                f"tools stage requires at least {limits['train']} real training records; found {len(tool_train)}"
+            )
+        if len(tool_heldout) < limits["heldout"]:
+            raise ValueError(
+                f"tools stage requires at least {limits['heldout']} held-out records with stage='tools'; found {len(tool_heldout)}"
+            )
+        per_tool: Dict[str, int] = {}
+        for index, row in enumerate(tool_train, 1):
+            tool_name = str(row.get("tool_name", "")).strip()
+            if not tool_name:
+                raise ValueError(f"tools training record {index} is missing tool_name")
+            per_tool[tool_name] = per_tool.get(tool_name, 0) + 1
+            if not isinstance(row.get("tool_arguments"), dict):
+                raise ValueError(f"tools training record {index} is missing actual tool_arguments object")
+            if not isinstance(row.get("tool_result"), dict):
+                raise ValueError(f"tools training record {index} is missing observed tool_result object")
+            if not str(row.get("trace_id", "")).strip():
+                raise ValueError(f"tools training record {index} is missing trace_id")
+            if not str(row.get("source", "")).strip() or not str(row.get("source_revision", "")).strip():
+                raise ValueError(f"tools training record {index} is missing source provenance")
+            if row.get("approval") not in ("approved", "denied", "not_required"):
+                raise ValueError(f"tools training record {index} has invalid/missing approval state")
+        sparse = [name for name, count in sorted(per_tool.items()) if count < limits["per_tool"]]
+        if sparse:
+            raise ValueError(
+                f"tools stage requires at least {limits['per_tool']} training records per exposed tool; "
+                + ", ".join(f"{name}={per_tool[name]}" for name in sparse)
+            )
+
+    if "arabic" in requested_stages:
+        limits = STAGE_ADMISSION_MINIMUMS["arabic"]
+        arabic_train = [row for row in train_rows if row.get("stage") == "arabic"]
+        arabic_heldout = [row for row in heldout_rows if row.get("stage") == "arabic"]
+        if len(arabic_train) < limits["train"]:
+            raise ValueError(
+                f"arabic stage requires at least {limits['train']} fixed training records; found {len(arabic_train)}"
+            )
+        if len(arabic_heldout) < limits["heldout"]:
+            raise ValueError(
+                f"arabic stage requires at least {limits['heldout']} held-out records with stage='arabic'; found {len(arabic_heldout)}"
+            )
+        for label, rows in (("training", arabic_train), ("held-out", arabic_heldout)):
+            for index, row in enumerate(rows, 1):
+                for key in ("source_dataset", "source_config", "source_revision", "source_record_id", "split"):
+                    if not str(row.get(key, "")).strip():
+                        raise ValueError(f"arabic {label} record {index} is missing {key}")
+                expected_split = "train" if label == "training" else "heldout"
+                if row.get("split") != expected_split:
+                    raise ValueError(
+                        f"arabic {label} record {index} must have split={expected_split!r}"
+                    )
+                if row.get("language") not in ("ar", "en", "mixed"):
+                    raise ValueError(f"arabic {label} record {index} has invalid/missing language tag")
+        arabic_fraction = sum(row.get("language") == "ar" for row in arabic_train) / len(arabic_train)
+        if arabic_fraction < limits["arabic_fraction"]:
+            raise ValueError(
+                f"arabic stage requires at least {limits['arabic_fraction']:.0%} Arabic target records; "
+                f"found {arabic_fraction:.1%}"
+            )
+
+
 def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict]:
     """Validate only the requested scope; 'all' still fails closed on missing tools/Arabic."""
     root = Path(data_dir).expanduser().resolve()
@@ -836,7 +913,8 @@ def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict
             "refusing to train; train.jsonl has no rows for stage(s): "
             + ", ".join(missing_rows)
         )
-    load_jsonl(str(heldout_path), require_stage=False)
+    heldout_rows = load_jsonl(str(heldout_path), require_stage=False)
+    validate_stage_record_minimums(train_rows, heldout_rows, stages)
     return train_path, heldout_path, manifest
 
 
@@ -1135,6 +1213,8 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     # All data is validated before the output directory is created or training begins.
     raw_train = load_jsonl(str(train_file), require_stage=True)
     raw_heldout = load_jsonl(str(heldout_file), require_stage=False)
+    stages = parse_training_stages(stage)
+    validate_stage_record_minimums(raw_train, raw_heldout, stages)
     stage_presence = {row["stage"] for row in raw_train}
     missing_stages = [s for s in stages if s not in stage_presence]
     if missing_stages:

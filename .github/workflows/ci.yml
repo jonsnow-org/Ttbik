@@ -62,28 +62,56 @@ jobs:
               "training": "partial, not full",
           }, ensure_ascii=False, indent=2))
           PY
-      - name: Install CPU PyTorch and ModelScope SDK for read-only checkpoint inspection
+      - name: Install CPU PyTorch, NumPy and ModelScope SDK for read-only checkpoint inspection
         run: |
+          python -m pip install numpy
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
           python -m pip install modelscope
+      - name: Compile the two Sham 2 scripts (static validation only)
+        run: |
+          python -m py_compile ai-system/tldm/data/export_sham2_jsonl.py ai-system/tldm/sham_tldm/sham2_unified.py
       - name: Run --check-donor (no tokenizer, training, serve, smoke, or gate)
         run: |
           mkdir -p ai-system/tldm/data
           set +e
-          python ai-system/tldm/sham_tldm/sham2_unified.py --check-donor > ai-system/tldm/data/sham2_donor_check_report.json 2>&1
+          python ai-system/tldm/sham_tldm/sham2_unified.py --check-donor > ai-system/tldm/data/sham2_donor_check_report.json 2> ai-system/tldm/data/sham2_donor_check_stderr.log
           status=$?
           set -e
+          if python -m json.tool ai-system/tldm/data/sham2_donor_check_report.json > /tmp/sham2_donor_report.json; then
+            mv /tmp/sham2_donor_report.json ai-system/tldm/data/sham2_donor_check_report.json
+          else
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          err = Path("ai-system/tldm/data/sham2_donor_check_stderr.log").read_text(encoding="utf-8", errors="replace")
+          Path("ai-system/tldm/data/sham2_donor_check_report.json").write_text(
+              json.dumps({
+                  "model_id": "novaai2026/sham-v2",
+                  "filename": "final_merged.pt",
+                  "status": "not_checked",
+                  "compatible": None,
+                  "reasons": ["--check-donor emitted invalid JSON; stderr: " + err[-3000:]],
+              }, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            status=3
+          fi
           echo "--check-donor exit code: $status"
           cat ai-system/tldm/data/sham2_donor_check_report.json
-          python -m json.tool ai-system/tldm/data/sham2_donor_check_report.json > /tmp/sham2_donor_report.json
-          mv /tmp/sham2_donor_report.json ai-system/tldm/data/sham2_donor_check_report.json
+          if [ -s ai-system/tldm/data/sham2_donor_check_stderr.log ]; then
+            echo "Non-fatal stderr captured separately in sham2_donor_check_stderr.log"
+          fi
           echo "$status" > ai-system/tldm/data/sham2_donor_check_exit_code.txt
       - name: Commit review artifacts to this PR branch only
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ai-system/tldm/data/sham2_export ai-system/tldm/data/sham2_donor_check_report.json ai-system/tldm/data/sham2_donor_check_exit_code.txt
+          git add -f ai-system/tldm/data/sham2_export
+          for artifact in ai-system/tldm/data/sham2_donor_check_report.json ai-system/tldm/data/sham2_donor_check_exit_code.txt ai-system/tldm/data/sham2_donor_check_stderr.log; do
+            if [ -f "$artifact" ]; then git add -f "$artifact"; fi
+          done
           if git diff --cached --quiet; then
             echo "No review artifacts were produced."
           else
