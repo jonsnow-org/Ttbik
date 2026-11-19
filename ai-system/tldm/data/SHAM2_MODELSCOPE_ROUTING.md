@@ -1,93 +1,82 @@
-# Sham 2 ModelScope account and Studio routing (do not mix with Sham 1)
+# Sham 2 ModelScope account and Studio routing
 
-This is the source-of-truth routing note for Sham 2 Stage 1. A ModelScope account, a Studio, a model repository, and a serving endpoint are different resources. Do not use one as a substitute for another.
+This file is the source of truth for the Sham 2 unified path. CN and international ModelScope accounts are strictly separate. Never substitute one token, endpoint, Studio, or runner for another.
 
-## 1. CN account — Sham 2's dedicated training Studio and donor repository
+## CN account — Sham 2 only
 
-| Item | Exact route | Role |
-|---|---|---|
-| Account owner | novaai2026 | CN ModelScope account |
-| Hub/API host | www.modelscope.cn | CN ModelScope |
-| Inference host suffix | api-inference.modelscope.net | CN Studio apps |
-| GitHub secret | MODELSCOPE_TOKEN | CN credential only |
-| Existing workflow variable | T_CN | Alias for MODELSCOPE_TOKEN |
-| Dedicated Sham 2 training Studio | novaai2026/sham2-tldm | T-LDM training Studio; registered as policy train in studio_guard.py |
-| Donor model repository | novaai2026/sham-v2 | Read-only donor checkpoint + tokenizer; not a Studio |
-| Donor checkpoint file | final_merged.pt | Frozen 4.15-GB donor checkpoint |
-| Donor tokenizer file | sham_small_tokenizer.json | Donor tokenizer |
-| Serving Studio | novaai2026/sham-v2-server | Sham v2 serving; not the Stage 1 training Studio |
-| Legacy head repository | novaai2026/sham2-tldm-head | Legacy head only; do not use as the new candidate or overwrite |
+| Setting | Exact value |
+|---|---|
+| Account | novaai2026 |
+| Credential | GitHub secret MODELSCOPE_TOKEN, injected into the dedicated workflow as T_CN |
+| Hub/API | www.modelscope.cn |
+| Studio inference host | studio-novaai2026-sham2-tldm.api-inference.modelscope.net |
+| Training Studio | novaai2026/sham2-tldm — dedicated Sham 2 training only |
+| Donor repository | novaai2026/sham-v2 — read-only |
+| Donor checkpoint | final_merged.pt |
+| Donor tokenizer | sham_small_tokenizer.json |
+| Serving Studio | novaai2026/sham-v2-server — separate serving resource |
+| Legacy head repository | novaai2026/sham2-tldm-head — never overwrite with the unified v2 candidate |
 
-The sham2-tldm training Studio is explicitly listed in ai-system/modelscope-trainer/studio_guard.py as ("cn", "novaai2026", "sham2-tldm", "train"). Its separate donor repo is novaai2026/sham-v2.
+## International AI account — Sham 1 only
 
-## 2. International AI account — separate Sham 1 training lanes and generic runner
+| Setting | Exact value |
+|---|---|
+| Account | Jonjithup |
+| Credential | GitHub secret MODELSCOPE_AI_TOKEN, injected as T_AI |
+| Hub/API | www.modelscope.ai |
+| Studios | sham-trainer-1, sham-trainer-2, sham-trainer-tools — Sham 1 only |
+| Generic runner | sham-runner-1 — not a Sham 2 runner and must never be selected for this job |
 
-| Item | Exact route | Role |
-|---|---|---|
-| Account owner | Jonjithup | International ModelScope account |
-| Hub/API host | www.modelscope.ai | International ModelScope |
-| Inference host suffix | api-inference.modelscope.ai | International Studio apps |
-| GitHub secret | MODELSCOPE_AI_TOKEN | International credential only |
-| Existing workflow variable | T_AI | Alias for MODELSCOPE_AI_TOKEN |
-| Jonjithup/sham-trainer-1 | AI Studio, 16-GB CPU | Sham 1 trainer lane |
-| Jonjithup/sham-trainer-2 | AI Studio, 16-GB CPU | Sham 1 trainer lane |
-| Jonjithup/sham-trainer-tools | AI Studio, 16-GB CPU | Sham 1 tools trainer lane |
-| Jonjithup/sham-runner-1 | AI Studio, 16-GB CPU | Generic GitHub Actions self-hosted runner (studio label), not Sham 2 training |
-| Jonjithup/coder-inference-server-16 | AI Studio, 16-GB CPU | Nova 2 serving/chat; not Sham 2 |
+No workflow in the unified Sham 2 path reads MODELSCOPE_AI_TOKEN, T_AI, or calls the international Hub. Do not modify the three Sham 1 studios, their weights, or their repositories. Do not use sham-runner-1.
 
-The generic studio runner label belongs to Jonjithup/sham-runner-1. It is not the Studio novaai2026/sham2-tldm. A job scheduled on runs-on: [self-hosted, studio] therefore does not become a Sham 2 Studio job merely because its label says studio.
+## Dispatch contract inside the dedicated Studio
 
-## 3. How the engineers' existing Sham 2 training path actually works
+ai-system/modelscope-trainer/app.py::_resolve_run_fn() retains the existing dispatch rule:
 
-The dedicated CN Studio repository was cloned read-only during audit run 44486966687. Its ModelScope Git revision was fa1ef3e3065816b8e5181ac13503c1f3f3f93ebe. It contains app.py, a sham_small/ tree, and the staged tldm/ tree.
+- SHAM_TRAINER_JOB=tldm and SHAM_TRAINER_NAME beginning with sham2 selects run_sham2().
+- A different T-LDM name follows the independent Nova/legacy route. It is not Sham 2.
+- In Sham 2 mode, run_sham2() now invokes tldm/sham_tldm/sham2_unified.py. It does not invoke training/train_sham2.py, the old configs/sham2.yaml, or the historical 2026-11-18 gate.
+- Sham 2 runs once and fails closed; it does not automatically retry an interrupted or failed training cycle.
+- The cross-Studio guard thread is disabled only in the isolated Sham 2 mode. The dedicated Studio therefore cannot wake or supervise Sham 1 Studios or the generic runner.
+- The app exposes a read-only sham2_report endpoint for retrieving the per-run donor, training, gate, and head manifests.
 
-The app.py file is a shared trainer host, but it contains a distinct Sham 2 branch. This is important: the physical app wrapper is shared with trainer infrastructure; the selected execution function is not the Sham 1 live-trainer path.
+The unified run is stored under a fresh per-run directory:
 
-1. Settings select the Sham 2 branch only when SHAM_TRAINER_JOB=tldm and SHAM_TRAINER_NAME begins with sham2.
-2. _resolve_run_fn() then selects run_sham2(), not run_tldm() or sham_live.run().
-3. run_sham2() uses an isolated work path under TLDM_WORK/sham2, downloads a copy of the donor repo novaai2026/sham-v2, and leaves the donor repository read-only.
-4. sham2_hub_check() explicitly rejects the international AI site/account for this donor. It requires the CN host and CN token.
-5. The existing branch invokes ai-system/tldm/training/train_sham2.py with configs/sham2.yaml, BF16, cached donor features, 3 writer seeds, one loop seed, identity, and the historical gate file.
-6. It publishes only sham2_heads.pt and sham2_results.json to the separate repository novaai2026/sham2-tldm-head. It does not publish the donor checkpoint to that repository.
-7. The serving Studio novaai2026/sham-v2-server is a separate Studio and consumes the head from sham2-tldm-head only when its own T-LDM serving switch is enabled.
+TLDM_WORK/sham2-unified/runs/<SHAM2_UNIFIED_RUN_ID>/
 
-**Crucial distinction for this PR:** the existing sham2-tldm Studio branch is a real Sham 2-specific route, but it currently calls the legacy training/train_sham2.py path and the 2026-11-18 gate. This PR's new unified trainer is ai-system/tldm/sham_tldm/sham2_unified.py with its own data manifest, --check-donor, partial stage admission, and new gate. The unified trainer has NOT yet been staged into or executed by the dedicated Studio. Do not mistake the historical run_sham2 branch or its historical gate as results for the unified PR trainer.
+The new head is written only to:
 
-## 4. Required isolation for Sham 2
+.../training/sham2_heads.pt
 
-- Training Studio: use only the audited novaai2026/sham2-tldm Studio on the CN account.
-- Donor: download only final_merged.pt and sham_small_tokenizer.json from the separate novaai2026/sham-v2 model repository with the CN credential and CN Hub endpoint.
-- Head output: save the new Sham 2 v2 head in its own run/output artifact. Never write to the donor repository or the legacy sham2-tldm-head repository.
-- No Sham 1 paths: do not use ai-system/modelscope-trainer/app.py, its MiniLM donor, writer_donor.yaml, sham_live, the AI Sham 1 trainer Studios, or the generic AI runner for unified Sham 2 training.
-- No token fallback across sites: T_CN must never be used on modelscope.ai; T_AI must never be used on modelscope.cn.
-- No training until route verification: the dedicated Studio status and source inventory must be verified before any Stage 1 --check-donor, training, or fresh gate is launched on that Studio.
+The legacy TLDM_WORK/sham2/sham2_heads.pt, donor repository, and legacy head repository are not written by this path.
 
-## 5. Current guardrail
+## Required execution sequence
 
-The Stage 1 workflow in this PR is intentionally disabled while its former self-hosted, studio runner association is removed. The read-only dual-account audit is separate. Do not enable training until its dedicated target is proven to be novaai2026/sham2-tldm and its own runtime can run the Sham 2 code.
+The dedicated workflow .github/workflows/sham2-unified-studio.yml is restricted to:
 
+- account novaai2026;
+- host www.modelscope.cn;
+- Studio novaai2026/sham2-tldm;
+- credential MODELSCOPE_TOKEN -> T_CN.
 
-## 6. Actual application found inside the dedicated CN Sham 2 Studio
+It stages the PR's app.py, sham_small/, and T-LDM source into that Studio only. It explicitly omits training/train_sham2.py, configs/sham2.yaml, and the historical 2026-11-18 gate file. It first runs --check-donor within that Studio, captures the full tensor key/shape/dtype inventory and donor SHA-256, and proceeds only if the report states compatible. It then runs:
 
-The read-only clone of \`novaai2026/sham2-tldm\` (Studio commit \`fa1ef3e3065816b8e5181ac13503c1f3f3f93ebe\`) contains the previous engineers' \`app.py\` and its own T-LDM tree. The app is the shared \`ai-system/modelscope-trainer/app.py\`, but its dispatch has an explicit Sham 2 branch:
+--stage available --batch-size 1
 
-- \`settings()\` reads \`SHAM_TRAINER_NAME\` and \`SHAM_TRAINER_JOB\`.
-- \`_resolve_run_fn()\` routes \`job=tldm\` and a name beginning \`sham2\` to \`run_sham2()\`.
-- \`job=tldm\` with a different name such as \`ms1\` goes to \`run_tldm()\`, the **Sham 1-style generic T-LDM writer**. That path uses \`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2\` and \`writer_donor.yaml\`.
-- The Sham 2 path \`run_sham2()\` enforces the CN host and owner, downloads a read-only copy of \`novaai2026/sham-v2\`, then currently invokes the **legacy** \`training/train_sham2.py --config configs/sham2.yaml --cached --dtype bf16 --seeds 3 --loop --identity\`. It writes \`sham2_heads.pt\` and \`sham2_results.json\` locally and publishes them to \`novaai2026/sham2-tldm-head\`, never to the donor repo.
-- Its \`sham2_gate()\` reads the old \`tldm_heldout_gate_2026-11-18.json\` when that file is present. Therefore this legacy branch is **not** the new Stage 1 unified trainer and must not be started for the current task; it would execute the old training implementation and old gate.
+The trainer uses a frozen BF16 donor and rank-16 LoRA plus the new T-LDM head. The admitted data must remain exactly identity 16 + terminal 30 = 46 training records, with 26 held-out examples. The report and manifest must state partial, not full, with tools: missing and arabic: missing; no generated or remote records are admitted. The fresh terminal gate must evaluate only the new head, compare both donor and head SHA-256 values to the preflight, and never read the old gate.
 
-The existing generic deploy workflow can provision this Studio using the two-account mapping, with the historical Sham 2 settings \`site=cn\`, \`repo=sham2-tldm\`, \`name=sham2\`, \`job=tldm\`. This explains how the Studio is provisioned and why its own app recognizes Sham 2. It does **not** authorize reusing its old \`run_sham2()\` for the unified Stage 1 run.
+## Memory and runner guard
 
-## 7. Serving is a third, separate path
+The audited dedicated Studio is platform/2v-cpu-8g-mem (2 vCPU / 8 GB). The preflight runs there first as requested. Before loading the donor for partial training, the app checks MemAvailable; it refuses training if less than 4.5 GiB is free. It does not force a run in insufficient memory. If this guard blocks, a separate free CN-only Sham 2 runner may be evaluated; no Sham 1 studio or sham-runner-1 is an acceptable substitute. Any such runner must be documented and separately scoped to the CN Sham 2 account.
 
-- \`novaai2026/sham-v2\` is the donor model repo, not the training Studio.
-- \`novaai2026/sham2-tldm\` is the dedicated Sham 2 training Studio.
-- \`novaai2026/sham-v2-server\` (and \`sham-v2-overflow-server\`) are serving Studios. The serving wrapper sets \`SHAM_TLDM=0\` until a compatible head is published and explicitly avoids a Sham 1 fallback.
-- \`novaai2026/sham2-tldm-head\` is the legacy output model repo for the old trainer. Do not overwrite it with the new unified-heads-v2 artifact.
+## Verified implementation status
 
-## 8. Correct next implementation boundary
+- The original audit workflow 44486966687 verified the two-account mapping and the dedicated Studio inventory. The audited Studio was novaai2026/sham2-tldm, Running, 2 vCPU / 8 GB.
+- PR #1136 contains the isolated run_sham2() replacement, the unified trainer and gate path fixes, and this routing document.
+- The dedicated workflow has successfully passed its source/data validation, staged the PR trainer into novaai2026/sham2-tldm, set CN-only Studio secrets, and sent the donor-check deployment request.
+- The donor compatibility check is a separate live gate. Until its full report says compatible, no partial training may start. No training loss, candidate-gate score, or new-head hash is claimed by this document.
+- PR #1136 remains draft and unmerged until the donor check, partial training, fresh gate, exact data manifest, and untouched Sham 1 conditions are all evidenced by the dedicated workflow artifacts.
 
-The new unified Stage 1 runner must be added as an explicitly named Sham 2-only action inside \`novaai2026/sham2-tldm\` (or a dedicated worker launched by that Studio), with an explicit CN-only guard. It must call the PR's \`sham2_unified.py\` \`--check-donor\` first, then \`--stage available\`, then the new partial gate; it must not call \`run_sham2()\`, \`training/train_sham2.py\`, \`run_tldm()\`, or read the 18-Nov writer-donor gate. It must publish a versioned v2 head to a new isolated output location, leaving both \`novaai2026/sham-v2\` and the legacy \`novaai2026/sham2-tldm-head\` unchanged.
-
-The audited Studio is currently the CN free CPU tier \`platform/2v-cpu-8g-mem\`. That is not the AI account's 16-GB \`sham-runner-1\`; memory and donor-load feasibility must be measured on the CN Sham 2 Studio before training. The 16-GB AI Studios and runner must not be substituted because the donor and Studio secrets belong to the CN account.
+References:
+- https://github.com/jonsnow-org/Ttbik/pull/1136
+- https://github.com/jonsnow-org/Ttbik/blob/fix/sham2-unified-real-donor-data/.github/workflows/sham2-unified-studio.yml
