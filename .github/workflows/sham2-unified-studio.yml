@@ -197,6 +197,32 @@ jobs:
         run: |
           set -euo pipefail
           echo "::add-mask::$T_CN"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          base=os.environ["STUDIO_API"].rstrip("/")
+          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
+          req=Request(base+"/gradio_api/call/status",data=b'{"data":[]}',headers=headers,method="POST")
+          with urlopen(req,timeout=60) as r: event=json.loads(r.read().decode())
+          req=Request(base+"/gradio_api/call/status/"+event["event_id"],headers=headers)
+          with urlopen(req,timeout=120) as r: raw=r.read().decode("utf-8","replace")
+          value={}
+          for line in raw.splitlines():
+              if line.startswith("data: "):
+                  try:
+                      value=json.loads(line[6:])
+                      if isinstance(value,list) and value: value=value[0]
+                      if isinstance(value,str): value=json.loads(value)
+                      break
+                  except Exception: pass
+          if not isinstance(value,dict) or not value.get("started"):
+              raise RuntimeError("Could not capture pre-training Studio start marker")
+          p=Path(os.environ["RUNNER_TEMP"])/"sham2-stage1-reports"
+          p.mkdir(parents=True,exist_ok=True)
+          (p/"status_before_training.json").write_text(json.dumps(value,ensure_ascii=False,indent=2))
+          print("Captured the pre-redeploy Studio marker.",flush=True)
+          PY
           printf '%s' "train-and-gate" | python3 -c 'import json,sys;print(json.dumps({"key":"SHAM2_UNIFIED_ACTION","value":sys.stdin.read()}))' > "$RUNNER_TEMP/secret.json"
           code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
             -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
@@ -237,10 +263,10 @@ jobs:
                           except Exception: return {"raw":value}
                       if isinstance(value,dict): return value
               raise RuntimeError("No Gradio JSON result for "+name)
-          previous=""
-          try: previous=str(call("status").get("started") or "")
-          except Exception: pass
-          restarted=not bool(previous); last=""
+          before=json.loads((out/"status_before_training.json").read_text(encoding="utf-8"))
+          previous=str(before.get("started") or "")
+          restarted=False
+          last=""
           for n in range(600):
               try:
                   status=call("status"); phase=status.get("phase","unknown")
