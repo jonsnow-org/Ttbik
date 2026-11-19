@@ -586,13 +586,38 @@ def sham2_write_json(path: Path, value: dict) -> None:
 
 
 def sham2_memory_available_bytes() -> int | None:
+    """Return the tightest available-memory estimate across host and container cgroup limits."""
+    estimates: list[int] = []
     try:
         for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
             if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) * 1024
+                estimates.append(int(line.split()[1]) * 1024)
+                break
     except (OSError, ValueError, IndexError):
-        return None
-    return None
+        pass
+
+    # cgroup v2: an 8-GB Studio can share a much larger host, so /proc/meminfo
+    # alone may overstate its actual headroom.
+    try:
+        limit_raw = Path("/sys/fs/cgroup/memory.max").read_text(encoding="ascii").strip()
+        current_raw = Path("/sys/fs/cgroup/memory.current").read_text(encoding="ascii").strip()
+        if limit_raw != "max":
+            limit, current = int(limit_raw), int(current_raw)
+            if limit > 0 and limit < (1 << 60) and current >= 0:
+                estimates.append(max(0, limit - current))
+    except (OSError, ValueError):
+        pass
+
+    # cgroup v1 fallback.
+    try:
+        limit = int(Path("/sys/fs/cgroup/memory/memory.limit_in_bytes").read_text(encoding="ascii").strip())
+        current = int(Path("/sys/fs/cgroup/memory/memory.usage_in_bytes").read_text(encoding="ascii").strip())
+        if 0 < limit < (1 << 60) and current >= 0:
+            estimates.append(max(0, limit - current))
+    except (OSError, ValueError):
+        pass
+
+    return min(estimates) if estimates else None
 
 
 def sham2_sha256(path: Path) -> str:
