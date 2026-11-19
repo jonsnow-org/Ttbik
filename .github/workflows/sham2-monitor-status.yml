@@ -1,5 +1,6 @@
 name: Sham 2 live status (read-only)
 # Read-only monitor invocation for current terminal stage progress.
+# Second observation of the existing training run; read only.
 
 on:
   push:
