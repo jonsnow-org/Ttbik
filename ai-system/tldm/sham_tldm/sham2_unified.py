@@ -1502,9 +1502,6 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         "heldout_data_sha256": file_sha256(heldout_file),
         "data_manifest_sha256": file_sha256(Path(train_file).parent / "manifest.json"),
         "data_sources": json.loads((Path(train_file).parent / "manifest.json").read_text(encoding="utf-8")).get("stages", {}),
-        "target_encoding": "UTF-8 bytes with EOS and explicit padding loss mask",
-        "writer_vocab_size": BYTE_VOCAB,
-        "writer_block_bytes": int(cfg.block),
         "train_examples_by_stage": {
             s: sum(1 for row in train_rows if row["stage"] == s) for s in stages
         },
