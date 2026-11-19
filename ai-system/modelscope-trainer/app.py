@@ -682,7 +682,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
     if (os.environ.get("SHAM_MS_OWNER") or "novaai2026").strip().lower() != "novaai2026":
         raise RuntimeError("Sham 2 requires the novaai2026 CN account")
     domain = (os.environ.get("MODELSCOPE_DOMAIN") or "www.modelscope.cn").lower().replace("https://", "").strip("/")
-    endpoint = (os.environ.get("MODELSCOPE_ENDPOINT") or "https://modelscope.cn").lower()
+    endpoint = (os.environ.get("MODELSCOPE_ENDPOINT") or "https://www.modelscope.cn").lower()
     if "modelscope.ai" in domain or "modelscope.ai" in endpoint:
         raise RuntimeError("Sham 2 donor access must use ModelScope CN only (www.modelscope.cn)")
     if os.environ.get("MODELSCOPE_DOMAIN") and domain != "www.modelscope.cn":
@@ -720,7 +720,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
         "SITE": "cn",
         "SHAM_MS_OWNER": "novaai2026",
         "MODELSCOPE_DOMAIN": "www.modelscope.cn",
-        "MODELSCOPE_ENDPOINT": "https://modelscope.cn",
+        "MODELSCOPE_ENDPOINT": "https://www.modelscope.cn",
         "MODELSCOPE_CACHE": str(Path(os.environ.get("MODELSCOPE_CACHE") or "/mnt/workspace/modelscope-cache")),
         "CUDA_VISIBLE_DEVICES": "",
         "OMP_NUM_THREADS": "2",
