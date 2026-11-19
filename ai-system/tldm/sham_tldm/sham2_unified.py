@@ -1160,7 +1160,16 @@ class Sham2Unified(nn.Module):
         self.donor_body.eval()
         self.compressor = Compressor(cfg)
         self.thinker = LatentThinker(cfg)
-        self.writer = DiffusionWriter(cfg, cfg.vocab_size)
+        # The v3 target contract is UTF-8 byte diffusion (257 classes),
+        # not donor-token vocabulary prediction. Keep the donor tokenizer
+        # exclusively on the frozen reader/input side.
+        self.writer = MaskedByteDiffusionWriter(
+            d=cfg.head_d,
+            block=cfg.block,
+            vocab=BYTE_VOCAB,
+            layers=cfg.writer_layers,
+            heads=cfg.heads,
+        )
         # SpeculativeDraft in this file is an unfinished prototype, not part
         # of the requested trainable contract, so it is not instantiated.
         self.draft = None
@@ -1219,21 +1228,30 @@ class Sham2Unified(nn.Module):
             )
         return features
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None,
-                target_len: int | None = None) -> Tuple[torch.Tensor, float]:
+    def encode_latents(self, input_ids: torch.Tensor,
+                       attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Encode a prompt through the real donor and T-LDM into writer context."""
         features = self.body_features(input_ids, attention_mask).float()
-        latents = self.compressor(features)
-        thought = self.thinker(latents)
-        logits, confidence = self.writer(
-            thought, block_len=target_len, return_confidence=True
-        )
-        return logits, confidence
+        compressed = self.compressor(features)
+        return self.thinker(compressed)
 
-    def generate_block(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_ids: torch.Tensor,
+                attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+        # Training and the fresh gate consume latent context, then explicitly
+        # call writer.loss/logits/generate. Never route byte targets through
+        # the donor-token vocabulary or invoke an absent Writer.forward().
+        return self.encode_latents(input_ids, attention_mask)
+
+    @torch.no_grad()
+    def generate_block(self, input_ids: torch.Tensor, steps: int | None = None) -> torch.Tensor:
+        """Return generated UTF-8 byte IDs from the masked discrete writer."""
         self.eval()
-        with torch.no_grad():
-            logits, _ = self.forward(input_ids)
-            return logits.argmax(dim=-1)
+        latents = self.encode_latents(input_ids)
+        return self.writer.generate(
+            latents,
+            steps=int(steps or self.cfg.diffusion_steps),
+            temperature=0.0,
+        )
 
 # ============================================================
 # Codebook Init للوسائط — [إصلاح 3]
@@ -1851,6 +1869,56 @@ def main():
         torch.manual_seed(19)
         generated = byte_writer.generate(latents, steps=3, temperature=0.0)
         assert tuple(generated.shape) == (2, block), tuple(generated.shape)
+
+        # Integration regression: the Sham2 model must instantiate the byte
+        # writer, return latent context from forward(), and feed that context
+        # into writer.loss/generation. A standalone writer test cannot catch
+        # a stale donor-vocabulary Writer constructor or tuple/latent mismatch.
+        from types import SimpleNamespace
+
+        class _IdentityDonorLayer(nn.Module):
+            def forward(self, hidden, _cos, _sin, past_kv=None, use_cache=False):
+                return hidden, None
+
+        class _TinyDonor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.cfg = SimpleNamespace(
+                    d_model=16, max_seq_len=64, use_gradient_checkpointing=False
+                )
+                self.token_embedding = nn.Embedding(300, 16)
+                self.layers = nn.ModuleList([_IdentityDonorLayer(), _IdentityDonorLayer()])
+                self.final_norm = nn.LayerNorm(16)
+                self.register_buffer("rope_cos", torch.zeros(64, 1, 1))
+                self.register_buffer("rope_sin", torch.zeros(64, 1, 1))
+
+        tiny_cfg = Sham2UnifiedConfig(
+            d_model=16, vocab_size=300, n_layers=2, max_seq_len=64,
+            latents=4, think_steps=2, block=block, writer_layers=1,
+            heads=4, head_d=16, bitnet_head=False, batch=1,
+        )
+        tiny_model = Sham2Unified(tiny_cfg, _TinyDonor())
+        assert isinstance(tiny_model.writer, MaskedByteDiffusionWriter), type(tiny_model.writer)
+        prompt_latents = tiny_model(torch.tensor([[1, 2, 3]], dtype=torch.long))
+        assert tuple(prompt_latents.shape) == (1, 4, 16), tuple(prompt_latents.shape)
+        model_target, model_valid = encode_target_bytes("ls", block, "model integration")
+        model_target_tensor = torch.tensor([model_target], dtype=torch.long)
+        model_valid_tensor = torch.tensor([model_valid], dtype=torch.bool)
+        model_loss = tiny_model.writer.loss(
+            prompt_latents, model_target_tensor, valid_mask=model_valid_tensor
+        )
+        assert torch.isfinite(model_loss), model_loss
+        model_loss.backward()
+        assert any(
+            p.grad is not None
+            for name, p in tiny_model.named_parameters()
+            if name.startswith(("compressor.", "thinker.", "writer."))
+        ), "the integrated Sham2 latent/writer path must carry gradients"
+        tiny_generated = tiny_model.generate_block(
+            torch.tensor([[1, 2, 3]], dtype=torch.long), steps=2
+        )
+        assert tuple(tiny_generated.shape) == (1, block), tuple(tiny_generated.shape)
+
         try:
             encode_target_bytes("x" * (block), block, "overflow")
         except ValueError as exc:
@@ -1868,6 +1936,9 @@ def main():
             "utf8_round_trip": True,
             "gradient_flow": True,
             "generation_shape": list(generated.shape),
+            "integrated_model_writer": "passed",
+            "integrated_latent_shape": list(prompt_latents.shape),
+            "integrated_generation_shape": list(tiny_generated.shape),
             "network_used": False,
             "optimizer_steps": 0,
         }, ensure_ascii=False, indent=2))
