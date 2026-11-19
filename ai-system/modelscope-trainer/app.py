@@ -736,8 +736,10 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
         if state.get("status") == "checking-donor" and donor_report_path.is_file():
             previous_donor = sham2_read_json(donor_report_path)
             previous_sha = str(previous_donor.get("checkpoint_sha256") or "")
+            previous_endpoint = str(previous_donor.get("endpoint") or "").rstrip("/")
             if (previous_donor.get("status") == "compatible"
                     and previous_donor.get("compatible") is True
+                    and previous_endpoint == "https://www.modelscope.cn"
                     and len(previous_sha) == 64):
                 state.update({
                     "status": "donor-compatible",
