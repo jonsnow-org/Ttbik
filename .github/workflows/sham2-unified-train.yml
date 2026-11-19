@@ -122,6 +122,10 @@ jobs:
           train_hash=sha(data/"train.jsonl")
           heldout_hash=sha(data/"heldout.jsonl")
           manifest_hash=sha(data/"manifest.json")
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("TRAIN_JSONL_SHA256="+train_hash+"\\n")
+              f.write("HELDOUT_JSONL_SHA256="+heldout_hash+"\\n")
+              f.write("MANIFEST_JSON_SHA256="+manifest_hash+"\\n")
           (out/"source_manifest.json").write_text(json.dumps({
               "run_id":run_id,
               "preflight_donor_sha256":donor_sha,
