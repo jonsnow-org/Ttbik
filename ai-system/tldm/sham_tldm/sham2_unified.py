@@ -49,7 +49,7 @@ The donor checkpoint is only read. Outputs are written to a separate directory.
 """
 
 from __future__ import annotations
-import argparse, json, math, os, random, sys, time
+import argparse, importlib.metadata, inspect, json, math, os, random, socket, sys, time, traceback, urllib.error
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -434,6 +434,88 @@ def _modelscope_auth() -> Tuple[str, str]:
     return token, endpoint
 
 
+def _modelscope_transient_error(exc: Exception) -> bool:
+    """Only network/temporary HTTP failures are retryable; code and validation errors never are."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is None:
+        status = getattr(exc, "code", None)
+    if isinstance(status, int):
+        return status in {408, 425, 429} or 500 <= status <= 599
+    if isinstance(exc, (TimeoutError, ConnectionError, socket.timeout, urllib.error.URLError)):
+        return True
+    try:
+        import requests
+        if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+            return True
+        if isinstance(exc, requests.exceptions.HTTPError):
+            code = getattr(getattr(exc, "response", None), "status_code", None)
+            return isinstance(code, int) and (code in {408, 425, 429} or 500 <= code <= 599)
+    except Exception:
+        pass
+    return False
+
+
+def _snapshot_download_compatible(snapshot_download, model_id: str, patterns: List[str],
+                                  token: str, endpoint: str,
+                                  diagnostics: Dict | None = None,
+                                  max_attempts: int = 3, sleep_fn=time.sleep) -> str:
+    """Call the installed ModelScope SDK using only parameters in its actual runtime signature.
+
+    ModelScope 1.34/1.38 and later releases differ in whether endpoint= is accepted.
+    MODELSCOPE_API_TOKEN / MODELSCOPE_ENDPOINT remain the canonical fallback for older SDKs.
+    """
+    signature = inspect.signature(snapshot_download)
+    parameters = signature.parameters
+    names = set(parameters)
+    pattern_arg = "allow_file_pattern" if "allow_file_pattern" in names else (
+        "allow_patterns" if "allow_patterns" in names else None
+    )
+    if pattern_arg is None:
+        raise TypeError(
+            "installed modelscope.hub.snapshot_download.snapshot_download signature "
+            f"{signature} accepts neither allow_file_pattern nor allow_patterns"
+        )
+
+    kwargs = {pattern_arg: list(patterns)}
+    if "max_workers" in names:
+        kwargs["max_workers"] = 1
+    if "token" in names:
+        kwargs["token"] = token
+    if "endpoint" in names:
+        kwargs["endpoint"] = endpoint
+
+    if diagnostics is not None:
+        try:
+            diagnostics["modelscope_version"] = importlib.metadata.version("modelscope")
+        except importlib.metadata.PackageNotFoundError:
+            diagnostics["modelscope_version"] = "unknown"
+        diagnostics["snapshot_download_signature"] = str(signature)
+        diagnostics["snapshot_download_parameters"] = sorted(names)
+        diagnostics["snapshot_download_kwargs_used"] = sorted(kwargs)
+        diagnostics["snapshot_download_env_fallbacks"] = [
+            name for name in ("token", "endpoint") if name not in kwargs
+        ]
+
+    for attempt in range(1, max(1, int(max_attempts)) + 1):
+        if diagnostics is not None:
+            diagnostics["download_attempts"] = attempt
+        try:
+            return snapshot_download(model_id, **kwargs)
+        except (TypeError, ValueError):
+            # These indicate an API/signature or validation bug, not a transient network issue.
+            raise
+        except Exception as exc:
+            if attempt >= max_attempts or not _modelscope_transient_error(exc):
+                raise
+            print(
+                f"[Sham2] transient ModelScope download failure "
+                f"{attempt}/{max_attempts}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            sleep_fn(min(2 ** attempt, 5))
+    raise RuntimeError("unreachable ModelScope snapshot retry state")
+
+
 def _snapshot_file(snapshot_root: str | Path, filename: str) -> Path:
     root = Path(snapshot_root).expanduser().resolve()
     direct = root / filename
@@ -448,26 +530,25 @@ def _snapshot_file(snapshot_root: str | Path, filename: str) -> Path:
 
 
 def resolve_modelscope_inputs(donor_model_id: str, tokenizer_model_id: str) -> Tuple[Path, Path]:
-    """Download only the named donor checkpoint and tokenizer from ModelScope."""
+    """Download only the named donor checkpoint and tokenizer from the CN ModelScope Hub."""
     if not donor_model_id or not tokenizer_model_id:
         raise ValueError("both --donor and --tokenizer ModelScope repository IDs are required")
+    token, endpoint = _modelscope_auth()
+    # Set these before importing ModelScope: older SDKs read Hub endpoint and
+    # credentials from environment/config rather than accepting endpoint= or token=.
+    os.environ["MODELSCOPE_API_TOKEN"] = token
+    os.environ["MODELSCOPE_ENDPOINT"] = endpoint
+    os.environ["MODELSCOPE_DOMAIN"] = endpoint.split("://", 1)[-1].split("/", 1)[0]
     try:
         from modelscope.hub.snapshot_download import snapshot_download
     except Exception as exc:
         raise RuntimeError(
             "ModelScope SDK is unavailable; install the official modelscope package in the execution environment"
         ) from exc
-    token, endpoint = _modelscope_auth()
 
-    # Explicit token + site endpoint are required for private repositories. The
-    # default unauthenticated SDK call previously surfaced a misleading 404.
     def download(model_id: str, patterns: List[str]) -> str:
-        return snapshot_download(
-            model_id,
-            allow_patterns=patterns,
-            max_workers=1,
-            token=token,
-            endpoint=endpoint,
+        return _snapshot_download_compatible(
+            snapshot_download, model_id, patterns, token, endpoint
         )
 
     if donor_model_id == tokenizer_model_id:
@@ -478,12 +559,8 @@ def resolve_modelscope_inputs(donor_model_id: str, tokenizer_model_id: str) -> T
         donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
         tokenizer_path = _snapshot_file(snapshot_root, MODELSCOPE_TOKENIZER_FILENAME)
     else:
-        donor_root = download(
-            donor_model_id, [MODELSCOPE_DONOR_FILENAME]
-        )
-        tokenizer_root = download(
-            tokenizer_model_id, [MODELSCOPE_TOKENIZER_FILENAME]
-        )
+        donor_root = download(donor_model_id, [MODELSCOPE_DONOR_FILENAME])
+        tokenizer_root = download(tokenizer_model_id, [MODELSCOPE_TOKENIZER_FILENAME])
         donor_path = _snapshot_file(donor_root, MODELSCOPE_DONOR_FILENAME)
         tokenizer_path = _snapshot_file(tokenizer_root, MODELSCOPE_TOKENIZER_FILENAME)
     return donor_path, tokenizer_path
@@ -536,6 +613,14 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
         "unexpected_keys": [],
         "shape_mismatches": [],
         "dtype_mismatches": [],
+        "modelscope_version": None,
+        "snapshot_download_signature": None,
+        "snapshot_download_parameters": [],
+        "snapshot_download_kwargs_used": [],
+        "snapshot_download_env_fallbacks": [],
+        "download_attempts": 0,
+        "failure_kind": None,
+        "traceback": None,
     }
     try:
         from modelscope.hub.snapshot_download import snapshot_download
@@ -547,12 +632,29 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
     try:
         token, endpoint = _modelscope_auth()
         report["endpoint"] = endpoint
-        snapshot_root = snapshot_download(
+        # The dedicated CN Studio provides MODELSCOPE_TOKEN. Set the SDK's
+        # standard environment configuration before importing it; pass named
+        # arguments only when the installed function signature supports them.
+        os.environ["MODELSCOPE_API_TOKEN"] = token
+        os.environ["MODELSCOPE_ENDPOINT"] = endpoint
+        os.environ["MODELSCOPE_DOMAIN"] = endpoint.split("://", 1)[-1].split("/", 1)[0]
+        from modelscope.hub.snapshot_download import snapshot_download
+        print(
+            "[Sham2] ModelScope donor preflight SDK: "
+            + json.dumps({
+                "version": importlib.metadata.version("modelscope"),
+                "snapshot_download_signature": str(inspect.signature(snapshot_download)),
+            }, ensure_ascii=False),
+            flush=True,
+        )
+        snapshot_root = _snapshot_download_compatible(
+            snapshot_download,
             donor_model_id,
-            allow_patterns=[MODELSCOPE_DONOR_FILENAME],
-            max_workers=1,
-            token=token,
-            endpoint=endpoint,
+            [MODELSCOPE_DONOR_FILENAME],
+            token,
+            endpoint,
+            diagnostics=report,
+            max_attempts=3,
         )
         donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
         report["file_size_bytes"] = donor_path.stat().st_size
@@ -563,10 +665,27 @@ def check_modelscope_donor(donor_model_id: str) -> Dict:
             report["compatible"] = False
             report["reasons"].append("final_merged.pt is empty")
             return report
+    except (TypeError, ValueError) as exc:
+        report["status"] = "error"
+        report["compatible"] = None
+        report["failure_kind"] = "code-error"
+        report["reasons"].append(
+            f"ModelScope API/signature validation failed: {type(exc).__name__}: {exc}"
+        )
+        trace = traceback.format_exc()
+        token = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
+        report["traceback"] = trace.replace(token, "***") if token else trace
+        return report
     except Exception as exc:
+        report["failure_kind"] = (
+            "transient-network" if _modelscope_transient_error(exc) else "runtime-error"
+        )
         report["reasons"].append(
             f"ModelScope donor download/resolve failed: {type(exc).__name__}: {exc}"
         )
+        trace = traceback.format_exc()
+        token = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
+        report["traceback"] = trace.replace(token, "***") if token else trace
         return report
 
     try:
@@ -748,9 +867,11 @@ def run_check_donor(donor_model_id: str, report_path: str | None = None) -> int:
         report = {
             "model_id": donor_model_id,
             "filename": MODELSCOPE_DONOR_FILENAME,
-            "status": "not_checked",
+            "status": "error" if isinstance(exc, (TypeError, ValueError)) else "not_checked",
             "compatible": None,
+            "failure_kind": "code-error" if isinstance(exc, (TypeError, ValueError)) else "runtime-error",
             "reasons": [f"unexpected checker failure: {type(exc).__name__}: {exc}"],
+            "traceback": traceback.format_exc(),
         }
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if report_path:
@@ -1636,7 +1757,68 @@ def main():
                     help="Sham 2 CPU training uses micro-batch 1 only")
     ap.add_argument("--expected-donor-sha256", default=None,
                     help="require the same donor SHA-256 produced by the compatible preflight")
+    ap.add_argument("--selftest-modelscope-api", action="store_true",
+                    help="offline tests for old/new ModelScope snapshot_download signatures; performs no network request")
     args = ap.parse_args()
+
+    if args.selftest_modelscope_api:
+        calls = []
+        def old_sdk(model_id, allow_file_pattern=None, max_workers=None, token=None):
+            calls.append({"model_id": model_id, "pattern": allow_file_pattern, "workers": max_workers, "token": token})
+            return "/tmp/modelscope-old-sdk"
+        got = _snapshot_download_compatible(
+            old_sdk, "owner/model", ["final_merged.pt"], "test-token",
+            "https://www.modelscope.cn", diagnostics={}, max_attempts=3,
+            sleep_fn=lambda _seconds: None,
+        )
+        assert got == "/tmp/modelscope-old-sdk" and calls[0]["pattern"] == ["final_merged.pt"]
+        def new_sdk(model_id, allow_file_pattern=None, max_workers=None, token=None, endpoint=None):
+            calls.append({"model_id": model_id, "pattern": allow_file_pattern, "workers": max_workers, "token": token, "endpoint": endpoint})
+            return "/tmp/modelscope-new-sdk"
+        got = _snapshot_download_compatible(
+            new_sdk, "owner/model", ["final_merged.pt"], "test-token",
+            "https://www.modelscope.cn", diagnostics={}, max_attempts=3,
+            sleep_fn=lambda _seconds: None,
+        )
+        assert got == "/tmp/modelscope-new-sdk" and calls[-1]["endpoint"] == "https://www.modelscope.cn"
+        deterministic_calls = []
+        def deterministic_type_error(model_id, allow_file_pattern=None, max_workers=None):
+            deterministic_calls.append(model_id)
+            raise TypeError("unexpected keyword argument 'endpoint'")
+        try:
+            _snapshot_download_compatible(
+                deterministic_type_error, "owner/model", ["final_merged.pt"], "test-token",
+                "https://www.modelscope.cn", max_attempts=3, sleep_fn=lambda _seconds: None,
+            )
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("TypeError should fail fast")
+        assert len(deterministic_calls) == 1, deterministic_calls
+        transient_calls = []
+        def transient_failure(model_id, allow_file_pattern=None, max_workers=None):
+            transient_calls.append(model_id)
+            raise ConnectionError("temporary connection failure")
+        try:
+            _snapshot_download_compatible(
+                transient_failure, "owner/model", ["final_merged.pt"], "test-token",
+                "https://www.modelscope.cn", max_attempts=3, sleep_fn=lambda _seconds: None,
+            )
+        except ConnectionError:
+            pass
+        else:
+            raise AssertionError("three transient failures should stop")
+        assert len(transient_calls) == 3, transient_calls
+        print(json.dumps({
+            "selftest": "passed",
+            "old_signature": str(inspect.signature(old_sdk)),
+            "new_signature": str(inspect.signature(new_sdk)),
+            "type_error_attempts": len(deterministic_calls),
+            "transient_attempts": len(transient_calls),
+            "network_used": False,
+            "training_steps": 0,
+        }, ensure_ascii=False, indent=2))
+        return
 
     if args.check_donor:
         sys.exit(run_check_donor(str(args.donor), args.check_donor_report))
