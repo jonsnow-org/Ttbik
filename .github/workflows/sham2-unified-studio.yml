@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           python3 ai-system/modelscope-trainer/app.py --selftest
           python3 -m py_compile ai-system/modelscope-trainer/app.py ai-system/tldm/sham_tldm/sham2_unified.py ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py
+          python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-modelscope-api
           python3 - <<'PY'
           import json
           from pathlib import Path
