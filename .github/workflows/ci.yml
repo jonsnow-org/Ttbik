@@ -161,6 +161,22 @@ jobs:
           python ai-system/tldm/sham_tldm/sham2_unified.py --selftest-modelscope-api  # old/new SDK signature adapter; no network or training
           python ai-system/tldm/sham_tldm/sham2_unified.py --selftest-lora-layout  # ShamSmall attention/MLP LoRA map; no network or training
           python ai-system/tldm/sham_tldm/sham2_unified.py --selftest-byte-writer  # masked byte-diffusion writer: positions, latent cross-attention, UTF-8, EOS mask, gradients
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("ai-system/tldm/data/sham2_export")
+          maximum = 0
+          for name in ("train.jsonl", "heldout.jsonl"):
+              for line_no, line in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1):
+                  if not line.strip():
+                      continue
+                  row = json.loads(line)
+                  length = len(row["target"].encode("utf-8")) + 1  # EOS
+                  maximum = max(maximum, length)
+                  if length > 192:
+                      raise SystemExit(f"{name}:{line_no}: UTF-8 target needs {length} bytes; writer block is 192")
+          print(f"Sham 2 fixed targets fit byte writer: maximum={maximum}/192 bytes including EOS")
+          PY
           python ai-system/modelscope-trainer/safe_evolve.py --selftest  # replay + no-regress gate; anonymized session records
           python ai-system/modelscope-trainer/studio_guard.py --selftest  # the cross-watch that wakes / restarts the trainer Studios (no network)
           python ai-system/modelscope-runner/app.py --selftest          # sham-runner-1 (runner + guard thread)
