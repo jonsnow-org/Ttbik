@@ -160,10 +160,17 @@ PyTorch body for frozen reader features. A Nova head can be TRAINED and PUBLISHE
 per-Nova PyTorch head server (a memory-cost decision on a free CPU box), not a code tweak.
 Model ids: Sham Pro = `sham_v2`, Nova 1 = `coder`, Nova 2 = `nova2`; Sham 1 and `lfm25` have no T-LDM path.
 
-## Pushing this repo from an OpenHands session FAILS (403) as of 2026-11-18
-`git push` to `jonsnow-org/Ttbik` is refused: the injected `GITHUB_TOKEN` is the user `jonsnowx1r-lab`, an
-**installation/app token** ("Resource not accessible by integration" on the REST refs API too) even though the
-`/repos/.../Ttbik` JSON advertises `permissions.push: true` — that block describes the app, not the effective grant.
-`OH_GIT_CREDENTIAL_ACCESS_TOKEN_GITHUB` is rejected outright ("Invalid username or token"). `x-access-token:` and
-`http.extraheader` tricks also fail. The account owns no fork of Ttbik to push to instead. So: commit locally, leave the
-remote URL clean (`https://github.com/jonsnow-org/Ttbik.git`), and tell the owner to push/merge — do not burn steps retrying.
+## Pushing this repo from an OpenHands session FAILS (403) — diagnosed 2026-11-18
+`git push` to `jonsnow-org/Ttbik` is refused: "Permission to jonsnow-org/Ttbik.git denied to jonsnowx1r-lab".
+The injected `GITHUB_TOKEN` (a `ghu_` token for user `jonsnowx1r-lab`, also what `gh auth token` and the
+credential helper return) is a **read-only GitHub App installation token**. The proof is asymmetric: every READ
+succeeds (`GET /repos/.../git/refs/heads/<b>` → 200) and every WRITE fails with "Resource not accessible by
+integration" (POST refs, PUT contents, POST issues, POST forks — all 403). The `/repos/.../Ttbik` JSON advertising
+`permissions.push: true` is the *user's* role on the repo, not the token's grant, so do not trust it.
+Also tried and failed: `OH_GIT_CREDENTIAL_ACCESS_TOKEN_GITHUB` (401), `x-access-token:` and `x-token-auth:`
+usernames, `http.extraheader` bearer, `gh` CLI (same token), SSH (no ssh binary, no ~/.ssh). The account owns no
+fork of Ttbik. **Conclusion: this session cannot push to this repo at all.** Commit locally, leave the remote URL
+clean (`https://github.com/jonsnow-org/Ttbik.git`), hand the owner patches, and do not burn steps retrying.
+Deliverables that DO work: `git format-patch <base>..HEAD -o <dir>` (owner applies in sequence) and a thin bundle
+`git bundle create f.bundle ^<base> HEAD` (~40K); a plain `git bundle create f.bundle <ref>` drags in full history
+(69MB) and a bare bundle of a shallow clone cannot be cloned at all.
