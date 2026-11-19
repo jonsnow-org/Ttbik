@@ -1,4 +1,5 @@
 name: Sham 2 live status (read-only)
+# Seventh read-only status poll for terminal stage progress.
 # Sixth read-only training progress observation.
 # Fifth read-only status poll for the active partial training run.
 # Fourth read-only observation of the current Sham 2 training run.
