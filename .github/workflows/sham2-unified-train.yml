@@ -43,9 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "::add-mask::$T_CN"
-          python3 -m py_compile ai-system/tldm/sham_tldm/sham2_unified.py ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py
+          python3 -m py_compile ai-system/tldm/sham_tldm/sham2_unified.py ai-system/tldm/sham_tldm/writer.py ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py
           python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-modelscope-api
           python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-lora-layout
+          python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-byte-writer
           python3 - <<'PY'
           import hashlib, json, os, sys, time, urllib.error
           from pathlib import Path
@@ -313,6 +314,10 @@ jobs:
 
                   if training.get("training_scope")!="partial, not full":
                       raise ValueError("training report does not say partial, not full")
+                  if training.get("target_encoding")!="UTF-8 bytes with EOS and explicit padding loss mask" or training.get("writer_vocab_size")!=257:
+                      raise ValueError("training report does not prove the canonical 257-token byte-diffusion writer")
+                  if gate.get("candidate_artifact_format")!="sham2-unified-heads-v3" or gate.get("writer_vocab_size")!=257:
+                      raise ValueError("fresh gate did not evaluate the new v3 byte-diffusion head")
                   if training.get("training_performed") is not True:
                       raise ValueError("training report does not confirm a real optimizer run")
                   if training.get("requested_stages")!=["identity","terminal"]:
