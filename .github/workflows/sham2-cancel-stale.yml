@@ -1,0 +1,40 @@
+name: Cancel stale Sham 2 Studio run #7
+
+on:
+  push:
+    branches: [fix/sham2-unified-real-donor-data]
+    paths: [".github/workflows/sham2-cancel-stale.yml"]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: sham2-cancel-stale-run-44501448682
+  cancel-in-progress: false
+
+jobs:
+  cancel-stale-run:
+    if: contains(github.event.head_commit.message, '[sham2-cancel-run]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request cancellation of stale donor-check run #7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: "44501448682"
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o "$RUNNER_TEMP/cancel-response.json" -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/actions/runs/$RUN_ID/cancel")
+          cat "$RUNNER_TEMP/cancel-response.json"
+          if [ "$code" != "202" ] && [ "$code" != "409" ]; then
+            echo "::error::GitHub cancellation request failed with HTTP $code"
+            exit 1
+          fi
+          echo "Cancellation request submitted for stale run $RUN_ID (HTTP $code)."
