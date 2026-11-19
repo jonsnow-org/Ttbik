@@ -1,4 +1,5 @@
 name: Sham 2 live status (read-only)
+# Extra read-only poll after the terminal training stage advanced.
 # Read-only monitor invocation for current terminal stage progress.
 # Second observation of the existing training run; read only.
 
