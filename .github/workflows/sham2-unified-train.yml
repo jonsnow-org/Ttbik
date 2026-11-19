@@ -37,6 +37,9 @@ jobs:
           echo "::add-mask::$T_CN"
           python3 - <<'PY'
           import hashlib, json, os, sys, time, urllib.error
+          python3 -m py_compile ai-system/tldm/sham_tldm/sham2_unified.py ai-system/tldm/sham_tldm/eval_sham2_partial_gate.py
+          python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-modelscope-api
+          python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-lora-layout
           from pathlib import Path
           from urllib.request import Request, urlopen
 
