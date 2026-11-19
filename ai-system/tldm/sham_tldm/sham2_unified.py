@@ -1571,7 +1571,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
             valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
             latents = model(input_ids)
-            masked_logits = model.writer.logits(target_ids, valid_mask, latents)
+            # Held-out CE mirrors generation: every output position, including
+            # padding, is hidden. Do not reveal target bytes or the EOS/pad boundary.
+            all_hidden = torch.ones_like(valid_mask, dtype=torch.bool)
+            masked_logits = model.writer.logits(target_ids, all_hidden, latents)
             selected_logits = masked_logits[0][valid_mask[0]].float()
             selected_targets = target_ids[0][valid_mask[0]]
             heldout_losses.append(
@@ -1663,6 +1666,12 @@ def load_sham2_heads(model: Sham2Unified, heads_path: str,
             raise RuntimeError("v2 heads artifact is missing an honest training_scope label")
         if not isinstance(payload.get("trained_stages"), list) or not payload.get("trained_stages"):
             raise RuntimeError("v2 heads artifact is missing trained_stages provenance")
+        if payload.get("target_encoding") != "UTF-8 bytes with EOS and explicit padding loss mask":
+            raise RuntimeError("v3 heads artifact has an unsupported target encoding")
+        if payload.get("writer_vocab_size") != BYTE_VOCAB:
+            raise RuntimeError("v3 heads artifact writer vocabulary is not UTF-8 byte + EOS (257)")
+        if payload.get("writer_block_bytes") != int(model.cfg.block):
+            raise RuntimeError("v3 heads artifact writer block does not match the active model")
     if payload.get("donor_sha256") != donor_sha256:
         raise RuntimeError("heads were trained against a different donor checkpoint")
     if payload.get("tokenizer_sha256") != tokenizer_sha256:
@@ -1821,9 +1830,17 @@ def main():
             assert decoded == item, (item, decoded)
         target = torch.tensor([encoded[0][0], encoded[1][0]], dtype=torch.long)
         valid = torch.tensor([encoded[0][1], encoded[1][1]], dtype=torch.bool)
+        captured_masks = []
+        original_logits = byte_writer.logits
+        def capture_logits(tokens, masked, context):
+            captured_masks.append(masked.detach().clone())
+            return original_logits(tokens, masked, context)
+        byte_writer.logits = capture_logits
         torch.manual_seed(17)
         loss = byte_writer.loss(latents, target, valid_mask=valid)
+        byte_writer.logits = original_logits
         assert torch.isfinite(loss), loss
+        assert captured_masks and torch.all(captured_masks[0][~valid]), "padding positions must be masked, never exposed as visible EOS context"
         loss.backward()
         assert byte_writer.pos.weight.grad is not None
         assert byte_writer.embed.weight.grad is not None
