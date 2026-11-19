@@ -43,7 +43,10 @@ class DiffusionWriter(nn.Module):
             first_valid = valid_mask.to(torch.int64).argmax(dim=1)
             rows = torch.arange(target.shape[0], device=target.device)[missing]
             masked[rows, first_valid[missing]] = True
-        lg = self.logits(target, masked, z)
+        # Padding is never visible context: otherwise its repeated EOS IDs
+        # disclose the target length during training, unlike all-hidden generation.
+        input_masked = masked | ~valid_mask
+        lg = self.logits(target, input_masked, z)
         return F.cross_entropy(lg[masked], target[masked])
 
     @torch.no_grad()
