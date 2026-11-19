@@ -20,6 +20,7 @@ jobs:
     env:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
       RUN_ID: "44558281864-1"
+      EXPECTED_DONOR_SHA256: "1d84e49fa5c835583288622b02fe1cdcbe85f9ec283f1be3acf0867aeb04dd9d"
       OWNER: novaai2026
       REPO: sham2-tldm
       MS: https://www.modelscope.cn
@@ -55,6 +56,9 @@ jobs:
           base=os.environ["STUDIO_API"].rstrip("/")
           headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
           run_id=os.environ["RUN_ID"]
+          expected_donor_sha=os.environ["EXPECTED_DONOR_SHA256"].lower()
+          if len(expected_donor_sha)!=64:
+              raise ValueError("pinned expected donor SHA-256 is invalid")
           out=Path(os.environ["RUNNER_TEMP"])/"sham2-unified-training"
           out.mkdir(parents=True,exist_ok=True)
 
@@ -89,10 +93,14 @@ jobs:
           report=call("sham2_report")
           (out/"preflight_before_training.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
           if report.get("run_id")!=run_id:
-              raise RuntimeError("Studio run ID does not match the completed donor preflight: "+str(report.get("run_id")))
+              raise RuntimeError("Studio report run ID does not match the completed donor preflight: "+str(report.get("run_id")))
           artifacts=report.get("artifacts") or {}
           state=artifacts.get("run_state") or {}
           donor=artifacts.get("donor_check") or {}
+          if state.get("run_id")!=run_id:
+              raise RuntimeError("Studio run-state ID does not match the exact donor preflight: "+str(state.get("run_id")))
+          if state.get("studio")!="novaai2026/sham2-tldm" or state.get("account")!="novaai2026" or state.get("hub")!="www.modelscope.cn":
+              raise RuntimeError("donor run-state is not bound to the dedicated CN Sham 2 Studio/account/Hub")
           if state.get("status")!="donor-compatible":
               raise RuntimeError("same Studio run is not donor-compatible: "+json.dumps(state,ensure_ascii=False))
           if donor.get("status")!="compatible" or donor.get("compatible") is not True:
@@ -107,6 +115,8 @@ jobs:
           donor_sha=str(donor.get("checkpoint_sha256") or "")
           if len(donor_sha)!=64 or state.get("donor_sha256")!=donor_sha:
               raise RuntimeError("donor SHA-256 is missing or does not match the same preflight state")
+          if donor_sha!=expected_donor_sha:
+              raise RuntimeError("donor SHA-256 differs from the pinned, previously verified Sham 2 checkpoint: "+donor_sha)
           if donor.get("tensor_count")!=311 or donor.get("dtype_counts")!={"torch.bfloat16":311}:
               raise RuntimeError("unexpected donor tensor inventory: "+json.dumps({"tensor_count":donor.get("tensor_count"),"dtype_counts":donor.get("dtype_counts")},ensure_ascii=False))
           if donor.get("model_id")!="novaai2026/sham-v2" or donor.get("filename")!="final_merged.pt":
@@ -141,6 +151,7 @@ jobs:
           (out/"source_manifest.json").write_text(json.dumps({
               "run_id":run_id,
               "preflight_donor_sha256":donor_sha,
+              "pinned_expected_donor_sha256":expected_donor_sha,
               "modelscope_version":donor.get("modelscope_version"),
               "snapshot_download_signature":donor.get("snapshot_download_signature"),
               "snapshot_download_kwargs_used":donor.get("snapshot_download_kwargs_used"),
@@ -158,6 +169,8 @@ jobs:
               f.write("PREFLIGHT_DONOR_SHA256="+donor_sha+"\n")
           print(json.dumps({
               "preflight":"compatible",
+              "run_id":run_id,
+              "pinned_expected_donor_sha256":expected_donor_sha,
               "studio":"novaai2026/sham2-tldm",
               "hub":"www.modelscope.cn",
               "modelscope_version":donor.get("modelscope_version"),
@@ -251,21 +264,29 @@ jobs:
               (out/filename).write_text(json.dumps(value,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
 
           last=""
+          consecutive_transient_errors=0
           for n in range(690):
               try:
                   status=call("status")
               except urllib.error.HTTPError as exc:
                   if exc.code not in {404,412,425,429,500,502,503,504}:
                       raise
+                  consecutive_transient_errors+=1
                   last=f"HTTP {exc.code}"
-                  if n%5==0: print(f"Waiting for CN Studio readiness {n+1}/690: {last}",flush=True)
+                  if consecutive_transient_errors>=45:
+                      raise RuntimeError(f"CN Studio has returned {consecutive_transient_errors} consecutive transient HTTP errors; stopping instead of polling indefinitely: {last}") from exc
+                  if n%5==0: print(f"Waiting for CN Studio readiness {n+1}/690: {last} (consecutive {consecutive_transient_errors}/45)",flush=True)
                   time.sleep(30)
                   continue
               except (urllib.error.URLError,TimeoutError,ConnectionError,socket.timeout) as exc:
+                  consecutive_transient_errors+=1
                   last=f"{type(exc).__name__}: {exc}"
-                  if n%5==0: print(f"Waiting for CN Studio network {n+1}/690: {last}",flush=True)
+                  if consecutive_transient_errors>=45:
+                      raise RuntimeError(f"CN Studio has returned {consecutive_transient_errors} consecutive network errors; stopping instead of polling indefinitely: {last}") from exc
+                  if n%5==0: print(f"Waiting for CN Studio network {n+1}/690: {last} (consecutive {consecutive_transient_errors}/45)",flush=True)
                   time.sleep(30)
                   continue
+              consecutive_transient_errors=0
               if not isinstance(status,dict):
                   raise TypeError("Studio status response is not an object: "+repr(status))
               phase=str(status.get("phase") or "unknown")
