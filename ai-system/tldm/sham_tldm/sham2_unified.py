@@ -1,156 +1,40 @@
 """
-SHAM 2 — UNIFIED SINGLE PATH — COMPLETE FIX + DEVELOPMENT
-============================================================
-ملف واحد = شام 2 كله. لا يوجد شام 2 كلاسيكي وشام 2 T-LDM.
-يوجد شام 2 واحد فقط، وهذا الملف هو تطويره الكامل.
+SHAM 2 — UNIFIED SINGLE PATH — FAIL-CLOSED REAL-DATA IMPLEMENTATION
+===================================================================
+One model path only:
+  * a read-only copy of the real ShamSmall donor checkpoint,
+  * a new LoRA adapter of rank 16,
+  * the T-LDM Compressor / Thinker / Writer head.
 
-مكان الرفع في المستودع (انسخ هذا الملف إلى هنا):
-  jonsnow-org/Ttbik / ai-system/tldm/sham_tldm/sham2_unified.py
-رابط الرفع المباشر:
-  https://github.com/jonsnow-org/Ttbik/upload/main/ai-system/tldm/sham_tldm
-ثم ضع الملف في نفس المجلد بجانب: compressor.py / thinker.py / writer.py / mamba.py / bitlinear.py
-ولا تحذف أي ملف قديم — هذا الملف يستبدل الاستخدام، لا يحذف الكود القديم.
+No random donor features, random token batches, synthetic target labels, or
+proxy losses are permitted. All training examples and held-out examples must
+come from explicit, non-empty JSONL files supplied by the operator.
 
-------------------------------------------------------------
-1) ما تم تحليله — كل شيء، بدون استثناء:
-------------------------------------------------------------
-A) الجسم والزرع:
-  - ai-system/colab/sham_small/sham_transplant.py — transplant_body(), native_model(), LazyDonor
-    الجسم: Qwen/Qwen3-1.7B -> ShamSmall. المفردات 151936. السياق 2048.
-    المرشح: SmolLM3-3B (3.098B, مفردات 139540). المرفوض: Janus-Pro-1B (عربي 1.721 bpb أسوأ 1.9x).
-  - ai-system/colab/sham_small/model.py — ShamSmall, ShamSmallConfig, enable_adapters(), AdapterLinear
-  - ai-system/colab/sham_small/sham_v2_switch.py — decide(): عربي تحسن >=5%، إنجليزي خسارة <=3%، أدوات >=90%
+Required JSONL formats:
+  train-data:
+    {"stage":"identity|tools|arabic|tldm_head", "input":"...", "target":"..."}
+  heldout-data:
+    {"input":"...", "target":"..."}
 
-B) التدريب الحالي:
-  - ai-system/colab/sham_small/sham_v2_train.py — prepare_model(), freeze_for_media(), media_optimizer(),
-    identity_grounding_pairs() (14 زوج), tool_batches(), arabic_pairs_to_batches(),
-    measure_tools() (24 حالة فقط), run_session(), tools_stage_batches() (4000 مثال), media stage.
-  - ai-system/tldm/configs/sham2.yaml — latents 16, think_steps 5, block 48, writer_layers 3, adapter_rank 16,
-    head_d 256, confident 0.9, loop_in_len 96, loop_block 64, gate_heldout 0.6
-  - ai-system/tldm/training/train_sham2.py — --cached --dtype bf16 --seeds 3 --loop --identity
-  - docs/SHAM_V2_ANALYSIS.md — التحليل الرسمي للمستودع
-  - docs/experiments/tldm_sham2_body_2026-11-18.json — النتيجة المقاسة: heldout 0.805, heldout2 0.619,
-    full_task 1.0 على 60 مهمة, 0.628 ث/مهمة, هوية 0.0 -> 1.0, NLL 1.949 -> 2.074, heads 0.07GB
+The repo contains source lists, not pre-exported data files:
+  ai-system/tldm/data/identity.py                 (TRAIN / HELDOUT)
+  ai-system/tldm/data/terminal_tasks.py           (TRAIN / HELDOUT)
+  ai-system/tldm/data/rewordings.py               (HELDOUT2)
+They must be exported into validated JSONL files before this trainer runs.
+The prior result file tldm_heldout_gate_2026-11-18.json is NOT a dataset and
+is NOT a fresh gate.
 
-C) رأس T-LDM الموجود:
-  - ai-system/tldm/sham_tldm/compressor.py / thinker.py / writer.py / mamba.py / bitlinear.py / donor.py / model.py
-  - ai-system/tldm/sham_tldm/tokenizer.py
-  - ai-system/tldm/evolution/ + memory/self_evolution.py — التطور الذاتي موجود لكن غير مربوط في الكلاسيكي
-  - ai-system/tldm/terminal/terminal_loop.py — الحلقة الطرفية
+The current implementation has no real image/audio dataset loader. Media is
+therefore excluded from --stage all and is explicitly reported as not trained;
+it is never simulated using random or text-only data.
 
-D) ما هو موجود في التقديم:
-  - hosting/sham-v2/ + ai-system/supervision/sham_v2_chat_smoke.py — التقديم الحالي بدون رأس T-LDM (SHAM_TLDM=off)
-  - ai-system/colab/sham_small/sham_embedded_tools.py — الحاسوب المدمج داخل النموذج (computer_*, browser, sandbox_*)
+--smoke validates the real donor, tokenizer and both datasets and performs
+zero optimizer steps.
+--serve requires the donor checkpoint, donor tokenizer and a matching
+sham2_heads.pt; otherwise it prints:
+  missing donor or heads - refuse to serve fake
 
-------------------------------------------------------------
-2) الحسابات — كلها من أرقام المستودع الحقيقية، ليست تقديرات:
-------------------------------------------------------------
-الجسم المانح (Qwen3-1.7B):
-  d_model = 2048, n_layers = 28, intermediate = 6144, vocab = 151936, params = 1.709B + LoRA
-  حجم bf16 = 1.709B * 2 bytes = 3.42 GB (بدون محسن). مع AdamW كامل كان سيكون 1.709B* (2+4+4+4) = 23.9 GB
-  لهذا التجميد إلزامي، ليس خياراً.
-
-المتدرّب فقط في هذا الملف (الحساب الدقيق):
-  LoRA rank 16:
-    لكل طبقة: rank * [(2048+2048)+(2048+1024)+(2048+1024)+(2048+2048)+(2048+6144)+(2048+6144)+(6144+2048)]
-             = 16 * 38912 = 622,592 بارامتر / طبقة
-    28 طبقة = 17,432,576 إجمالي LoRA
-    (رتبة 8 القديمة كانت ~16.7M — رتبة 16 تضاعف القدرة 2x بتكلفة +16.8M فقط، أي +0.98% من الجسم)
-  رأس T-LDM (head_d=256, latents=16, think 5, writer 3 layers):
-    Compressor (Mamba mixer + Linear 2048->256) = ~0.6M
-    Thinker (5 خطوات latent, d=256) = ~1.2M
-    Writer (3 طبقات + محول رأس منخفض الرتبة, يعيد استخدام lm_head المجمّد) = ~1.7M
-    المجموع = ~3.5M
-  صفوف الوسائط (صورة 8192 + صوت 2048 + خاصة 256 = 10496 صف * 2048) = 21.5M
-  ------------------------------------------------------------
-  الإجمالي المتدرّب = 17.4 + 3.5 + 21.5 = 42.4M
-  النسبة = 42.4M / 1709M = 2.48% فقط من الجسم
-  التوفير = 97.52% من بارامترات التدريب (أفضل من هدف 80% الذي اتفقنا عليه)
-  ذاكرة المحسّن AdamW للمتدرّب فقط = 42.4M * (4+4+4) bytes = 0.51 GB بدل 23.9 GB
-  ذاكرة التدريب الكلية (جسم bf16 3.42GB + متدرّب + محسّن + تنشيطات) = ~5.1 GB — تتسع في استوديو 8GB
-
-السرعة — لماذا كان شام 2 بطيئاً، وكيف يُصلح:
-  المقاس في المستودع: 60 رمز في 11 ث = 5.45 رمز/ث على 4 أنوية CPU
-  السبب: توليد ذاتي رمزاً رمزاً (60 خطوة) + Attention O(n^2*d) + قراءة الجسم في كل رمز
-  الإصلاح في هذا الملف:
-    1) الجسم يُقرأ مرة واحدة فقط (cached features) — توفير 60x قراءة جسم
-    2) Writer يكتب كتلة 48 رمز في 10 خطوات انتشار بدل 48 خطوة ذاتية = 4.8x
-    3) Early Exit (confident 0.9) يتخطى ~30% من خطوات الانتشار = 1.3x
-    4) Speculative Draft (0.3B مصغر) يقترح الكتلة، الجسم يتحقق دفعة واحدة = 1.8x إضافية
-    الحساب: 5.45 * 4.8 * 1.3 * 1.8 = 61.2 رمز/ث على نفس الـ CPU الضعيف
-    على مهام الطرفية (الهدف الحقيقي): 0.628 ث/مهمة المقاسة في المستودع تصبح ~0.21 ث/مهمة
-    على GPU مجاني (Kaggle T4): 61 * ~8 = ~490 رمز/ث — يحقق هدف 500 رمز/ث الذي طلبته
-
-FLOPs:
-  Attention لسياق 4096: 4096^2 * 2048 = 34.36 GFLOP لكل طبقة انتباه
-  Mamba Mixer لنفس السياق: 4096 * 2048 * 4 = 33.5 MFLOP — أي ~1026x أقل في المزج
-  لهذا Compressor في هذا الملف يستخدم Mamba، لا Attention. الجسم نفسه يبقى Attention لأنه مانح مجمّد.
-
-السياق:
-  القديم: 2048. الجديد في هذا الملف: 4096 (x2). التكلفة: RoPE فقط، لا بارامترات جديدة.
-  الجسم الأصلي يدعم 65536، فالرفع آمن.
-
-------------------------------------------------------------
-3) الأخطاء التي وُجدت في المستودع — وتم إصلاحها هنا:
-------------------------------------------------------------
-[خطأ 1] الأدوات 0 من 6 — الجسم المانح لا يعرف أدوات شام إطلاقاً.
-  الإصلاح: مرحلة أدوات مستقلة 4000 مثال + ضمان تغطية: كل أداة من 49 تُستدعى >=3 مرات في كل جلسة
-           + قياس 100 حالة (كان 24) + شرط must_have (الاسم + كل وسائط must_have).
-[خطأ 2] الهوية 0.0 — "من أنت؟" -> "روبوت دردشة ذكي".
-  الإصلاح: LoRA هوية منفصلة 60 خطوة أولاً، ثم الرأس يقرأ الجسم مع LoRA. المقاس بعد الإصلاح: 1.0.
-[خطأ 3] صفوف الصورة/الصوت عشوائية البداية — لا ربط نص<->وسائط.
-  الإصلاح: تهيئة Codebook — صفوف الصورة من codebook VQ المدرّب (Janus VQ 16384) عبر إسقاط orthonormal ثابت،
-           صفوف الصوت من codebook X-codec2. + قياس measure_link.
-[خطأ 4] رتبة LoRA 8 ضعيفة جداً للعربية والأدوات معاً.
-  الإصلاح: رفع الرتبة إلى 16 في هذا الملف (موحد). + alpha 32 (alpha = 2*rank، القاعدة الصحيحة).
-[خطأ 5] الجسم bf16 + المحوّلات bf16 — تحديثات صغيرة تضيع (خسارة محجوزة لا تنخفض).
-  الإصلاح: المحوّلات + الرأس بـ fp32 في التدريب (master weights)، الجسم يبقى bf16. + مراقبة NLL محجوزة.
-[خطأ 6] لا بوابة — كان يُنشر مباشرة بدون قياس.
-  الإصلاح: بوابة صارمة في هذا الملف (انظر class Gate): لا نشر إلا إذا اجتازت كل الشروط الأربعة.
-[خطأ 7] المسار الحي للوسائط كان يستخدم Realistic Vision / AnimateDiff خارجي.
-  الإصلاح: محذوف تماماً. الوسائط تُولَّد من رموز شام 2 نفسه فقط. لا مسار خارجي.
-[خطأ 8] لا QAT / لا GGUF — النموذج 6.2GB لا يتسع مع الاستوديو.
-  الإصلاح: QAT=4 مفعّل في هذا الملف + تصدير GGUF بمعمارية smollm3/qwen3 (انظر export_gguf()).
-[خطأ 9] الذاكرة/الحزم غير مربوطة في الكلاسيكي.
-  الإصلاح: MemoryStore + Experience مربوطان في حلقة التطور الذاتي (انظر SelfEvolution).
-[خطأ 10] BitNet / Speculative / Early Exit غير مطبّقة على شام 2.
-  الإصلاح: كلها مطبّقة هنا — BitLinear في الرأس، Speculative Draft، Early Exit confident 0.9.
-[خطأ 11] التدريب كان يخلط كل البيانات في دفتر واحد — الأدوات تضيع بين النص العام.
-  الإصلاح: تدريب بمراحل منفصلة (Stages): هوية -> أدوات -> وسائط -> عربي + استدلال + RAG -> رأس T-LDM.
-           كل مرحلة لها بوابتها، ولا تبدأ المرحلة التالية إلا إذا اجتازت السابقة.
-[خطأ 12] SmolLM3 مرشح لكن لم يُقارن بعدل — قياس ويكيبيديا ملوث (النموذج تدرب عليها).
-  الإصلاح: المقارنة العادلة في هذا الملف تستخدم نص غير ويكيبيديا (أخبار/محادثة) + bpb.
-[خطأ 13] السياق 2048 يقص المهام الطويلة (terminal multi-step).
-  الإصلاح: رفع إلى 4096 + ترميز موضعي RoPE ممتد.
-[خطأ 14] لا حماية للمانح — كان يمكن الكتابة فوق ملف المانح بالخطأ.
-  الإصلاح: كل الدوال هنا تقرأ المانح فقط (read-only). المخرجات تحتوي الرأس + LoRA فقط، أبداً أوزان المانح.
-           + فحص NLL: إذا NLL > 6، يتوقف التدريب فوراً (ملف مانح تالف أو مقطوع).
-
-------------------------------------------------------------
-4) ما طُبّق هنا مما لم يُطبّق بعد في المستودع:
-------------------------------------------------------------
-  [1] BitNet 1.58-bit في رأس T-LDM (BitLinear) — كان موجوداً كملف فقط، الآن مستخدم فعلاً في الرأس.
-  [2] Speculative Decoding — Draft 0.3B + تحقق الجسم.
-  [3] Mamba Mixer في Compressor — O(n) بدل O(n^2).
-  [4] Diffusion Writer بكتلة 48 + Early Exit 0.9 — كان في الإعداد فقط، الآن الكود كامل.
-  [5] QAT=4 + تصدير GGUF.
-  [6] تدريب بمراحل + بوابات بين المراحل.
-  [7] تهيئة Codebook للوسائط.
-  [8] حلقة تطور ذاتي كاملة: تجربة -> درس -> LoRA جديد -> بوابة -> دمج أو رفض.
-  [9] حلقة طرفية موحدة: أمر -> نتيجة -> استمرار، حتى 6 استدعاءات، بمساحة عمل خاصة لكل (مستخدم+نموذج).
-  [10] سياق 4096.
-
-------------------------------------------------------------
-5) كيف يُستخدم — 3 أوامر فقط:
-------------------------------------------------------------
-  # 1) تدريب الرأس + LoRA على نسخة من المانح (لا يمس المانح الأصلي):
-  #    python sham2_unified.py --donor /path/to/sham-v2-checkpoint --tokenizer sham_small_tokenizer.json --stage all --gate gate.json
-  # 2) فحص البوابة فقط:
-  #    python sham2_unified.py --check-gate --served v2_history.json --candidate new_history.json
-  # 3) تشغيل شام 2 الموحد (جسم + رأس) للاختبار:
-  #    python sham2_unified.py --serve --heads sham2_heads.pt --donor /path/to/sham-v2-checkpoint
-
-  SHAM_TLDM=1 يفعّل الرأس في التقديم. SHAM_TLDM=0 يعود للجسم وحده (احتياطي فقط، ليس نموذجاً ثانياً).
+The donor checkpoint is only read. Outputs are written to a separate directory.
 """
 
 from __future__ import annotations
@@ -428,64 +312,235 @@ class SpeculativeDraft(nn.Module):
 # ============================================================
 # Sham2 Unified — الجسم المجمّد + LoRA + رأس T-LDM — نموذج واحد
 # ============================================================
-class Sham2Unified(nn.Module):
-    """شام 2 الواحد: جسم مانح مجمّد (لا يُدرَّب) + LoRA رتبة 16 + رأس T-LDM.
-    لا يوجد نموذجان. هذا هو شام 2."""
-    def __init__(self, cfg: Sham2UnifiedConfig, donor_body: nn.Module | None = None):
+class Sham2LoRA16(nn.Module):
+    """New rank-16 adapter over a frozen donor projection (including old adapters)."""
+    def __init__(self, base: nn.Module, rank: int = 16, alpha: float = 32.0):
         super().__init__()
+        leaf = base
+        while not isinstance(leaf, nn.Linear) and hasattr(leaf, "base"):
+            leaf = leaf.base
+        if not isinstance(leaf, nn.Linear):
+            raise TypeError(f"LoRA target is not backed by nn.Linear: {type(base).__name__}")
+        self.base = base
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.lora_A = nn.Parameter(torch.empty(rank, leaf.in_features, dtype=torch.float32))
+        self.lora_B = nn.Parameter(torch.zeros(leaf.out_features, rank, dtype=torch.float32))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        self.scaling = float(alpha) / int(rank)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        base_out = self.base(x)
+        update = F.linear(F.linear(x.float(), self.lora_A), self.lora_B) * self.scaling
+        return base_out + update.to(base_out.dtype)
+
+
+def install_rank16_lora(donor_body: nn.Module) -> int:
+    """Attach a fresh rank-16 LoRA to every supported ShamSmall attention/MLP projection."""
+    layers = getattr(donor_body, "layers", None)
+    if not layers:
+        raise RuntimeError("donor checkpoint is not a compatible ShamSmall model (missing layers)")
+    count = 0
+    for layer in layers:
+        for parent_name in ("attention", "mlp"):
+            parent = getattr(layer, parent_name, None)
+            if parent is None:
+                raise RuntimeError(f"donor layer is missing {parent_name}")
+            for name in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"):
+                if not hasattr(parent, name):
+                    raise RuntimeError(f"donor projection missing: {parent_name}.{name}")
+                old = getattr(parent, name)
+                if isinstance(old, Sham2LoRA16):
+                    raise RuntimeError(f"rank-16 LoRA is already attached at {parent_name}.{name}")
+                setattr(parent, name, Sham2LoRA16(old, rank=16, alpha=32.0))
+                count += 1
+    if count == 0:
+        raise RuntimeError("no rank-16 LoRA targets were installed")
+    return count
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def load_sham_donor(donor_path: str) -> Tuple[nn.Module, int, Dict]:
+    """Load a real, self-describing ShamSmall checkpoint through its canonical loader."""
+    path = Path(donor_path).expanduser().resolve()
+    if not path.is_file() or path.stat().st_size == 0:
+        raise FileNotFoundError(f"donor checkpoint is missing or empty: {path}")
+    sham_dir = _repo_root() / "ai-system" / "colab" / "sham_small"
+    if not sham_dir.is_dir():
+        raise FileNotFoundError(f"ShamSmall checkpoint loader directory is missing: {sham_dir}")
+    if str(sham_dir) not in sys.path:
+        sys.path.insert(0, str(sham_dir))
+    from checkpoint import load_checkpoint
+    body, step, extra = load_checkpoint(path, map_location="cpu")
+    if not hasattr(body, "cfg") or not hasattr(body, "final_norm") or not hasattr(body, "layers"):
+        raise RuntimeError("loaded checkpoint is not a compatible ShamSmall donor")
+    if not hasattr(body.cfg, "max_seq_len"):
+        raise RuntimeError("donor checkpoint has no max_seq_len configuration")
+    # The documented 8-GB CPU Studio path stores the donor in bf16. Refuse a
+    # full-precision body rather than silently causing an avoidable OOM.
+    first_parameter = next(body.parameters(), None)
+    if first_parameter is None or first_parameter.dtype != torch.bfloat16:
+        raise RuntimeError("donor checkpoint must be stored in bfloat16 for the 8-GB CPU Studio")
+    for p in body.parameters():
+        p.requires_grad_(False)
+    body.eval()
+    return body, int(step), extra or {}
+
+
+def load_sham_tokenizer(tokenizer_path: str):
+    """Load and sanity-check the actual donor tokenizer; no fallback tokenizer."""
+    path = Path(tokenizer_path).expanduser().resolve()
+    if not path.is_file() or path.stat().st_size == 0:
+        raise FileNotFoundError(f"tokenizer is missing or empty: {path}")
+    from tokenizers import Tokenizer
+    tok = Tokenizer.from_file(str(path))
+    if tok.get_vocab_size(with_added_tokens=True) <= 0:
+        raise RuntimeError("donor tokenizer has an empty vocabulary")
+    for probe in ("مرحبا", "hello", "اعرض الملفات"):
+        if not tok.encode(probe).ids:
+            raise RuntimeError(f"donor tokenizer failed to encode validation text: {probe!r}")
+    return tok
+
+
+def file_sha256(path: str | Path) -> str:
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_jsonl(path: str, *, require_stage: bool) -> List[Dict]:
+    """Read explicit on-disk examples only. No built-in or generated fallbacks."""
+    p = Path(path).expanduser().resolve()
+    if not p.is_file() or p.stat().st_size == 0:
+        raise FileNotFoundError(f"dataset is missing or empty: {p}")
+    rows = []
+    with p.open("r", encoding="utf-8") as f:
+        for line_no, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid JSONL at {p}:{line_no}: {exc}") from exc
+            if not isinstance(item, dict):
+                raise ValueError(f"dataset row must be an object at {p}:{line_no}")
+            for key in ("input", "target"):
+                if not isinstance(item.get(key), str) or not item[key].strip():
+                    raise ValueError(f"missing non-empty {key!r} at {p}:{line_no}")
+            if require_stage:
+                stage_name = str(item.get("stage", "")).strip().lower()
+                if stage_name not in ("identity", "tools", "arabic", "tldm_head"):
+                    raise ValueError(
+                        f"invalid/missing stage at {p}:{line_no}; expected identity/tools/arabic/tldm_head"
+                    )
+                item["stage"] = stage_name
+            rows.append(item)
+    if not rows:
+        raise ValueError(f"dataset contains no usable examples: {p}")
+    return rows
+
+
+def _model_donor_config(body: nn.Module) -> Dict:
+    return {
+        "d_model": int(body.cfg.d_model),
+        "vocab_size": int(body.cfg.vocab_size),
+        "n_layers": int(body.cfg.n_layers),
+        "max_seq_len": int(body.cfg.max_seq_len),
+    }
+
+
+def _encode_rows(rows: List[Dict], tokenizer, cfg: Sham2UnifiedConfig,
+                 vocab_size: int, label: str) -> List[Dict]:
+    encoded = []
+    for i, row in enumerate(rows, 1):
+        x = tokenizer.encode(row["input"]).ids
+        y = tokenizer.encode(row["target"]).ids
+        if not x or not y:
+            raise ValueError(f"{label} row {i} tokenized to an empty input or target")
+        if len(x) > cfg.max_seq_len:
+            raise ValueError(f"{label} row {i} input has {len(x)} tokens, limit is {cfg.max_seq_len}")
+        if len(y) > cfg.block:
+            raise ValueError(f"{label} row {i} target has {len(y)} tokens, limit is {cfg.block}; refusing truncation")
+        if min(x + y) < 0 or max(x + y) >= vocab_size:
+            raise ValueError(f"{label} row {i} contains token IDs outside donor vocabulary {vocab_size}")
+        encoded.append({"input_ids": x, "target_ids": y, "stage": row.get("stage")})
+    return encoded
+
+
+class Sham2Unified(nn.Module):
+    """One Sham 2 assembly: frozen real donor + new LoRA-16 + T-LDM head."""
+    def __init__(self, cfg: Sham2UnifiedConfig, donor_body: nn.Module):
+        super().__init__()
+        if donor_body is None:
+            raise ValueError("a real donor_body is required; random donor features are forbidden")
         self.cfg = cfg
-        self.donor_body = donor_body  # الجسم المانح — يُمرَّر من الخارج، مجمّد
-        if self.donor_body is not None:
-            for p in self.donor_body.parameters():
-                p.requires_grad_(False)
-            self.donor_body.eval()
+        self.donor_body = donor_body
+        for name, p in self.donor_body.named_parameters():
+            p.requires_grad_(".lora_A" in name or ".lora_B" in name)
+        self.donor_body.eval()
         self.compressor = Compressor(cfg)
         self.thinker = LatentThinker(cfg)
         self.writer = DiffusionWriter(cfg, cfg.vocab_size)
-        self.draft = SpeculativeDraft(cfg, cfg.vocab_size) if cfg.speculative else None
-        # LoRA هوية — [إصلاح 2] يُدرَّب أولاً 60 خطوة
-        self.identity_lora_scale = 1.0
+        # SpeculativeDraft in this file is an unfinished prototype, not part
+        # of the requested trainable contract, so it is not instantiated.
+        self.draft = None
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.donor_body.eval()
+        return self
 
     def trainable_parameters(self):
-        return [p for p in self.parameters() if p.requires_grad]
+        return [
+            p for name, p in self.named_parameters()
+            if p.requires_grad and (
+                name.startswith(("compressor.", "thinker.", "writer."))
+                or ".lora_A" in name or ".lora_B" in name
+            )
+        ]
 
-    def body_features(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """قراءة الجسم مرة واحدة فقط — [إصلاح السرعة 1]. لا تُستدعى في كل رمز."""
-        if self.donor_body is None:
-            # وضع اختبار بدون مانح: ميزات عشوائية (للـ CI فقط)
-            B, T = input_ids.shape
-            return torch.randn(B, T, self.cfg.d_model, device=input_ids.device) * 0.1
-        with torch.no_grad():
-            out = self.donor_body(input_ids, attention_mask=attention_mask)
-            # ShamSmall يعيد (logits, hidden, past) أو hidden فقط — نتعامل مع الحالتين
-            if isinstance(out, tuple):
-                # hidden هو عادة الثاني أو الأخير قبل past
-                hidden = out[1] if len(out) > 1 and torch.is_tensor(out[1]) else out[0]
-            else:
-                hidden = out
-            return hidden.detach()  # مجمّد — لا تدرج أبداً
+    def body_features(self, input_ids: torch.Tensor,
+                      attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Capture actual final-normalized donor features with gradient to new LoRA only."""
+        final_norm = getattr(self.donor_body, "final_norm", None)
+        if final_norm is None:
+            raise RuntimeError("donor has no final_norm feature hook; refusing synthetic features")
+        captured = []
+        handle = final_norm.register_forward_hook(lambda _m, _i, out: captured.append(out))
+        try:
+            self.donor_body(input_ids)
+        finally:
+            handle.remove()
+        if not captured or not torch.is_tensor(captured[-1]):
+            raise RuntimeError("donor did not produce real hidden features")
+        features = captured[-1]
+        if features.ndim != 3 or features.shape[-1] != self.cfg.d_model:
+            raise RuntimeError(
+                f"donor feature shape mismatch: expected (B,T,{self.cfg.d_model}), got {tuple(features.shape)}"
+            )
+        return features
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None) -> Tuple[torch.Tensor, float]:
-        feats = self.body_features(input_ids, attention_mask)  # (B, T, 2048) — مرة واحدة
-        lat = self.compressor(feats)      # (B, 16, 256)
-        thought = self.thinker(lat)       # (B, 16, 256) — 5 خطوات تفكير latent
-        logits, conf = self.writer(thought, return_confidence=True)
-        return logits, conf
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None,
+                target_len: int | None = None) -> Tuple[torch.Tensor, float]:
+        features = self.body_features(input_ids, attention_mask).float()
+        latents = self.compressor(features)
+        thought = self.thinker(latents)
+        logits, confidence = self.writer(
+            thought, block_len=target_len, return_confidence=True
+        )
+        return logits, confidence
 
     def generate_block(self, input_ids: torch.Tensor) -> torch.Tensor:
-        """توليد كتلة 48 رمز دفعة واحدة + Speculative تحقق."""
         self.eval()
         with torch.no_grad():
-            if self.draft is not None and input_ids.shape[1] > 4:
-                # 1) Draft يقترح 8 رموز
-                proposal = self.draft.propose(input_ids, n=8)
-                # 2) الجسم + الرأس يتحققان من الاقتراح دفعة واحدة (هنا مبسط: نقبل إذا الثقة عالية)
-                logits, conf = self.forward(input_ids)
-                # في التطبيق الكامل: يُقارن اقتراح Draft مع توزيع الجسم، ويُقبل المتطابق.
-                # هنا نقبل الكتلة من Writer لأنها أصلاً كتلة واحدة.
-                pass
-            logits, conf = self.forward(input_ids)
-            return logits.argmax(dim=-1)  # (B, 48)
+            logits, _ = self.forward(input_ids)
+            return logits.argmax(dim=-1)
 
 # ============================================================
 # Codebook Init للوسائط — [إصلاح 3]
@@ -581,76 +636,243 @@ def check_gate(served: Dict, candidate: Dict,
 # ============================================================
 # Training — بمراحل، الجسم مجمّد دائماً
 # ============================================================
+# ============================================================
+# Strict real-data training — no random token IDs or proxy losses
+# ============================================================
 def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
+                        train_data_path: str, heldout_data_path: str,
                         cfg: Sham2UnifiedConfig | None = None,
                         stage: str = "all", seed: int = 0) -> Dict:
-    """تدريب شام 2 الواحد. الجسم يُقرأ فقط (read-only)، المخرجات = الرأس + LoRA فقط.
-    المراحل: identity (60 خطوة) -> tools (4000) -> media (4000 صورة + 3000 صوت) -> arabic+reasoning+rag -> tldm_head (600).
-    كل مرحلة لها بوابتها، ولا تبدأ التالية إلا إذا اجتازت السابقة."""
     cfg = cfg or Sham2UnifiedConfig()
-    torch.manual_seed(seed)
-    random.seed(seed)
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    stages = ["identity", "tools", "arabic", "tldm_head"] if stage == "all" else [stage]
+    if any(s not in ("identity", "tools", "arabic", "tldm_head") for s in stages):
+        raise ValueError("unsupported stage; only real-data text stages are accepted")
 
-    # --- تحميل الجسم (قراءة فقط) — [إصلاح 14] ---
-    # في المستودع الحقيقي: from checkpoint import load_checkpoint; body, _, _ = load_checkpoint(donor_path)
-    # هنا: نبني نموذجاً وهمياً صغيراً للاختبار، والكود الحقيقي يستبدل هذه الأسطر الثلاثة فقط.
-    print(f"[Sham2] Loading donor (read-only) from {donor_path} — never written.")
-    print(f"[Sham2] Config: donor={cfg.donor_id}, LoRA rank={cfg.adapter_rank}, head_d={cfg.head_d}, block={cfg.block}, max_seq={cfg.max_seq_len}")
+    donor_file = Path(donor_path).expanduser().resolve()
+    tokenizer_file = Path(tokenizer_path).expanduser().resolve()
+    train_file = Path(train_data_path).expanduser().resolve()
+    heldout_file = Path(heldout_data_path).expanduser().resolve()
+    out = Path(out_dir).expanduser().resolve()
 
-    # نموذج موحد (الجسم الحقيقي يُمرَّر هنا في المستودع)
-    model = Sham2Unified(cfg, donor_body=None)
-    # [إصلاح 5] الرأس + LoRA بـ fp32 في التدريب
-    for name, p in model.named_parameters():
-        if "compressor" in name or "thinker" in name or "writer" in name or "lora" in name.lower():
-            p.data = p.data.float()
-            p.requires_grad_(True)
-        else:
-            p.requires_grad_(False)
+    for required in (donor_file, tokenizer_file, train_file, heldout_file):
+        if not required.is_file() or required.stat().st_size == 0:
+            raise FileNotFoundError(f"required real input is missing or empty: {required}")
+    if out == donor_file.parent or out.is_relative_to(donor_file.parent) or donor_file.is_relative_to(out):
+        raise ValueError("output must be separate from the donor checkpoint directory")
+    if out.exists() and any(out.iterdir()):
+        raise FileExistsError(f"output directory is not empty; refusing to overwrite: {out}")
 
+    # All data is validated before the output directory is created or training begins.
+    raw_train = load_jsonl(str(train_file), require_stage=True)
+    raw_heldout = load_jsonl(str(heldout_file), require_stage=False)
+    stage_presence = {row["stage"] for row in raw_train}
+    missing_stages = [s for s in stages if s not in stage_presence]
+    if missing_stages:
+        raise ValueError(f"training data is missing required stage(s): {', '.join(missing_stages)}")
+    train_inputs = {row["input"].strip() for row in raw_train}
+    overlap = [row["input"] for row in raw_heldout if row["input"].strip() in train_inputs]
+    if overlap:
+        raise ValueError(f"held-out leakage: {len(overlap)} held-out input(s) also occur in training data")
+
+    tokenizer = load_sham_tokenizer(str(tokenizer_file))
+    donor_body, donor_step, _donor_extra = load_sham_donor(str(donor_file))
+    donor_cfg = _model_donor_config(donor_body)
+    cfg.d_model = donor_cfg["d_model"]
+    cfg.vocab_size = donor_cfg["vocab_size"]
+    cfg.n_layers = donor_cfg["n_layers"]
+    cfg.max_seq_len = min(int(cfg.max_seq_len), donor_cfg["max_seq_len"])
+
+    tokenizer_vocab = int(tokenizer.get_vocab_size(with_added_tokens=True))
+    if tokenizer_vocab > cfg.vocab_size:
+        raise ValueError(
+            f"tokenizer vocabulary ({tokenizer_vocab}) exceeds donor vocabulary ({cfg.vocab_size})"
+        )
+    train_rows = _encode_rows(raw_train, tokenizer, cfg, cfg.vocab_size, "training")
+    heldout_rows = _encode_rows(raw_heldout, tokenizer, cfg, cfg.vocab_size, "heldout")
+
+    lora_modules = install_rank16_lora(donor_body)
+    model = Sham2Unified(cfg, donor_body)
     trainable = model.trainable_parameters()
-    print(f"[Sham2] Trainable: {sum(p.numel() for p in trainable)/1e6:.1f}M / {sum(p.numel() for p in model.parameters())/1e6:.1f}M total ({sum(p.numel() for p in trainable)/max(1,sum(p.numel() for p in model.parameters()))*100:.2f}%)")
+    lora_params = sum(
+        p.numel() for n, p in model.named_parameters()
+        if (".lora_A" in n or ".lora_B" in n) and p.requires_grad
+    )
+    if lora_params <= 0 or not trainable:
+        raise RuntimeError("rank-16 LoRA or T-LDM head has no trainable parameters")
+    if any(
+        p.requires_grad for n, p in model.donor_body.named_parameters()
+        if ".lora_A" not in n and ".lora_B" not in n
+    ):
+        raise RuntimeError("a donor base parameter became trainable; refusing to train")
 
-    # --- المراحل ---
-    stages = ["identity", "tools", "media", "arabic", "tldm_head"] if stage == "all" else [stage]
-    history = []
-    for st in stages:
-        print(f"\n[Sham2] === Stage: {st} ===")
-        # بيانات كل مرحلة — في المستودع الحقيقي تُستدعى من sham_tools_data / sham_v2_train
-        # هنا: تدريب وهمي على بيانات عشوائية لإثبات أن الكود يعمل بدون GPU وبدون مانح.
-        # في المستودع: استبدل dummy_batch بـ tools_stage_batches() / arabic_pairs_to_batches() / media pairs.
-        opt = torch.optim.AdamW(trainable, lr=cfg.lora_lr if st in ("identity", "tools") else cfg.lr,
-                                betas=(0.9, 0.95), weight_decay=0.0)
-        n_steps = {"identity": 60, "tools": 400, "media": 300, "arabic": 200, "tldm_head": 600}[st]
+    out.mkdir(parents=True, exist_ok=True)
+    stage_steps = {"identity": 60, "tools": 400, "arabic": 200, "tldm_head": 600}
+    report = {
+        "format": "sham2-unified-real-data-report-v1",
+        "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM",
+        "donor_checkpoint": str(donor_file),
+        "donor_step": donor_step,
+        "donor_config": donor_cfg,
+        "donor_weights_written": False,
+        "tokenizer": str(tokenizer_file),
+        "tokenizer_sha256": file_sha256(tokenizer_file),
+        "train_data": str(train_file),
+        "train_data_sha256": file_sha256(train_file),
+        "heldout_data": str(heldout_file),
+        "heldout_data_sha256": file_sha256(heldout_file),
+        "train_examples_by_stage": {
+            s: sum(1 for row in train_rows if row["stage"] == s) for s in stages
+        },
+        "heldout_examples": len(heldout_rows),
+        "lora_rank": 16,
+        "lora_alpha": 32,
+        "lora_modules": lora_modules,
+        "lora_parameters": lora_params,
+        "trainable_parameters": sum(p.numel() for p in trainable),
+        "stages": [],
+        "media_stage": "not trained: this file has no real image/audio dataset loader",
+        "gate": {
+            "status": "not-passed",
+            "reason": "a fresh served-baseline versus candidate gate is still required",
+        },
+    }
+
+    model.to(torch.device("cpu"))
+    for stage_name in stages:
+        rows = [row for row in train_rows if row["stage"] == stage_name]
+        if not rows:
+            raise ValueError(f"stage {stage_name} has no real training examples")
+        lr = cfg.lora_lr if stage_name in ("identity", "tools") else cfg.lr
+        optimizer = torch.optim.AdamW(
+            trainable, lr=lr, betas=(0.9, 0.95), weight_decay=0.0
+        )
         losses = []
+        steps = stage_steps[stage_name]
         model.train()
-        for step in range(min(n_steps, 20) if os.environ.get("SHAM2_SMOKE") else n_steps):
-            # دفعة وهمية: (B=2, T=64) — في المستودع: دفعة حقيقية من المرحلة
-            dummy_ids = torch.randint(0, 1000, (2, 64))
-            logits, conf = model(dummy_ids)
-            # خسارة وهمية: تشجيع الثقة + تنويع — في المستودع: CrossEntropy على الهدف الحقيقي
-            loss = -torch.log_softmax(logits.float(), dim=-1).mean() * 0.01 + (1 - conf) * 0.1
-            loss = loss.mean() if torch.is_tensor(loss) else loss
-            opt.zero_grad()
+        for step in range(steps):
+            row = rows[step % len(rows)]
+            input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
+            target_ids = torch.tensor(row["target_ids"], dtype=torch.long)
+            logits, _confidence = model(input_ids, target_len=int(target_ids.numel()))
+            loss = F.cross_entropy(logits[0].float(), target_ids)
+            if not torch.isfinite(loss):
+                raise RuntimeError(f"non-finite real-data loss at stage={stage_name}, step={step}")
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable, 1.0)
-            opt.step()
-            losses.append(float(loss.detach()))
-            if step % 50 == 0:
-                print(f"  step {step} loss {float(loss.detach()):.4f} conf {conf:.3f}")
-        # بوابة المرحلة
-        stage_metric = {"stage": st, "loss_mean": sum(losses)/max(1, len(losses)), "steps": n_steps}
-        history.append(stage_metric)
-        print(f"[Sham2] Stage {st} done: loss {stage_metric['loss_mean']:.4f}")
+            optimizer.step()
+            losses.append(float(loss.detach().cpu()))
+            if step % 50 == 0 or step == steps - 1:
+                print(
+                    f"[Sham2] stage={stage_name} step={step + 1}/{steps} "
+                    f"loss={losses[-1]:.5f}",
+                    flush=True,
+                )
+        report["stages"].append({
+            "stage": stage_name,
+            "steps": steps,
+            "examples_available": len(rows),
+            "loss_mean": sum(losses) / len(losses),
+            "loss_last": losses[-1],
+        })
 
-    # --- حفظ الرأس + LoRA فقط — أبداً أوزان المانح ---
+    model.eval()
+    heldout_losses = []
+    exact = 0
+    with torch.no_grad():
+        for row in heldout_rows:
+            input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
+            target_ids = torch.tensor(row["target_ids"], dtype=torch.long)
+            logits, _confidence = model(input_ids, target_len=int(target_ids.numel()))
+            heldout_losses.append(
+                float(F.cross_entropy(logits[0].float(), target_ids).cpu())
+            )
+            exact += int(torch.equal(logits[0].argmax(dim=-1), target_ids))
+    report["heldout_metrics"] = {
+        "examples": len(heldout_rows),
+        "mean_cross_entropy": sum(heldout_losses) / len(heldout_losses),
+        "exact_sequence_match": exact / len(heldout_rows),
+    }
+
+    state = model.state_dict()
+    heads_state = {
+        k: v.detach().cpu() for k, v in state.items()
+        if k.startswith(("compressor.", "thinker.", "writer."))
+    }
+    lora_state = {
+        k: v.detach().cpu() for k, v in state.items()
+        if ".lora_A" in k or ".lora_B" in k
+    }
+    if not heads_state or not lora_state:
+        raise RuntimeError("refusing to save: T-LDM head or new rank-16 LoRA state is empty")
+
+    donor_sha = file_sha256(donor_file)
+    payload = {
+        "format": "sham2-unified-heads-v1",
+        "heads": heads_state,
+        "lora": lora_state,
+        "config": cfg.__dict__,
+        "donor_config": donor_cfg,
+        "donor_sha256": donor_sha,
+        "tokenizer_sha256": report["tokenizer_sha256"],
+        "donor_step": donor_step,
+    }
     save_path = out / "sham2_heads.pt"
-    torch.save({"heads": {k: v.cpu() for k, v in model.state_dict().items() if "donor_body" not in k},
-                "config": cfg.__dict__, "history": history}, save_path)
-    print(f"\n[Sham2] Saved heads only (no donor weights) to {save_path}")
-    print(f"[Sham2] Heads size should be ~0.07-0.25 GB, not 3-4 GB. If larger, donor weights leaked — STOP.")
-    return {"out": str(save_path), "history": history, "trainable_M": sum(p.numel() for p in trainable)/1e6}
+    tmp_path = out / "sham2_heads.pt.tmp"
+    torch.save(payload, tmp_path)
+    os.replace(tmp_path, save_path)
+    report["donor_sha256"] = donor_sha
+    report["artifact"] = str(save_path)
+    report["artifact_size_bytes"] = save_path.stat().st_size
+    report_path = out / "sham2_report.json"
+    tmp_report = out / "sham2_report.json.tmp"
+    tmp_report.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    os.replace(tmp_report, report_path)
+    print(f"[Sham2] saved head + rank-16 LoRA: {save_path}", flush=True)
+    print(f"[Sham2] saved training report: {report_path}", flush=True)
+    return {
+        "artifact": str(save_path),
+        "report": str(report_path),
+        "heldout_metrics": report["heldout_metrics"],
+        "gate_status": "not-passed",
+    }
+
+
+def load_sham2_heads(model: Sham2Unified, heads_path: str,
+                     donor_sha256: str, tokenizer_sha256: str) -> Dict:
+    path = Path(heads_path).expanduser().resolve()
+    if not path.is_file() or path.stat().st_size == 0:
+        raise FileNotFoundError(f"heads checkpoint is missing or empty: {path}")
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if payload.get("format") != "sham2-unified-heads-v1":
+        raise RuntimeError("heads file is not a verified Sham 2 unified artifact")
+    if payload.get("donor_sha256") != donor_sha256:
+        raise RuntimeError("heads were trained against a different donor checkpoint")
+    if payload.get("tokenizer_sha256") != tokenizer_sha256:
+        raise RuntimeError("heads were trained with a different tokenizer")
+    if payload.get("donor_config") != _model_donor_config(model.donor_body):
+        raise RuntimeError("heads donor architecture does not match the loaded donor")
+    supplied = dict(payload.get("heads") or {})
+    supplied.update(payload.get("lora") or {})
+    current = model.state_dict()
+    expected = {
+        k for k in current
+        if k.startswith(("compressor.", "thinker.", "writer."))
+        or ".lora_A" in k or ".lora_B" in k
+    }
+    if set(supplied) != expected:
+        missing = sorted(expected - set(supplied))
+        extra = sorted(set(supplied) - expected)
+        raise RuntimeError(
+            f"heads state mismatch; missing={missing[:8]}, extra={extra[:8]}"
+        )
+    model.load_state_dict(supplied, strict=False)
+    model.eval()
+    return payload
+
+
 
 # ============================================================
 # Terminal Loop — الحاسوب المدمج — [تطبيق 9]
@@ -734,48 +956,125 @@ def export_gguf(heads_path: str, out_path: str, bits: int = 4) -> str:
 # CLI
 # ============================================================
 def main():
-    ap = argparse.ArgumentParser(description="Sham 2 Unified — single path. See file header for full analysis.")
-    ap.add_argument("--donor", default="Qwen/Qwen3-1.7B")
-    ap.add_argument("--tokenizer", default="sham_small_tokenizer.json")
-    ap.add_argument("--stage", default="all", choices=["all", "identity", "tools", "media", "arabic", "tldm_head"])
+    ap = argparse.ArgumentParser(
+        description="Sham 2 Unified — real frozen donor + LoRA-16 + T-LDM; fail closed."
+    )
+    ap.add_argument("--donor", default=None, help="local ShamSmall checkpoint .pt")
+    ap.add_argument("--tokenizer", default=None, help="matching real donor tokenizer.json")
+    ap.add_argument("--train-data", default=None, help="real JSONL with stage/input/target")
+    ap.add_argument("--heldout-data", default=None, help="separate real JSONL with input/target")
+    ap.add_argument("--stage", default="all",
+                    choices=["all", "identity", "tools", "arabic", "tldm_head"])
     ap.add_argument("--out", default="./sham2_unified_out")
-    ap.add_argument("--gate", default=None, help="Gate json path (writer results)")
     ap.add_argument("--check-gate", action="store_true")
     ap.add_argument("--served", default=None)
     ap.add_argument("--candidate", default=None)
     ap.add_argument("--serve", action="store_true")
-    ap.add_argument("--heads", default=None)
-    ap.add_argument("--smoke", action="store_true", help="Quick smoke test (20 steps per stage, no donor needed)")
+    ap.add_argument("--heads", default=None, help="trained sham2_heads.pt")
+    ap.add_argument("--prompt", default=None, help="real text prompt for one-shot generation")
+    ap.add_argument("--smoke", action="store_true",
+                    help="validate real files only; zero optimizer steps")
     args = ap.parse_args()
 
-    if args.smoke:
-        os.environ["SHAM2_SMOKE"] = "1"
-
     if args.check_gate:
-        served = json.loads(Path(args.served).read_text(encoding="utf-8")) if args.served else {}
-        cand = json.loads(Path(args.candidate).read_text(encoding="utf-8")) if args.candidate else {}
-        # الملفات قد تكون list من history — خذ الأخير
+        if not args.served or not args.candidate:
+            ap.error("--check-gate requires both --served and --candidate")
+        served = json.loads(Path(args.served).read_text(encoding="utf-8"))
+        candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
         if isinstance(served, list):
             served = served[-1] if served else {}
-        if isinstance(cand, list):
-            cand = cand[-1] if cand else {}
-        res = check_gate(served, cand)
-        print(json.dumps({"passed": res.passed, "reasons": res.reasons, "metrics": res.metrics}, ensure_ascii=False, indent=2))
-        sys.exit(0 if res.passed else 1)
+        if isinstance(candidate, list):
+            candidate = candidate[-1] if candidate else {}
+        result = check_gate(served, candidate)
+        print(json.dumps({
+            "passed": result.passed,
+            "reasons": result.reasons,
+            "metrics": result.metrics,
+        }, ensure_ascii=False, indent=2))
+        sys.exit(0 if result.passed else 1)
 
     if args.serve:
-        cfg = Sham2UnifiedConfig(donor_id=args.donor)
-        model = Sham2Unified(cfg, donor_body=None)
-        print(f"[Sham2] Serving unified model (SHAM_TLDM={'1' if os.environ.get('SHAM_TLDM') else '0'}). Heads: {args.heads}")
-        print("[Sham2] Test generate_block...")
-        ids = torch.randint(0, 1000, (1, 16))
-        out = model.generate_block(ids)
-        print(f"[Sham2] generate_block output shape: {tuple(out.shape)} (should be (1, 48)) — OK if 48.")
+        donor_ok = bool(args.donor and Path(args.donor).expanduser().is_file())
+        heads_ok = bool(args.heads and Path(args.heads).expanduser().is_file())
+        tokenizer_ok = bool(args.tokenizer and Path(args.tokenizer).expanduser().is_file())
+        if not (donor_ok and heads_ok and tokenizer_ok):
+            print("missing donor or heads - refuse to serve fake")
+            sys.exit(2)
+        try:
+            donor_path = str(Path(args.donor).expanduser().resolve())
+            tokenizer_path = str(Path(args.tokenizer).expanduser().resolve())
+            _tokenizer = load_sham_tokenizer(tokenizer_path)
+            donor_body, _step, _extra = load_sham_donor(donor_path)
+            donor_cfg = _model_donor_config(donor_body)
+            cfg = Sham2UnifiedConfig(
+                donor_id=donor_path,
+                d_model=donor_cfg["d_model"],
+                vocab_size=donor_cfg["vocab_size"],
+                n_layers=donor_cfg["n_layers"],
+                max_seq_len=min(4096, donor_cfg["max_seq_len"]),
+            )
+            install_rank16_lora(donor_body)
+            model = Sham2Unified(cfg, donor_body)
+            load_sham2_heads(
+                model, args.heads, file_sha256(donor_path), file_sha256(tokenizer_path)
+            )
+            if args.prompt:
+                ids = _tokenizer.encode(args.prompt).ids
+                if not ids or len(ids) > cfg.max_seq_len:
+                    raise ValueError("prompt is empty or exceeds the donor context limit")
+                input_ids = torch.tensor([ids], dtype=torch.long)
+                generated = model.generate_block(input_ids)[0].tolist()
+                print(_tokenizer.decode(generated))
+            print("[Sham2] real donor, tokenizer, heads and LoRA-16 loaded.")
+            return
+        except Exception as exc:
+            print("missing donor or heads - refuse to serve fake")
+            print(f"[Sham2] refuse reason: {type(exc).__name__}: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+    required = {
+        "--donor": args.donor,
+        "--tokenizer": args.tokenizer,
+        "--train-data": args.train_data,
+        "--heldout-data": args.heldout_data,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        ap.error("required for real training: " + ", ".join(missing))
+
+    if args.smoke:
+        for name, value in required.items():
+            p = Path(value).expanduser()
+            if not p.is_file() or p.stat().st_size == 0:
+                ap.error(f"{name} file does not exist or is empty: {value}")
+        tokenizer = load_sham_tokenizer(args.tokenizer)
+        donor_body, donor_step, _extra = load_sham_donor(args.donor)
+        train_rows = load_jsonl(args.train_data, require_stage=True)
+        heldout_rows = load_jsonl(args.heldout_data, require_stage=False)
+        presence = {row["stage"] for row in train_rows}
+        needed = ["identity", "tools", "arabic", "tldm_head"] if args.stage == "all" else [args.stage]
+        missing_stages = [name for name in needed if name not in presence]
+        if missing_stages:
+            ap.error("training JSONL missing stage(s): " + ", ".join(missing_stages))
+        print(json.dumps({
+            "validated_only": True,
+            "optimizer_steps": 0,
+            "donor_step": donor_step,
+            "donor_config": _model_donor_config(donor_body),
+            "tokenizer_vocab": tokenizer.get_vocab_size(with_added_tokens=True),
+            "training_examples": len(train_rows),
+            "heldout_examples": len(heldout_rows),
+        }, ensure_ascii=False, indent=2))
         return
 
-    cfg = Sham2UnifiedConfig(donor_id=args.donor)
-    result = train_sham2_unified(args.donor, args.tokenizer, args.out, cfg, stage=args.stage)
+    cfg = Sham2UnifiedConfig(donor_id=str(args.donor))
+    result = train_sham2_unified(
+        args.donor, args.tokenizer, args.out,
+        args.train_data, args.heldout_data,
+        cfg, stage=args.stage,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
 
 if __name__ == "__main__":
     main()
