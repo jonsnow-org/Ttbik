@@ -1,0 +1,376 @@
+name: Sham 2 partial training and fresh gate (verified donor only)
+
+on:
+  push:
+    branches: [fix/sham2-unified-real-donor-data]
+    paths: [".github/workflows/sham2-unified-train.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sham2-unified-training-cn
+  cancel-in-progress: false
+
+jobs:
+  train-and-gate:
+    if: contains(github.event.head_commit.message, '[sham2-unified-train]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+      RUN_ID: "44526304998-1"
+      OWNER: novaai2026
+      REPO: sham2-tldm
+      MS: https://www.modelscope.cn
+      STUDIO_API: https://studio-novaai2026-sham2-tldm.api-inference.modelscope.net
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify the exact completed CN donor preflight and fixed partial data
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          python3 - <<'PY'
+          import hashlib, json, os, sys, time, urllib.error
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          base=os.environ["STUDIO_API"].rstrip("/")
+          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
+          run_id=os.environ["RUN_ID"]
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-unified-training"
+          out.mkdir(parents=True,exist_ok=True)
+
+          def call(name):
+              req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
+              with urlopen(req,timeout=60) as response:
+                  event=json.loads(response.read().decode())
+              event_id=event.get("event_id")
+              if not event_id:
+                  raise ValueError("Gradio call response is missing event_id: "+json.dumps(event,ensure_ascii=False))
+              req=Request(base+"/gradio_api/call/"+name+"/"+event_id,headers=headers)
+              with urlopen(req,timeout=180) as response:
+                  raw=response.read().decode("utf-8","replace")
+              for line in raw.splitlines():
+                  if line.startswith("data: "):
+                      value=json.loads(line[6:])
+                      if isinstance(value,list) and value:
+                          value=value[0]
+                      if isinstance(value,str):
+                          value=json.loads(value)
+                      if isinstance(value,dict):
+                          return value
+              raise ValueError("No JSON object returned by Gradio API "+name+": "+raw[-4000:])
+
+          def sha(path):
+              h=hashlib.sha256()
+              with open(path,"rb") as f:
+                  for chunk in iter(lambda:f.read(4*1024*1024),b""):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          report=call("sham2_report")
+          (out/"preflight_before_training.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          if report.get("run_id")!=run_id:
+              raise RuntimeError("Studio run ID does not match the completed donor preflight: "+str(report.get("run_id")))
+          artifacts=report.get("artifacts") or {}
+          state=artifacts.get("run_state") or {}
+          donor=artifacts.get("donor_check") or {}
+          if state.get("status")!="donor-compatible":
+              raise RuntimeError("same Studio run is not donor-compatible: "+json.dumps(state,ensure_ascii=False))
+          if donor.get("status")!="compatible" or donor.get("compatible") is not True:
+              raise RuntimeError("same Studio donor report is not compatible: "+json.dumps(donor,ensure_ascii=False))
+          if donor.get("endpoint")!="https://www.modelscope.cn":
+              raise RuntimeError("donor was not checked against the exact CN endpoint")
+          if donor.get("loaded_by_canonical_checkpoint_loader") is not True:
+              raise RuntimeError("donor was not validated by canonical checkpoint.load_checkpoint")
+          for key in ("missing_keys","unexpected_keys","shape_mismatches","dtype_mismatches"):
+              if donor.get(key):
+                  raise RuntimeError("donor structural check has "+key+": "+json.dumps(donor[key][:10],ensure_ascii=False))
+          donor_sha=str(donor.get("checkpoint_sha256") or "")
+          if len(donor_sha)!=64 or state.get("donor_sha256")!=donor_sha:
+              raise RuntimeError("donor SHA-256 is missing or does not match the same preflight state")
+          if donor.get("tensor_count")!=311 or donor.get("dtype_counts")!={"torch.bfloat16":311}:
+              raise RuntimeError("unexpected donor tensor inventory: "+json.dumps({"tensor_count":donor.get("tensor_count"),"dtype_counts":donor.get("dtype_counts")},ensure_ascii=False))
+          if donor.get("model_id")!="novaai2026/sham-v2" or donor.get("filename")!="final_merged.pt":
+              raise RuntimeError("donor identity does not match the fixed Sham 2 donor contract")
+
+          data=Path("ai-system/tldm/data/sham2_export")
+          manifest=json.loads((data/"manifest.json").read_text(encoding="utf-8"))
+          expected={"train.jsonl":46,"heldout.jsonl":26,"terminal_heldout.jsonl":12,"heldout2.jsonl":14,"identity_heldout_prompts.jsonl":8}
+          for filename,count in expected.items():
+              rows=[line for line in (data/filename).read_text(encoding="utf-8").splitlines() if line.strip()]
+              if len(rows)!=count:
+                  raise ValueError(f"{filename} count mismatch: {len(rows)} != {count}")
+          if manifest.get("training",{}).get("status")!="partial, not full":
+              raise ValueError("manifest must say partial, not full")
+          stages=manifest.get("stages",{})
+          if stages.get("tools",{}).get("status")!="missing" or stages.get("arabic",{}).get("status")!="missing":
+              raise ValueError("tools and arabic must remain missing")
+          if manifest.get("random_generation_used") is not False or manifest.get("remote_dataset_download_used") is not False:
+              raise ValueError("synthetic or remote training data is prohibited")
+          for line_no,line in enumerate((data/"train.jsonl").read_text(encoding="utf-8").splitlines(),1):
+              if line.strip():
+                  row=json.loads(line)
+                  if row.get("stage") not in {"identity","terminal"}:
+                      raise ValueError(f"unexpected training stage at line {line_no}: {row.get('stage')}")
+          train_hash=sha(data/"train.jsonl")
+          heldout_hash=sha(data/"heldout.jsonl")
+          manifest_hash=sha(data/"manifest.json")
+          (out/"source_manifest.json").write_text(json.dumps({
+              "run_id":run_id,
+              "preflight_donor_sha256":donor_sha,
+              "modelscope_version":donor.get("modelscope_version"),
+              "snapshot_download_signature":donor.get("snapshot_download_signature"),
+              "snapshot_download_kwargs_used":donor.get("snapshot_download_kwargs_used"),
+              "donor_tensor_count":donor.get("tensor_count"),
+              "donor_dtype_counts":donor.get("dtype_counts"),
+              "train_examples":46,
+              "heldout_examples":26,
+              "train_jsonl_sha256":train_hash,
+              "heldout_jsonl_sha256":heldout_hash,
+              "data_manifest_sha256":manifest_hash,
+              "training_scope":"partial, not full",
+              "missing_stages":["tools","arabic"],
+          },ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("PREFLIGHT_DONOR_SHA256="+donor_sha+"\n")
+          print(json.dumps({
+              "preflight":"compatible",
+              "studio":"novaai2026/sham2-tldm",
+              "hub":"www.modelscope.cn",
+              "modelscope_version":donor.get("modelscope_version"),
+              "snapshot_download_signature":donor.get("snapshot_download_signature"),
+              "snapshot_download_kwargs_used":donor.get("snapshot_download_kwargs_used"),
+              "checkpoint_sha256":donor_sha,
+              "tensor_count":donor.get("tensor_count"),
+              "dtype_counts":donor.get("dtype_counts"),
+              "missing_keys":0,"unexpected_keys":0,"shape_mismatches":0,"dtype_mismatches":0,
+              "train_examples":46,"heldout_examples":26,
+              "training_scope":"partial, not full",
+              "tools":"missing","arabic":"missing",
+              "training_and_gate_started":False,
+          },ensure_ascii=False,indent=2),flush=True)
+          PY
+
+      - name: Switch only the dedicated CN Studio to train-and-gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          set_secret() {
+            printf '%s' "$2" | python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$1" > "$RUNNER_TEMP/secret.json"
+            code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+              --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o "$RUNNER_TEMP/secret-response.json" -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T_CN" -H "Content-Type: application/json" \
+                --data-binary @"$RUNNER_TEMP/secret.json" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            fi
+            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Could not set $1 (HTTP $code)"; exit 1; }
+            echo "Set $1"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T_CN"
+          set_secret MODELSCOPE_DOMAIN "www.modelscope.cn"
+          set_secret MODELSCOPE_ENDPOINT "https://www.modelscope.cn"
+          set_secret SHAM_MS_OWNER "novaai2026"
+          set_secret SITE "cn"
+          set_secret SHAM_TRAINER_JOB "tldm"
+          set_secret SHAM_TRAINER_NAME "sham2"
+          set_secret SHAM_TRAINER_HOURS "10"
+          set_secret SHAM2_UNIFIED_RUN_ID "$RUN_ID"
+          set_secret SHAM2_UNIFIED_ACTION "train-and-gate"
+          set_secret SHAM2_MIN_AVAILABLE_GIB "4.5"
+
+      - name: Deploy the partial training action to novaai2026/sham2-tldm
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          curl --fail --silent --show-error -o "$RUNNER_TEMP/deploy-training.json" -X POST \
+            -H "Authorization: Bearer $T_CN" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy"
+
+      - name: Wait for partial training and fresh terminal gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$T_CN"
+          python3 - <<'PY'
+          import hashlib, json, os, socket, sys, time, urllib.error
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          base=os.environ["STUDIO_API"].rstrip("/")
+          headers={"Authorization":"Bearer "+os.environ["T_CN"],"Content-Type":"application/json"}
+          out=Path(os.environ["RUNNER_TEMP"])/"sham2-unified-training"
+          out.mkdir(parents=True,exist_ok=True)
+
+          def call(name):
+              req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
+              with urlopen(req,timeout=60) as response:
+                  event=json.loads(response.read().decode())
+              event_id=event.get("event_id")
+              if not event_id:
+                  raise ValueError("Gradio call response is missing event_id: "+json.dumps(event,ensure_ascii=False))
+              req=Request(base+"/gradio_api/call/"+name+"/"+event_id,headers=headers)
+              with urlopen(req,timeout=180) as response:
+                  raw=response.read().decode("utf-8","replace")
+              for line in raw.splitlines():
+                  if line.startswith("data: "):
+                      value=json.loads(line[6:])
+                      if isinstance(value,list) and value:
+                          value=value[0]
+                      if isinstance(value,str):
+                          value=json.loads(value)
+                      if isinstance(value,dict):
+                          return value
+              raise ValueError("No JSON object returned by Gradio API "+name+": "+raw[-4000:])
+
+          def save_json(filename,value):
+              (out/filename).write_text(json.dumps(value,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+          last=""
+          for n in range(690):
+              try:
+                  status=call("status")
+              except urllib.error.HTTPError as exc:
+                  if exc.code not in {404,412,425,429,500,502,503,504}:
+                      raise
+                  last=f"HTTP {exc.code}"
+                  if n%5==0: print(f"Waiting for CN Studio readiness {n+1}/690: {last}",flush=True)
+                  time.sleep(30)
+                  continue
+              except (urllib.error.URLError,TimeoutError,ConnectionError,socket.timeout) as exc:
+                  last=f"{type(exc).__name__}: {exc}"
+                  if n%5==0: print(f"Waiting for CN Studio network {n+1}/690: {last}",flush=True)
+                  time.sleep(30)
+                  continue
+              if not isinstance(status,dict):
+                  raise TypeError("Studio status response is not an object: "+repr(status))
+              phase=str(status.get("phase") or "unknown")
+              save_json("status_training.json",status)
+              if n%5==0 or phase in {"completed","memory-blocked","failed","donor-check-failed","blocked"}:
+                  print(f"CN Sham 2 training {n+1}/690: {phase}",flush=True)
+
+              if phase in {"completed","memory-blocked","failed","donor-check-failed","blocked"}:
+                  report=call("sham2_report")
+                  save_json("training_report_full.json",report)
+                  if not isinstance(report,dict):
+                      raise TypeError("sham2_report response is not an object")
+                  artifacts=report.get("artifacts") or {}
+                  state=artifacts.get("run_state") or {}
+                  donor=artifacts.get("donor_check") or {}
+                  training=artifacts.get("training") or {}
+                  gate=artifacts.get("gate") or {}
+                  head=report.get("head") or {}
+                  diagnostic={
+                      "studio":"novaai2026/sham2-tldm",
+                      "account":"novaai2026",
+                      "hub":"www.modelscope.cn",
+                      "run_id":os.environ["RUN_ID"],
+                      "phase":phase,
+                      "run_state":state,
+                      "donor_check_summary":{
+                          "status":donor.get("status"),
+                          "compatible":donor.get("compatible"),
+                          "modelscope_version":donor.get("modelscope_version"),
+                          "snapshot_download_signature":donor.get("snapshot_download_signature"),
+                          "checkpoint_sha256":donor.get("checkpoint_sha256"),
+                          "tensor_count":donor.get("tensor_count"),
+                      },
+                      "training_report":training,
+                      "gate_report":gate,
+                      "head":head,
+                  }
+                  save_json("final_training_diagnostic.json",diagnostic)
+                  print("[Sham2] COMPLETE TRAINING + GATE REPORT:",flush=True)
+                  print(json.dumps(diagnostic,ensure_ascii=False,indent=2),flush=True)
+
+                  if phase=="memory-blocked" or state.get("status")=="memory-blocked":
+                      raise SystemExit(2)
+                  if phase!="completed" or state.get("status")!="completed":
+                      raise SystemExit(1)
+
+                  if training.get("training_scope")!="partial, not full":
+                      raise ValueError("training report does not say partial, not full")
+                  if training.get("training_performed") is not True:
+                      raise ValueError("training report does not confirm a real optimizer run")
+                  if training.get("requested_stages")!=["identity","terminal"]:
+                      raise ValueError("training stages are not exactly identity + terminal")
+                  if training.get("train_examples_total")!=46 or training.get("heldout_examples")!=26:
+                      raise ValueError("training example counts differ from the fixed data")
+                  sources=training.get("data_sources") or {}
+                  if sources.get("tools",{}).get("status")!="missing" or sources.get("arabic",{}).get("status")!="missing":
+                      raise ValueError("tools and Arabic must remain missing")
+                  if training.get("donor_weights_written") is not False:
+                      raise ValueError("donor weights were not explicitly protected in training report")
+                  if training.get("train_data_sha256")!=os.environ["TRAIN_JSONL_SHA256"]:
+                      raise ValueError("training report train JSONL SHA does not match the committed fixed data")
+                  if training.get("heldout_data_sha256")!=os.environ["HELDOUT_JSONL_SHA256"]:
+                      raise ValueError("training report held-out JSONL SHA does not match the committed fixed data")
+                  if training.get("data_manifest_sha256")!=os.environ["MANIFEST_JSON_SHA256"]:
+                      raise ValueError("training report manifest SHA does not match the committed fixed data")
+                  if state.get("donor_weights_written") is not False or state.get("legacy_head_repository_written") is not False:
+                      raise ValueError("run state does not prove donor and legacy head were left untouched")
+                  if state.get("donor_sha256")!=os.environ["PREFLIGHT_DONOR_SHA256"]:
+                      raise ValueError("training run donor SHA differs from the verified preflight donor")
+                  if gate.get("gate")!="passed":
+                      raise ValueError("fresh candidate-only terminal gate did not pass")
+                  if gate.get("examples")!=26 or gate.get("donor_sha256")!=os.environ["PREFLIGHT_DONOR_SHA256"]:
+                      raise ValueError("fresh gate donor SHA or 26-example inventory mismatch")
+                  if not head.get("path") or len(str(head.get("sha256") or ""))!=64:
+                      raise ValueError("new head path/SHA-256 missing")
+                  if gate.get("head_sha256")!=head.get("sha256") or state.get("head_sha256")!=head.get("sha256"):
+                      raise ValueError("fresh gate, Studio state and returned new head SHA do not match")
+
+                  summary={
+                      "status":"completed",
+                      "training_scope":training["training_scope"],
+                      "requested_stages":training["requested_stages"],
+                      "train_examples_total":training["train_examples_total"],
+                      "heldout_examples":training["heldout_examples"],
+                      "missing_stages":["tools","arabic"],
+                      "training_stages":training.get("stages"),
+                      "final_training_loss":training.get("final_training_loss"),
+                      "gate":gate.get("gate"),
+                      "gate_examples":gate.get("examples"),
+                      "exact_matches":gate.get("exact_matches"),
+                      "exact_match_rate":gate.get("exact_match_rate"),
+                      "same_effect_matches":gate.get("same_effect_matches"),
+                      "same_effect_rate":gate.get("same_effect_rate"),
+                      "minimum_same_effect_rate":gate.get("minimum_same_effect_rate"),
+                      "mean_cross_entropy":gate.get("mean_cross_entropy"),
+                      "donor_sha256":state.get("donor_sha256"),
+                      "head_path":head.get("path"),
+                      "head_sha256":head.get("sha256"),
+                      "head_size_bytes":head.get("size_bytes"),
+                      "batch_size":training.get("batch_size"),
+                      "donor_weights_written":False,
+                      "legacy_head_repository_written":False,
+                      "run_id":os.environ["RUN_ID"],
+                  }
+                  save_json("final_summary.json",summary)
+                  print("[Sham2] VERIFIED PARTIAL TRAINING AND FRESH GATE:",flush=True)
+                  print(json.dumps(summary,ensure_ascii=False,indent=2),flush=True)
+                  if gate.get("same_effect_rate",0)<0.60:
+                      raise SystemExit(1)
+                  sys.exit(0)
+
+              time.sleep(30)
+
+          raise TimeoutError("partial training and fresh gate timed out after 5h45m; last status error: "+last)
+          PY
+
+      - name: Upload partial training report, new head SHA and fresh gate metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sham2-unified-partial-training-${{ github.run_id }}
+          path: ${{ runner.temp }}/sham2-unified-training/
+          if-no-files-found: warn
+          retention-days: 90
