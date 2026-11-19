@@ -14,7 +14,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, ownerIds, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
+import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply, type CoderOutcome } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -34,7 +34,10 @@ export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): nu
 }
 
 export { stripThinkTags };
-import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor } from "@/lib/coderModels";
+import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor, isTldmModel } from "@/lib/coderModels";
+import { novaGenerateTldm, novaTldmSessionId, withNovaTldmModel } from "@/lib/novaTldm";
+/** The Arabic name each T-LDM model is shown under. Sham 1 has no T-LDM path and no entry. */
+const MODEL_LABEL_AR: Record<"sham_v2" | "coder" | "nova2", string> = { sham_v2: "شام برو", coder: "نوفا 1", nova2: "نوفا 2" };
 import { refreshTldmPolicy } from "@/lib/tldmPolicy";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
 import { historyChars } from "@/lib/coderContext";
@@ -468,20 +471,27 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
     if (data === "tldm_toggle") {
-      await refreshTldmPolicy(db).catch(() => null);
-      if (!tldmAllowedFor(tierFor(chatId))) {
+      const stT = await loadStateStrict(chatId, db);
+      const wantT = novaModelOf(stT.model);
+      if (!isTldmModel(wantT)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج لا يملك مسار T-LDM.", show_alert: true }).catch(() => null);
+        return true;
+      }
+      const gate = wantT;
+      await refreshTldmPolicy(db, gate).catch(() => null);
+      if (!tldmAllowedFor(tierFor(chatId), gate)) {
         await bot.api.answerCallbackQuery(cq.id, { text: "للمالك فقط.", show_alert: true }).catch(() => null);
         return true;
       }
-      const stT = await loadStateStrict(chatId, db);
-      const next = !tldmEnabled(stT, "sham_v2");
-      setTldmEnabled(stT, next);
+      const label = MODEL_LABEL_AR[gate];
+      const next = !tldmEnabled(stT, gate);
+      setTldmEnabled(stT, next, gate);
       await saveState(chatId, stT, db);
-      await bot.api.answerCallbackQuery(cq.id, { text: next ? "T-LDM لشام برو يعمل" : "T-LDM لشام برو توقف" }).catch(() => null);
-      const keyboard = new InlineKeyboard().text(next ? "✓ T-LDM لشام برو: يعمل" : "T-LDM لشام برو: متوقف", "tldm_toggle").row();
+      await bot.api.answerCallbackQuery(cq.id, { text: next ? `T-LDM لـ${label} يعمل` : `T-LDM لـ${label} توقف` }).catch(() => null);
+      const keyboard = new InlineKeyboard().text(next ? `✓ T-LDM لـ${label}: يعمل` : `T-LDM لـ${label}: متوقف`, "tldm_toggle").row();
       await send(bot, chatId, next
-        ? "مسار T-LDM لشام برو مفعّل. اختر شام برو من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-        : "مسار T-LDM لشام برو متوقف.", { reply_markup: keyboard });
+        ? `مسار T-LDM لـ${label} مفعّل. اختر ${label} من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم نموذج آخر.`
+        : `مسار T-LDM لـ${label} متوقف.`, { reply_markup: keyboard });
       return true;
     }
     if (data.startsWith("model_pick|")) {
@@ -572,20 +582,32 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   if (cmd === "/tldm") {
-    await refreshTldmPolicy(db).catch(() => null);
-  }
-  if (cmd === "/tldm" && tldmAllowedFor(tierFor(chatId))) {
-    const stTldm = preloadedOwnerState || await loadStateStrict(chatId, db);
+    // The switch is the one of the model this chat is on. Sham Pro's path is unchanged; Nova 1 and Nova 2 get their own,
+    // and each is gated by ITS OWN audience switch (NOVA1_TLDM_OPEN / NOVA2_TLDM_OPEN or that model's stored switch).
+    const stT = preloadedOwnerState || await loadStateStrict(chatId, db);
+    const want = novaModelOf(stT.model);
+    if (!isTldmModel(want)) {
+      // LFM2.5 and any other model without a head: say so, rather than showing another model's switch
+      await send(bot, chatId, "هذا النموذج لا يملك مسار T-LDM. اختر شام برو أو نوفا 1 أو نوفا 2 من /model.");
+      return true;
+    }
+    const gate = want;
+    await refreshTldmPolicy(db, gate).catch(() => null);
+    if (!tldmAllowedFor(tierFor(chatId), gate)) {
+      await send(bot, chatId, `T-LDM لـ${MODEL_LABEL_AR[gate]} غير مفتوح لهذا الحساب.`);
+      return true;
+    }
     const arg = text.split(/\s+/)[1] || "";
     if (/^(on|1|off|0)$/i.test(arg)) {
-      setTldmEnabled(stTldm, /^(on|1)$/i.test(arg));
-      await saveState(chatId, stTldm, db);
+      setTldmEnabled(stT, /^(on|1)$/i.test(arg), gate);
+      await saveState(chatId, stT, db);
     }
-    const now = tldmEnabled(stTldm, "sham_v2");
-    const keyboard = new InlineKeyboard().text(now ? "✓ T-LDM لشام برو: يعمل" : "T-LDM لشام برو: متوقف", "tldm_toggle").row();
+    const now = tldmEnabled(stT, gate);
+    const label = MODEL_LABEL_AR[gate];
+    const keyboard = new InlineKeyboard().text(now ? `✓ T-LDM لـ${label}: يعمل` : `T-LDM لـ${label}: متوقف`, "tldm_toggle").row();
     await send(bot, chatId, now
-      ? "مسار T-LDM لشام برو مفعّل لهذا الحساب. اختر شام برو من /model ثم أرسل رسالة. إن لم يكن رأس التدريب جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-      : "مسار T-LDM لشام برو متوقف. لتفعيله أرسل /tldm on ثم اختر شام برو من /model. يبقى شام 1 كما هو.", { reply_markup: keyboard });
+      ? `مسار T-LDM لـ${label} مفعّل لهذا الحساب. اختر ${label} من /model ثم أرسل رسالة. إن لم يكن الرأس جاهزًا ستظهر رسالة خطأ واضحة، ولن يُستخدم نموذج آخر.`
+      : `مسار T-LDM لـ${label} متوقف. لتفعيله أرسل /tldm on ثم اختر ${label} من /model.`, { reply_markup: keyboard });
     return true;
   }
   if (cmd === "/model" || cmd === "/models") {
@@ -2801,8 +2823,24 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const keepAll = [...new Set([...(run.keepGroups || []), ...sticky])];
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const tldmModel = !run.agent && isTldmModel(novaModelOf(st.model)) && tldmEnabled(st, novaModelOf(st.model)) ? (novaModelOf(st.model) as "coder" | "nova2") : null;
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => tldmModel
+      // this model's OWN T-LDM head, on its own Studio pool; a failure is an honest error, never a quiet switch to plain chat
+      ? withNovaTldmModel(tldmModel, () => novaGenerateTldm(messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "") })), novaTldmSessionId(chatId, tldmModel), waitS * 1000 + 9000))
+        // an error is the model's OWN honest line and is shown as-is: no `failure`, so the outage retry loop does not hide it
+        .then((r): CoderOutcome => ({ reply: r }))
+      : coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
+    if (tldmModel && r?.type === "error") {
+      // The model's own T-LDM head could not answer. Show its honest line and stop: no retry, no other model, no plain chat.
+      const why = String(r.text || r.error || "").trim() || `مسار T-LDM لـ${MODEL_LABEL_AR[tldmModel]} غير متاح الآن. لم يُستخدم نموذج آخر بدلًا منه.`;
+      await taskEvent(run.id, "failed", why, db);
+      await closeCard(ioBot, chatId, run, "❌ " + why, true);
+      await endRun(st, "failed", db, why, modelSessionChatKey(chatId));
+      await saveState(chatId, st, db, slot);
+      await send(ioBot, chatId, "❌ " + why);
+      return;
+    }
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
       // the model server is away (restart, wake-up, a deploy): wait for it, minutes if need be, instead of failing a long task
@@ -3040,7 +3078,7 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   const selected = modelOverride || (st.model === "sham_v2" ? "sham_v2" : st.model === "sham" || st.model === "sham_loop" || st.mode === "sham" ? "sham" : null);
   if (!selected) return null;
   const set = modelSettings(st, selected);
-  await refreshTldmPolicy(db).catch(() => null);
-  const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId)) && tldmEnabled(st, "sham_v2");
+  await refreshTldmPolicy(db, selected).catch(() => null);
+  const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId), "sham_v2") && tldmEnabled(st, "sham_v2");
   return { variant: selected === "sham_v2" ? "v2" : "v1", tldm, mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected), tldm } };
 }

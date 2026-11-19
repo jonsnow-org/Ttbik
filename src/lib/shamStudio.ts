@@ -308,7 +308,7 @@ export async function shamGenerateTldm(
   };
   if (opts.owner) payload.owner = 1;
   else {
-    const deny = tldmOwnerDenyList();
+    const deny = tldmOwnerDenyList("sham_v2");
     if (deny.length) payload.deny_list = deny.join("\n");
   }
   if (opts.resume?.command) {

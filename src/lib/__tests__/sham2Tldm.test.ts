@@ -120,24 +120,24 @@ describe("Sham 2 T-LDM owner path", () => {
   it("is owner-only by default and opens to every user through one switch", () => {
     const prev = process.env.SHAM_TLDM_OPEN;
     delete process.env.SHAM_TLDM_OPEN;
-    expect(tldmOpenToAll()).toBe(false);
-    expect(tldmAllowedFor("owner")).toBe(true);
-    expect(tldmAllowedFor("user")).toBe(false);
-    expect(tldmAllowedFor(undefined)).toBe(false);
+    expect(tldmOpenToAll("sham_v2")).toBe(false);
+    expect(tldmAllowedFor("owner", "sham_v2")).toBe(true);
+    expect(tldmAllowedFor("user", "sham_v2")).toBe(false);
+    expect(tldmAllowedFor(undefined, "sham_v2")).toBe(false);
     process.env.SHAM_TLDM_OPEN = "1";
-    expect(tldmOpenToAll()).toBe(true);
-    expect(tldmAllowedFor("user")).toBe(true);
-    expect(tldmAllowedFor("owner")).toBe(true);
+    expect(tldmOpenToAll("sham_v2")).toBe(true);
+    expect(tldmAllowedFor("user", "sham_v2")).toBe(true);
+    expect(tldmAllowedFor("owner", "sham_v2")).toBe(true);
     if (prev === undefined) delete process.env.SHAM_TLDM_OPEN;
     else process.env.SHAM_TLDM_OPEN = prev;
   });
 
   it("does not let a non-owner reach the path just because state has the flag", () => {
     const st: any = {};
-    setTldmEnabled(st, true);
+    setTldmEnabled(st, true, "sham_v2");
     expect(tldmEnabled(st, "sham_v2")).toBe(true);
-    expect(tldmAllowedFor("user") && tldmEnabled(st, "sham_v2")).toBe(false);
-    expect(tldmAllowedFor("owner") && tldmEnabled(st, "sham_v2")).toBe(true);
+    expect(tldmAllowedFor("user", "sham_v2") && tldmEnabled(st, "sham_v2")).toBe(false);
+    expect(tldmAllowedFor("owner", "sham_v2") && tldmEnabled(st, "sham_v2")).toBe(true);
   });
 
   it("keys each chat to an isolated session on Sham 2's computer", () => {
@@ -148,7 +148,7 @@ describe("Sham 2 T-LDM owner path", () => {
   it("sends the owner deny-list with the T-LDM request", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const { _setTldmPolicyForTests } = await import("@/lib/tldmPolicy");
-    _setTldmPolicyForTests(true, ["rm -rf"]);
+    _setTldmPolicyForTests("sham_v2", true, ["rm -rf"]);
     const payloads: any[] = [];
     const real = global.fetch;
     global.fetch = (async (input: any, init?: any) => {
@@ -163,7 +163,7 @@ describe("Sham 2 T-LDM owner path", () => {
     } finally {
       global.fetch = real;
       delete process.env.MODELSCOPE_API_TOKEN;
-      _setTldmPolicyForTests(false, []);
+      _setTldmPolicyForTests("sham_v2", false, []);
     }
   });
 
@@ -197,7 +197,7 @@ describe("Sham 2 T-LDM owner path", () => {
   it("omits the deny-list when the caller is the owner", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     const { _setTldmPolicyForTests } = await import("@/lib/tldmPolicy");
-    _setTldmPolicyForTests(true, ["rm -rf"]);
+    _setTldmPolicyForTests("sham_v2", true, ["rm -rf"]);
     const payloads: any[] = [];
     const real = global.fetch;
     global.fetch = (async (input: any, init?: any) => {
@@ -212,7 +212,7 @@ describe("Sham 2 T-LDM owner path", () => {
     } finally {
       global.fetch = real;
       delete process.env.MODELSCOPE_API_TOKEN;
-      _setTldmPolicyForTests(false, []);
+      _setTldmPolicyForTests("sham_v2", false, []);
     }
   });
 });

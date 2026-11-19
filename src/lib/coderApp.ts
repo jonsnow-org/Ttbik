@@ -171,8 +171,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
       const P = await import("@/lib/tldmPolicy");
-      const tldmPolicy = await P.refreshTldmPolicy(db).catch(() => ({ open: P.tldmOpenToAll(), deny: P.tldmOwnerDenyList() }));
-      const tldmAllowed = P.tldmAllowedFor(user.tier);
+      const tldmModel = st.model || "coder";
+      const tldmPolicy = await P.refreshTldmPolicy(db, tldmModel).catch(() => ({ open: P.tldmOpenToAll(tldmModel), deny: P.tldmOwnerDenyList(tldmModel) }));
+      const tldmAllowed = P.tldmAllowedFor(user.tier, tldmModel);
       return {
         tier: user.tier,
         // think / accuracy / media are the SELECTED model's own; `models` lists every visible model's settings so the app can show each one
@@ -211,9 +212,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const raw: unknown[] = Array.isArray(body.commands) ? body.commands.slice(0, 200) : [];
       if (!(await (await import("@/lib/meshPolicy")).meshDevicesOn(db))) return { reasons: raw.map(() => "mesh off") };
       const P = await import("@/lib/tldmPolicy");
-      const policy = await P.refreshTldmPolicy(db).catch(() => null);
-      if (!policy) throw new AppError(503, "owner policy unavailable");
-      return { reasons: raw.map((c) => (P.tldmDeniedByOwner(String(c ?? "").slice(0, 500), policy.deny) ? "owner deny-list" : "")) };
+      // The device mesh is not per model: it refuses any pattern ANY model's owner deny-list bans.
+      for (const m of P.TLDM_MODELS) await P.refreshTldmPolicy(db, m).catch(() => null);
+      const deny = P.tldmOwnerDenyListAll();
+      return { reasons: raw.map((c) => (P.tldmDeniedByOwner(String(c ?? "").slice(0, 500), deny) ? "owner deny-list" : "")) };
     }
     case "settings": {
       // Model selection is routing-critical: never turn a DB read failure into a fake default-Nova state.
@@ -242,8 +244,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const target = canonModelId(typeof body.for === "string" ? body.for : selectedModel) || "coder";
         if (target !== "sham_v2") throw new AppError(403, "T-LDM belongs to Sham Pro (sham_v2) only.");
         const P = await import("@/lib/tldmPolicy");
-        await P.refreshTldmPolicy(db).catch(() => null);
-        if (!P.tldmAllowedFor(user.tier)) throw new AppError(403, "T-LDM for Sham Pro is owner only");
+        await P.refreshTldmPolicy(db, st.model || "coder").catch(() => null);
+        if (!P.tldmAllowedFor(user.tier, st.model || "coder")) throw new AppError(403, "T-LDM for this model is owner only");
         setTldmEnabled(st, body.tldm);
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save
@@ -710,9 +712,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "tldm_policy": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const P = await import("@/lib/tldmPolicy");
-      if (typeof body.open === "boolean") await P.setTldmOpen(body.open, db);
-      if (body.deny !== undefined) await P.setTldmOwnerDenyList(body.deny, db);
-      return { policy: await P.refreshTldmPolicy(db, true) };
+      const polModel = typeof body.for === "string" ? body.for : (body.model ?? "sham_v2");
+      if (typeof body.open === "boolean") await P.setTldmOpen(body.open, db, polModel);
+      if (body.deny !== undefined) await P.setTldmOwnerDenyList(body.deny, db, polModel);
+      return { policy: await P.refreshTldmPolicy(db, polModel, true) };
     }
     case "model_update": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");

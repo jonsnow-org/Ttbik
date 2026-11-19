@@ -77,6 +77,64 @@ ModelScope: neither a `sk-...` key nor a 64-hex string authenticates — `/v1/mo
 garbage token) and `/v1/chat/completions` and the private Studios all answer 401 for both, so neither is a valid
 ModelScope token. The real ModelScope token that drives the Studios is `MODELSCOPE_API_TOKEN` in the deployment env.
 
+## Sham tool-signature parity (claimed 2026-11-13/14 AND 2026-11-16; code was ABSENT both times; ACTUALLY landed 2026-11-18)
+The live engine `src/lib/shamExec.ts` is the tool-schema source of truth; `validateShamCall` (`src/lib/shamTools.ts`)
+**refuses a call with an argument the tool does not declare** («المعامل … غير موجود») or an out-of-`enum` value
+(«يقبل فقط»). Training mirrors it in `ai-system/colab/sham_small/sham_tools_data.py::TOOL_SPECS`; it had drifted
+(`ask_user` taught a bogus `options`; `make_media` missed `seconds`; `github_read_file` missed `start_line/end_line`;
+`http_request` arg ORDER `url, method` vs engine `method, url` and `method` wrongly required — the engine requires
+`url` only; an example used `make_media kind:"speech"` — engine enum is image/audio/video). Names were guarded but
+**arguments were not**. **Two prior sessions wrote this whole "landed" section into MEMORY.md without ever adding
+the code** — `engine_tool_args` did not exist and the drift was live (found 2026-11-16 by checking the tree, and
+again 2026-11-18). Now for real (2026-11-18): `engine_tool_args()` parses `shamExec.ts` (arg names in order +
+required + inline enums; a JS-variable enum like `skill.name` = `AGENT_SKILL_NAMES` is left unresolved), and
+`tool_arg_problems()` returns every disagreement (TOOL_SPECS arg/optional vs engine, plus a CATALOG/generated example
+passing an undeclared arg or an out-of-enum value). Both the module self-test and
+`test_sham_tools_data.py::test_training_arguments_match_the_live_engine_schema` assert it. **The JS parser must be
+string-aware** (an apostrophe inside a `//` comment, e.g. "the repository's files", breaks a naive quote scanner and
+silently parses 0 tools), and the inline-`enum` read must be bounded to its OWN property (a naive search after a key
+reads the NEXT property's enum — `desktop.text` "accepting" `['up','down']`). **Lesson: a memory entry that says
+"code landed" is not evidence — grep the tree before trusting it; two sessions in a row repeated the same false note.**
+`sham_cell_sync.py --build` in a **shallow clone empties** `sham_cell_updates.json` (no history) — restore it
+with `git checkout --` unless a notebook cell actually changed.
+
+## Sham test collection trap (found 2026-11-11; the "converted" note was FALSE — really fixed 2026-11-18)
+CI runs the Sham Python tests with `python -m unittest discover -s ai-system/colab/sham_small -p 'test_sham_*.py'`. A file written in **pytest style** (bare `def test_*` at module top, or the `tmp_path` fixture) imports without error but contributes **zero tests** — it is silently invisible. Five files (`test_sham_stream_qat`, `test_sham_live_wiring`, `test_sham_script_guard`, `test_sham_live_motion_video`, `test_sham_hot_modules`, 14 tests) had never run in CI. **A prior session wrote "converted to unittest.TestCase (all pass). `test_sham_test_style.py` now fails CI" into MEMORY.md, but neither the conversions nor the guard existed in the tree (checked 2026-11-18) — same false-note pattern as the tool-parity entry.** Really fixed 2026-11-18: all five converted to `unittest.TestCase`, and `test_sham_test_style.py` added — it imports each `test_sham_*.py` in its OWN subprocess and fails if any collects 0 tests (subprocess so the shared-interpreter global state — `sham_inputs` swapping trainers — cannot leak; see the POLLUTION trap below). **Rule: every `test_sham_*.py` must be unittest-style; a bare-function file is a silent CI hole.** Before believing a test count, confirm the file is actually collected — `python -m unittest <module>` alone, or run `test_sham_test_style`.
+
+## Sham test POLLUTION trap: never `import sham_inputs` in a `test_sham_*.py` (2026-11-15)
+`import sham_inputs` runs `install()`, which **globally swaps** `train_image_tokenizer.train_vqvae` /
+`train_audio_tokenizer.train_vqvae` for `sham_vq.train_vqvae_revive` — a function with a *different* signature (no
+`data_init`/`revive_every`/`usage_decay`/`revive_threshold`). Under `unittest discover` every test file shares one
+interpreter, so importing `sham_inputs` at module top in a new test breaks any *sibling* test that imported the
+original trainer directly: `test_sham_vq_and_video` failed with `train_vqvae_revive() got an unexpected keyword
+argument 'data_init'` **only in the full-suite run**, and passed alone. The lab's own convention (docstring of
+`test_sham_merge_coverage`) is that `sham_inputs` runs in its **own interpreter**. Rule: a `test_sham_*.py` must NOT
+`import sham_inputs`; the model path works without it. If you need it, shell out to a subprocess like
+`test_sham_merge_coverage` does.
+
+## Sham Intelligence Lab ↔ Sham bridge (`sham_task_gate.py`, claimed 2026-11-15, 2026-11-16 AND 2026-11-17 — ABSENT all three times; STILL not landed as of 2026-11-18)
+**Three prior sessions wrote a full "landed" description of this file into MEMORY.md; the file does not exist in the tree
+(checked 2026-11-16, 2026-11-17 and again 2026-11-18 at both HEAD and origin). This is the single worst repeat of the
+false-note pattern — treat every paragraph below as a SPEC of what was intended, not as evidence of code.**
+`intelligence_lab/` is a standalone package (owner's PR #894): deterministic generators, AST verifier, a per-task
+non-regression gate `gates.py::evaluate_gate` + `GatePolicy` (default `min_macro_improvement 0.005`,
+`max_task_regression 0.02`, `max_ece 0.12`, `min_examples_per_task 100`), and `uncertainty.calibration_report`.
+`sham_sil_bridge.py` **does** exist and is the **sole** sanctioned bridge (it puts `intelligence_lab/src` on `sys.path`
+via `LAB_SRC` and owns `FROZEN_SEED = 20261112`). Accessors: `heldout_rows` / `heldout_examples` (lab `Example`
+objects, verifier + spec + evidence kept) / `verify(ex, answer)` (checks a GENERATED answer against the example's own
+verifier, `passed` may be None) / `calibration(confidences, correct)` (lab ECE/Brier) / `train_pairs` / `chat_source`.
+**Intended design of the missing `sham_task_gate.py`** (to land next): `measure()` builds the report `evaluate_gate`
+wants (per-task loss from `sham_eval.answer_loss`; accuracy from the model's OWN generated answer checked by
+`sham_sil_bridge.verify`; confidence `exp(-answer loss)` for ECE/Brier) and restores the model's original train/eval
+mode in a `finally`; `gate()` runs `evaluate_gate` over tasks that carry accuracy in BOTH reports (the human-reviewed
+`uncertainty` set — verifier `labelled_decision` — is measured for loss but never auto-judged on accuracy);
+`guard_measure()` / `guard_evaluate()` feed the frozen per-task yardstick into `sham_guard.Guard.evaluate(model, ema, measure)`.
+Gotchas to honour when landing it: `evaluate_gate` does `candidate.get("calibration", {}).get("ece")`, so a report MUST
+carry a calibration dict (not `None`); `GatePolicy` is `frozen=True` so rebuild it with `dataclasses.replace`; the frozen
+set at `count_per_task=8` has 104 examples (smallest task 8) so `min_examples_per_task` must be `<=8` (`MIN_EXAMPLES=8`).
+Owner rule honoured: nothing there may touch weights/checkpoints/the merge gate. When it IS landed it should be tested by
+`test_sham_task_gate.py` (tiny random model) and run as `python sham_task_gate.py`.
+
 ## Sham v2 chat deploy readiness (fixed 2026-11-06, live) — NOT flaky
 `Deploy the Sham v2 Studio` failed DETERMINISTICALLY: a redeploy leaves the PREVIOUS container answering `/status`, and the pre-2026-10-30 app reports `phase=ready` WITHOUT `context_tokens`. Gate on `context_tokens>=4096` (in `deploy-modelscope-sham-v2.yml` + `-overflow.yml`), never just `phase==ready`; ModelScope may print `no change` and not rebuild. Second trap: steps run under `bash -e`, so a failing grep inside `ctx=$(... | head -1)` aborted a deploy silently — append `|| true`. Regression test: `test_sham_v2_chat_smoke.py::test_deploy_waits_for_the_new_app_context_not_the_previous_container`.
 

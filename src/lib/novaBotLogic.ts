@@ -836,7 +836,7 @@ async function handleShamCallback(bot: TelegramBot, cq: any): Promise<void> {
     // refuses Sham computer calls in the app (the computer lives inside the model). Ask THIS chat.
     let args: { command?: string; session?: string; question?: string } = {};
     try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* keep empty */ }
-    if (!tldmAllowedFor(tierFor(chatId))) {
+    if (!tldmAllowedFor(tierFor(chatId), "sham_v2")) {
       await done("للمالك فقط.");
       await edit("❌ مسار T-LDM للمالك فقط في هذه المرحلة.");
       return;
