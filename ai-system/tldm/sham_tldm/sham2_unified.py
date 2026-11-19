@@ -7,20 +7,28 @@ One model path only:
   * the T-LDM Compressor / Thinker / Writer head.
 
 No random donor features, random token batches, synthetic target labels, or
-proxy losses are permitted. All training examples and held-out examples must
-come from explicit, non-empty JSONL files supplied by the operator.
+proxy losses are permitted.
 
-Required JSONL formats:
-  train-data:
-    {"stage":"identity|tools|arabic|tldm_head", "input":"...", "target":"..."}
-  heldout-data:
-    {"input":"...", "target":"..."}
+ModelScope inputs:
+  repository: novaai2026/sham-v2
+  donor file: final_merged.pt (read-only, never overwritten)
+  tokenizer:  sham_small_tokenizer.json
+Both files are resolved via ModelScope snapshot_download; the 51-byte
+configuration.json is deliberately ignored.
 
-The repo contains source lists, not pre-exported data files:
-  ai-system/tldm/data/identity.py                 (TRAIN / HELDOUT)
-  ai-system/tldm/data/terminal_tasks.py           (TRAIN / HELDOUT)
-  ai-system/tldm/data/rewordings.py               (HELDOUT2)
-They must be exported into validated JSONL files before this trainer runs.
+JSONL export:
+  python ai-system/tldm/data/export_sham2_jsonl.py --out <data-dir>
+
+Training line (one JSON object per line):
+  {"prompt":"...", "target":"...", "stage":"identity"}
+Held-out line:
+  {"prompt":"...", "target":"...", "source_set":"terminal_tasks.HELDOUT"}
+
+The exporter writes identity.jsonl, terminal_tasks.jsonl, train.jsonl,
+heldout.jsonl, identity_heldout_prompts.jsonl and manifest.json.
+It never uses random generators or remote datasets. The manifest marks
+tools and general Arabic as missing until fixed, acceptable sources exist.
+The trainer refuses --stage all when any required stage is missing.
 The prior result file tldm_heldout_gate_2026-11-18.json is NOT a dataset and
 is NOT a fresh gate.
 
@@ -28,7 +36,9 @@ The current implementation has no real image/audio dataset loader. Media is
 therefore excluded from --stage all and is explicitly reported as not trained;
 it is never simulated using random or text-only data.
 
---smoke validates the real donor, tokenizer and both datasets and performs
+--donor and --tokenizer are ModelScope repository IDs (default
+novaai2026/sham-v2); --data-dir points to the exported JSONL directory.
+--smoke validates the real donor, tokenizer and datasets and performs
 zero optimizer steps.
 --serve requires the donor checkpoint, donor tokenizer and a matching
 sham2_heads.pt; otherwise it prints:
@@ -382,6 +392,59 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+MODELSCOPE_DONOR_REPO = "novaai2026/sham-v2"
+MODELSCOPE_DONOR_FILENAME = "final_merged.pt"
+MODELSCOPE_TOKENIZER_FILENAME = "sham_small_tokenizer.json"
+
+
+def _snapshot_file(snapshot_root: str | Path, filename: str) -> Path:
+    root = Path(snapshot_root).expanduser().resolve()
+    direct = root / filename
+    if direct.is_file() and direct.stat().st_size > 0:
+        return direct
+    matches = [p for p in root.rglob(filename) if p.is_file() and p.stat().st_size > 0]
+    if len(matches) != 1:
+        raise FileNotFoundError(
+            f"expected exactly one non-empty {filename} under ModelScope snapshot {root}; found {len(matches)}"
+        )
+    return matches[0].resolve()
+
+
+def resolve_modelscope_inputs(donor_model_id: str, tokenizer_model_id: str) -> Tuple[Path, Path]:
+    """Download only the named donor checkpoint and tokenizer from ModelScope."""
+    if not donor_model_id or not tokenizer_model_id:
+        raise ValueError("both --donor and --tokenizer ModelScope repository IDs are required")
+    try:
+        from modelscope.hub.snapshot_download import snapshot_download
+    except Exception as exc:
+        raise RuntimeError(
+            "ModelScope SDK is unavailable; install the official modelscope package in the execution environment"
+        ) from exc
+
+    if donor_model_id == tokenizer_model_id:
+        snapshot_root = snapshot_download(
+            donor_model_id,
+            allow_patterns=[MODELSCOPE_DONOR_FILENAME, MODELSCOPE_TOKENIZER_FILENAME],
+            max_workers=1,
+        )
+        donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
+        tokenizer_path = _snapshot_file(snapshot_root, MODELSCOPE_TOKENIZER_FILENAME)
+    else:
+        donor_root = snapshot_download(
+            donor_model_id,
+            allow_patterns=[MODELSCOPE_DONOR_FILENAME],
+            max_workers=1,
+        )
+        tokenizer_root = snapshot_download(
+            tokenizer_model_id,
+            allow_patterns=[MODELSCOPE_TOKENIZER_FILENAME],
+            max_workers=1,
+        )
+        donor_path = _snapshot_file(donor_root, MODELSCOPE_DONOR_FILENAME)
+        tokenizer_path = _snapshot_file(tokenizer_root, MODELSCOPE_TOKENIZER_FILENAME)
+    return donor_path, tokenizer_path
+
+
 def load_sham_donor(donor_path: str) -> Tuple[nn.Module, int, Dict]:
     """Load a real, self-describing ShamSmall checkpoint through its canonical loader."""
     path = Path(donor_path).expanduser().resolve()
@@ -450,7 +513,7 @@ def load_jsonl(path: str, *, require_stage: bool) -> List[Dict]:
                 raise ValueError(f"invalid JSONL at {p}:{line_no}: {exc}") from exc
             if not isinstance(item, dict):
                 raise ValueError(f"dataset row must be an object at {p}:{line_no}")
-            for key in ("input", "target"):
+            for key in ("prompt", "target"):
                 if not isinstance(item.get(key), str) or not item[key].strip():
                     raise ValueError(f"missing non-empty {key!r} at {p}:{line_no}")
             if require_stage:
@@ -466,6 +529,40 @@ def load_jsonl(path: str, *, require_stage: bool) -> List[Dict]:
     return rows
 
 
+def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict]:
+    """Require the exporter manifest and reject any missing requested stage."""
+    root = Path(data_dir).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"JSONL data directory does not exist: {root}")
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file() or manifest_path.stat().st_size == 0:
+        raise FileNotFoundError(
+            f"JSONL manifest is missing: {manifest_path}; run export_sham2_jsonl.py first"
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stages = ["identity", "tools", "arabic", "tldm_head"] if stage == "all" else [stage]
+    source_status = manifest.get("stages")
+    if not isinstance(source_status, dict):
+        raise ValueError("data manifest has no valid 'stages' map")
+    missing = []
+    for name in stages:
+        item = source_status.get(name)
+        if not isinstance(item, dict) or item.get("status") != "available":
+            reason = item.get("reason", "no fixed source declared") if isinstance(item, dict) else "no source declared"
+            missing.append(f"{name}: {reason}")
+    if missing:
+        raise ValueError(
+            "refusing to train; required fixed data stage(s) are missing:\n - "
+            + "\n - ".join(missing)
+        )
+    train_path = root / "train.jsonl"
+    heldout_path = root / "heldout.jsonl"
+    for p in (train_path, heldout_path):
+        if not p.is_file() or p.stat().st_size == 0:
+            raise FileNotFoundError(f"required JSONL file is missing or empty: {p}")
+    return train_path, heldout_path, manifest
+
+
 def _model_donor_config(body: nn.Module) -> Dict:
     return {
         "d_model": int(body.cfg.d_model),
@@ -479,7 +576,7 @@ def _encode_rows(rows: List[Dict], tokenizer, cfg: Sham2UnifiedConfig,
                  vocab_size: int, label: str) -> List[Dict]:
     encoded = []
     for i, row in enumerate(rows, 1):
-        x = tokenizer.encode(row["input"]).ids
+        x = tokenizer.encode(row["prompt"]).ids
         y = tokenizer.encode(row["target"]).ids
         if not x or not y:
             raise ValueError(f"{label} row {i} tokenized to an empty input or target")
@@ -759,8 +856,8 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     missing_stages = [s for s in stages if s not in stage_presence]
     if missing_stages:
         raise ValueError(f"training data is missing required stage(s): {', '.join(missing_stages)}")
-    train_inputs = {row["input"].strip() for row in raw_train}
-    overlap = [row["input"] for row in raw_heldout if row["input"].strip() in train_inputs]
+    train_inputs = {row["prompt"].strip() for row in raw_train}
+    overlap = [row["prompt"] for row in raw_heldout if row["prompt"].strip() in train_inputs]
     if overlap:
         raise ValueError(f"held-out leakage: {len(overlap)} held-out input(s) also occur in training data")
 
@@ -810,6 +907,8 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         "train_data_sha256": file_sha256(train_file),
         "heldout_data": str(heldout_file),
         "heldout_data_sha256": file_sha256(heldout_file),
+        "data_manifest_sha256": file_sha256(Path(train_file).parent / "manifest.json"),
+        "data_sources": json.loads((Path(train_file).parent / "manifest.json").read_text(encoding="utf-8")).get("stages", {}),
         "train_examples_by_stage": {
             s: sum(1 for row in train_rows if row["stage"] == s) for s in stages
         },
@@ -1047,12 +1146,14 @@ def export_gguf(heads_path: str, out_path: str, bits: int = 4) -> str:
 # ============================================================
 def main():
     ap = argparse.ArgumentParser(
-        description="Sham 2 Unified — real frozen donor + LoRA-16 + T-LDM; fail closed."
+        description="Sham 2 Unified — frozen ModelScope donor + LoRA-16 + T-LDM; fail closed."
     )
-    ap.add_argument("--donor", default=None, help="local ShamSmall checkpoint .pt")
-    ap.add_argument("--tokenizer", default=None, help="matching real donor tokenizer.json")
-    ap.add_argument("--train-data", default=None, help="real JSONL with stage/input/target")
-    ap.add_argument("--heldout-data", default=None, help="separate real JSONL with input/target")
+    ap.add_argument("--donor", default=MODELSCOPE_DONOR_REPO,
+                    help="ModelScope model ID containing final_merged.pt")
+    ap.add_argument("--tokenizer", default=MODELSCOPE_DONOR_REPO,
+                    help="ModelScope model ID containing sham_small_tokenizer.json")
+    ap.add_argument("--data-dir", default=None,
+                    help="directory created by export_sham2_jsonl.py")
     ap.add_argument("--stage", default="all",
                     choices=["all", "identity", "tools", "arabic", "tldm_head"])
     ap.add_argument("--out", default="./sham2_unified_out")
@@ -1060,7 +1161,7 @@ def main():
     ap.add_argument("--served", default=None)
     ap.add_argument("--candidate", default=None)
     ap.add_argument("--serve", action="store_true")
-    ap.add_argument("--heads", default=None, help="trained sham2_heads.pt")
+    ap.add_argument("--heads", default=None, help="matching sham2_heads.pt")
     ap.add_argument("--prompt", default=None, help="real text prompt for one-shot generation")
     ap.add_argument("--smoke", action="store_true",
                     help="validate real files only; zero optimizer steps")
@@ -1084,24 +1185,23 @@ def main():
         sys.exit(0 if result.passed else 1)
 
     if args.serve:
-        donor_ok = bool(args.donor and Path(args.donor).expanduser().is_file())
         heads_ok = bool(
             args.heads
             and Path(args.heads).expanduser().name == "sham2_heads.pt"
             and Path(args.heads).expanduser().is_file()
         )
-        tokenizer_ok = bool(args.tokenizer and Path(args.tokenizer).expanduser().is_file())
-        if not (donor_ok and heads_ok and tokenizer_ok):
+        if not args.donor or not args.tokenizer or not heads_ok:
             print("missing donor or heads - refuse to serve fake")
             sys.exit(2)
         try:
-            donor_path = str(Path(args.donor).expanduser().resolve())
-            tokenizer_path = str(Path(args.tokenizer).expanduser().resolve())
-            _tokenizer = load_sham_tokenizer(tokenizer_path)
-            donor_body, _step, _extra = load_sham_donor(donor_path)
+            donor_path, tokenizer_path = resolve_modelscope_inputs(
+                args.donor, args.tokenizer
+            )
+            _tokenizer = load_sham_tokenizer(str(tokenizer_path))
+            donor_body, _step, _extra = load_sham_donor(str(donor_path))
             donor_cfg = _model_donor_config(donor_body)
             cfg = Sham2UnifiedConfig(
-                donor_id=donor_path,
+                donor_id=str(args.donor),
                 d_model=donor_cfg["d_model"],
                 vocab_size=donor_cfg["vocab_size"],
                 n_layers=donor_cfg["n_layers"],
@@ -1126,25 +1226,23 @@ def main():
             print(f"[Sham2] refuse reason: {type(exc).__name__}: {exc}", file=sys.stderr)
             sys.exit(2)
 
-    required = {
-        "--donor": args.donor,
-        "--tokenizer": args.tokenizer,
-        "--train-data": args.train_data,
-        "--heldout-data": args.heldout_data,
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        ap.error("required for real training: " + ", ".join(missing))
+    if not args.data_dir:
+        ap.error("--data-dir is required; use export_sham2_jsonl.py to create it")
+    try:
+        train_file, heldout_file, manifest = resolve_data_dir(args.data_dir, args.stage)
+    except Exception as exc:
+        ap.error(str(exc))
+
+    # Validate data sources before downloading the 4.15-GB donor snapshot.
+    raw_train = load_jsonl(str(train_file), require_stage=True)
+    raw_heldout = load_jsonl(str(heldout_file), require_stage=False)
 
     if args.smoke:
-        for name, value in required.items():
-            p = Path(value).expanduser()
-            if not p.is_file() or p.stat().st_size == 0:
-                ap.error(f"{name} file does not exist or is empty: {value}")
-        tokenizer = load_sham_tokenizer(args.tokenizer)
-        donor_body, donor_step, _extra = load_sham_donor(args.donor)
-        train_rows = load_jsonl(args.train_data, require_stage=True)
-        heldout_rows = load_jsonl(args.heldout_data, require_stage=False)
+        donor_path, tokenizer_path = resolve_modelscope_inputs(
+            args.donor, args.tokenizer
+        )
+        tokenizer = load_sham_tokenizer(str(tokenizer_path))
+        donor_body, donor_step, _extra = load_sham_donor(str(donor_path))
         donor_cfg = _model_donor_config(donor_body)
         if tokenizer.get_vocab_size(with_added_tokens=True) > donor_cfg["vocab_size"]:
             ap.error("donor tokenizer vocabulary exceeds donor checkpoint vocabulary")
@@ -1155,33 +1253,33 @@ def main():
             n_layers=donor_cfg["n_layers"],
             max_seq_len=min(4096, donor_cfg["max_seq_len"]),
         )
-        _encode_rows(train_rows, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "training")
-        _encode_rows(heldout_rows, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "heldout")
-        training_inputs = {row["input"].strip() for row in train_rows}
-        if any(row["input"].strip() in training_inputs for row in heldout_rows):
-            ap.error("held-out leakage: at least one input also occurs in training JSONL")
-        presence = {row["stage"] for row in train_rows}
-        needed = ["identity", "tools", "arabic", "tldm_head"] if args.stage == "all" else [args.stage]
-        missing_stages = [name for name in needed if name not in presence]
-        if missing_stages:
-            ap.error("training JSONL missing stage(s): " + ", ".join(missing_stages))
+        _encode_rows(raw_train, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "training")
+        _encode_rows(raw_heldout, tokenizer, smoke_cfg, smoke_cfg.vocab_size, "heldout")
+        training_prompts = {row["prompt"].strip() for row in raw_train}
+        if any(row["prompt"].strip() in training_prompts for row in raw_heldout):
+            ap.error("held-out leakage: at least one prompt also occurs in training JSONL")
         print(json.dumps({
             "validated_only": True,
             "optimizer_steps": 0,
+            "donor_repo": args.donor,
+            "donor_file": donor_path.name,
+            "tokenizer_file": tokenizer_path.name,
             "donor_step": donor_step,
             "donor_config": donor_cfg,
             "tokenizer_vocab": tokenizer.get_vocab_size(with_added_tokens=True),
-            "training_examples": len(train_rows),
-            "heldout_examples": len(heldout_rows),
-            "train_data_sha256": file_sha256(args.train_data),
-            "heldout_data_sha256": file_sha256(args.heldout_data),
+            "training_examples": len(raw_train),
+            "heldout_examples": len(raw_heldout),
+            "missing_required_stages": manifest.get("missing_required_stages", []),
         }, ensure_ascii=False, indent=2))
         return
 
+    donor_path, tokenizer_path = resolve_modelscope_inputs(
+        args.donor, args.tokenizer
+    )
     cfg = Sham2UnifiedConfig(donor_id=str(args.donor))
     result = train_sham2_unified(
-        args.donor, args.tokenizer, args.out,
-        args.train_data, args.heldout_data,
+        str(donor_path), str(tokenizer_path), args.out,
+        str(train_file), str(heldout_file),
         cfg, stage=args.stage,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
