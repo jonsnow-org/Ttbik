@@ -1795,7 +1795,7 @@ def main():
         )
         assert got == "/tmp/modelscope-new-sdk" and calls[-1]["endpoint"] == "https://www.modelscope.cn"
         deterministic_calls = []
-        def deterministic_type_error(model_id, allow_file_pattern=None, max_workers=None):
+        def deterministic_type_error(model_id, allow_file_pattern=None, max_workers=None, token=None):
             deterministic_calls.append(model_id)
             raise TypeError("unexpected keyword argument 'endpoint'")
         try:
@@ -1809,7 +1809,7 @@ def main():
             raise AssertionError("TypeError should fail fast")
         assert len(deterministic_calls) == 1, deterministic_calls
         transient_calls = []
-        def transient_failure(model_id, allow_file_pattern=None, max_workers=None):
+        def transient_failure(model_id, allow_file_pattern=None, max_workers=None, token=None):
             transient_calls.append(model_id)
             raise ConnectionError("temporary connection failure")
         try:
