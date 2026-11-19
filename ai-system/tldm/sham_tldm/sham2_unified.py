@@ -370,18 +370,24 @@ def install_rank16_lora(donor_body: nn.Module) -> int:
     layers = getattr(donor_body, "layers", None)
     if not layers:
         raise RuntimeError("donor checkpoint is not a compatible ShamSmall model (missing layers)")
+    # ShamSmall's attention owns q/k/v/o; the MLP owns gate/up/down.
+    # Keep this exact module map aligned with check_modelscope_donor().
+    projection_targets = {
+        "attention": ("q_proj", "k_proj", "v_proj", "o_proj"),
+        "mlp": ("gate_proj", "up_proj", "down_proj"),
+    }
     count = 0
-    for layer in layers:
-        for parent_name in ("attention", "mlp"):
+    for layer_index, layer in enumerate(layers):
+        for parent_name, projection_names in projection_targets.items():
             parent = getattr(layer, parent_name, None)
             if parent is None:
-                raise RuntimeError(f"donor layer is missing {parent_name}")
-            for name in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"):
+                raise RuntimeError(f"donor layer {layer_index} is missing {parent_name}")
+            for name in projection_names:
                 if not hasattr(parent, name):
-                    raise RuntimeError(f"donor projection missing: {parent_name}.{name}")
+                    raise RuntimeError(f"donor projection missing: layer {layer_index} {parent_name}.{name}")
                 old = getattr(parent, name)
                 if isinstance(old, Sham2LoRA16):
-                    raise RuntimeError(f"rank-16 LoRA is already attached at {parent_name}.{name}")
+                    raise RuntimeError(f"rank-16 LoRA is already attached at layer {layer_index} {parent_name}.{name}")
                 setattr(parent, name, Sham2LoRA16(old, rank=16, alpha=32.0))
                 count += 1
     if count == 0:
@@ -1772,7 +1778,68 @@ def main():
                     help="require the same donor SHA-256 produced by the compatible preflight")
     ap.add_argument("--selftest-modelscope-api", action="store_true",
                     help="offline tests for old/new ModelScope snapshot_download signatures; performs no network request")
+    ap.add_argument("--selftest-lora-layout", action="store_true",
+                    help="offline test of the exact ShamSmall attention/MLP rank-16 LoRA target map; no donor or training")
     args = ap.parse_args()
+
+    if args.selftest_lora_layout:
+        class _FakeAttention(nn.Module):
+            def __init__(self):
+                super().__init__()
+                for name in ("q_proj", "k_proj", "v_proj", "o_proj"):
+                    setattr(self, name, nn.Linear(8, 8, bias=False))
+
+        class _FakeMLP(nn.Module):
+            def __init__(self):
+                super().__init__()
+                for name in ("gate_proj", "up_proj", "down_proj"):
+                    setattr(self, name, nn.Linear(8, 8, bias=False))
+
+        class _FakeLayer(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.attention = _FakeAttention()
+                self.mlp = _FakeMLP()
+
+        class _FakeDonor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = nn.ModuleList([_FakeLayer(), _FakeLayer()])
+
+        fake = _FakeDonor()
+        installed = install_rank16_lora(fake)
+        assert installed == 14, installed
+        for layer_index, layer in enumerate(fake.layers):
+            for parent_name, names in (
+                ("attention", ("q_proj", "k_proj", "v_proj", "o_proj")),
+                ("mlp", ("gate_proj", "up_proj", "down_proj")),
+            ):
+                parent = getattr(layer, parent_name)
+                for name in names:
+                    module = getattr(parent, name)
+                    assert isinstance(module, Sham2LoRA16), (layer_index, parent_name, name, type(module).__name__)
+                    assert module.lora_A.requires_grad and module.lora_B.requires_grad
+                    assert all(not p.requires_grad for p in module.base.parameters())
+            assert not hasattr(layer.attention, "gate_proj")
+            assert not hasattr(layer.mlp, "q_proj")
+        try:
+            install_rank16_lora(fake)
+        except RuntimeError as exc:
+            assert "already attached" in str(exc), str(exc)
+        else:
+            raise AssertionError("reinstalling rank-16 LoRA must be refused")
+        print(json.dumps({
+            "selftest": "passed",
+            "lora_modules": installed,
+            "layers": len(fake.layers),
+            "attention_targets_per_layer": ["q_proj","k_proj","v_proj","o_proj"],
+            "mlp_targets_per_layer": ["gate_proj","up_proj","down_proj"],
+            "base_weights_frozen": True,
+            "duplicate_install_refused": True,
+            "network_used": False,
+            "optimizer_steps": 0,
+        }, ensure_ascii=False, indent=2))
+        return
 
     if args.selftest_modelscope_api:
         calls = []
