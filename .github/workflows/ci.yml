@@ -6,6 +6,90 @@ on:
   pull_request:
 
 jobs:
+
+  sham2-export-and-donor-preflight:
+    name: Sham 2 JSONL export + donor compatibility preflight (no training)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/sham2-unified-real-donor-data' && contains(github.event.head_commit.message, '[sham2-preflight]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sham2-unified-real-donor-data
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Run the committed deterministic JSONL exporter
+        run: |
+          python ai-system/tldm/data/export_sham2_jsonl.py --out ai-system/tldm/data/sham2_export
+      - name: Validate exported JSONL and manifest without training
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("ai-system/tldm/data/sham2_export")
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          expected = ["identity.jsonl", "terminal_tasks.jsonl", "terminal_heldout.jsonl",
+                      "heldout2.jsonl", "train.jsonl", "heldout.jsonl",
+                      "identity_heldout_prompts.jsonl"]
+          for name in expected:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"missing/empty export: {name}")
+              with path.open(encoding="utf-8") as stream:
+                  for line_no, line in enumerate(stream, 1):
+                      row = json.loads(line)
+                      if not isinstance(row, dict):
+                          raise SystemExit(f"{name}:{line_no}: JSONL row is not an object")
+                      if name != "identity_heldout_prompts.jsonl" and (
+                          not isinstance(row.get("prompt"), str) or not row["prompt"].strip()
+                          or not isinstance(row.get("target"), str) or not row["target"].strip()
+                      ):
+                          raise SystemExit(f"{name}:{line_no}: missing prompt/target")
+          if manifest.get("stages", {}).get("tools", {}).get("status") != "missing":
+              raise SystemExit("tools must remain marked missing")
+          if manifest.get("stages", {}).get("arabic", {}).get("status") != "missing":
+              raise SystemExit("arabic must remain marked missing")
+          if manifest.get("training", {}).get("status") != "partial, not full":
+              raise SystemExit("manifest must label the available scope partial, not full")
+          print(json.dumps({
+              "export_validated": True,
+              "row_counts": {k: v.get("rows") for k, v in manifest["files"].items()},
+              "tools": "missing",
+              "arabic": "missing",
+              "training": "partial, not full",
+          }, ensure_ascii=False, indent=2))
+          PY
+      - name: Install CPU PyTorch and ModelScope SDK for read-only checkpoint inspection
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install modelscope
+      - name: Run --check-donor (no tokenizer, training, serve, smoke, or gate)
+        run: |
+          mkdir -p ai-system/tldm/data
+          set +e
+          python ai-system/tldm/sham_tldm/sham2_unified.py --check-donor > ai-system/tldm/data/sham2_donor_check_report.json 2>&1
+          status=$?
+          set -e
+          echo "--check-donor exit code: $status"
+          cat ai-system/tldm/data/sham2_donor_check_report.json
+          python -m json.tool ai-system/tldm/data/sham2_donor_check_report.json > /tmp/sham2_donor_report.json
+          mv /tmp/sham2_donor_report.json ai-system/tldm/data/sham2_donor_check_report.json
+          echo "$status" > ai-system/tldm/data/sham2_donor_check_exit_code.txt
+      - name: Commit review artifacts to this PR branch only
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ai-system/tldm/data/sham2_export ai-system/tldm/data/sham2_donor_check_report.json ai-system/tldm/data/sham2_donor_check_exit_code.txt
+          if git diff --cached --quiet; then
+            echo "No review artifacts were produced."
+          else
+            git commit -m "Add Sham 2 exported data and donor preflight artifacts [skip ci]"
+            git push origin HEAD:refs/heads/fix/sham2-unified-real-donor-data
+          fi
   sham-media-cpu-tests:
     runs-on: ubuntu-latest
     steps:

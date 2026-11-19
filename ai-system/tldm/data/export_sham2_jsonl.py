@@ -54,7 +54,7 @@ def export(output_dir: Path) -> dict:
         for prompt, target in identity_source.TRAIN
     ]
     terminal_rows = [
-        {"prompt": prompt, "target": command, "stage": "tldm_head"}
+        {"prompt": prompt, "target": command, "stage": "terminal"}
         for prompt, command in terminal_source.TRAIN
     ]
     terminal_heldout = [
@@ -98,7 +98,7 @@ def export(output_dir: Path) -> dict:
             "training_line": {
                 "prompt": "string",
                 "target": "string",
-                "stage": "identity|tldm_head",
+                "stage": "identity|terminal",
             },
             "heldout_line": {
                 "prompt": "string",
@@ -136,10 +136,11 @@ def export(output_dir: Path) -> dict:
                 "source": "ai-system/tldm/data/identity.py:TRAIN",
                 "rows": identity_count,
             },
-            "tldm_head": {
+            "terminal": {
                 "status": "available",
                 "source": "ai-system/tldm/data/terminal_tasks.py:TRAIN",
                 "rows": terminal_count,
+                "scope": "fixed prompt-to-shell-command pairs only; not live tool traces",
             },
             "tools": {
                 "status": "missing",
@@ -159,6 +160,27 @@ def export(output_dir: Path) -> dict:
             },
         },
         "missing_required_stages": ["tools", "arabic"],
+        "training": {
+            "status": "partial, not full",
+            "performed": False,
+            "available_stages": ["identity", "terminal"],
+            "missing_stages": ["tools", "arabic"],
+            "full_training_ready": False,
+        },
+        "minimum_stage_requirements": {
+            "tools": {
+                "minimum_train_records": 1000,
+                "minimum_heldout_records": 100,
+                "minimum_records_per_exposed_tool": 20,
+                "requires_real_executed_calls_and_observed_results": True,
+            },
+            "arabic": {
+                "minimum_train_records": 10000,
+                "minimum_heldout_records": 1000,
+                "minimum_arabic_target_fraction": 0.90,
+                "requires_downloaded_frozen_cidar_or_aya_revision": True,
+            },
+        },
         "random_generation_used": False,
         "remote_dataset_download_used": False,
         "training_performed": False,

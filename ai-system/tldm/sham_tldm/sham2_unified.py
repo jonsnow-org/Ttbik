@@ -29,7 +29,7 @@ heldout2.jsonl, train.jsonl, heldout.jsonl, identity_heldout_prompts.jsonl
 and manifest.json.
 It never uses random generators or remote datasets. The manifest marks
 tools and general Arabic as missing until fixed, acceptable sources exist.
-The trainer refuses --stage all when any required stage is missing.
+The trainer refuses --stage all when any required stage is missing.\nA deliberate partial run is selected only with --stage available or --stage identity,terminal;\nit is always labelled "partial, not full" and never represented as stage all.
 The prior result file tldm_heldout_gate_2026-11-18.json is NOT a dataset and
 is NOT a fresh gate.
 
@@ -474,6 +474,241 @@ def load_sham_donor(donor_path: str) -> Tuple[nn.Module, int, Dict]:
     return body, int(step), extra or {}
 
 
+def check_modelscope_donor(donor_model_id: str) -> Dict:
+    """Download and inspect only final_merged.pt; no tokenizer, optimizer, or training is involved."""
+    report = {
+        "model_id": donor_model_id,
+        "filename": MODELSCOPE_DONOR_FILENAME,
+        "status": "not_checked",
+        "compatible": None,
+        "reasons": [],
+        "file_size_bytes": None,
+        "checkpoint_root_keys": [],
+        "tensor_count": 0,
+        "dtype_counts": {},
+        "tensors": [],
+        "missing_keys": [],
+        "unexpected_keys": [],
+        "shape_mismatches": [],
+        "dtype_mismatches": [],
+    }
+    try:
+        from modelscope.hub.snapshot_download import snapshot_download
+    except Exception as exc:
+        report["reasons"].append(
+            f"ModelScope SDK import failed: {type(exc).__name__}: {exc}"
+        )
+        return report
+    try:
+        snapshot_root = snapshot_download(
+            donor_model_id,
+            allow_patterns=[MODELSCOPE_DONOR_FILENAME],
+            max_workers=1,
+        )
+        donor_path = _snapshot_file(snapshot_root, MODELSCOPE_DONOR_FILENAME)
+        report["file_size_bytes"] = donor_path.stat().st_size
+        if report["file_size_bytes"] <= 0:
+            report["status"] = "incompatible"
+            report["compatible"] = False
+            report["reasons"].append("final_merged.pt is empty")
+            return report
+    except Exception as exc:
+        report["reasons"].append(
+            f"ModelScope donor download/resolve failed: {type(exc).__name__}: {exc}"
+        )
+        return report
+
+    try:
+        payload = torch.load(
+            str(donor_path), map_location="cpu", weights_only=False, mmap=True
+        )
+    except Exception as exc:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            f"PyTorch mmap checkpoint read failed: {type(exc).__name__}: {exc}"
+        )
+        return report
+
+    if not isinstance(payload, dict):
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            f"checkpoint root must be a dict, got {type(payload).__name__}"
+        )
+        return report
+
+    report["checkpoint_root_keys"] = sorted(str(k) for k in payload.keys())
+    config_data = payload.get("config")
+    state = payload.get("model_state_dict")
+    if not isinstance(config_data, dict):
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            "missing/invalid top-level 'config'; canonical checkpoint.load_checkpoint requires config"
+        )
+        return report
+    if not isinstance(state, dict) or not state:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            "missing/empty top-level 'model_state_dict'; canonical checkpoint.load_checkpoint requires model_state_dict"
+        )
+        return report
+
+    dtype_counts = {}
+    non_tensor_keys = []
+    for name, tensor in state.items():
+        if not isinstance(tensor, torch.Tensor):
+            non_tensor_keys.append(str(name))
+            continue
+        dtype_name = str(tensor.dtype)
+        dtype_counts[dtype_name] = dtype_counts.get(dtype_name, 0) + 1
+        report["tensors"].append({
+            "name": str(name),
+            "shape": list(tensor.shape),
+            "dtype": dtype_name,
+        })
+    report["tensor_count"] = len(report["tensors"])
+    report["dtype_counts"] = dtype_counts
+    if non_tensor_keys:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            "model_state_dict contains non-tensor entries: " + ", ".join(non_tensor_keys[:20])
+        )
+        return report
+
+    try:
+        sham_dir = _repo_root() / "ai-system" / "colab" / "sham_small"
+        if str(sham_dir) not in sys.path:
+            sys.path.insert(0, str(sham_dir))
+        from model import ShamSmall, ShamSmallConfig
+        cfg_obj = ShamSmallConfig.from_dict(config_data)
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.bfloat16)
+            with torch.device("meta"):
+                expected_model = ShamSmall(cfg_obj)
+        finally:
+            torch.set_default_dtype(previous_dtype)
+        expected_state = expected_model.state_dict()
+        expected_keys = set(expected_state)
+        actual_keys = set(state)
+        report["missing_keys"] = sorted(expected_keys - actual_keys)
+        report["unexpected_keys"] = sorted(actual_keys - expected_keys)
+        for name in sorted(expected_keys & actual_keys):
+            expected_tensor = expected_state[name]
+            actual_tensor = state[name]
+            if tuple(expected_tensor.shape) != tuple(actual_tensor.shape):
+                report["shape_mismatches"].append({
+                    "name": name,
+                    "expected": list(expected_tensor.shape),
+                    "actual": list(actual_tensor.shape),
+                })
+            if expected_tensor.dtype != actual_tensor.dtype:
+                report["dtype_mismatches"].append({
+                    "name": name,
+                    "expected": str(expected_tensor.dtype),
+                    "actual": str(actual_tensor.dtype),
+                })
+        report["donor_config"] = {
+            "d_model": int(cfg_obj.d_model),
+            "vocab_size": int(cfg_obj.vocab_size),
+            "n_layers": int(cfg_obj.n_layers),
+            "max_seq_len": int(cfg_obj.max_seq_len),
+        }
+        del expected_state, expected_model
+    except Exception as exc:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            f"ShamSmall config/model comparison failed: {type(exc).__name__}: {exc}"
+        )
+        return report
+
+    structural_errors = []
+    if report["missing_keys"]:
+        structural_errors.append(f"{len(report['missing_keys'])} missing model_state_dict keys")
+    if report["unexpected_keys"]:
+        structural_errors.append(f"{len(report['unexpected_keys'])} unexpected model_state_dict keys")
+    if report["shape_mismatches"]:
+        structural_errors.append(f"{len(report['shape_mismatches'])} tensor shape mismatches")
+    if report["dtype_mismatches"]:
+        structural_errors.append(f"{len(report['dtype_mismatches'])} tensor dtype mismatches against the canonical BF16 ShamSmall layout")
+    if structural_errors:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].extend(structural_errors)
+        return report
+
+    del payload, state
+    try:
+        body, step, extra = load_sham_donor(str(donor_path))
+        required_projection_names = (
+            "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
+        )
+        projection_errors = []
+        for index, layer in enumerate(body.layers):
+            for parent_name, names in (("attention", required_projection_names[:4]), ("mlp", required_projection_names[4:])):
+                parent = getattr(layer, parent_name, None)
+                if parent is None:
+                    projection_errors.append(f"layer {index} missing {parent_name}")
+                    continue
+                for name in names:
+                    module = getattr(parent, name, None)
+                    leaf = module
+                    while not isinstance(leaf, nn.Linear) and hasattr(leaf, "base"):
+                        leaf = leaf.base
+                    if not isinstance(leaf, nn.Linear):
+                        projection_errors.append(f"layer {index} {parent_name}.{name} is not backed by nn.Linear")
+        if projection_errors:
+            report["status"] = "incompatible"
+            report["compatible"] = False
+            report["reasons"].extend(projection_errors[:40])
+            del body
+            return report
+        report["status"] = "compatible"
+        report["compatible"] = True
+        report["loaded_by_canonical_checkpoint_loader"] = True
+        report["donor_step"] = int(step)
+        report["donor_parameter_dtype_counts"] = {}
+        for parameter in body.parameters():
+            key = str(parameter.dtype)
+            report["donor_parameter_dtype_counts"][key] = (
+                report["donor_parameter_dtype_counts"].get(key, 0) + 1
+            )
+        report["donor_extra_keys"] = sorted(str(k) for k in extra.keys()) if isinstance(extra, dict) else []
+        del body
+    except Exception as exc:
+        report["status"] = "incompatible"
+        report["compatible"] = False
+        report["reasons"].append(
+            f"canonical checkpoint.load_checkpoint validation failed: {type(exc).__name__}: {exc}"
+        )
+    return report
+
+
+def run_check_donor(donor_model_id: str) -> int:
+    """CLI wrapper with stable machine-readable output and distinct exit statuses."""
+    try:
+        report = check_modelscope_donor(donor_model_id)
+    except Exception as exc:
+        report = {
+            "model_id": donor_model_id,
+            "filename": MODELSCOPE_DONOR_FILENAME,
+            "status": "not_checked",
+            "compatible": None,
+            "reasons": [f"unexpected checker failure: {type(exc).__name__}: {exc}"],
+        }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report.get("status") == "compatible":
+        return 0
+    if report.get("status") == "incompatible":
+        return 2
+    return 3
+
+
 def load_sham_tokenizer(tokenizer_path: str):
     """Load and sanity-check the actual donor tokenizer; no fallback tokenizer."""
     path = Path(tokenizer_path).expanduser().resolve()
@@ -519,9 +754,11 @@ def load_jsonl(path: str, *, require_stage: bool) -> List[Dict]:
                     raise ValueError(f"missing non-empty {key!r} at {p}:{line_no}")
             if require_stage:
                 stage_name = str(item.get("stage", "")).strip().lower()
-                if stage_name not in ("identity", "tools", "arabic", "tldm_head"):
+                if stage_name == "tldm_head":
+                    stage_name = "terminal"  # read older exported files without relabelling them as tools
+                if stage_name not in ("identity", "tools", "arabic", "terminal"):
                     raise ValueError(
-                        f"invalid/missing stage at {p}:{line_no}; expected identity/tools/arabic/tldm_head"
+                        f"invalid/missing stage at {p}:{line_no}; expected identity/tools/arabic/terminal"
                     )
                 item["stage"] = stage_name
             rows.append(item)
@@ -530,8 +767,34 @@ def load_jsonl(path: str, *, require_stage: bool) -> List[Dict]:
     return rows
 
 
+FULL_TRAINING_STAGES = ("identity", "tools", "arabic", "terminal")
+AVAILABLE_TRAINING_STAGES = ("identity", "terminal")
+
+
+def parse_training_stages(stage: str) -> List[str]:
+    """Resolve an explicit training scope. 'all' is never an alias for partial training."""
+    raw = str(stage or "").strip().lower()
+    if raw == "all":
+        return list(FULL_TRAINING_STAGES)
+    if raw == "available":
+        return list(AVAILABLE_TRAINING_STAGES)
+    requested = [part.strip() for part in raw.split(",") if part.strip()]
+    if not requested:
+        raise ValueError("stage must be all, available, or a comma-separated list such as identity,terminal")
+    requested = ["terminal" if name == "tldm_head" else name for name in requested]
+    invalid = sorted(set(requested) - set(FULL_TRAINING_STAGES))
+    if invalid:
+        raise ValueError(
+            f"unsupported training stage(s): {', '.join(invalid)}; "
+            "supported: identity,terminal,tools,arabic,available,all"
+        )
+    if len(requested) != len(set(requested)):
+        raise ValueError("duplicate stages are not allowed")
+    return requested
+
+
 def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict]:
-    """Require the exporter manifest and reject any missing requested stage."""
+    """Validate only the requested scope; 'all' still fails closed on missing tools/Arabic."""
     root = Path(data_dir).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"JSONL data directory does not exist: {root}")
@@ -541,13 +804,15 @@ def resolve_data_dir(data_dir: str | Path, stage: str) -> Tuple[Path, Path, Dict
             f"JSONL manifest is missing: {manifest_path}; run export_sham2_jsonl.py first"
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    stages = ["identity", "tools", "arabic", "tldm_head"] if stage == "all" else [stage]
+    stages = parse_training_stages(stage)
     source_status = manifest.get("stages")
     if not isinstance(source_status, dict):
         raise ValueError("data manifest has no valid 'stages' map")
     missing = []
     for name in stages:
         item = source_status.get(name)
+        if name == "terminal" and not isinstance(item, dict):
+            item = source_status.get("tldm_head")  # compatibility with an older manifest only
         if not isinstance(item, dict) or item.get("status") != "available":
             reason = item.get("reason", "no fixed source declared") if isinstance(item, dict) else "no source declared"
             missing.append(f"{name}: {reason}")
@@ -843,9 +1108,15 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     cfg = cfg or Sham2UnifiedConfig()
     torch.manual_seed(seed)
     random.seed(seed)
-    stages = ["identity", "tools", "arabic", "tldm_head"] if stage == "all" else [stage]
-    if any(s not in ("identity", "tools", "arabic", "tldm_head") for s in stages):
-        raise ValueError("unsupported stage; only real-data text stages are accepted")
+    stages = parse_training_stages(stage)
+    full_training = set(stages) == set(FULL_TRAINING_STAGES)
+    source_manifest = json.loads((Path(train_data_path).expanduser().resolve().parent / "manifest.json").read_text(encoding="utf-8"))
+    source_stages = source_manifest.get("stages", {})
+    missing_full_stages = [
+        name for name in FULL_TRAINING_STAGES
+        if not isinstance(source_stages.get(name), dict)
+        or source_stages[name].get("status") != "available"
+    ]
 
     donor_file = Path(donor_path).expanduser().resolve()
     tokenizer_file = Path(tokenizer_path).expanduser().resolve()
@@ -905,10 +1176,15 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         raise RuntimeError("a donor base parameter became trainable; refusing to train")
 
     out.mkdir(parents=True, exist_ok=True)
-    stage_steps = {"identity": 60, "tools": 400, "arabic": 200, "tldm_head": 600}
+    stage_steps = {"identity": 60, "tools": 400, "arabic": 200, "terminal": 600}
     report = {
         "format": "sham2-unified-real-data-report-v1",
         "mode": "frozen-ShamSmall-donor+new-LoRA16+T-LDM",
+        "training_scope": "full" if full_training else "partial, not full",
+        "training_performed": True,
+        "requested_stages": stages,
+        "missing_full_stages": missing_full_stages,
+        "full_training": full_training,
         "donor_checkpoint": str(donor_file),
         "donor_step": donor_step,
         "donor_config": donor_cfg,
@@ -1167,7 +1443,7 @@ def main():
     ap.add_argument("--data-dir", default=None,
                     help="directory created by export_sham2_jsonl.py")
     ap.add_argument("--stage", default="all",
-                    choices=["all", "identity", "tools", "arabic", "tldm_head"])
+                    help="all (strict full run), available (identity+terminal only), or comma-separated stages such as identity,terminal")
     ap.add_argument("--out", default="./sham2_unified_out")
     ap.add_argument("--check-gate", action="store_true")
     ap.add_argument("--served", default=None)
@@ -1177,7 +1453,12 @@ def main():
     ap.add_argument("--prompt", default=None, help="real text prompt for one-shot generation")
     ap.add_argument("--smoke", action="store_true",
                     help="validate real files only; zero optimizer steps")
+    ap.add_argument("--check-donor", action="store_true",
+                    help="download only final_merged.pt and verify its structure against the canonical ShamSmall checkpoint loader; no tokenizer or training")
     args = ap.parse_args()
+
+    if args.check_donor:
+        sys.exit(run_check_donor(str(args.donor)))
 
     if args.check_gate:
         if not args.served or not args.candidate:
