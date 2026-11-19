@@ -159,6 +159,7 @@ jobs:
           python ai-system/colab/sham_small/sham_intent.py
           python ai-system/modelscope-trainer/app.py --selftest       # the Studio trainer app (jobs, cycles, no network)
           python ai-system/tldm/sham_tldm/sham2_unified.py --selftest-modelscope-api  # old/new SDK signature adapter; no network or training
+          python ai-system/tldm/sham_tldm/sham2_unified.py --selftest-lora-layout  # ShamSmall attention/MLP LoRA map; no network or training
           python ai-system/modelscope-trainer/safe_evolve.py --selftest  # replay + no-regress gate; anonymized session records
           python ai-system/modelscope-trainer/studio_guard.py --selftest  # the cross-watch that wakes / restarts the trainer Studios (no network)
           python ai-system/modelscope-runner/app.py --selftest          # sham-runner-1 (runner + guard thread)
