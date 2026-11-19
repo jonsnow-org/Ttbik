@@ -93,7 +93,7 @@ jobs:
               "read_only":True,
               "mutated_studio":False,
           }
-          (out/"status.json").write_text(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\\n",encoding="utf-8")
+          (out/"status.json").write_text(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
           print(json.dumps(snapshot,ensure_ascii=False,indent=2),flush=True)
           PY
 
