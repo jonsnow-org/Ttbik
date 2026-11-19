@@ -945,6 +945,16 @@ def load_sham2_heads(model: Sham2Unified, heads_path: str,
         raise RuntimeError("heads were trained with a different tokenizer")
     if payload.get("donor_config") != _model_donor_config(model.donor_body):
         raise RuntimeError("heads donor architecture does not match the loaded donor")
+    saved_cfg = payload.get("config")
+    if not isinstance(saved_cfg, dict):
+        raise RuntimeError("heads artifact is missing its model configuration")
+    actual_cfg = dict(model.cfg.__dict__)
+    # The local donor file may move between Studio workspaces; all architecture
+    # and training-contract fields must still match exactly.
+    saved_cfg = {k: v for k, v in saved_cfg.items() if k != "donor_id"}
+    actual_cfg = {k: v for k, v in actual_cfg.items() if k != "donor_id"}
+    if saved_cfg != actual_cfg:
+        raise RuntimeError("heads T-LDM configuration does not match the current unified model")
     supplied = dict(payload.get("heads") or {})
     supplied.update(payload.get("lora") or {})
     current = model.state_dict()
