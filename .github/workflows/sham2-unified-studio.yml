@@ -1,4 +1,5 @@
 name: Sham 2 unified execution in the dedicated CN Studio
+# Sham 2 execution is pinned to the CN account and the audited Studio only.
 
 on:
   push:
