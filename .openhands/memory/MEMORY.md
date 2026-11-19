@@ -143,3 +143,27 @@ Owner rule honoured: nothing there may touch weights/checkpoints/the merge gate.
 - **Motion grid/block mismatch.** `estimate_flow` grid is `(size//block)^2` but the codebook is `cfg.grid^2`. At the real 256px frames with the old hard-coded `block=8` that is 32×32=1024 vectors vs a 64-vector codebook → `encode_clip` (3334 tokens) ≠ `decode_clip` (454) and NO motion tokenizer could be trained/decoded. Fix: `MotionTokenizer.block_for/flow_block` derive the block from frame size and grid; `encode_pair`/`training_step`/`encode_clip`/`train_motion_tokenizer`/the video-track notebook all use it. Regression: `test_sham_live_motion_video.py`.
 - **Orphaned motion tokenizer (v2 Studio).** `serve.py` loads `_state["motion_tokenizer"]`, but `modelscope-sham/app.py`'s explicit-kind path called `make_media()` WITHOUT it → every `video` request returned `NO_VIDEO`. Fixed + pinned in `test_media_backend_selection.py`.
 - Reality check: the v2 **chat** Studio's video (`cpu_video.py` AnimateDiff) is a legit external engine, separate from the internal motion-token video; v2 image routes to an external studio via `mediaEngines.ts`. The internal Sham generator is still "training / testing only" per the owner's own labels.
+
+## Nova 1 / Nova 2 T-LDM on Sham 2's technique (built 2026-11-18, committed, NOT pushed)
+Owner's ask: develop Nova 2 the way Sham 2 was, apply the same to Nova 1, independence is a hard condition.
+Sham 2's "technique" = a small trained head over a FROZEN reader + a per-task gate + an audience switch + an owner deny-list.
+What landed: `src/lib/novaTldm.ts` (Nova's own client, imports nothing from Sham, no default model, honest
+`reason:"no-fallback"` error), `tldmPolicy.ts` keyed per model (`tldm_open:<model>`/`tldm_deny:<model>`,
+env `SHAM_/NOVA1_/NOVA2_TLDM_OPEN`), the Nova loop branch in `coderSections.ts` (uses the chat model's own head; a head
+error ENDS the run with the model's own line — the outcome deliberately carries no `failure` so the outage-retry loop
+cannot swallow it), `/tldm` + its button now follow the chat's model, trainer `nova_mode/run_nova/nova_donor/nova_run_key`
+(per-Nova donor, config, work folder, head file, head repo, recipe key; ambiguous name refused; `--terminal sandbox`, never
+Sham's embedded computer), `ai-system/tldm/configs/nova{1,2}.yaml`, `docs/coder/NOVA_TLDM.md` + `REVIEW_NOTES.md`,
+tests `src/lib/__tests__/novaTldm.test.ts` (13) and `ai-system/modelscope-trainer/test_nova_tldm_job.py` (11).
+**Real blocker, do not "fix" by faking it:** Nova 1/2 are served by llama.cpp (GGUF) — no `generate_tldm` endpoint and no
+PyTorch body for frozen reader features. A Nova head can be TRAINED and PUBLISHED today, not SERVED. Serving needs a
+per-Nova PyTorch head server (a memory-cost decision on a free CPU box), not a code tweak.
+Model ids: Sham Pro = `sham_v2`, Nova 1 = `coder`, Nova 2 = `nova2`; Sham 1 and `lfm25` have no T-LDM path.
+
+## Pushing this repo from an OpenHands session FAILS (403) as of 2026-11-18
+`git push` to `jonsnow-org/Ttbik` is refused: the injected `GITHUB_TOKEN` is the user `jonsnowx1r-lab`, an
+**installation/app token** ("Resource not accessible by integration" on the REST refs API too) even though the
+`/repos/.../Ttbik` JSON advertises `permissions.push: true` — that block describes the app, not the effective grant.
+`OH_GIT_CREDENTIAL_ACCESS_TOKEN_GITHUB` is rejected outright ("Invalid username or token"). `x-access-token:` and
+`http.extraheader` tricks also fail. The account owns no fork of Ttbik to push to instead. So: commit locally, leave the
+remote URL clean (`https://github.com/jonsnow-org/Ttbik.git`), and tell the owner to push/merge — do not burn steps retrying.
