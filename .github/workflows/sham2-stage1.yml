@@ -139,9 +139,15 @@ jobs:
           "$SHAM2_PYTHON" -m json.tool "$SHAM2_RUN_DIR/donor_check_report.json" > "$SHAM2_RUN_DIR/donor_check_report.pretty.json"
           mv "$SHAM2_RUN_DIR/donor_check_report.pretty.json" "$SHAM2_RUN_DIR/donor_check_report.json"
           echo "checker_exit_code=$rc" > "$SHAM2_RUN_DIR/donor_check_status.txt"
+          if [ "$rc" -ne 0 ]; then
+            cat "$SHAM2_RUN_DIR/donor_check_report.json"
+            echo "::error::--check-donor did not return compatible (exit $rc); partial training is blocked"
+            exit "$rc"
+          fi
           "$SHAM2_PYTHON" - <<'PY'
-          import json, os, sys
+          import json, sys
           from pathlib import Path
+          import os
           p = Path(os.environ["SHAM2_RUN_DIR"]) / "donor_check_report.json"
           r = json.loads(p.read_text(encoding="utf-8"))
           print(json.dumps({
@@ -156,15 +162,12 @@ jobs:
               "file_size_bytes": r.get("file_size_bytes"),
               "reasons": r.get("reasons"),
           }, ensure_ascii=False, indent=2))
-          if int(os.environ.get("CHECKER_EXIT_CODE", "0")) != 0:
-              sys.exit(2)
           if r.get("status") != "compatible" or r.get("compatible") is not True:
               sys.exit(3)
           if r.get("missing_keys") or r.get("unexpected_keys") or r.get("shape_mismatches") or r.get("dtype_mismatches"):
               sys.exit(4)
+          print("donor check: compatible; all parameter names/shapes/dtypes match canonical ShamSmall")
           PY
-        env:
-          CHECKER_EXIT_CODE: ${{ steps.donor.outputs.checker_exit_code || '0' }}
 
       - name: Train the available stages only (identity + terminal, frozen donor + LoRA-16 + T-LDM)
         shell: bash
