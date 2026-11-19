@@ -405,6 +405,7 @@ def load_sham_donor(donor_path: str) -> Tuple[nn.Module, int, Dict]:
         raise RuntimeError("donor checkpoint must be stored in bfloat16 for the 8-GB CPU Studio")
     for p in body.parameters():
         p.requires_grad_(False)
+    body.cfg.use_gradient_checkpointing = True
     body.eval()
     return body, int(step), extra or {}
 
@@ -513,6 +514,11 @@ class Sham2Unified(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         self.donor_body.eval()
+        # Enable ShamSmall's non-reentrant activation checkpoint path while
+        # keeping all donor submodules in eval mode (no stochastic train layers).
+        self.donor_body.training = bool(
+            mode and getattr(self.donor_body.cfg, "use_gradient_checkpointing", False)
+        )
         return self
 
     def trainable_parameters(self):
@@ -526,20 +532,34 @@ class Sham2Unified(nn.Module):
 
     def body_features(self, input_ids: torch.Tensor,
                       attention_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """Capture actual final-normalized donor features with gradient to new LoRA only."""
-        final_norm = getattr(self.donor_body, "final_norm", None)
-        if final_norm is None:
-            raise RuntimeError("donor has no final_norm feature hook; refusing synthetic features")
-        captured = []
-        handle = final_norm.register_forward_hook(lambda _m, _i, out: captured.append(out))
-        try:
-            self.donor_body(input_ids)
-        finally:
-            handle.remove()
-        if not captured or not torch.is_tensor(captured[-1]):
-            raise RuntimeError("donor did not produce real hidden features")
-        features = captured[-1]
-        if features.ndim != 3 or features.shape[-1] != self.cfg.d_model:
+        """Run the real donor blocks and return hidden features without a giant LM-logit tensor."""
+        body = self.donor_body
+        if not all(hasattr(body, name) for name in ("token_embedding", "layers", "final_norm", "rope_cos", "rope_sin")):
+            raise RuntimeError("donor is missing the ShamSmall hidden-state execution interface")
+        batch, seq_len = input_ids.shape
+        if seq_len > body.cfg.max_seq_len:
+            raise ValueError(
+                f"input length {seq_len} exceeds donor max_seq_len {body.cfg.max_seq_len}"
+            )
+        hidden = body.token_embedding(input_ids)
+        cos = body.rope_cos.to(hidden.device)
+        sin = body.rope_sin.to(hidden.device)
+        use_checkpointing = bool(
+            body.cfg.use_gradient_checkpointing and body.training
+        )
+        if use_checkpointing:
+            from torch.utils.checkpoint import checkpoint
+        for layer in body.layers:
+            if use_checkpointing:
+                hidden, _cache = checkpoint(
+                    layer, hidden, cos, sin, None, False, use_reentrant=False
+                )
+            else:
+                hidden, _cache = layer(
+                    hidden, cos, sin, past_kv=None, use_cache=False
+                )
+        features = body.final_norm(hidden)
+        if features.ndim != 3 or features.shape[0] != batch or features.shape[-1] != self.cfg.d_model:
             raise RuntimeError(
                 f"donor feature shape mismatch: expected (B,T,{self.cfg.d_model}), got {tuple(features.shape)}"
             )
@@ -796,6 +816,7 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         "heldout_examples": len(heldout_rows),
         "lora_rank": 16,
         "lora_alpha": 32,
+        "gradient_checkpointing": True,
         "lora_modules": lora_modules,
         "lora_parameters": lora_params,
         "trainable_parameters": sum(p.numel() for p in trainable),
