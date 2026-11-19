@@ -563,79 +563,297 @@ def sham2_run_key() -> str:
     return h.hexdigest()[:16]
 
 
-def sham2_gate(root: Path) -> Path:
-    """The merged gate results: docs/experiments/tldm_heldout_gate_2026-11-18.json (repo layout), or the copy the Studio deploy keeps next to the tldm tree."""
-    for p in (root.parent.parent / "docs" / "experiments" / "tldm_heldout_gate_2026-11-18.json", root / "gate" / "tldm_heldout_gate_2026-11-18.json"):
-        if p.is_file():
-            return p
+def nova_legacy_gate(root: Path) -> Path:
+    """Legacy 18-Nov gate retained only for the independent Nova route; Sham 2 does not call it."""
+    for path in (root.parent.parent / "docs" / "experiments" / "tldm_heldout_gate_2026-11-18.json", root / "gate" / "tldm_heldout_gate_2026-11-18.json"):
+        if path.is_file():
+            return path
     return root / "gate" / "tldm_heldout_gate_2026-11-18.json"
 
 
-def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None, publish=None, **_ignored) -> dict:
-    """Sham 2 = a copy of Sham 1's structure with the donor weights + the T-LDM head. Once: read the donor copy (bf16, frozen), train the head over 3 seeds on cached features,
-    measure both frozen held-out sets and the full-task benchmark on THIS body, publish heads + results to the private repo sham2-tldm-head. Later cycles only report."""
-    work = tldm_work() / "sham2"
-    work.mkdir(parents=True, exist_ok=True)
-    report, heads = work / "sham2_results.json", work / "sham2_heads.pt"
-    key, key_file = sham2_run_key(), work / ".run_key"
-    if report.exists() and (not key_file.exists() or key_file.read_text(encoding="utf-8") != key):
-        # the recipe changed (identity data, config or trainer): train again; the donor copy on disk is reused (no re-download)
-        print("sham2: recipe changed since the last run; retraining on the cached donor copy", flush=True)
-        for f in (report, heads, work / ".published"):
-            f.unlink(missing_ok=True)
-    if report.exists() and (work / ".published").exists():
-        if runner is None:
-            time.sleep(1800)                                         # done once: later cycles only report (no retraining, no re-download)
-        return {**sham2_flatten(json.loads(report.read_text(encoding="utf-8"))), "published": True, "hours": float(hours)}
-    if not report.exists():
-        ck, tk = sham2_donor(work, fetch)
-        root = tldm_root()
-        cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(root / "configs" / "sham2.yaml"),
-               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
-               "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
-               "--out", str(heads), "--json", str(report)]
-        if runner is not None:
-            code = int(runner(cmd=cmd, report=report, heads=heads))
-        else:
-            import subprocess
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
-            code = int(subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode)
-        if code != 0 or not report.exists():
-            raise RuntimeError(f"sham2 train exited with code {code}")
-        key_file.write_text(key, encoding="utf-8")
-    res = json.loads(report.read_text(encoding="utf-8"))
-    got = None
-    heldout = sham2_flatten(res).get("heldout")
-    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
-        # same gate as run_tldm: a floor score (missing tokenizer / UNK reader / broken body) must never replace the served head
-        print("sham2 publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
-        out = {**sham2_flatten(res), "published": False, "hours": float(hours)}
-        print("sham2 done " + json.dumps(out), flush=True)
-        if runner is None:
-            time.sleep(1800)                                         # no tight loop on a floor result; a recipe change retrains
-        return out
+def sham2_read_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return value if isinstance(value, dict) else {}
+
+
+def sham2_write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def sham2_memory_available_bytes() -> int | None:
     try:
-        snap = work / "publish_snap"
-        import shutil
-        shutil.rmtree(snap, ignore_errors=True)
-        snap.mkdir()
-        for f in (heads, report):
-            if f.exists():
-                shutil.copy2(f, snap / f.name)
-        if publish is None:
-            sys.path.insert(0, str(SHAM))
-            import sham_inputs
-            publish = sham_inputs.publish_modelscope
-        got = publish(snap, os.environ.get("SHAM2_HEAD_REPO") or SHAM2_HEAD_REPO, "Sham 2 T-LDM heads (head only, no donor weight)")
-        shutil.rmtree(snap, ignore_errors=True)
-    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle retries the publish
-        print(f"sham2 publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
-    if got:
-        (work / ".published").write_text(str(got), encoding="utf-8")
-    out = {**sham2_flatten(res), "published": bool(got), "hours": float(hours)}
-    print("sham2 done " + json.dumps(out), flush=True)
-    return out
+        for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def sham2_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def sham2_run_command(cmd: list[str], cwd: Path, log_path: Path, env: dict) -> int:
+    """Stream progress to the Studio log while redacting any credential values."""
+    import subprocess
+    secrets = [
+        value for key, value in env.items()
+        if ("TOKEN" in key or "SECRET" in key or "PASSWORD" in key)
+        and isinstance(value, str) and len(value) >= 8
+    ]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            cmd, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
+        )
+        assert process.stdout is not None
+        for raw_line in process.stdout:
+            line = raw_line.rstrip("\r\n")
+            for secret in secrets:
+                line = line.replace(secret, "***")
+            lowered = line.lower()
+            safe_line = "[redacted sensitive output]" if any(
+                marker in lowered for marker in ("authorization:", "bearer ", "api_token=", "access_token=")
+            ) else line
+            log.write(safe_line + "\n")
+            log.flush()
+            print(safe_line, flush=True)
+        return int(process.wait())
+
+
+def sham2_run_root(run_id: str | None = None) -> Path:
+    raw = str(run_id or os.environ.get("SHAM2_UNIFIED_RUN_ID") or "").strip()
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip(".-")
+    if not safe or safe in {".", ".."} or len(safe) > 96:
+        raise ValueError("SHAM2_UNIFIED_RUN_ID must be a non-empty, safe run identifier")
+    return tldm_work() / "sham2-unified" / "runs" / safe
+
+
+def run_sham2(hours: float = 10.0, name: str = "sham2", **_ignored) -> dict:
+    """Isolated unified Sham 2 path: CN donor check, then explicit partial training and the fresh gate."""
+    cfg = settings()
+    if cfg["job"] != "tldm" or not sham2_mode(name):
+        raise RuntimeError("run_sham2 requires SHAM_TRAINER_JOB=tldm and SHAM_TRAINER_NAME=sham2*")
+    if (os.environ.get("SITE") or "cn").strip().lower() != "cn":
+        raise RuntimeError("Sham 2 is restricted to the CN ModelScope site; the international AI account is forbidden")
+    if (os.environ.get("SHAM_MS_OWNER") or "novaai2026").strip().lower() != "novaai2026":
+        raise RuntimeError("Sham 2 requires the novaai2026 CN account")
+    domain = (os.environ.get("MODELSCOPE_DOMAIN") or "www.modelscope.cn").lower().replace("https://", "").strip("/")
+    endpoint = (os.environ.get("MODELSCOPE_ENDPOINT") or "https://modelscope.cn").lower()
+    if "modelscope.ai" in domain or "modelscope.ai" in endpoint:
+        raise RuntimeError("Sham 2 donor access must use ModelScope CN only (www.modelscope.cn)")
+    if os.environ.get("MODELSCOPE_DOMAIN") and domain != "www.modelscope.cn":
+        raise RuntimeError(f"unexpected ModelScope domain for Sham 2: {domain}")
+    if not (os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN")):
+        raise RuntimeError("CN MODELSCOPE_TOKEN must be installed in the dedicated Sham 2 Studio")
+
+    action = (os.environ.get("SHAM2_UNIFIED_ACTION") or "").strip().lower()
+    if action not in {"check-donor", "train-and-gate"}:
+        raise RuntimeError("SHAM2_UNIFIED_ACTION must be check-donor or train-and-gate")
+    run_id = os.environ.get("SHAM2_UNIFIED_RUN_ID") or ""
+    raw_id = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip(".-")
+    if not raw_id or raw_id in {".", ".."} or len(raw_id) > 96:
+        raise ValueError("SHAM2_UNIFIED_RUN_ID must be a non-empty, safe run identifier")
+
+    run_dir = sham2_run_root(raw_id)
+    state_path = run_dir / "run_state.json"
+    donor_report_path = run_dir / "donor_check_report.json"
+    root = tldm_root()
+    script = root / "sham_tldm" / "sham2_unified.py"
+    gate_script = root / "sham_tldm" / "eval_sham2_partial_gate.py"
+    data_dir = root / "data" / "sham2_export"
+    required = (
+        script, gate_script, data_dir / "manifest.json", data_dir / "train.jsonl",
+        data_dir / "heldout.jsonl", data_dir / "terminal_heldout.jsonl", data_dir / "heldout2.jsonl",
+    )
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("required unified Sham 2 inputs are missing: " + ", ".join(missing))
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    state = sham2_read_json(state_path)
+    env = os.environ.copy()
+    env.update({
+        "SITE": "cn",
+        "SHAM_MS_OWNER": "novaai2026",
+        "MODELSCOPE_DOMAIN": "www.modelscope.cn",
+        "MODELSCOPE_ENDPOINT": "https://modelscope.cn",
+        "MODELSCOPE_CACHE": str(Path(os.environ.get("MODELSCOPE_CACHE") or "/mnt/workspace/modelscope-cache")),
+        "CUDA_VISIBLE_DEVICES": "",
+        "OMP_NUM_THREADS": "2",
+        "MKL_NUM_THREADS": "2",
+        "TOKENIZERS_PARALLELISM": "false",
+    })
+    Path(env["MODELSCOPE_CACHE"]).mkdir(parents=True, exist_ok=True)
+
+    if action == "check-donor":
+        if state.get("status") in {"training", "completed", "failed", "memory-blocked"}:
+            raise RuntimeError(f"run ID {raw_id} is already in state {state.get('status')}; refusing to repeat")
+        state = {
+            "run_id": raw_id, "status": "checking-donor",
+            "studio": "novaai2026/sham2-tldm", "account": "novaai2026",
+            "hub": "www.modelscope.cn", "started_at": time.time(),
+        }
+        sham2_write_json(state_path, state)
+        command = [
+            sys.executable, "-u", str(script), "--donor", "novaai2026/sham-v2",
+            "--check-donor", "--check-donor-report", str(donor_report_path),
+        ]
+        code = sham2_run_command(command, root, run_dir / "donor_check.log", env)
+        donor = sham2_read_json(donor_report_path)
+        if code != 0 or donor.get("status") != "compatible" or donor.get("compatible") is not True:
+            state.update({
+                "status": "donor-check-failed", "finished_at": time.time(),
+                "donor_status": donor.get("status", "not_checked"),
+                "reasons": donor.get("reasons", [f"--check-donor exited with code {code}"]),
+            })
+            sham2_write_json(state_path, state)
+            return {
+                "sham2_status": "donor-check-failed",
+                "donor_status": donor.get("status", "not_checked"),
+                "donor_reasons": "; ".join(donor.get("reasons", []))[:500],
+                "run_id": raw_id,
+            }
+        state.update({
+            "status": "donor-compatible", "finished_at": time.time(),
+            "donor_sha256": donor.get("checkpoint_sha256"),
+            "donor_file_size_bytes": donor.get("file_size_bytes"),
+            "donor_tensor_count": donor.get("tensor_count"),
+            "donor_dtype_counts": donor.get("dtype_counts"),
+            "donor_config": donor.get("donor_config"),
+        })
+        sham2_write_json(state_path, state)
+        print("[Sham2 unified] donor is compatible; tensor names/shapes/dtypes saved in " + str(donor_report_path), flush=True)
+        return {
+            "sham2_status": "donor-compatible", "donor_status": "compatible",
+            "donor_sha256": donor.get("checkpoint_sha256", ""),
+            "donor_tensor_count": donor.get("tensor_count", 0), "run_id": raw_id,
+        }
+
+    donor = sham2_read_json(donor_report_path)
+    if state.get("status") != "donor-compatible" or donor.get("status") != "compatible" or donor.get("compatible") is not True:
+        raise RuntimeError("training is blocked: no compatible donor report from this same CN Sham 2 Studio run")
+    donor_sha = str(donor.get("checkpoint_sha256") or "")
+    if len(donor_sha) != 64 or state.get("donor_sha256") != donor_sha:
+        raise RuntimeError("the donor preflight report has no valid, matching checkpoint SHA-256")
+    if state.get("status") != "donor-compatible":
+        raise RuntimeError(f"run ID {raw_id} is already {state.get('status')}; refusing to repeat training")
+
+    available = sham2_memory_available_bytes()
+    minimum = int(float(os.environ.get("SHAM2_MIN_AVAILABLE_GIB") or "4.5") * (1024 ** 3))
+    if available is not None and available < minimum:
+        state.update({
+            "status": "memory-blocked", "finished_at": time.time(),
+            "mem_available_bytes": available, "minimum_mem_available_bytes": minimum,
+            "reason": "8-GB Studio failed the pre-training memory guard; no optimizer step was attempted",
+        })
+        sham2_write_json(state_path, state)
+        return {
+            "sham2_status": "memory-blocked", "donor_status": "compatible",
+            "mem_available_bytes": available, "minimum_mem_available_bytes": minimum,
+            "run_id": raw_id,
+        }
+
+    training_dir = run_dir / "training"
+    if training_dir.exists() and any(training_dir.iterdir()):
+        raise RuntimeError("new output directory is not empty; refusing to overwrite a previous Sham 2 candidate")
+    state.update({
+        "status": "training", "training_scope": "partial, not full",
+        "train_examples": 46, "heldout_examples": 26,
+        "available_stages": ["identity", "terminal"], "missing_stages": ["tools", "arabic"],
+        "batch_size": 1, "donor_sha256": donor_sha,
+        "mem_available_bytes_at_start": available, "training_started_at": time.time(),
+    })
+    sham2_write_json(state_path, state)
+
+    training_command = [
+        sys.executable, "-u", str(script),
+        "--donor", "novaai2026/sham-v2", "--tokenizer", "novaai2026/sham-v2",
+        "--data-dir", str(data_dir), "--stage", "available", "--out", str(training_dir),
+        "--batch-size", "1", "--expected-donor-sha256", donor_sha,
+    ]
+    try:
+        code = sham2_run_command(training_command, root, run_dir / "training.log", env)
+        training_path = training_dir / "sham2_report.json"
+        head_path = training_dir / "sham2_heads.pt"
+        if code != 0 or not training_path.is_file() or not head_path.is_file():
+            raise RuntimeError(f"unified partial trainer failed with exit code {code}; no valid head/report pair")
+        training = sham2_read_json(training_path)
+        if training.get("training_scope") != "partial, not full":
+            raise RuntimeError("training report did not declare partial, not full")
+        if training.get("requested_stages") != ["identity", "terminal"]:
+            raise RuntimeError("training did not run exactly identity 16 + terminal 30")
+        if training.get("train_examples_total") != 46 or training.get("heldout_examples") != 26:
+            raise RuntimeError("training report counts differ from the committed JSONL source inventory")
+        sources = training.get("data_sources", {})
+        if sources.get("tools", {}).get("status") != "missing" or sources.get("arabic", {}).get("status") != "missing":
+            raise RuntimeError("training report did not preserve tools: missing and arabic: missing")
+
+        gate_path = run_dir / "partial_terminal_gate_report.json"
+        gate_command = [
+            sys.executable, "-u", str(gate_script),
+            "--data-dir", str(data_dir), "--donor", "novaai2026/sham-v2",
+            "--tokenizer", "novaai2026/sham-v2", "--heads", str(head_path),
+            "--minimum-same-effect", "0.60", "--report", str(gate_path),
+            "--expected-donor-sha256", donor_sha,
+        ]
+        gate_code = sham2_run_command(gate_command, root, run_dir / "fresh_gate.log", env)
+        gate = sham2_read_json(gate_path)
+        if gate_code not in (0, 1) or not gate:
+            raise RuntimeError(f"fresh gate did not produce a report (exit code {gate_code})")
+        head_hash = sham2_sha256(head_path)
+        if gate.get("head_sha256") != head_hash or gate.get("donor_sha256") != donor_sha:
+            raise RuntimeError("fresh gate evaluated a different candidate head or donor checkpoint")
+
+        state.update({
+            "status": "completed", "finished_at": time.time(),
+            "training_scope": training["training_scope"],
+            "final_training_loss": training.get("final_training_loss"),
+            "training_stages": training.get("stages"),
+            "training_steps": sum(int(stage.get("steps", 0)) for stage in training.get("stages", [])),
+            "batch_size": 1, "gate": gate.get("gate"),
+            "gate_examples": gate.get("examples"),
+            "exact_matches": gate.get("exact_matches"), "exact_match_rate": gate.get("exact_match_rate"),
+            "same_effect_matches": gate.get("same_effect_matches"), "same_effect_rate": gate.get("same_effect_rate"),
+            "mean_cross_entropy": gate.get("mean_cross_entropy"),
+            "head_path": str(head_path), "head_sha256": head_hash, "head_size_bytes": head_path.stat().st_size,
+            "donor_weights_written": False, "legacy_head_repository_written": False,
+            "previous_writer_donor_gate_used": False,
+        })
+        sham2_write_json(state_path, state)
+        print("[Sham2 unified] completed: " + json.dumps({
+            "training_scope": state["training_scope"], "final_training_loss": state["final_training_loss"],
+            "gate": state["gate"], "examples": state["gate_examples"],
+            "exact_matches": state["exact_matches"], "exact_match_rate": state["exact_match_rate"],
+            "same_effect_matches": state["same_effect_matches"], "same_effect_rate": state["same_effect_rate"],
+            "mean_cross_entropy": state["mean_cross_entropy"], "head_path": state["head_path"],
+            "head_sha256": state["head_sha256"],
+        }, ensure_ascii=False), flush=True)
+        return {
+            "sham2_status": "completed", "donor_status": "compatible",
+            "training_scope": state["training_scope"], "final_training_loss": state["final_training_loss"],
+            "training_steps": state["training_steps"], "gate": state["gate"],
+            "examples": state["gate_examples"], "exact_matches": state["exact_matches"],
+            "exact_match_rate": state["exact_match_rate"], "same_effect_matches": state["same_effect_matches"],
+            "same_effect_rate": state["same_effect_rate"], "mean_cross_entropy": state["mean_cross_entropy"],
+            "head_path": state["head_path"], "head_sha256": state["head_sha256"],
+            "head_size_bytes": state["head_size_bytes"], "batch_size": 1, "run_id": raw_id,
+        }
+    except Exception as exc:
+        state.update({"status": "failed", "finished_at": time.time(), "error": f"{type(exc).__name__}: {str(exc)[:500]}"})
+        sham2_write_json(state_path, state)
+        raise
 
 
 NOVA_DONOR_REPO = {
@@ -721,7 +939,7 @@ def run_nova(hours: float = 10.0, name: str = "nova1", runner=None, fetch=None, 
         if not cfg.is_file():
             raise FileNotFoundError(f"{which}: config {NOVA_CONFIG[which]} is missing from the tldm tree")
         cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(cfg),
-               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
+               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(nova_legacy_gate(root)), "--cached",
                "--dtype", os.environ.get("NOVA_DTYPE", "bf16"), "--seeds", os.environ.get("NOVA_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
                # independence: Nova's benchmark runs in the neutral test sandbox (T.fresh), never in Sham's embedded computer
                "--terminal", os.environ.get("NOVA_TERMINAL", "sandbox"),
@@ -866,7 +1084,11 @@ def _short(res) -> dict:
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
             "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
             "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
-            "identity_before", "identity_after", "nll_before", "nll_after", "retention_after")
+            "identity_before", "identity_after", "nll_before", "nll_after", "retention_after",
+            "sham2_status", "donor_status", "donor_sha256", "donor_tensor_count", "training_scope", "final_training_loss",
+            "training_steps", "gate", "examples", "exact_matches", "exact_match_rate", "same_effect_matches", "same_effect_rate",
+            "mean_cross_entropy", "head_path", "head_sha256", "head_size_bytes", "batch_size", "mem_available_bytes",
+            "minimum_mem_available_bytes", "run_id")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -1043,6 +1265,7 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
     WORK.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("SHAM_LIVE_WORK", str(WORK))
     in_process = run_fn is not None                    # tests inject run_fn; the real Studio runs every cycle in a child process
+    one_shot_sham2 = cfg["job"] == "tldm" and sham2_mode(cfg["name"])
     if not in_process:
         for k, v in PROFILES[cfg["job"]].items():
             os.environ.setdefault(k, v)
@@ -1076,6 +1299,15 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
             res = run_fn(hours=cfg["hours"], name=cfg["name"], source_set=cfg["source_set"], video=False, workers=cfg["workers"]) if in_process else run_cycle_subprocess(cfg)
             fails = 0
             _set(phase="between-cycles", last=_short(res), last_ok=time.time(), fails_in_a_row=0)
+            if one_shot_sham2:
+                desired_phase = {
+                    "donor-compatible": "donor-compatible",
+                    "donor-check-failed": "donor-check-failed",
+                    "memory-blocked": "memory-blocked",
+                    "completed": "completed",
+                }.get((res or {}).get("sham2_status"), "completed")
+                _set(phase=desired_phase, last=_short(res), last_ok=time.time())
+                break
             if not in_process and isinstance(res, dict) and res.get("published"):
                 try:                                       # the cycle itself published its best weights: a restart must not push them again
                     (WORK / "checkpoints" / ".published_to_modelscope").write_text(str(res["published"])[:80], encoding="utf-8")
@@ -1087,7 +1319,12 @@ def train_forever(run_fn=None, sleep=time.sleep, max_cycles: int | None = None) 
             _set(phase="error-retrying", error=f"{type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1,
                  last_failure=time.time(), retry_in_s=wait, fails_in_a_row=int(STATE.get("fails_in_a_row", 0)) + 1)
             traceback.print_exc()
+            if one_shot_sham2:
+                _set(phase="failed", error=f"{type(exc).__name__}: {str(exc)[:300]}")
+                break
             sleep(wait)
+        if one_shot_sham2:
+            break
         sleep(30)
 
 
@@ -1296,8 +1533,10 @@ def checkpoint_upload_loop(sleep=time.sleep) -> None:
 
 
 def supervise(sleep=time.sleep, run=None, max_rounds: int | None = None) -> None:
-    """Keeps train_forever alive: if it ever raises (or returns: blocked by missing secrets), it is started again after a pause. The Studio's web page never depends on it."""
+    """Persistent retries for normal trainers; Sham 2 is a deliberate single fail-closed run."""
     run = run or train_forever
+    cfg = settings()
+    one_shot_sham2 = cfg["job"] == "tldm" and sham2_mode(cfg["name"])
     rounds, fails = 0, 0
     while max_rounds is None or rounds < max_rounds:
         rounds += 1
@@ -1305,9 +1544,15 @@ def supervise(sleep=time.sleep, run=None, max_rounds: int | None = None) -> None
             run()
             fails = 0
         except Exception as exc:  # noqa: BLE001
+            if one_shot_sham2:
+                _set(phase="failed", error=f"Sham 2 one-shot stopped: {type(exc).__name__}: {str(exc)[:300]}")
+                traceback.print_exc()
+                return
             fails += 1
             _set(phase="error-retrying", error=f"supervisor: {type(exc).__name__}: {str(exc)[:200]}", restarts=int(STATE.get("restarts", 0)) + 1)
             traceback.print_exc()
+        if one_shot_sham2:
+            return
         sleep(backoff_seconds(fails) if fails else 600)
 
 
@@ -1325,6 +1570,28 @@ def status_json() -> str:
         quiet = round((time.time() - _LAST_LINE_AT[0]) / 60) if _LAST_LINE_AT[0] else None
         state = dict(STATE)
     return json.dumps({**state, "settings": {k: v for k, v in settings().items()}, "tail": list(_TAIL[-25:]), "minutes_since_last_line": quiet, "heartbeat": heartbeat()}, ensure_ascii=False)
+
+
+def sham2_report_json() -> str:
+    """Workflow-only details endpoint: complete donor tensor inventory and run reports."""
+    try:
+        run_dir = sham2_run_root()
+        files = {
+            "run_state": run_dir / "run_state.json",
+            "donor_check": run_dir / "donor_check_report.json",
+            "training": run_dir / "training" / "sham2_report.json",
+            "gate": run_dir / "partial_terminal_gate_report.json",
+        }
+        report = {"run_id": os.environ.get("SHAM2_UNIFIED_RUN_ID", ""), "artifacts": {}}
+        for key, path in files.items():
+            if path.is_file():
+                report["artifacts"][key] = json.loads(path.read_text(encoding="utf-8"))
+        head = run_dir / "training" / "sham2_heads.pt"
+        if head.is_file():
+            report["head"] = {"path": str(head), "size_bytes": head.stat().st_size, "sha256": sham2_sha256(head)}
+        return json.dumps(report, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps({"error": f"{type(exc).__name__}: {str(exc)[:300]}"}, ensure_ascii=False)
 
 
 def studio_launch_kwargs() -> dict:
@@ -1358,12 +1625,16 @@ def main() -> None:
     threading.Thread(target=heartbeat_loop, daemon=True, name="sham-heartbeat").start()
     if settings()["job"] in LIVE_JOBS:
         threading.Thread(target=checkpoint_upload_loop, daemon=True, name="sham-ckpt-upload").start()
-    try:                                                   # watch the other trainer Studios and sham-runner-1 (both sites): any one that sleeps or dies is started again
-        sys.path.insert(0, str(HERE))
-        import studio_guard
-        studio_guard.start_thread()
-    except Exception as exc:  # noqa: BLE001
-        print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
+    cfg = settings()
+    if not (cfg["job"] == "tldm" and sham2_mode(cfg["name"])):
+        try:
+            sys.path.insert(0, str(HERE))
+            import studio_guard
+            studio_guard.start_thread()
+        except Exception as exc:  # noqa: BLE001
+            print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
+    else:
+        print("Sham 2 isolated mode: cross-Studio guard disabled", flush=True)
     with gr.Blocks(title="Sham trainer") as demo:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)
@@ -1371,6 +1642,7 @@ def main() -> None:
         gr.Button("heartbeat", visible=False).click(lambda: json.dumps(heartbeat()), None, out, api_name="heartbeat")
         gr.Button("kill cycle", visible=False).click(kill_cycle, None, out, api_name="kill_cycle")
         gr.Button("publish", visible=False).click(lambda: publish_leftover_subprocess(), None, out, api_name="publish_now")   # retry the leftover publish without a redeploy
+        gr.Button("Sham 2 run report", visible=False).click(sham2_report_json, None, out, api_name="sham2_report")
     launch_studio(demo)
 
 
@@ -1540,56 +1812,17 @@ if __name__ == "__main__":
         os.environ.pop("TLDM_WORK", None)
         os.environ.pop("SITE", None)
         os.environ.pop("SHAM_MS_OWNER", None)
-        # sham2 job (job=tldm, name=sham2): donor copy once, train_sham2 --cached, publish heads to sham2-tldm-head, then only report
-        os.environ["TLDM_WORK"] = str(Path(tempfile.mkdtemp()))
-        assert settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_NAME": "sham2"})["name"] == "sham2" and sham2_mode("sham2") and not sham2_mode("ms1")
-        assert "site=cn" in sham2_hub_check({"MODELSCOPE_DOMAIN": "www.modelscope.ai", "MODELSCOPE_API_TOKEN": "x"}) and "cn Studio" in sham2_hub_check({"SITE": "ai", "MODELSCOPE_API_TOKEN": "x"})
-        assert sham2_hub_check({"MODELSCOPE_API_TOKEN": "x"}) == "" and "token" in sham2_hub_check({})
-        fetched, ran, sent2 = [], [], []
-
-        def fake_fetch(repo, dest):
-            fetched.append(repo)
-            (dest / "final_merged.pt").write_bytes(b"x")
-            (dest / "sham_small_tokenizer.json").write_text("{}", encoding="utf-8")
-
-        _cd = Path(tempfile.mkdtemp()) / "donor"
-        (_cd / "novaai2026").mkdir(parents=True)
-        (_cd / "novaai2026" / "final_merged.pt").write_bytes(b"x" * 10)
-        sham2_check_sizes("r", _cd, files=[("final_merged.pt", 10)])
-        try:
-            sham2_check_sizes("r", _cd, files=[("final_merged.pt", 11), ("sham_small_tokenizer.json", 5)])
-            raise AssertionError("a truncated donor copy must not pass")
-        except RuntimeError as exc:
-            assert "incomplete" in str(exc) and "missing" in str(exc)
-
-        def fake_sham2(cmd, report, heads):
-            ran.append(cmd)
-            assert "--cached" in cmd and "--loop" in cmd and "--identity" in cmd and cmd[cmd.index("--dtype") + 1] == "bf16" and "tldm_heldout_gate_2026-11-18.json" in cmd[cmd.index("--gate") + 1]
-            heads.write_bytes(b"h")
-            report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "donor_weights_unchanged": True,
-                                          "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],
-                                          "loop": [{"all": {"success": 0.9, "median_s_per_task": 2.0}, "simple": {"success": 0.95}, "multi_step": {"success": 0.8}}]}), encoding="utf-8")
-            return 0
-        r1 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: (sent2.append((n, sorted(p.name for p in Path(d).iterdir()))), "modelscope:novaai2026/" + n)[1])
-        r2 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: None)
-        assert fetched == ["novaai2026/sham-v2"] and len(ran) == 1, (fetched, ran)
-        assert sent2 == [("sham2-tldm-head", ["sham2_heads.pt", "sham2_results.json"])] and r1["published"] and r2["heldout"] == 0.7 and r2["loop_multi"] == 0.8
-        assert _short(r1)["heldout_seeds"] == "0.7" and _short(r1)["loop_all"] == 0.9
-        _w2 = tldm_work() / "sham2"
-        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")                # identity data / config / trainer changed -> retrain, donor copy reused
-        r3 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: "modelscope:novaai2026/" + n)
-        assert len(ran) == 2 and fetched == ["novaai2026/sham-v2"] and r3["published"] and (_w2 / ".run_key").read_text(encoding="utf-8") == sham2_run_key()
-        # a floor held-out (broken reader / body) must not replace the served sham2 head
-        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")
-        sent_floor = []
-
-        def fake_sham2_floor(cmd, report, heads):
-            ran.append(cmd)
-            heads.write_bytes(b"h")
-            report.write_text(json.dumps({"train": {"same_effect": 0.07}, "heldout": {"same_effect": 0.083}, "heldout2": {"same_effect": 0.071}}), encoding="utf-8")
-            return 0
-        r4 = run_sham2(runner=fake_sham2_floor, fetch=fake_fetch, publish=lambda d, n, m: (sent_floor.append(n), "modelscope:novaai2026/" + n)[1])
-        assert r4["published"] is False and r4["heldout"] == 0.083 and sent_floor == [] and not (_w2 / ".published").exists(), (r4, sent_floor)
+        # Sham 2: tldm/sham2 dispatches only to the new unified run.
+        import inspect
+        sham_cfg = settings({"SHAM_TRAINER_JOB": "tldm", "SHAM_TRAINER_NAME": "sham2"})
+        assert sham_cfg["name"] == "sham2" and sham2_mode("sham2") and not sham2_mode("ms1")
+        assert _resolve_run_fn(sham_cfg) is run_sham2
+        sham2_source = inspect.getsource(run_sham2)
+        assert "sham2_unified.py" in sham2_source
+        assert "SHAM2_UNIFIED_ACTION" in sham2_source and "--batch-size" in sham2_source
+        assert "train_sham2.py" not in sham2_source
+        assert "2026-11-18" not in sham2_source
+        assert sham2_memory_available_bytes() is None or sham2_memory_available_bytes() > 0
         # ---- Nova 1 / Nova 2 on T-LDM: Sham 2's technique, but each with its OWN config, work folder, head file and head repo ----
         assert nova_mode("nova1-live") == "nova1" and nova_mode("Nova2-ms1") == "nova2" and nova_mode("sham2") == "" and nova_mode("nova3") == ""
         assert nova_mode("nova12") == "nova1", "nova12 is a Nova 1 job, not Nova 2"
