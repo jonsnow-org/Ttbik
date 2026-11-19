@@ -481,10 +481,26 @@ def _snapshot_download_compatible(snapshot_download, model_id: str, patterns: Li
         kwargs["max_workers"] = 1
     if "token" in names:
         kwargs["token"] = token
+        auth_mode = "token-parameter"
+    elif "cookies" in names:
+        # Older SDK releases use the same ModelScope session cookie that
+        # HubApi.get_cookies() creates from an access token.
+        from requests.cookies import RequestsCookieJar
+        from urllib.parse import urlparse
+        cookie_jar = RequestsCookieJar()
+        cookie_jar.set("m_session_id", token, domain=urlparse(endpoint).hostname, path="/")
+        kwargs["cookies"] = cookie_jar
+        auth_mode = "m_session_id-cookie"
+    else:
+        raise TypeError(
+            "installed ModelScope snapshot_download exposes neither token= nor cookies=; "
+            "refusing an unauthenticated private-donor request"
+        )
     if "endpoint" in names:
         kwargs["endpoint"] = endpoint
 
     if diagnostics is not None:
+        diagnostics["snapshot_download_auth_mode"] = auth_mode
         try:
             diagnostics["modelscope_version"] = importlib.metadata.version("modelscope")
         except importlib.metadata.PackageNotFoundError:
@@ -493,7 +509,7 @@ def _snapshot_download_compatible(snapshot_download, model_id: str, patterns: Li
         diagnostics["snapshot_download_parameters"] = sorted(names)
         diagnostics["snapshot_download_kwargs_used"] = sorted(kwargs)
         diagnostics["snapshot_download_env_fallbacks"] = [
-            name for name in ("token", "endpoint") if name not in kwargs
+            name for name in ("endpoint",) if name not in kwargs
         ]
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
