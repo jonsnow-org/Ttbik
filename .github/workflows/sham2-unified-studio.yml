@@ -1,4 +1,5 @@
-name: Sham 2 unified execution in the dedicated CN Studio
+name: Sham 2 donor-only preflight in the dedicated CN Studio
+# Donor-check only: the SDK signature self-test runs before staging/deploy; this workflow cannot train or gate.
 # Sham 2 execution is pinned to the CN account and the audited Studio only.
 
 on:
