@@ -981,8 +981,7 @@ class TerminalLoop:
 # Self Evolution — تجربة -> درس -> LoRA -> بوابة — [تطبيق 8]
 # ============================================================
 class SelfEvolution:
-    """التطور الذاتي: كل تجربة ناجحة تصبح درساً، الدرس يصبح LoRA صغيراً، LoRA يُقاس بالبوابة،
-    يُدمج فقط إذا اجتازها. لا تطور بدون بوابة أبداً."""
+    """Lesson collection scaffold. LoRA training and automatic merging are not implemented here."""
     def __init__(self, model: Sham2Unified):
         self.model = model
         self.lessons: List[Dict] = []
@@ -1089,7 +1088,7 @@ def main():
                 input_ids = torch.tensor([ids], dtype=torch.long)
                 generated = model.generate_block(input_ids)[0].tolist()
                 print(_tokenizer.decode(generated))
-            print("[Sham2] real donor, tokenizer, heads and LoRA-16 loaded.")
+            print("[Sham2] validated real donor, tokenizer, heads and LoRA-16 loaded; this CLI does not start an HTTP server.")
             return
         except Exception as exc:
             print("missing donor or heads - refuse to serve fake")
