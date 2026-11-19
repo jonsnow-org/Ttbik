@@ -24,10 +24,25 @@ class DiffusionWriter(nn.Module):
             x = layer(x, z)
         return self.head(self.norm(x))
 
-    def loss(self, z, target):                   # target (B, block)
+    def loss(self, z, target, valid_mask=None):   # target (B, block); valid_mask selects bytes + EOS, not padding
+        if target.ndim != 2 or target.shape[1] != self.block:
+            raise ValueError(f"target must have shape (B,{self.block})")
+        if valid_mask is None:
+            valid_mask = torch.ones_like(target, dtype=torch.bool)
+        else:
+            valid_mask = valid_mask.to(device=target.device, dtype=torch.bool)
+            if valid_mask.shape != target.shape:
+                raise ValueError("valid_mask must have the same shape as target")
+        if not valid_mask.any(dim=1).all():
+            raise ValueError("every target row must contain at least one supervised byte/EOS position")
         r = torch.rand(target.shape[0], 1, device=target.device) * 0.95 + 0.05
-        masked = torch.rand(target.shape, device=target.device) < r
-        masked[:, 0] |= ~masked.any(1)
+        masked = (torch.rand(target.shape, device=target.device) < r) & valid_mask
+        # Guarantee at least one visible-to-predict supervised position per row.
+        missing = ~masked.any(dim=1)
+        if missing.any():
+            first_valid = valid_mask.to(torch.int64).argmax(dim=1)
+            rows = torch.arange(target.shape[0], device=target.device)[missing]
+            masked[rows, first_valid[missing]] = True
         lg = self.logits(target, masked, z)
         return F.cross_entropy(lg[masked], target[masked])
 
