@@ -59,11 +59,13 @@ The dedicated workflow .github/workflows/sham2-unified-studio.yml is restricted 
 - Studio novaai2026/sham2-tldm;
 - credential MODELSCOPE_TOKEN -> T_CN.
 
-It stages the PR's app.py, sham_small/, and T-LDM source into that Studio only. It explicitly omits training/train_sham2.py, configs/sham2.yaml, and the historical 2026-11-18 gate file. It first runs --check-donor within that Studio, captures the full tensor key/shape/dtype inventory and donor SHA-256, and proceeds only if the report states compatible. It then runs:
+It stages the PR's app.py, sham_small/, and T-LDM source into that Studio only. It explicitly omits training/train_sham2.py, configs/sham2.yaml, and the historical 2026-11-18 gate file. The current workflow is deliberately **preflight-only**. It runs --check-donor inside that Studio and captures the complete tensor key/shape/dtype inventory, installed ModelScope version and actual snapshot_download signature, plus the donor SHA-256. A code/signature TypeError or ValueError fails immediately; only transient network/HTTP errors are retried, with at most three SDK download attempts. The polling step exits as soon as the Studio reports donor-check-failed and never waits through 360 repeated polls.
+
+No training or gate is started by the donor-preflight workflow. A separate, explicit training action may be prepared only after the saved donor report states compatible and the owner has reviewed its installed SDK signature and SHA-256. That later action must use:
 
 --stage available --batch-size 1
 
-The trainer uses a frozen BF16 donor and rank-16 LoRA plus the new T-LDM head. The admitted data must remain exactly identity 16 + terminal 30 = 46 training records, with 26 held-out examples. The report and manifest must state partial, not full, with tools: missing and arabic: missing; no generated or remote records are admitted. The fresh terminal gate must evaluate only the new head, compare both donor and head SHA-256 values to the preflight, and never read the old gate.
+The trainer must use a frozen BF16 donor and rank-16 LoRA plus the new T-LDM head. The admitted data must remain exactly identity 16 + terminal 30 = 46 training records, with 26 held-out examples. The report and manifest must state partial, not full, with tools: missing and arabic: missing; no generated or remote records are admitted. The fresh terminal gate must evaluate only the new head, compare both donor and head SHA-256 values to the preflight, and never read the old gate.
 
 ## Memory and runner guard
 
