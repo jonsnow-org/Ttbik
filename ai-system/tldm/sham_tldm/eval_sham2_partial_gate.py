@@ -91,6 +91,9 @@ def main() -> int:
         Sham2Unified,
         Sham2UnifiedConfig,
         file_sha256,
+        encode_target_bytes,
+        decode_target_bytes,
+        BYTE_VOCAB,
         install_rank16_lora,
         load_sham2_heads,
         load_sham_donor,
@@ -156,23 +159,28 @@ def main() -> int:
     with torch.inference_mode():
         for index, row in enumerate(rows, 1):
             input_ids = tokenizer.encode(row["prompt"]).ids
-            target_ids = tokenizer.encode(row["target"]).ids
-            if not input_ids or not target_ids:
-                raise ValueError(f"held-out row {index} tokenized to an empty input or target")
-            if len(input_ids) > cfg.max_seq_len or len(target_ids) > cfg.block:
-                raise ValueError(f"held-out row {index} exceeds the donor/head token limits")
-            logits, _confidence = model(
-                torch.tensor([input_ids], dtype=torch.long),
-                target_len=len(target_ids),
+            if not input_ids:
+                raise ValueError(f"held-out row {index} tokenized to an empty input")
+            if len(input_ids) > cfg.max_seq_len:
+                raise ValueError(f"held-out row {index} exceeds the donor context limit")
+            target_values, valid_values = encode_target_bytes(
+                row["target"], cfg.block, f"held-out row {index}"
             )
-            logits = logits[0].float()
-            target = torch.tensor(target_ids, dtype=torch.long)
-            loss = float(F.cross_entropy(logits, target).cpu())
+            input_tensor = torch.tensor([input_ids], dtype=torch.long)
+            target_tensor = torch.tensor([target_values], dtype=torch.long)
+            valid_mask = torch.tensor([valid_values], dtype=torch.bool)
+            latents = model(input_tensor)
+            masked_logits = model.writer.logits(target_tensor, valid_mask, latents)
+            selected_logits = masked_logits[0][valid_mask[0]].float()
+            selected_targets = target_tensor[0][valid_mask[0]]
+            loss = float(F.cross_entropy(selected_logits, selected_targets).cpu())
             if not math.isfinite(loss):
                 raise RuntimeError(f"non-finite gate loss at held-out row {index}")
             losses.append(loss)
-            predicted_ids = logits.argmax(dim=-1).tolist()
-            predicted = tokenizer.decode(predicted_ids).strip()
+            predicted_ids = model.writer.generate(
+                latents, steps=cfg.diffusion_steps, temperature=0.0
+            )[0].tolist()
+            predicted = decode_target_bytes(predicted_ids)
             exact = predicted == row["target"].strip()
             same_effect = terminal_source.same_effect(row["target"], predicted)
             exact_matches += int(exact)
@@ -198,6 +206,8 @@ def main() -> int:
     passed = total == 26 and effect_rate >= args.minimum_same_effect
     report = {
         "format": "sham2-partial-terminal-gate-v1",
+        "target_encoding": "UTF-8 bytes with EOS and explicit padding loss mask",
+        "writer_vocab_size": BYTE_VOCAB,
         "candidate_artifact_format": payload["format"],
         "candidate_training_scope": payload["training_scope"],
         "trained_stages": payload["trained_stages"],
