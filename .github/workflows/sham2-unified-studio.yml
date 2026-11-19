@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: sham2-unified-dedicated-cn-studio
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sham2:
@@ -92,6 +92,7 @@ jobs:
           test -f sham_small/model.py
           test -f sham_small/checkpoint.py
           test -f tldm/sham_tldm/sham2_unified.py
+          test -f tldm/sham_tldm/writer.py
           test -f tldm/sham_tldm/eval_sham2_partial_gate.py
           test -f tldm/data/sham2_export/manifest.json
           test ! -e tldm/training/train_sham2.py
