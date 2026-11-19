@@ -162,27 +162,39 @@ class MambaMixer(nn.Module):
         self.D = nn.Parameter(torch.ones(self.d_inner))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, T, d)
-        xz = self.in_proj(x)  # (B, T, 2*d_inner)
+        # x: (B, T, d). Selective state-space recurrence, O(T).
+        xz = self.in_proj(x)
         x_part, z = xz.chunk(2, dim=-1)
         x_conv = self.conv(x_part.transpose(1, 2))[:, :, :x.shape[1]].transpose(1, 2)
         x_act = F.silu(x_conv)
-        # Selective: B, C, dt من المدخل نفسه — هذا جوهر Mamba
-        b_c_dt = self.x_proj(x_act)  # (B, T, 2*d_state+1)
-        dt = F.softplus(self.dt_proj(b_c_dt[:, :, -1:]))
-        # تبسيط محسوب: حالة متكررة خطية (SSM) — O(n)
-        # h_t = h_{t-1} * exp(-dt) + x_t * dt
-        h = torch.zeros(x.shape[0], self.d_inner, device=x.device, dtype=x.dtype)
-        outs = []
-        A_exp = torch.exp(-dt.squeeze(-1).unsqueeze(-1) * torch.sigmoid(self.A).mean(dim=-1, keepdim=True).T if False else -dt)
-        # حلقة O(n) — سريعة لأن d_inner صغير (512) و T <= 4096
+
+        # The input-dependent B, C and delta terms control each state update.
+        b_c_dt = self.x_proj(x_act)
+        b_t, c_t, dt_seed = torch.split(
+            b_c_dt, [self.A.shape[1], self.A.shape[1], 1], dim=-1
+        )
+        dt = F.softplus(self.dt_proj(dt_seed))
+        a_rate = F.softplus(self.A).unsqueeze(0)  # (1, d_inner, d_state)
+
+        state = torch.zeros(
+            x.shape[0], self.d_inner, self.A.shape[1],
+            device=x.device, dtype=x.dtype
+        )
+        outputs = []
         for t in range(x_act.shape[1]):
-            decay = torch.exp(-dt[:, t].squeeze(-1)).unsqueeze(-1)  # (B, d_inner)
-            h = h * decay + x_act[:, t] * dt[:, t]
-            outs.append(h)
-        y = torch.stack(outs, dim=1)  # (B, T, d_inner)
+            dt_t = dt[:, t, :].unsqueeze(-1)       # (B, d_inner, 1)
+            decay = torch.exp(-dt_t * a_rate)      # (B, d_inner, d_state)
+            b_now = torch.tanh(b_t[:, t, :]).unsqueeze(1)
+            c_now = torch.tanh(c_t[:, t, :]).unsqueeze(1)
+            state = state * decay + (
+                x_act[:, t, :].unsqueeze(-1) * dt_t
+            ) * b_now
+            y_t = (state * c_now).sum(dim=-1) + self.D * x_act[:, t, :]
+            outputs.append(y_t)
+
+        y = torch.stack(outputs, dim=1)
         y = y * F.silu(z)
-        return self.out_proj(y) + x  # residual
+        return self.out_proj(y) + x
 
 # ============================================================
 # Compressor — يختصر الجسم إلى 16 latent
@@ -216,10 +228,14 @@ class LatentThinker(nn.Module):
     def __init__(self, cfg: Sham2UnifiedConfig):
         super().__init__()
         self.cfg = cfg
-        layer = nn.TransformerEncoderLayer(d_model=cfg.head_d, nhead=cfg.heads,
-                                           dim_feedforward=cfg.head_d*4, batch_first=True,
-                                           activation="gelu")
-        self.layers = nn.ModuleList([layer for _ in range(2)])
+        self.layers = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=cfg.head_d, nhead=cfg.heads,
+                dim_feedforward=cfg.head_d * 4, batch_first=True,
+                activation="gelu"
+            )
+            for _ in range(2)
+        ])
         self.step_embed = nn.Parameter(torch.randn(cfg.think_steps, cfg.head_d) * 0.02)
         self.norm = nn.LayerNorm(cfg.head_d)
 
@@ -241,13 +257,16 @@ class DiffusionWriter(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.vocab_size = vocab_size
-        self.token_embed = nn.Embedding(vocab_size, cfg.head_d)
         self.cond_proj = Linear(cfg.head_d, cfg.head_d, bitnet=cfg.bitnet_head)
-        layer = nn.TransformerEncoderLayer(d_model=cfg.head_d, nhead=cfg.heads,
-                                           dim_feedforward=cfg.head_d*4, batch_first=True,
-                                           activation="gelu")
-        self.layers = nn.ModuleList([layer for _ in range(cfg.writer_layers)])
-        self.head = Linear(cfg.head_d, vocab_size, bitnet=cfg.bitnet_head)  # يُعاد استخدام lm_head المجمّد إن وجد
+        self.layers = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=cfg.head_d, nhead=cfg.heads,
+                dim_feedforward=cfg.head_d * 4, batch_first=True,
+                activation="gelu"
+            )
+            for _ in range(cfg.writer_layers)
+        ])
+        self.head = Linear(cfg.head_d, vocab_size, bitnet=cfg.bitnet_head)
         self.norm = nn.LayerNorm(cfg.head_d)
         self.step_embed = nn.Parameter(torch.randn(cfg.diffusion_steps, cfg.head_d) * 0.02)
 
@@ -263,7 +282,7 @@ class DiffusionWriter(nn.Module):
         for step in range(self.cfg.diffusion_steps):
             x = x + self.step_embed[step].unsqueeze(0).unsqueeze(0)
             # ادمج الشرط
-            x_in = torch.cat([x, cond.expand(-1, L, -1)], dim=1)  # (B, L+1, 256)
+            x_in = torch.cat([x, cond], dim=1)  # (B, L+1, head_d)
             for layer in self.layers:
                 x_in = layer(x_in)
             x = self.norm(x_in[:, :L])
@@ -603,6 +622,8 @@ def check_gate(served: Dict, candidate: Dict,
     if not isinstance(h, (int, float)) or not math.isfinite(float(h)):
         reasons.append("missing/non-numeric candidate heldout_same_effect")
         h = 0.0
+    elif not 0.0 <= float(h) <= 1.0:
+        reasons.append("candidate heldout_same_effect must be within [0, 1]")
     elif h < heldout_min:
         reasons.append(f"heldout {h:.3f} < {heldout_min} — T-LDM head did not pass heldout")
 
@@ -612,8 +633,15 @@ def check_gate(served: Dict, candidate: Dict,
         reasons.append("missing served/candidate Arabic+English bits-per-byte measurements")
     else:
         for lang in ("ar", "en"):
-            if not isinstance(served_bpb.get(lang), (int, float)) or not isinstance(candidate_bpb.get(lang), (int, float)):
-                reasons.append(f"missing numeric {lang} bits-per-byte baseline or candidate metric")
+            if (
+                not isinstance(served_bpb.get(lang), (int, float))
+                or not isinstance(candidate_bpb.get(lang), (int, float))
+                or not math.isfinite(float(served_bpb.get(lang, float("nan"))))
+                or not math.isfinite(float(candidate_bpb.get(lang, float("nan"))))
+                or served_bpb.get(lang, 0) <= 0
+                or candidate_bpb.get(lang, 0) <= 0
+            ):
+                reasons.append(f"missing/invalid finite positive {lang} bits-per-byte baseline or candidate metric")
         if all(isinstance(x, (int, float)) for x in (served_bpb.get("ar"), candidate_bpb.get("ar"))):
             if candidate_bpb["ar"] > served_bpb["ar"] * (1 - ar_margin):
                 reasons.append(f"Arabic BPB did not improve by {ar_margin:.0%}")
@@ -628,8 +656,14 @@ def check_gate(served: Dict, candidate: Dict,
     else:
         valid = True
         for label, metrics in (("served", served_tools), ("candidate", candidate_tools)):
-            if not isinstance(metrics.get("cases"), int) or not isinstance(metrics.get("right"), int) or metrics["cases"] < 100:
-                reasons.append(f"{label} tool evaluation must contain at least 100 scored cases")
+            if (
+                not isinstance(metrics.get("cases"), int)
+                or not isinstance(metrics.get("right"), int)
+                or metrics["cases"] < 100
+                or metrics["right"] < 0
+                or metrics["right"] > metrics["cases"]
+            ):
+                reasons.append(f"{label} tool evaluation must contain valid counts for at least 100 scored cases")
                 valid = False
         if valid:
             served_acc = served_tools["right"] / max(1, served_tools["cases"])
@@ -642,8 +676,8 @@ def check_gate(served: Dict, candidate: Dict,
     identity = candidate.get("identity")
     if not isinstance(identity, dict) or not isinstance(identity.get("after_lora"), (int, float)):
         reasons.append("missing measured identity.after_lora")
-    elif identity["after_lora"] < 1.0:
-        reasons.append(f"identity after LoRA {identity['after_lora']} < 1.0")
+    elif not math.isfinite(float(identity["after_lora"])) or identity["after_lora"] < 1.0:
+        reasons.append(f"identity after LoRA {identity['after_lora']} < 1.0 or is non-finite")
 
     nll = candidate.get("general_nll_after")
     if not isinstance(nll, (int, float)) or not math.isfinite(float(nll)):
