@@ -1,4 +1,4 @@
-name: Sham 2 dedicated Studio audit (read-only; both ModelScope accounts, no Sham 1 workload)
+name: Sham 2 dedicated Studio audit (read-only; dual-account inventory; isolated from Sham 1)
 
 on:
   push:
