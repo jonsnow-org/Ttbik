@@ -30,6 +30,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install CPU-only PyTorch for preflight and LoRA tests
+        run: |
+          python3 -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch
+
       - name: Verify the exact completed CN donor preflight and fixed partial data
         shell: bash
         run: |
