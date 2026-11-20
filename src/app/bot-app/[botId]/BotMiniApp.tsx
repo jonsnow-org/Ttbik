@@ -682,10 +682,12 @@ function Referrals() {
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(() => {
     setErr(null);
-    void api<any>("referrals").then((x) => {
-      if (x.ok) setR(x);
-      else setErr(x.error || (lang === "en" ? "Could not load referrals." : "تعذّر تحميل الإحالات."));
-    });
+    void api<any>("referrals")
+      .then((x) => {
+        if (x?.ok) setR(x);
+        else setErr(x?.error || (lang === "en" ? "Could not load referrals." : "تعذّر تحميل الإحالات."));
+      })
+      .catch(() => setErr(lang === "en" ? "Could not load referrals." : "تعذّر تحميل الإحالات."));
   }, [api, lang]);
   useEffect(() => { load(); }, [load]);
   const pct = r ? Math.min(100, Math.round((r.count / r.target) * 100)) : 0;
@@ -693,7 +695,7 @@ function Referrals() {
   return (
     <>
       <ScreenTitle icon="🙌" title={tr(lang, "referrals")} sub={tr(lang, "refEarn")} />
-      {!r && !err ? <Loading lines={2} /> : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : (
+      {r ? (
         <>
           <div className="mb-4 rounded-3xl p-5 text-center" style={{ background: "var(--app-card)" }}>
             <div className="text-5xl font-black">{r.count}</div>
@@ -709,7 +711,7 @@ function Referrals() {
             </Section>
           )}
         </>
-      )}
+      ) : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : <Loading lines={2} />}
     </>
   );
 }
@@ -720,10 +722,12 @@ function Stats() {
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(() => {
     setErr(null);
-    void api<any>("stats").then((x) => {
-      if (x.ok) setS(x);
-      else setErr(x.error || (lang === "en" ? "Could not load stats." : "تعذّر تحميل الإحصائيات."));
-    });
+    void api<any>("stats")
+      .then((x) => {
+        if (x?.ok) setS(x);
+        else setErr(x?.error || (lang === "en" ? "Could not load stats." : "تعذّر تحميل الإحصائيات."));
+      })
+      .catch(() => setErr(lang === "en" ? "Could not load stats." : "تعذّر تحميل الإحصائيات."));
   }, [api, lang]);
   useEffect(() => { load(); }, [load]);
   const box = (label: string, value: string) => (
@@ -735,14 +739,14 @@ function Stats() {
   return (
     <>
       <ScreenTitle icon="📊" title={tr(lang, "stats")} />
-      {!s && !err ? <Loading lines={2} /> : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : (
+      {s ? (
         <div className="grid grid-cols-2 gap-2.5">
           {box(tr(lang, "statsTasks"), String(s.tasks))}
           {box(tr(lang, "statsEarned"), money(s.earned))}
           {box(tr(lang, "statsAds"), String(s.ads))}
           {box(tr(lang, "statsSpent"), money(s.spent))}
         </div>
-      )}
+      ) : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : <Loading lines={2} />}
     </>
   );
 }

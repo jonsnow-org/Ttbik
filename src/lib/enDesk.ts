@@ -13,31 +13,61 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
-    "slug": "apec-shenzhen-leaders-trade-2026",
-    "title": "Xi calls for open trade in Shenzhen as a leaders’ meeting is awaited",
-    "date": "18 November 2026",
-    "contextDateLabel": "Xi’s speech: 18 November 2026; trilateral meeting scheduled for 19 November 2026 at publication",
-    "dek": "Chinese President Xi Jinping called for open trade and investment at the APEC CEO Summit in Shenzhen. Reuters reported that a trilateral meeting with Donald Trump and Vladimir Putin was scheduled for the following day; it had not taken place when this story was prepared.",
+    "slug": "icj-myanmar-rohingya-judgment-2026",
+    "title": "World Court finds Myanmar responsible for Rohingya genocide",
+    "date": "20 November 2026",
+    "contextDateLabel": "Judgment: 19 November 2026; UN statement and Myanmar response: 19–20 November 2026",
+    "dek": "On 19 November 2026, the International Court of Justice found that Myanmar committed genocide against the Rohingya during the 2017 operations in northern Rakhine State. The judgment requires investigation, accountability, guarantees of non-repetition and remedies including safe, voluntary and dignified return; compensation will be determined later.",
     "body": [
-      "Xi Jinping delivered a keynote at the opening of the APEC CEO Summit in Shenzhen on 18 November, calling for deeper regional integration and open trade and investment across the Asia-Pacific. China’s government published an account of the speech through Xinhua.",
-      "Reuters reported that U.S. President Donald Trump had arrived in Shenzhen and that Xi and Vladimir Putin had delivered remarks criticizing protectionism and sanctions. The news agency said a trilateral meeting among the leaders was scheduled for Thursday, 19 November.",
-      "The APEC CEO Summit should be distinguished from the formal APEC Economic Leaders’ Meeting. They are related events, but they are not the same session. China’s foreign ministry lists the leaders’ meeting for 18–19 November in Shenzhen.",
-      "At the time this story was prepared, the trilateral meeting scheduled for 19 November was still in the future. No agreement or outcome from that meeting is claimed here.",
-      "Sham AI publication date: 18 November 2026. Xi’s speech took place on 18 November; the announced trilateral meeting was scheduled for 19 November."
+      "The International Court of Justice delivered its judgment in The Gambia v. Myanmar at The Hague on 19 November 2026. By a 9–6 majority, the Court found that Myanmar committed genocide against the Rohingya in northern Rakhine State during the 2017 clearance operations.",
+      "The UN Independent Investigative Mechanism for Myanmar says the Court also found that Myanmar failed to prevent and punish genocide and breached obligations to preserve evidence. The UN Secretary-General said the judgment addressed killings, serious bodily or mental harm and measures intended to prevent births, with intent to destroy a substantial part of the Rohingya group.",
+      "The Court ordered Myanmar to cease continuing violations, investigate suspected perpetrators and prosecute where warranted, provide guarantees of non-repetition, and adopt remedies that include safe, voluntary and dignified return and family reunification. Compensation will be determined in a later phase; Myanmar must report on its measures within two years.",
+      "On 20 November, Myanmar's Foreign Ministry called the ruling a 'great disappointment' and challenged the Court's assessment of evidence and the divided vote. This is the government's stated response; the UN Secretary-General described the judgment as final and binding. The ICJ ruling concerns State responsibility, not a criminal trial of individuals. Judgment date: 19 November 2026; Sham AI publication date: 20 November 2026."
     ],
     "sources": [
-      {
-        "href": "https://english.www.gov.cn/news/202611/18/content_WS6afd950fc6d00ca5f9a0e696.html",
-        "label": "China’s government/Xinhua — Xi’s APEC CEO Summit speech"
-      },
-      {
-        "href": "https://www.reuters.com/world/chinas-xi-calls-free-open-trade-apec-summit-2026-11-18/",
-        "label": "Reuters — Trump’s arrival, Xi and Putin’s remarks, and planned talks"
-      },
-      {
-        "href": "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html",
-        "label": "China’s Foreign Ministry — APEC leaders’ meeting dates"
-      }
+      { "href": "https://www.icj-cij.org/case/178", "label": "International Court of Justice — The Gambia v. Myanmar, Case 178" },
+      { "href": "https://iimm.un.org/icj-gambia-v-myanmar", "label": "UN Independent Investigative Mechanism for Myanmar — findings and measures" },
+      { "href": "https://myanmar.un.org/en/326406-statement-secretary-general-international-court-justice-judgment-%E2%80%9C-gambia-v-myanmar%E2%80%9D", "label": "United Nations — Secretary-General's statement, 19 November 2026" },
+      { "href": "https://apnews.com/article/rohingya-myanmar-genocide-court-icj-30df77b12bf3f911f1100e77ebe3973a", "label": "Associated Press — independent coverage of the judgment" },
+      { "href": "https://www.mofa.gov.mm/en/press-statement-by-the-ministry-of-foreign-affairs-of-the-republic-of-the-union-of-myanmar-on-the-judgment-of-the-international-court-of-justice-delivered-on-19-november-2026/", "label": "Myanmar Ministry of Foreign Affairs — government response, 20 November" }
+    ]
+  },
+  {
+    "slug": "wfp-2027-global-outlook-food-aid-2026",
+    "title": "WFP plans to assist 91 million people in 2027 as hunger pressures persist",
+    "date": "20 November 2026",
+    "contextDateLabel": "2027 plan announced: 20 November 2026; hunger figures: 2025 data; 2026 appeal: Reuters update on 20 November",
+    "dek": "The World Food Programme announced a 2027 plan to assist 91 million people at a cost of more than $12 billion. It said 266 million people faced acute hunger in 2025, while funding constraints are forcing the agency to prioritize the most vulnerable and expand anticipatory action and local partnerships.",
+    "body": [
+      "The World Food Programme launched its 2027 Global Outlook in Rome on 20 November 2026. It plans to assist 91 million people next year at a cost of just over $12 billion. This is the agency's planned reach, not a count of everyone who needs help worldwide.",
+      "WFP said as many as 266 million people faced acute hunger in 2025, according to the Global Report on Food Crises, and an estimated 39 million were at emergency levels or worse. These figures refer to 2025 data, not a new count for 2026.",
+      "The 2027 plan allocates about 72% of requirements to crisis response and 28% to resilience-building. WFP says it will scale up anticipatory action ahead of climate shocks and expand work with local partners and market-based assistance.",
+      "In separate reporting on 20 November, Reuters said WFP's $13 billion appeal for 2026 was only about half funded, forcing the agency to focus on those most exposed to hunger. Reuters also reported officials' warning that the world could face a third major global food crisis in six years; that is a warning, not a certain outcome. Plan announcement and Sham AI publication date: 20 November 2026."
+    ],
+    "sources": [
+      { "href": "https://www.wfp.org/news/world-food-programme-sets-out-2027-plan-assist-91-million-people-need-food-crisis-looms", "label": "World Food Programme — 2027 plan announcement, 20 November" },
+      { "href": "https://www.wfp.org/publications/wfp-global-outlook", "label": "World Food Programme — 2027 Global Outlook and supporting figures" },
+      { "href": "https://www.reuters.com/world/un-cuts-food-aid-target-despite-looming-hunger-crisis-2026-11-20/", "label": "Reuters — funding constraints and the 2027 assistance plan" }
+    ]
+  },
+  {
+    "slug": "apec-shenzhen-leaders-trade-2026",
+    "title": "Shenzhen trilateral talks pledge nuclear-risk dialogue but show no clear breakthrough",
+    "date": "18 November 2026",
+    "contextDateLabel": "Xi's speech: 18 November 2026; trilateral meeting: 19 November 2026; article updated: 20 November 2026",
+    "dek": "Xi Jinping, Vladimir Putin and Donald Trump met in Shenzhen on 19 November on the sidelines of APEC. Their declaration addressed UN reform, energy supply and dialogue on nuclear risks, while independent coverage reported no clear breakthrough on the main conflicts.",
+    "body": [
+      "Xi Jinping delivered a keynote at the opening of the APEC CEO Summit in Shenzhen on 18 November, calling for deeper regional integration and open trade and investment across the Asia-Pacific. China's government published an account of the speech through Xinhua.",
+      "On 19 November, Xi Jinping, Vladimir Putin and Donald Trump met in Shenzhen on the sidelines of APEC Leaders' Week. China's Foreign Ministry published a declaration saying the three countries would support UN reform, increase production and supply of refined petroleum products, and hold dialogue on reducing nuclear risks and preventing proliferation.",
+      "The Guardian reported that the meeting lasted more than an hour but ended without an announced breakthrough on the main issues, and did not set out a new framework for resolving the war in Ukraine or the conflict in Iran. Neither conflict was mentioned in the declaration, so it should not be described as a peace deal or settlement of those wars.",
+      "The APEC CEO Summit, the formal APEC Economic Leaders' Meeting and the trilateral gathering on its sidelines are related but distinct events. The declaration records principles and a commitment to future dialogue; it does not establish that detailed agreements on the conflicts were implemented.",
+      "Original Sham AI publication date: 18 November 2026. Article updated: 20 November 2026. Xi's speech took place on 18 November; the trilateral meeting took place on 19 November in Shenzhen."
+    ],
+    "sources": [
+      { "href": "https://english.www.gov.cn/news/202611/18/content_WS6afd950fc6d00ca5f9a0e696.html", "label": "China's government/Xinhua — Xi's APEC CEO Summit speech" },
+      { "href": "https://www.fmprc.gov.cn/eng/xw/zyxw/202611/t20261119_12063224.html", "label": "China's Foreign Ministry — 19 November trilateral declaration" },
+      { "href": "https://www.theguardian.com/world/live/2026/nov/19/apec-summit-trump-xi-putin-meeting-shenzhen-china", "label": "The Guardian — coverage of the meeting and announced outcomes" },
+      { "href": "https://www.apec.org/press/news-releases/2026/1115_CSOM", "label": "APEC — trade, connectivity and AI priorities" }
     ]
   },
   {
@@ -417,20 +447,22 @@ export const EN_EVENTS: DeskItem[] = [
   {
     slug: "apec-economic-leaders-meeting-shenzhen-2026",
     title: "33rd APEC Economic Leaders' Meeting in Shenzhen",
-    dek: "APEC leaders are scheduled to meet in Shenzhen on 18–19 November under China's 2026 host-year theme, with trade, regional connectivity and AI among the issues discussed during Leaders' Week.",
+    dek: "The 33rd APEC Economic Leaders' Meeting took place in Shenzhen on 18–19 November 2026, followed by a trilateral gathering of China, Russia and the United States on its sidelines.",
     date: "2026-11-18",
     endDate: "2026-11-19",
     dateLabel: "18–19 November 2026",
     body: [
-      "The 33rd APEC Economic Leaders' Meeting is scheduled for 18–19 November 2026 in Shenzhen, Guangdong, China. China's Foreign Ministry says President Xi Jinping will chair the meeting under the theme “Building an Asia-Pacific Community to Prosper Together.”",
-      "APEC said senior officials met in Shenzhen ahead of Leaders' Week to advance work on trade integration, connectivity and artificial intelligence. Those topics form part of the forum's regional cooperation agenda; they should not be read as binding decisions before leaders publish their outcomes.",
-      "The week also includes the APEC CEO Summit on 17–18 November. The business summit and the leaders' meeting are related but distinct events with different programmes and participants.",
-      "The official announcements reviewed here confirm the dates and host city but do not provide public session times. This entry therefore records the announced schedule without guessing at individual sessions or outcomes."
+      "The 33rd APEC Economic Leaders' Meeting took place in Shenzhen, Guangdong, China, on 18–19 November 2026 under the theme “Building an Asia-Pacific Community to Prosper Together.”",
+      "On 19 November, the leaders of China, Russia and the United States held a trilateral meeting on the sidelines of APEC Leaders' Week. China's Foreign Ministry published a declaration addressing UN reform, stable energy supplies and dialogue on reducing nuclear risks and preventing proliferation.",
+      "The Guardian reported that the trilateral meeting lasted more than an hour but produced no clear breakthrough on the main issues and no new framework for ending the war in Ukraine or the conflict in Iran. Neither conflict was mentioned in the declaration, which should be described as a statement of principles and dialogue rather than a peace deal.",
+      "The host city was Shenzhen in Guangdong province, China. The formal APEC Economic Leaders' Meeting, the APEC CEO Summit and the trilateral gathering on the sidelines were related but distinct events with different programmes and participants.",
+      "Event status: the leaders' meeting ended on 19 November 2026. This is a record of a past event, not an invitation to an upcoming date."
     ],
     sources: [
-      { href: "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html", label: "China's Foreign Ministry — Leaders' Meeting dates" },
-      { href: "https://www.apec.org/press/news-releases/2026/1115_CSOM", label: "APEC — Trade, connectivity and AI agenda" },
-      { href: "https://www.apec.org/", label: "APEC — 2026 events calendar" }
+      { href: "https://www.fmprc.gov.cn/mfa_eng./xw/zyxw/202611/t20261113_12058556.html", label: "China's Foreign Ministry — APEC leaders' meeting dates" },
+      { href: "https://www.fmprc.gov.cn/eng/xw/zyxw/202611/t20261119_12063224.html", label: "China's Foreign Ministry — 19 November trilateral declaration" },
+      { href: "https://www.theguardian.com/world/live/2026/nov/19/apec-summit-trump-xi-putin-meeting-shenzhen-china", label: "The Guardian — coverage of the meeting and announced outcomes" },
+      { href: "https://www.apec.org/press/news-releases/2026/1115_CSOM", label: "APEC — trade, connectivity and AI priorities" }
     ]
   },
   {
