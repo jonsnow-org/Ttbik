@@ -138,7 +138,7 @@ jobs:
           set_secret SHAM_TRAINER_HOURS "10"
           set_secret SHAM2_UNIFIED_ACTION "train-and-gate"
           set_secret SHAM2_UNIFIED_RUN_ID "$RUN_ID"
-          set_secret SHAM2_MIN_AVAILABLE_GIB "4.5"
+          set_secret SHAM2_MIN_AVAILABLE_GIB "3.0"
           set_secret TLDM_WORK "/mnt/workspace/tldm"
 
       - name: Deploy the one-shot train-and-gate job to the exact Sham 2 Studio
