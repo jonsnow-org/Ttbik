@@ -41,6 +41,9 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [
         { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
         { href: "/ai-tools", label: "🧰 أدوات إضافية" },
+        { href: "/bashar", label: "💬 بَشَر" },
+        { href: "/guess-word", label: "🔤 خمّن الكلمة" },
+        { href: "/prayer-times", label: "🕌 مواقيت الصلاة" },
       ],
     },
     {
