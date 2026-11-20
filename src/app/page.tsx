@@ -44,9 +44,9 @@ export default async function HomePage() {
               احسب، حوّل، وصمّم مباشرة من المتصفح، بلا تسجيل ولا تحميل — وتصفّح بوتاتنا الجاهزة أدناه.
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3 md:justify-start">
-              <a href="#free-tools" className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
-                🎁 ابدأ بالأدوات المجانية
-              </a>
+              <Link href="/tools" className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
+                ابدأ بالأدوات المجانية
+              </Link>
               <Link href="/bots" className="rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-bold text-indigo-700">
                 🤖 منشئ البوتات
               </Link>
@@ -70,7 +70,7 @@ export default async function HomePage() {
       <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-8">
         <div>
           <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🎁 أدوات مجانية بالكامل</h2>
-          <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — اختر الأداة وابدأ من المتصفح.</p>
+          <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — أو <Link href="/tools" className="font-bold text-emerald-700">افتح الاستوديو</Link> للبحث والتصنيف.</p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {FREE_TOOLS.map((tool, index) => (
