@@ -158,7 +158,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     {
       kind: "project", id: "project:free-tools", title: "جميع الأدوات المجانية",
       blurb: "أكثر من 30 أداة مجانية تعمل داخل المتصفح: حاسبات، مولّدات، مساعد كتابة، ضغط صور، وغيرها. بلا تسجيل.",
-      url: `${SITE_URL}/free-tools`, cta: "🛠️ افتح الأدوات", tags: ["#أدوات_مجانية", "#شام_AI"], repeatDays: 4,
+      url: `${SITE_URL}/#free-tools`, cta: "🛠️ افتح الأدوات", tags: ["#أدوات_مجانية", "#شام_AI"], repeatDays: 4,
     },
     {
       kind: "project", id: "project:zenobia-passport", title: "جواز مرور طريق الحرير من تدمر",
