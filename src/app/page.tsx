@@ -30,55 +30,9 @@ export default async function HomePage() {
 
   return (
     <div>
-      <a href="/advertise" className="mx-auto mt-2 block max-w-6xl truncate rounded-md bg-amber-400 px-3 py-1 text-center text-xs font-bold text-slate-950">أعلن هنا Advertise — احجز ظهور بنرك في كل الصفحات</a>
-      <TodayStrip
-        latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
-        latestNews={news && { slug: news.slug, title: news.title }}
-      />
-      <section className="mx-auto max-w-6xl px-4 pt-4">
-        <div className="relative rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 pb-12 text-white shadow-lg">
-          <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · أحداث · مقالات</span>
-          <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
-          <p className="mt-1 text-xs text-white/80 sm:text-sm">
-            أخبار عاجلة، أحداث يومية، ومقالات هادفة — اختر القسم مباشرة.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Link href="/news" className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">
-              📰 الأخبار
-            </Link>
-            <Link href="/events" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">
-              🗓️ الأحداث
-            </Link>
-            <Link href="/articles" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">
-              ✍️ المقالات
-            </Link>
-            <Link href="/digest" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">
-              ☀️ ملخص اليوم
-            </Link>
-          </div>
-          <Link href="/en" className="absolute bottom-3 left-3 rounded-full bg-white px-2.5 py-1 text-[11px] font-extrabold text-slate-900">EN</Link>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 pt-4">
-        <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-l from-amber-600 to-slate-900 p-5 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <span className="rounded-full bg-amber-300/25 px-2.5 py-0.5 text-[11px] font-bold text-amber-100">رموز · شبكة TON · Gram</span>
-            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">🕰 أثر: رمز واحد لكل يوم في التقويم</h2>
-            <p className="mt-1 text-xs text-white/80 sm:text-sm">
-              يوم ميلادك أو زواجك أو يوم تحبه، رمز حيّ يومض ويدور وينضج كلما طال بقاؤه عندك، يعدّ أصحابه ويحفظ ما يُنقش عليه.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <a href={ATHAR_APP_URL} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح أثر ←</a>
-            {ATHAR_BOT_URL && <a href={ATHAR_BOT_URL} className="rounded-full border border-white/60 px-4 py-2 text-sm font-bold text-white">بوت تيليجرام</a>}
-          </div>
-        </div>
-      </section>
-
       <section className="relative overflow-hidden bg-hero-glow bg-white">
         <SectionBackdrop />
-        <div className="mx-auto grid max-w-6xl items-center gap-8 px-4 pb-10 pt-12 sm:pb-14 sm:pt-16 md:grid-cols-2">
+        <div className="mx-auto grid max-w-6xl items-center gap-8 px-4 pb-10 pt-8 sm:pb-14 sm:pt-12 md:grid-cols-2">
           <div className="text-center md:text-right">
             <span className="inline-block rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-xs font-bold text-brand-700">
               أدوات تعمل فعلياً — وليست ملفات للتحميل
@@ -96,8 +50,8 @@ export default async function HomePage() {
               <Link href="/bots" className="rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-bold text-indigo-700">
                 🤖 منشئ البوتات
               </Link>
-              <Link href="/ai-tools" className="rounded-full border border-sky-200 bg-sky-50 px-5 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-100">
-                🧰 أدوات إضافية
+              <Link href="/news" className="rounded-full border border-sky-200 bg-sky-50 px-5 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-100">
+                📰 الأخبار
               </Link>
             </div>
           </div>
@@ -108,29 +62,15 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <AdSlot position="in-content" label="بين الترحيب والأقسام" />
-      </div>
+      <TodayStrip
+        latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
+        latestNews={news && { slug: news.slug, title: news.title }}
+      />
 
-      <section id="services" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
-        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🧭 خدمات وأرباح</h2>
-        <p className="mt-1 text-sm text-slate-600">حوالات، إعلانات القنوات، ختمات ومسابقات الجروبات، ومتاجر البائعين.</p>
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {SERVICE_LINKS.map((s) => (
-            <Link key={s.href} href={s.href} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md">
-              <h3 className="text-sm font-extrabold leading-snug text-slate-900 sm:text-base">{s.label}</h3>
-              <p className="mt-1 text-xs leading-5 text-slate-600">{s.desc}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
+      <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-8">
         <div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/img/code.jpg" alt="" loading="lazy" className="mb-4 h-28 w-full rounded-2xl object-cover sm:h-36" />
           <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🎁 أدوات مجانية بالكامل</h2>
-          <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — جرّبها الآن مباشرة.</p>
+          <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — اختر الأداة وابدأ من المتصفح.</p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {FREE_TOOLS.map((tool, index) => (
@@ -144,7 +84,6 @@ export default async function HomePage() {
             </Link>
           ))}
         </div>
-
         <a
           href="https://literium.ai.studio"
           target="_blank"
@@ -158,6 +97,46 @@ export default async function HomePage() {
           </div>
           <span className="shrink-0 rounded-full bg-brand-600 px-4 py-2 text-sm font-bold text-white">زيارة ←</span>
         </a>
+      </section>
+
+      <section id="services" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-8">
+        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🧭 خدمات وأرباح</h2>
+        <p className="mt-1 text-sm text-slate-600">حوالات، إعلانات القنوات، ختمات ومسابقات الجروبات، ومتاجر البائعين.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {SERVICE_LINKS.map((s) => (
+            <Link key={s.href} href={s.href} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md">
+              <h3 className="text-sm font-extrabold leading-snug text-slate-900 sm:text-base">{s.label}</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{s.desc}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-6xl px-4 py-2">
+        <AdSlot position="in-content" label="بين الأقسام" />
+      </div>
+
+      <section className="mx-auto max-w-6xl px-4 py-8">
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🤖 جرّب بوتاتنا الآن على تليجرام</h2>
+          <p className="mt-1 text-sm text-slate-600">بوتات حقيقية تعمل الآن — افتحها وجرّبها مباشرة.</p>
+        </div>
+        <BotCards />
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 pb-2">
+        <div className="relative rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 pb-12 text-white shadow-lg">
+          <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · أحداث · مقالات</span>
+          <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
+          <p className="mt-1 text-xs text-white/80 sm:text-sm">أخبار عاجلة، أحداث يومية، ومقالات — الأقسام في مكان واحد.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href="/news" className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">📰 الأخبار</Link>
+            <Link href="/events" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">🗓️ الأحداث</Link>
+            <Link href="/articles" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">✍️ المقالات</Link>
+            <Link href="/digest" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">☀️ ملخص اليوم</Link>
+          </div>
+          <Link href="/en" className="absolute bottom-3 left-3 rounded-full bg-white px-2.5 py-1 text-[11px] font-extrabold text-slate-900">EN</Link>
+        </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8">
@@ -180,12 +159,18 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-8">
-        <div>
-          <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🤖 جرّب بوتاتنا الآن على تليجرام</h2>
-          <p className="mt-1 text-sm text-slate-600">بوتات حقيقية تعمل الآن — افتحها وجرّبها مباشرة.</p>
+      <section className="mx-auto max-w-6xl px-4 pb-8">
+        <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-l from-amber-600 to-slate-900 p-5 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <span className="rounded-full bg-amber-300/25 px-2.5 py-0.5 text-[11px] font-bold text-amber-100">رموز · شبكة TON · Gram</span>
+            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">🕰 أثر: رمز واحد لكل يوم في التقويم</h2>
+            <p className="mt-1 text-xs text-white/80 sm:text-sm">يوم ميلادك أو زواجك أو يوم تحبه، رمز حيّ يومض ويدور وينضج كلما طال بقاؤه عندك.</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <a href={ATHAR_APP_URL} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح أثر ←</a>
+            {ATHAR_BOT_URL && <a href={ATHAR_BOT_URL} className="rounded-full border border-white/60 px-4 py-2 text-sm font-bold text-white">بوت تيليجرام</a>}
+          </div>
         </div>
-        <BotCards />
       </section>
     </div>
   );
