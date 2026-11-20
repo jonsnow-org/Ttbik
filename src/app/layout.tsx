@@ -235,40 +235,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Logo className="h-7 w-7" /> شام AI
             </a>
             <a href="/advertise" className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950">أعلن Advertise</a>
-            <nav className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-sm font-semibold text-slate-600 lg:flex">
-              <a href="/#services" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                الأقسام
-              </a>
-              <a
-                href="/#free-tools"
-                className="rounded-full px-3 py-1.5 text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
-              >
-                🎁 أدوات مجانية
-              </a>
-              <a href="/ai-tools" className="rounded-full px-3 py-1.5 font-extrabold text-sky-700 transition hover:bg-sky-50">
-                🧰 أدوات إضافية
-              </a>
-              <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                🤖 منشئ البوتات
-              </a>
-              <a href="/bashar" className="rounded-full px-3 py-1.5 font-extrabold text-indigo-700 transition hover:bg-indigo-50">
-                💬 بَشَر
-              </a>
-              <a href="/guess-word" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                🔤 خمّن الكلمة
-              </a>
-              <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                🕌 المواقيت
-              </a>
-              <a href="/news" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                📰 الأخبار
-              </a>
-              <a href="/watch-and-earn" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                💰 اربح من الإعلانات
-              </a>
-              <a href="/order/lookup" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                تتبع طلبي
-              </a>
+            <nav className="hidden min-w-0 flex-1 items-center gap-1 text-sm font-semibold text-slate-600 lg:flex">
+              <a href="/#free-tools" className="rounded-full px-3 py-1.5 text-emerald-700 transition hover:bg-emerald-50">🎁 الأدوات</a>
+              <a href="/#services" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">الأقسام</a>
+              <a href="/ai-tools" className="rounded-full px-3 py-1.5 transition hover:bg-sky-50 hover:text-sky-800">🧰 المزيد</a>
+              <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">🤖 البوتات</a>
+              <a href="/news" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">📰 الأخبار</a>
+              <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">🕌 المواقيت</a>
+              <a href="/en" className="rounded-full px-3 py-1.5 transition hover:bg-slate-100">EN</a>
             </nav>
             <div className="flex-1 lg:hidden" />
             <MobileNav isOwner={isOwner} />
@@ -300,20 +274,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <a href="/" className="flex items-center gap-2 text-base font-extrabold text-brand-800">
                 <Logo className="h-6 w-6" /> شام AI
               </a>
-              <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-slate-500">
+              <nav aria-label="أسفل الصفحة" className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm text-slate-500 sm:grid-cols-3">
+                <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
+                <a href="/ai-tools" className="hover:text-brand-700">أدوات إضافية</a>
                 <a href="/prayer-times" className="hover:text-brand-700">مواقيت الصلاة</a>
                 <a href="/news" className="hover:text-brand-700">الأخبار</a>
-                <a href="/advertise" className="hover:text-brand-700">الإعلان على الموقع</a>
-                <a href="/en/advertise" className="hover:text-brand-700">Advertise</a>
                 <a href="/events" className="hover:text-brand-700">الأحداث</a>
+                <a href="/articles" className="hover:text-brand-700">المقالات</a>
                 <a href="/bots" className="hover:text-brand-700">منشئ البوتات</a>
                 <a href="/how-it-works" className="hover:text-brand-700">كيف يعمل الموقع؟</a>
-                <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
                 <a href="/order/lookup" className="hover:text-brand-700">تتبع طلبي</a>
+                <a href="/advertise" className="hover:text-brand-700">الإعلان على الموقع</a>
+                <a href="/en" className="hover:text-brand-700">English</a>
                 {SERVICE_LINKS.filter((l) => l.id !== "advertise").map((l) => (
                   <a key={l.href} href={l.href} className="hover:text-brand-700">{l.label.replace(/^\S+\s/, "")}</a>
                 ))}
-              </p>
+              </nav>
             </div>
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-6 text-xs text-slate-400 sm:flex-row">
               <p>© {new Date().getFullYear()} شام AI — جميع الحقوق محفوظة.</p>
