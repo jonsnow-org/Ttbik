@@ -138,7 +138,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (pathname === "/en" || pathname.startsWith("/en/")) {
     return (
       <html lang="en" dir="ltr">
-        <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
+        <body className="min-h-screen overflow-x-clip bg-slate-50 font-sans text-slate-800 antialiased">
           <TelegramSwipeLock />
           <AdServiceWorker />
           <AnalyticsTracker isOwner={isOwner} />
@@ -207,8 +207,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="ar" dir="rtl">
-            <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
-        <script src="https://telegram.org/js/telegram-web-app.js" async />
+            <body className="min-h-screen overflow-x-clip bg-slate-50 font-sans text-slate-800 antialiased">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }} />
         {/* Unconditional, for every visitor including the owner -- this now
             only unregisters any stale service worker + clears Cache Storage
@@ -234,7 +233,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <a href="/" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
               <Logo className="h-7 w-7" /> شام AI
             </a>
-            <a href="/advertise" className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950">أعلن Advertise</a>
+            <a href="/advertise" className="hidden shrink-0 rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950 min-[420px]:inline-block">أعلن</a>
             <nav className="hidden min-w-0 flex-1 items-center gap-1 text-sm font-semibold text-slate-600 lg:flex">
               <a href="/#free-tools" className="rounded-full px-3 py-1.5 text-emerald-700 transition hover:bg-emerald-50">🎁 الأدوات</a>
               <a href="/#services" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">الأقسام</a>
