@@ -50,6 +50,21 @@ export default function EnglishHome() {
           </Link>
         ))}
       </div>
+      <section className="mt-8">
+        <div className="flex items-end justify-between gap-3">
+          <h2 className="text-xl font-black text-slate-900">Start with a tool</h2>
+          <Link href="/en/free-tools" className="text-sm font-bold text-emerald-700">All tools</Link>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {EN_FREE_TOOLS.slice(0, 6).map((tool) => (
+            <Link key={tool.href} href={tool.href} className="rounded-2xl border border-slate-200 bg-white p-4 hover:border-emerald-600">
+              <h3 className="font-bold text-slate-900">{tool.title}</h3>
+              <p className="mt-1 text-sm text-slate-600">{tool.text}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <LiveHeadlines limit={8} />
       <div className="mt-6"><AdSlot position="in-content" label="English home" /></div>
       <section className="mt-8">
@@ -61,17 +76,6 @@ export default function EnglishHome() {
         </div>
       </section>
       {lead && <p className="mt-3 text-xs text-slate-500">Lead story: {lead.title}</p>}
-      <section className="mt-8">
-        <h2 className="text-xl font-black text-slate-900">Start with a tool</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {EN_FREE_TOOLS.slice(0, 6).map((tool) => (
-            <Link key={tool.href} href={tool.href} className="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm hover:border-sky-300">
-              <h3 className="font-bold text-slate-900">{tool.title}</h3>
-              <p className="mt-1 text-sm text-slate-600">{tool.text}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }
