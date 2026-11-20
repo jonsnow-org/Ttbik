@@ -235,7 +235,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </a>
             <a href="/advertise" className="hidden shrink-0 rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950 min-[420px]:inline-block">أعلن</a>
             <nav className="hidden min-w-0 flex-1 items-center gap-1 text-sm font-semibold text-slate-600 lg:flex">
-              <a href="/#free-tools" className="rounded-full px-3 py-1.5 text-emerald-700 transition hover:bg-emerald-50">🎁 الأدوات</a>
+              <a href="/tools" className="rounded-full px-3 py-1.5 text-emerald-700 transition hover:bg-emerald-50">🎁 الأدوات</a>
               <a href="/#services" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">الأقسام</a>
               <a href="/ai-tools" className="rounded-full px-3 py-1.5 transition hover:bg-sky-50 hover:text-sky-800">🧰 المزيد</a>
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">🤖 البوتات</a>
@@ -274,7 +274,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Logo className="h-6 w-6" /> شام AI
               </a>
               <nav aria-label="أسفل الصفحة" className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm text-slate-500 sm:grid-cols-3">
-                <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
+                <a href="/tools" className="hover:text-brand-700">أدوات مجانية</a>
                 <a href="/ai-tools" className="hover:text-brand-700">أدوات إضافية</a>
                 <a href="/prayer-times" className="hover:text-brand-700">مواقيت الصلاة</a>
                 <a href="/news" className="hover:text-brand-700">الأخبار</a>
