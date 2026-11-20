@@ -119,6 +119,17 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
           <button key={p.days} type="button" onClick={() => setDays(p.days)} className={`rounded-full px-3 py-1 text-sm font-bold ${days === p.days ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{ar ? p.label : `${p.days} days`} · ${p.price}</button>
         ))}
       </div>
+      {(altText || bannerUrl) && (
+        <div className="overflow-hidden rounded-xl bg-[#c6a15b] px-4 py-3 text-center text-sm font-extrabold text-[#12110e]">
+          {kind === "image" && bannerUrl.startsWith("http") ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={bannerUrl} alt="" className="mx-auto mb-2 max-h-24 rounded-lg" />
+          ) : null}
+          <p>{altText || (kind === "code" ? bannerUrl : (ar ? "معاينة البنر" : "Banner preview"))}</p>
+          {targetUrl ? <p className="mt-1 text-xs font-bold" dir="ltr">{targetUrl}</p> : null}
+          <p className="mt-1 text-[11px] font-bold opacity-80">{ar ? `${days} يوماً` : `${days} days`} · ${price}</p>
+        </div>
+      )}
       <p className="text-sm">{ar ? "المجموع" : "Total"}: ${price}</p>
       <button type="button" onClick={save} className="rounded-full bg-amber-600 px-4 py-2 text-sm font-extrabold text-white">{ar ? "حفظ وتوليد الكود" : "Save"}</button>
       {code && (
