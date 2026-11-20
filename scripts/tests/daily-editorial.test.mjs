@@ -70,6 +70,61 @@ test("current and upcoming global events have matching English dates and sources
   }
 });
 
+
+test("20 November global news is bilingual, date-aligned and supported by primary and independent sources", () => {
+  const slugs = ["icj-myanmar-rohingya-judgment-2026", "wfp-2027-global-outlook-food-aid-2026"];
+  for (const slug of slugs) {
+    const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+    const english = EN_NEWS.find((item) => item.slug === slug);
+    assert.ok(arabic, `Missing Arabic news entry for ${slug}`);
+    assert.ok(english, `Missing English news entry for ${slug}`);
+    assert.equal(arabic.dateIso, "2026-11-20");
+    assert.equal(english.date, "20 November 2026");
+    assert.equal(dateNumbers(english.contextDateLabel), dateNumbers(arabic.contextDateLabel));
+    assert.deepEqual(sourceUrls(english), sourceUrls(arabic));
+    assert.ok(arabic.paragraphs.length >= 4);
+    assert.ok(arabic.sources.length >= 2);
+    assert.ok(arabic.sources.every((source) => source.href.startsWith("https://")));
+  }
+  const icj = NEWS_ITEMS.find((item) => item.slug === slugs[0]);
+  const wfp = NEWS_ITEMS.find((item) => item.slug === slugs[1]);
+  assert.ok(icj.sources.some((source) => source.href.includes("iimm.un.org")));
+  assert.ok(icj.sources.some((source) => source.href.includes("apnews.com")));
+  assert.ok(icj.sources.some((source) => source.href.includes("mofa.gov.mm")));
+  assert.ok(wfp.sources.some((source) => source.href.includes("wfp.org")));
+  assert.ok(wfp.sources.some((source) => source.href.includes("reuters.com")));
+  assert.ok(wfp.paragraphs.some((paragraph) => paragraph.includes("2025")));
+});
+
+test("APEC news and event records are updated after the 19 November meeting without changing the original publication date", () => {
+  const arabicNews = NEWS_ITEMS.find((item) => item.slug === "apec-shenzhen-leaders-trade-2026");
+  const englishNews = EN_NEWS.find((item) => item.slug === "apec-shenzhen-leaders-trade-2026");
+  const arabicEvent = EVENT_EXTRAS.find((item) => item.slug === "apec-economic-leaders-meeting-shenzhen-2026");
+  const englishEvent = EN_EVENTS.find((item) => item.slug === "apec-economic-leaders-meeting-shenzhen-2026");
+  assert.ok(arabicNews);
+  assert.ok(englishNews);
+  assert.ok(arabicEvent);
+  assert.ok(englishEvent);
+  assert.equal(arabicNews.dateIso, "2026-11-18");
+  assert.equal(englishNews.date, "18 November 2026");
+  assert.match(arabicNews.contextDateLabel, /تحديث المادة: 20 نوفمبر 2026/);
+  assert.match(englishNews.contextDateLabel, /article updated: 20 November 2026/);
+  assert.match(arabicNews.description, /اجتمع/);
+  assert.doesNotMatch(arabicNews.description, /كان مقررًا في اليوم التالي/);
+  assert.match(englishNews.dek, /met in Shenzhen/);
+  assert.doesNotMatch(englishNews.dek, /was scheduled for the following day/);
+  assert.deepEqual(sourceUrls(arabicNews), sourceUrls(englishNews));
+  assert.equal(arabicEvent.dateIso, "2026-11-18");
+  assert.equal(arabicEvent.endDateIso, "2026-11-19");
+  assert.equal(englishEvent.date, "2026-11-18");
+  assert.equal(englishEvent.endDate, "2026-11-19");
+  assert.match(arabicEvent.paragraphs[0], /انعقد/);
+  assert.doesNotMatch(arabicEvent.paragraphs[0], /من المقرر/);
+  assert.match(englishEvent.body[0], /took place/);
+  assert.doesNotMatch(englishEvent.body[0], /is scheduled/);
+  assert.deepEqual(sourceUrls(arabicEvent), sourceUrls(englishEvent));
+});
+
 test("news and article detail pages label publication dates explicitly", () => {
   const arabicNews = readFileSync(new URL("../../src/app/news/[slug]/page.tsx", import.meta.url), "utf8");
   const englishNews = readFileSync(new URL("../../src/app/en/news/[slug]/page.tsx", import.meta.url), "utf8");
