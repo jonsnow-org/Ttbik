@@ -12,7 +12,7 @@ function Row({ children }: { children: React.ReactNode }) {
 }
 function In({ value, set, label }: { value: string; set: (v: string) => void; label: string }) {
   return (
-    <input value={value} onChange={(e) => set(e.target.value)} inputMode="decimal" dir="ltr" aria-label={label} className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-center" />
+    <input value={value} onChange={(e) => set(e.target.value)} inputMode="decimal" dir="ltr" aria-label={label} className="mx-1 w-24 max-w-[42%] rounded-lg border border-slate-300 px-2 py-1.5 text-center" />
   );
 }
 const Out = ({ v }: { v: string }) => <div className="rounded-xl bg-emerald-50 px-4 py-2 text-lg font-extrabold text-emerald-900">{v}</div>;
@@ -38,20 +38,20 @@ export default function PercentageCalculator() {
   return (
     <div className="space-y-4">
       <Row>
-        <p className="font-bold text-slate-800">كم يساوي <In value={a1} set={setA1} label="النسبة" />٪ من <In value={b1} set={setB1} label="العدد" /> ؟</p>
+        <p className="font-bold leading-9 text-slate-800">كم يساوي <In value={a1} set={setA1} label="النسبة" />٪ من <In value={b1} set={setB1} label="العدد" /> ؟</p>
         <Out v={fmt((num(a1) / 100) * num(b1))} />
       </Row>
       <Row>
-        <p className="font-bold text-slate-800"><In value={a2} set={setA2} label="الجزء" /> هو كم ٪ من <In value={b2} set={setB2} label="الكل" /> ؟</p>
-        <Out v={`${fmt((num(a2) / num(b2)) * 100)}٪`} />
+        <p className="font-bold leading-9 text-slate-800"><In value={a2} set={setA2} label="الجزء" /> هو كم ٪ من <In value={b2} set={setB2} label="الكل" /> ؟</p>
+        <Out v={(() => { const part = num(a2); const whole = num(b2); if (!Number.isFinite(part) || !Number.isFinite(whole)) return "—"; if (whole === 0) return "لا يمكن القسمة على صفر"; return `${fmt((part / whole) * 100)}٪`; })()} />
       </Row>
       <Row>
-        <p className="font-bold text-slate-800">نسبة التغيير من <In value={a3} set={setA3} label="القيمة القديمة" /> إلى <In value={b3} set={setB3} label="القيمة الجديدة" /></p>
+        <p className="font-bold leading-9 text-slate-800">نسبة التغيير من <In value={a3} set={setA3} label="القيمة القديمة" /> إلى <In value={b3} set={setB3} label="القيمة الجديدة" /></p>
         <Out v={changeLabel(num(a3), num(b3))} />
       </Row>
       <Row>
-        <p className="font-bold text-slate-800">سعر <In value={a4} set={setA4} label="السعر" /> بعد خصم <In value={b4} set={setB4} label="الخصم" />٪</p>
-        <Out v={`${fmt(num(a4) * (1 - num(b4) / 100))}  (وفّرت ${fmt((num(a4) * num(b4)) / 100)})`} />
+        <p className="font-bold leading-9 text-slate-800">سعر <In value={a4} set={setA4} label="السعر" /> بعد خصم <In value={b4} set={setB4} label="الخصم" />٪</p>
+        <Out v={(() => { const price = num(a4); const off = num(b4); if (!Number.isFinite(price) || !Number.isFinite(off)) return "—"; return `${fmt(price * (1 - off / 100))}  (وفّرت ${fmt((price * off) / 100)})`; })()} />
       </Row>
     </div>
   );
