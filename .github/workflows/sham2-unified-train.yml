@@ -4,6 +4,13 @@ on:
   push:
     branches: [fix/sham2-unified-real-donor-data]
     paths: [".github/workflows/sham2-unified-train.yml"]
+  # Verification only, never a deploy: point it at the Studio run id to inspect.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Sham 2 Studio SHAM2_UNIFIED_RUN_ID to verify (for example 44681959851-1)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,12 +21,12 @@ concurrency:
 
 jobs:
   train-and-gate:
-    if: contains(github.event.head_commit.message, '[sham2-unified-train]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[sham2-unified-train]')
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
-      RUN_ID: "44558281864-1"
+      RUN_ID: ${{ github.event.inputs.run_id || '44558281864-1' }}
       EXPECTED_DONOR_SHA256: "1d84e49fa5c835583288622b02fe1cdcbe85f9ec283f1be3acf0867aeb04dd9d"
       STUDIO_API: https://studio-novaai2026-sham2-tldm.api-inference.modelscope.net
 

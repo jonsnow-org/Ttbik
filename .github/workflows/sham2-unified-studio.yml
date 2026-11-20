@@ -162,12 +162,23 @@ jobs:
           out=Path(os.environ["RUNNER_TEMP"])/"sham2-train-and-gate"
           out.mkdir(parents=True,exist_ok=True)
 
-          def call(name):
+          class NotReady(Exception):
+              """The Studio HTTP surface answered, but not yet as the poll API."""
+
+          def call(name, lenient=False):
               req=Request(base+"/gradio_api/call/"+name,data=b'{"data":[]}',headers=headers,method="POST")
               with urlopen(req,timeout=60) as response:
-                  event=json.loads(response.read().decode())
-              event_id=event.get("event_id")
+                  body=response.read()
+              try:
+                  event=json.loads(body.decode("utf-8","replace"))
+              except ValueError:
+                  if lenient:
+                      raise NotReady("non-JSON body from "+name+": "+body[:200].decode("utf-8","replace"))
+                  raise
+              event_id=event.get("event_id") if isinstance(event,dict) else None
               if not event_id:
+                  if lenient:
+                      raise NotReady("no event_id from "+name+": "+json.dumps(event,ensure_ascii=False)[:300])
                   raise ValueError("Gradio call response is missing event_id: "+json.dumps(event,ensure_ascii=False))
               req=Request(base+"/gradio_api/call/"+name+"/"+event_id,headers=headers)
               with urlopen(req,timeout=180) as response:
@@ -187,14 +198,24 @@ jobs:
               (out/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
 
           # One deploy runs the donor check, the partial training and the fresh
-          # gate. Only terminal phases end the wait; transient readiness errors
-          # are capped instead of polling forever.
+          # gate. Only terminal phases end the wait. A redeploying Studio answers
+          # with HTTP errors, non-JSON bodies or a missing event_id for a while:
+          # that readiness window is transient and capped, while a real trainer
+          # error still surfaces as a failed phase with its traceback in the report.
           terminal={"completed","memory-blocked","failed","donor-check-failed","blocked"}
           last=""
           transient=0
           for n in range(690):
               try:
-                  status=call("status")
+                  status=call("status", lenient=True)
+              except NotReady as exc:
+                  transient+=1
+                  last=f"not-ready: {exc}"
+                  if transient>=45:
+                      raise RuntimeError(f"CN Studio never became poll-ready after {transient} consecutive readiness failures: {last}") from exc
+                  print(f"Studio starting ({n+1}/690, {transient}/45): {str(exc)[:180]}",flush=True)
+                  time.sleep(30)
+                  continue
               except urllib.error.HTTPError as exc:
                   if exc.code not in {404,412,425,429,500,502,503,504}:
                       raise
@@ -213,8 +234,8 @@ jobs:
                   print(f"Transient Studio network error ({n+1}/690): {type(exc).__name__}: {exc}",flush=True)
                   time.sleep(30)
                   continue
-              # TypeError/ValueError and malformed API payloads are deterministic
-              # code failures: they intentionally escape immediately.
+              # A malformed payload from a Studio that is actually serving is a
+              # deterministic code failure: it intentionally escapes immediately.
               transient=0
               if not isinstance(status,dict):
                   raise TypeError("Studio status response is not an object: "+repr(status))
@@ -295,7 +316,7 @@ jobs:
 
               time.sleep(30)
 
-          raise TimeoutError("partial training and fresh gate did not finish within 5h45m; last status error: "+last)
+          raise TimeoutError("partial training and fresh gate did not finish within 5h45m; last status: "+last)
           PY
 
       - name: Upload training, fresh gate and new head SHA artifacts
