@@ -205,6 +205,7 @@ jobs:
           terminal={"completed","memory-blocked","failed","donor-check-failed","blocked"}
           last=""
           transient=0
+          stale=0
           for n in range(690):
               try:
                   status=call("status", lenient=True)
@@ -249,6 +250,16 @@ jobs:
                   save_json("final_report_full.json",report)
                   if not isinstance(report,dict):
                       raise TypeError("sham2_report response is not an object")
+                  # While the Studio redeploys it keeps serving the PREVIOUS deployment's
+                  # run state, whose terminal phase says nothing about this run id. Those
+                  # stale answers must never be mistaken for this job's result.
+                  if report.get("run_id")!=os.environ["RUN_ID"]:
+                      stale+=1
+                      print(f"Studio still serves previous run {report.get('run_id')} ({stale}/45); waiting for {os.environ['RUN_ID']} to take over",flush=True)
+                      if stale>=45:
+                          raise RuntimeError("Studio never switched to the requested run id; it kept reporting "+str(report.get("run_id")))
+                      time.sleep(30)
+                      continue
                   artifacts=report.get("artifacts") or {}
                   state=artifacts.get("run_state") or {}
                   donor=artifacts.get("donor_check") or {}
