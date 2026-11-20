@@ -77,27 +77,14 @@ export default async function MarketsPage() {
 
       <section className="mt-8">
         <h2 className="text-lg font-extrabold">دولار واحد مقابل</h2>
-        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-3 py-2 text-right">العملة</th>
-                <th className="px-3 py-2 text-right">الرمز</th>
-                <th className="px-3 py-2 text-right">السعر</th>
-                <th className="px-3 py-2 text-right">المصدر</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.fx.map((row) => (
-                <tr key={row.code} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-bold">{row.name}</td>
-                  <td className="px-3 py-2">{row.code}</td>
-                  <td className="px-3 py-2">{cell(row.rate, row.rate && row.rate > 100 ? 1 : 4)}</td>
-                  <td className="px-3 py-2 text-slate-500">{row.source}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {data.fx.map((row) => (
+            <article key={row.code} className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-extrabold text-slate-900">{row.name}</h3>
+              <p className="mt-1 text-xl font-extrabold text-slate-900" dir="ltr">{cell(row.rate, row.rate && row.rate > 100 ? 1 : 4)}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{row.code} · {row.source}</p>
+            </article>
+          ))}
         </div>
       </section>
 
