@@ -49,7 +49,7 @@ export default function JobsMiniApp({ botId, section, slug, item }: { botId: str
 }
 
 function Shell() {
-  const { api, stack, open, tg, toast } = useApp();
+  const { api, stack, open, tg, toast, back, native } = useApp();
   const [init, setInit] = useState<JobsInit | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [phoneBusy, setPhoneBusy] = useState(false);
@@ -169,6 +169,9 @@ function Shell() {
   return (
     <InitCtx.Provider value={{ init, reload }}>
       <main className={`mx-auto max-w-md px-4 pt-3 ${onRoot ? "pb-28" : "pb-6"}`}>
+        {stack.length > 1 && !native && !onRoot && (
+          <button type="button" onClick={() => void back()} className="mb-3 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-bold active:opacity-70" style={{ background: "var(--app-chip)", color: "var(--app-link)" }}>رجوع ›</button>
+        )}
         {!init.profile ? <ProfileForm first /> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} />}
       </main>
       {onRoot && <BottomBar current={cur.name} badge={init.counts.offersWaiting} />}
