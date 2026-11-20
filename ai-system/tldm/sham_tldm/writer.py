@@ -37,6 +37,13 @@ class DiffusionWriter(nn.Module):
             raise ValueError("every target row must contain at least one supervised byte/EOS position")
         r = torch.rand(target.shape[0], 1, device=target.device) * 0.95 + 0.05
         masked = (torch.rand(target.shape, device=target.device) < r) & valid_mask
+        # Generation starts from a COMPLETELY hidden block. Training the random
+        # ratio alone almost never produces that state (r >= 1 is required), so
+        # the model learned to copy visible answer bytes instead of decoding the
+        # answer from the latent context. Half of the rows are therefore trained
+        # from a fully hidden block, the exact condition `generate` starts in.
+        all_hidden = torch.rand(target.shape[0], 1, device=target.device) < 0.5
+        masked = torch.where(all_hidden, valid_mask, masked)
         # Guarantee at least one visible-to-predict supervised position per row.
         missing = ~masked.any(dim=1)
         if missing.any():
@@ -50,14 +57,16 @@ class DiffusionWriter(nn.Module):
         return F.cross_entropy(lg[masked], target[masked])
 
     @torch.no_grad()
-    def generate(self, z, steps: int = 10, temperature: float = 0.0, confident: float = 0.0):
+    def generate(self, z, steps: int = 10, temperature: float = 0.0, confident: float = 0.0, refine: int = 2):
         """confident > 0 (inference speed option, off by default): after a pass, if every still-hidden position is predicted with probability >= `confident`,
-        they are all written at once and the remaining passes are skipped. `self.last_passes` = passes actually run."""
+        they are all written at once and the remaining passes are skipped. refine > 0 re-masks the least-confident committed bytes and re-predicts them from
+        the now-visible neighbours, so the first pass (written from a fully hidden block, i.e. the position prior) is not final. `self.last_passes` = passes run."""
         B, N = z.shape[0], self.block
         tok = torch.zeros(B, N, dtype=torch.long, device=z.device)
         masked = torch.ones(B, N, dtype=torch.bool, device=z.device)
         hidden = N
         self.last_passes = 0
+        conf = torch.zeros(B, N, device=z.device)
         for s in range(steps):
             self.last_passes = s + 1
             probs = F.softmax(self.logits(tok, masked, z).float() / (temperature or 1.0), -1)
@@ -76,4 +85,24 @@ class DiffusionWriter(nn.Module):
                 tok = tok.scatter(1, idx, pred.gather(1, idx))
                 masked = masked.scatter(1, idx, False)
                 hidden = keep
+        # Confidence-guided refinement: the first passes are written from a fully
+        # hidden block, where the byte is decided by the position prior alone.
+        # Re-hide the least-confident committed positions and re-predict them with
+        # the rest of the block visible; this lets the latent context correct an
+        # early fixed point instead of freezing it for the whole block.
+        for _ in range(max(0, int(refine))):
+            scores = torch.where(masked, torch.full_like(conf, float("inf")), conf)
+            k = max(1, N // 8)
+            idx = scores.topk(k, dim=1, largest=False).indices
+            masked = masked.scatter(1, idx, True)
+            probs = F.softmax(self.logits(tok, masked, z).float() / (temperature or 1.0), -1)
+            if temperature:
+                pred = torch.multinomial(probs.reshape(-1, probs.shape[-1]), 1).reshape(probs.shape[:2])
+                updated = probs.gather(-1, pred[..., None])[..., 0]
+            else:
+                updated, pred = probs.max(-1)
+            tok = tok.scatter(1, idx, pred.gather(1, idx))
+            conf = conf.scatter(1, idx, updated.gather(1, idx))
+            masked = masked.scatter(1, idx, False)
+            self.last_passes += 1
         return tok

@@ -1482,7 +1482,10 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         raise RuntimeError("a donor base parameter became trainable; refusing to train")
 
     out.mkdir(parents=True, exist_ok=True)
-    stage_steps = {"identity": 60, "tools": 400, "arabic": 200, "terminal": 600}
+    # Mission 6: 600 terminal steps (20 epochs over 30 examples) only fit the
+    # byte marginals. Train long enough to fit the prompt -> command mapping on
+    # the same fixed real data; no examples are added or synthesised.
+    stage_steps = {"identity": 150, "tools": 400, "arabic": 200, "terminal": 3000}
     lora_trainable = [
         p for name, p in model.named_parameters()
         if p.requires_grad and (".lora_A" in name or ".lora_B" in name)
@@ -1500,6 +1503,19 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         ],
         betas=(0.9, 0.95), weight_decay=0.0,
     )
+    # Warmup + cosine decay to 10% of the base rate over the planned steps.
+    # A constant 1e-3 for 3000 steps over 30 examples oscillates at the end;
+    # the decay keeps the last epochs stable enough for a deterministic gate.
+    total_steps = sum(stage_steps[name] for name in stages)
+    warmup_steps = min(50, max(1, total_steps // 50))
+
+    def _lr_lambda(step: int) -> float:
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _lr_lambda)
     report = {
         "format": "sham2-unified-real-data-report-v1",
         "batch_size": int(cfg.batch),
@@ -1540,6 +1556,18 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         "lora_parameters": lora_params,
         "trainable_parameters": sum(p.numel() for p in trainable),
         "stages": [],
+        "lr_schedule": {
+            "head_lr": cfg.lr,
+            "lora_lr": cfg.lora_lr,
+            "warmup_steps": warmup_steps,
+            "cosine_floor_fraction": 0.1,
+            "total_steps": total_steps,
+        },
+        "decode": {
+            "all_hidden_training_fraction": 0.5,
+            "refinement_passes": 2,
+            "temperature": 0.0,
+        },
         "media_stage": "not trained: this file has no real image/audio dataset loader",
         "gate": {
             "status": "not-passed",
@@ -1568,6 +1596,7 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
+            scheduler.step()
             losses.append(float(loss.detach().cpu()))
             if step % 50 == 0 or step == steps - 1:
                 print(
