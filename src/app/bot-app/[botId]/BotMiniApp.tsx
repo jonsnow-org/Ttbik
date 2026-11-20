@@ -44,7 +44,7 @@ export default function BotMiniApp({ botId, section, pay }: { botId: string; sec
 }
 
 function Shell() {
-  const { api, stack, setLang, lang, tg } = useApp();
+  const { api, stack, setLang, lang, tg, back, native } = useApp();
   const [init, setInit] = useState<Init | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const load = useCallback(async (action = "init"): Promise<Init | null> => {
@@ -75,6 +75,11 @@ function Shell() {
   const refresh = () => load();
   return (
     <main className="mx-auto max-w-md px-4 pb-6 pt-3">
+      {stack.length > 1 && !native && (
+        <button type="button" onClick={() => void back()} className="mb-3 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-bold active:opacity-70" style={{ background: "var(--app-chip)", color: "var(--app-link)" }}>
+          {lang === "en" ? "‹ Back" : "رجوع ›"}
+        </button>
+      )}
       {cur.name === "home" && <Home init={init} />}
       {cur.name === "earn" && <Earn init={init} onBalance={refresh} />}
       {cur.name === "create" && <CreateAd init={init} onDone={refresh} />}
@@ -172,7 +177,7 @@ function Feature({ icon, title, sub, tone, onClick }: { icon: string; title: str
         <span className="block text-[16px] font-extrabold" style={{ color: "var(--app-text)" }}>{title}</span>
         <span className="mt-0.5 block text-xs leading-5" style={{ color: "var(--app-hint)" }}>{sub}</span>
       </span>
-      <span className="text-lg" style={{ color: "var(--app-hint)" }}>‹</span>
+      <span className="app-chev inline-block text-lg" aria-hidden style={{ color: "var(--app-hint)" }}>‹</span>
     </button>
   );
 }
@@ -492,7 +497,7 @@ function MyAds({ onChange }: { onChange: () => void }) {
           const isOpen = openId === a.id;
           return (
             <div key={a.id} className="rounded-2xl p-4" style={{ background: "var(--app-card)" }}>
-              <button type="button" className="w-full text-start" onClick={() => setOpenId(isOpen ? null : a.id)}>
+              <button type="button" className="w-full text-start" onClick={() => { setOpenId(isOpen ? null : a.id); setTopup(""); }}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-extrabold">{a.platform} <span className="font-mono text-[11px] opacity-50">#{a.short}</span></span>
                   <Pill tone={s[2]}>{lang === "en" ? s[1] : s[0]}</Pill>
@@ -513,10 +518,10 @@ function MyAds({ onChange }: { onChange: () => void }) {
                 <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--app-sep)" }}>
                   <div className="text-xs" style={{ color: "var(--app-hint)" }} dir="ltr">{a.content} · {moneyCpc(a.cpc)}</div>
                   <div className="grid grid-cols-2 gap-2 rounded-xl p-3 text-[11px]" style={{ background: "var(--app-chip)" }}>
-                    <div><div style={{ color: "var(--app-hint)" }}>مكافأة المستخدم/مهمة</div><strong>{moneyCpc(a.cpc * 0.5)}</strong></div>
-                    <div><div style={{ color: "var(--app-hint)" }}>مهام متوقعة بالمتبقي</div><strong>{Math.floor(a.remaining / a.cpc)}</strong></div>
-                    <div><div style={{ color: "var(--app-hint)" }}>متوسط التكلفة الفعلي</div><strong>{a.clicks > 0 ? moneyCpc(a.spent / a.clicks) : "—"}</strong></div>
-                    <div><div style={{ color: "var(--app-hint)" }}>نطاق الحملة</div><strong>{a.scope === "GLOBAL" ? "عام" : "موجّه"}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>{lang === "en" ? "Worker reward / task" : "مكافأة المستخدم/مهمة"}</div><strong>{moneyCpc(a.cpc * 0.5)}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>{lang === "en" ? "Tasks left in budget" : "مهام متوقعة بالمتبقي"}</div><strong>{a.cpc > 0 ? Math.floor(a.remaining / a.cpc) : "—"}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>{lang === "en" ? "Actual cost / completion" : "متوسط التكلفة الفعلي"}</div><strong>{a.clicks > 0 ? moneyCpc(a.spent / a.clicks) : "—"}</strong></div>
+                    <div><div style={{ color: "var(--app-hint)" }}>{lang === "en" ? "Campaign scope" : "نطاق الحملة"}</div><strong>{a.scope === "GLOBAL" ? (lang === "en" ? "Global" : "عام") : (lang === "en" ? "Targeted" : "موجّه")}</strong></div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {a.status === "ACTIVE" && <Btn small kind="soft" onClick={() => op(a, "pause")}>⏸ {tr(lang, "pause")}</Btn>}
@@ -569,7 +574,7 @@ function Wallet({ init, onChange }: { init: Init; onChange: () => void }) {
     const r = await api<{ credited: number; pending: number; readFailed: boolean; balance: number }>("deposit_chain_check");
     if (!r.ok) { toast(r.error || "", "err"); return; }
     if (r.credited > 0) { toast(`✓ +${money(r.credited)}`); setChainReq(null); onChange(); void load(); }
-    else toast(r.pending === 0 ? "لا يوجد طلب إيداع مفتوح." : r.readFailed ? "تعذّر قراءة الشبكة الآن، حاول بعد دقائق." : "لم يصل تحويل مطابق بعد. انتظر تأكيد الشبكة ثم أعد التحقق.", "err");
+    else toast(r.pending === 0 ? (lang === "en" ? "No open deposit request." : "لا يوجد طلب إيداع مفتوح.") : r.readFailed ? (lang === "en" ? "The network could not be read. Try again in a few minutes." : "تعذّر قراءة الشبكة الآن، حاول بعد دقائق.") : (lang === "en" ? "No matching transfer yet. Wait for confirmation, then check again." : "لم يصل تحويل مطابق بعد. انتظر تأكيد الشبكة ثم أعد التحقق."), "err");
   };
   const withdraw = async () => {
     setBusy(true);
@@ -674,13 +679,21 @@ function Wallet({ init, onChange }: { init: Init; onChange: () => void }) {
 function Referrals() {
   const { lang, api, open } = useApp();
   const [r, setR] = useState<{ count: number; won: boolean; full: boolean; target: number; link: string } | null>(null);
-  useEffect(() => { void api<any>("referrals").then((x) => { if (x.ok) setR(x); }); }, [api]);
+  const [err, setErr] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setErr(null);
+    void api<any>("referrals").then((x) => {
+      if (x.ok) setR(x);
+      else setErr(x.error || (lang === "en" ? "Could not load referrals." : "تعذّر تحميل الإحالات."));
+    });
+  }, [api, lang]);
+  useEffect(() => { load(); }, [load]);
   const pct = r ? Math.min(100, Math.round((r.count / r.target) * 100)) : 0;
   const shareText = lang === "en" ? "Earn by completing simple tasks in this bot:" : "اربح بإنجاز مهام بسيطة في هذا البوت:";
   return (
     <>
       <ScreenTitle icon="🙌" title={tr(lang, "referrals")} sub={tr(lang, "refEarn")} />
-      {!r ? <Loading lines={2} /> : (
+      {!r && !err ? <Loading lines={2} /> : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : (
         <>
           <div className="mb-4 rounded-3xl p-5 text-center" style={{ background: "var(--app-card)" }}>
             <div className="text-5xl font-black">{r.count}</div>
@@ -704,7 +717,15 @@ function Referrals() {
 function Stats() {
   const { lang, api } = useApp();
   const [s, setS] = useState<{ ads: number; spent: number; tasks: number; earned: number } | null>(null);
-  useEffect(() => { void api<any>("stats").then((x) => { if (x.ok) setS(x); }); }, [api]);
+  const [err, setErr] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setErr(null);
+    void api<any>("stats").then((x) => {
+      if (x.ok) setS(x);
+      else setErr(x.error || (lang === "en" ? "Could not load stats." : "تعذّر تحميل الإحصائيات."));
+    });
+  }, [api, lang]);
+  useEffect(() => { load(); }, [load]);
   const box = (label: string, value: string) => (
     <div className="rounded-2xl p-4" style={{ background: "var(--app-card)" }}>
       <div className="text-2xl font-black" dir="ltr">{value}</div>
@@ -714,7 +735,7 @@ function Stats() {
   return (
     <>
       <ScreenTitle icon="📊" title={tr(lang, "stats")} />
-      {!s ? <Loading lines={2} /> : (
+      {!s && !err ? <Loading lines={2} /> : err ? <Section><Empty icon="⚠️" title={err} action={<Btn onClick={load}>{lang === "en" ? "Retry" : "إعادة المحاولة"}</Btn>} /></Section> : (
         <div className="grid grid-cols-2 gap-2.5">
           {box(tr(lang, "statsTasks"), String(s.tasks))}
           {box(tr(lang, "statsEarned"), money(s.earned))}
