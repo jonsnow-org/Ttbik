@@ -80,13 +80,13 @@ class SpanStream:
 
 # key -> (dataset repo, config, plan weight). Arabic web text in the standard language and five dialects, and Arabic Wikipedia (the owner's registry in the Lena9 repository, onecore-ai/data/sources.yaml).
 SOURCES = {
-    "fineweb2_ar": ("HuggingFaceFW/fineweb-2", "arb_Arab", 0.5),
-    "fineweb2_ar_egyptian": ("HuggingFaceFW/fineweb-2", "arz_Arab", 0.25),
-    "fineweb2_ar_saudi": ("HuggingFaceFW/fineweb-2", "ars_Arab", 0.15),
-    "fineweb2_ar_moroccan": ("HuggingFaceFW/fineweb-2", "ary_Arab", 0.15),
-    "fineweb2_ar_iraqi": ("HuggingFaceFW/fineweb-2", "acm_Arab", 0.15),
-    "fineweb2_ar_algerian": ("HuggingFaceFW/fineweb-2", "arq_Arab", 0.15),
-    "wikipedia_ar": ("wikimedia/wikipedia", "20231101.ar", 0.4),
+    "fineweb2_ar": ("HuggingFaceFW/fineweb-2", "arb_Arab", 0.4),
+    "fineweb2_ar_egyptian": ("HuggingFaceFW/fineweb-2", "arz_Arab", 0.2),
+    "fineweb2_ar_saudi": ("HuggingFaceFW/fineweb-2", "ars_Arab", 0.1),
+    "fineweb2_ar_moroccan": ("HuggingFaceFW/fineweb-2", "ary_Arab", 0.1),
+    "fineweb2_ar_iraqi": ("HuggingFaceFW/fineweb-2", "acm_Arab", 0.1),
+    "fineweb2_ar_algerian": ("HuggingFaceFW/fineweb-2", "arq_Arab", 0.1),
+    "wikipedia_ar": ("wikimedia/wikipedia", "20231101.ar", 0.3),
 }
 SOURCE_SIZES = {"fineweb2_ar": 5_000_000, "fineweb2_ar_egyptian": 1_000_000, "fineweb2_ar_saudi": 300_000, "fineweb2_ar_moroccan": 300_000,
                 "fineweb2_ar_iraqi": 300_000, "fineweb2_ar_algerian": 300_000, "wikipedia_ar": 1_200_000}
