@@ -15,8 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: deploy/hosting/site.json
+          sparse-checkout: |
+            deploy/hosting/site.json
+            scripts/hosting/select-site-base.sh
           sparse-checkout-cone-mode: false
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: fetch lessons and upload (private)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -24,8 +28,7 @@ jobs:
           REPO_NAME: ${{ inputs.repo_name }}
         run: |
           if [ -z "$CRON_SECRET" ] || [ -z "$HF_TOKEN" ]; then echo "CRON_SECRET or HF_TOKEN missing"; exit 1; fi
-          BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)   # the gate: Oracle first
-          code=$(curl -s -o lessons.jsonl -D h.txt -w '%{http_code}' -m 90 -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/coder/lessons")
+          code=$(curl -s -o lessons.jsonl -D h.txt -w '%{http_code}' -m 90 -H "Authorization: Bearer $CRON_SECRET" "$SITE_BASE/api/coder/lessons")
           echo "fetch -> $code, count $(grep -i x-lessons-count h.txt | tr -d '\r')"
           [ "$code" = "200" ] || { echo "endpoint not ready (is the latest commit deployed on the default branch?)"; exit 1; }
           [ -s lessons.jsonl ] || { echo "no lessons recorded yet: nothing to publish"; exit 1; }
