@@ -1,6 +1,6 @@
 // Section supervisors that run on GitHub Actions (no Claude session needed): zenobia, palmyra-launch, telegram-bots, site-content, athar.
-// Read-mostly by design: each section gets ONE rolling issue "Supervisor report: <section>" (label supervisor-<section>), rewritten every run;
-// a comment is added only when the status changes. The only automatic action is one "rerun failed jobs" for the idempotent workflows in RERUN_OK.
+// Read-only by design: each section gets ONE rolling issue "Supervisor report: <section>" (label supervisor-<section>), rewritten every run;
+// no workflow is ever dispatched or rerun by this supervisor.
 // Usage: node scripts/supervisors/run.mjs <section>   (env: GITHUB_REPOSITORY, GITHUB_TOKEN, FROZEN_CHECK=ok|fail optional, SITE_JSON optional)
 import fs from "node:fs";
 
@@ -23,12 +23,12 @@ export const SECTIONS = {
     errorWords: /palmyra|launch|coin|referral|stars/i, frozen: true,
   },
   "telegram-bots": {
-    site: [["bots directory", "/bots", "gate", ok200], ["home", "/", "gate", ok200], ["Vercel standby (home)", "/", "standby", ok200, true]],
+    site: [["bots directory", "/bots", "gate", ok200], ["home", "/", "gate", ok200], ["Vercel standby (diagnostic only)", "/", "standby", ok200, true]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["monitor.yml", "Monitor (this report)", 4]],
     errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i, botsHealth: true,
   },
   "site-content": {
-    site: [["home", "/", "gate", ok200], ["free tools", "/free-tools", "gate", ok200], ["channels", "/channels", "gate", ok200], ["channel audit", "/channel-audit", "gate", ok200], ["khatma", "/khatma", "gate", ok200], ["contests", "/contests", "gate", ok200], ["shop", "/shop", "gate", ok200], ["remit", "/remit", "gate", ok200], ["markets", "/markets", "gate", ok200], ["news", "/news", "gate", ok200], ["articles", "/articles", "gate", ok200], ["events", "/events", "gate", ok200], ["health API", "/api/health", "gate", json((j) => j.ok === true), true], ["prices", "/prices", "gate", ok200],
+    site: [["home", "/", "gate", ok200], ["free tools", "/free-tools", "gate", ok200], ["channels", "/channels", "gate", ok200], ["channel audit", "/channel-audit", "gate", ok200], ["khatma", "/khatma", "gate", ok200], ["contests", "/contests", "gate", ok200], ["shop", "/shop", "gate", ok200], ["remit", "/remit", "gate", ok200], ["markets", "/markets", "gate", ok200], ["news", "/news", "gate", ok200], ["articles", "/articles", "gate", ok200], ["events", "/events", "gate", ok200], ["health API", "/api/health", "gate", json((j) => j.ok === true)], ["prices", "/prices", "gate", ok200],
       ["English desk", "/en", "gate", ok200], ["markets API", "/api/markets", "gate", hasDigits], ["markets API (English)", "/api/markets-en", "gate", hasDigits, true],
       ["sitemap", "/sitemap.xml", "gate", (t) => t.includes("<urlset") && t.includes("/free-tools/")], ["llms.txt", "/llms.txt", "gate", ok200, true]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72]],
@@ -123,19 +123,18 @@ export function render(section, checks, date) {
   return `<!-- status:${st} -->\n# Supervisor report: ${section} · ${date} (UTC)\n\nOverall: ${st === "ok" ? "✅ all good" : st === "warn" ? "⚠️ needs a look" : "❌ something is broken"}\n\n${checks.map((c) => `- ${icon[c.level]} **${c.name}**: ${c.detail}`).join("\n")}\n\n_Automatic report from \`scripts/supervisors/run.mjs\` (GitHub Actions, no AI session needed). It only reads and reports; charter: \`docs/agents/${section}.md\`._\n`;
 }
 
-async function http(url, ms = 20000) {
-  try { const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: "follow" }); return { status: r.status, text: await r.text().catch(() => "") }; }
-  catch { return { status: 0, text: "" }; }
-}
+async function http(url, ms = 20000, options = {}) {
+  try { const r = await fetch(url, { ...options, signal: AbortSignal.timeout(ms), redirect: "follow" }); return { status: r.status, text: await r.text().catch(() => "") }; }
+  catch { return { status: 0, text: "" }; }}
 
 /** Read-only Gate probe with Oracle fallback on network/5xx errors only. */
-async function publicSiteHttp(site, path, ms = 20000) {
+async function publicSiteHttp(site, path, ms = 20000, options = {}) {
   const gate = (site.gateUrl || site.engineUrl || "").replace(/\\/$/, "");
   const oracle = (site.oracleUrl || "").replace(/\\/$/, "");
-  const primary = gate ? await http(`${gate}${path}`, ms) : { status: 0, text: "" };
+  const primary = gate ? await http(`${gate}${path}`, ms, options) : { status: 0, text: "" };
   if (primary.status > 0 && primary.status < 500) return { ...primary, via: "gate" };
   if (!oracle) return { ...primary, via: "gate" };
-  const backup = await http(`${oracle}${path}`, ms);
+  const backup = await http(`${oracle}${path}`, ms, options);
   return backup.status > 0 ? { ...backup, via: "oracle", gateStatus: primary.status } : { ...primary, via: "gate", oracleStatus: backup.status };
 }
 
@@ -169,24 +168,14 @@ async function main() {
   if (names.some((n) => !SECTIONS[n])) { console.error(`unknown section: ${arg}`); process.exit(2); }
   const repo = process.env.GITHUB_REPOSITORY || "jonsnow-org/Ttbik", token = process.env.GITHUB_TOKEN || "";
   const site = JSON.parse(fs.readFileSync(process.env.SITE_JSON || "deploy/hosting/site.json", "utf8"));
-  // "gate" entries are checked through the GATE (the real public site: Oracle first, Vercel standby behind it). While Vercel answers 402 (free-plan limit) the old
-  // direct probes reported a healthy site as broken. "standby" is the direct Vercel address, informational only.
+  // Gate is the public primary; Oracle is a read-only fallback when Gate cannot be reached. Vercel is diagnostic only.
   const base = { gate: site.gateUrl || site.engineUrl, standby: site.vercelUrl, oracle: site.oracleUrl };
   const gh = async (path, init = {}) => {
     const r = await fetch(`https://api.github.com${path}`, { ...init, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28", "content-type": "application/json" }, signal: AbortSignal.timeout(30000) }).catch(() => ({ status: 0, json: async () => null }));
     return { status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null) };
   };
   // shared facts (one read for all sections)
-  const pausedRes = await gh(`/repos/${repo}/issues?state=open&labels=${PAUSE_LABEL}&per_page=1`);
-  const paused = pausedRes.status === 200 && pausedRes.body.some((i) => !i.pull_request);
-  let lastPushAt = "";
-  for (const br of ["main", site.productionBranch || "claude/free-services-marketplace-h6rwk2"]) {
-    const c = await gh(`/repos/${repo}/commits?sha=${encodeURIComponent(br)}&per_page=1`);
-    const t = c.status === 200 && c.body?.[0]?.commit?.committer?.date;
-    if (t && (!lastPushAt || Date.parse(t) > Date.parse(lastPushAt))) lastPushAt = t;
-  }
   const er = await gh(`/repos/${repo}/issues?state=open&labels=auto-error&per_page=50`);
-  const seenReruns = new Set();
   const parts = [];
   for (const section of names) {
     const cfg = SECTIONS[section];
@@ -195,27 +184,16 @@ async function main() {
     for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
     if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
       try {
-        const r = await fetch(`${base.gate}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
-        data.bots = r.status === 200 ? await r.json() : { error: `HTTP ${r.status}` };
+        const r = await publicSiteHttp(site, "/api/ops/bots-health", 60000, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
+        data.bots = r.status === 200 ? await JSON.parse(r.text) : { error: `HTTP ${r.status} via ${r.via || "unknown"}` };
       } catch (e) { data.bots = { error: "no answer" }; }
     }
     if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
-    const acted = [], skipped = [];
-    for (const w of data.workflows) {
-      if (!w.runs?.length || !RERUN_OK.has(w.def[0]) || seenReruns.has(w.def[0])) continue;
-      seenReruns.add(w.def[0]);
-      const act = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=in_progress`);
-      const que = await gh(`/repos/${repo}/actions/workflows/${w.def[0]}/runs?per_page=5&status=queued`);
-      const active = [...(act.body?.workflow_runs || []), ...(que.body?.workflow_runs || [])];
-      const d = decideRerun({ file: w.def[0], runs: w.runs, active, lastPushAt, paused });
-      if (d.ok) acted.push(`reran failed jobs of ${w.def[1]} (${d.why}; HTTP ${(await gh(`/repos/${repo}/actions/runs/${w.runs[0].id}/rerun-failed-jobs`, { method: "POST" })).status})`);
-      else if (w.runs[0].conclusion === "failure") skipped.push(`${w.def[1]}: ${d.why}`);
-    }
-    parts.push({ section, checks: evaluate(data), acted, skipped });
+    parts.push({ section, checks: evaluate(data) });
   }
   const date = new Date().toISOString().slice(0, 10);
   const checks = parts.flatMap((p) => p.checks), status = overall(checks);
-  const body = arg === "all" ? renderAll(parts, date) : render(arg, parts[0].checks, date) + (parts[0].acted.length ? `\nAutomatic actions: ${parts[0].acted.join("; ")}\n` : "") + (parts[0].skipped.length ? `\nNot touched (conflict rules): ${parts[0].skipped.join("; ")}\n` : "");
+  const body = arg === "all" ? renderAll(parts, date) : render(arg, parts[0].checks, date);
   console.log(body);
   if (!token) return;
   const label = arg === "all" ? "supervisor-all" : `supervisor-${arg}`, title = arg === "all" ? "Monitoring: all systems" : `Supervisor report: ${arg}`;
