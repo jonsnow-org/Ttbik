@@ -13,6 +13,26 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "cop31-overtime-climate-talks-2026",
+    "title": "COP31 talks run past scheduled close amid fossil-fuel and climate-finance disputes",
+    "date": "21 November 2026",
+    "contextDateLabel": "Official COP31 schedule: 9–20 November 2026; negotiations continued: 21 November; Reuters published: 21 November 2026, 14:36 UTC; latest Guardian live update checked: 21 November 2026, 18:46 UTC; publication date: 21 November 2026",
+    "dek": "Climate negotiations in Antalya continued beyond their scheduled end on 21 November, with fossil-fuel language and adaptation finance still unresolved in the latest verified update reviewed.",
+    "body": [
+      "The UN Framework Convention on Climate Change lists COP31 in Antalya, Türkiye, for 9–20 November 2026. Reuters and the Associated Press reported that negotiations continued on Saturday, 21 November, beyond the scheduled close. The latest live update reviewed, at 18:46 UTC, said diplomats were still seeking a compromise and no final agreement had been announced.",
+      "In its 14:36 UTC update on 21 November, Reuters said negotiators from nearly 200 countries remained divided over whether the outcome should mention fossil fuels and provide adaptation finance to countries with fewer resources. A draft published on Thursday had removed earlier references to ending fossil-fuel use and dropped a proposed $120 billion adaptation-finance target; those details describe a negotiating draft, not a final decision.",
+      "The Associated Press also reported that talks had entered overtime, that civil-society groups warned of a weak outcome, and that climate-vulnerable countries were seeking more support for adaptation and disaster recovery. The reports reviewed did not establish that a final agreement had been adopted by the time of the latest live update.",
+      "The UNFCCC website confirms that the conference's official dates were 9–20 November 2026. The scheduled conference period should therefore be classified as past, while additional negotiations were still underway according to the latest update available at 18:46 UTC on 21 November. The summit must not be presented as upcoming, and a draft must not be described as an adopted agreement.",
+      "Location: Antalya, Türkiye. Official conference dates: 9–20 November 2026; additional negotiations: 21 November. Latest live update reviewed: 21 November 2026, 18:46 UTC. Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      { "href": "https://unfccc.int/cop31", "label": "UN Framework Convention on Climate Change — official COP31 dates and information" },
+      { "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/", "label": "Reuters — 21 November 2026 update, 14:36 UTC" },
+      { "href": "https://apnews.com/article/cop31-un-turkey-climate-change-global-warming-b54eebcade92e5ee4c513b9a5b2192a7", "label": "Associated Press — talks continue beyond the scheduled close, 21 November 2026" },
+      { "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates", "label": "The Guardian — live coverage, latest update reviewed at 18:46 UTC" }
+    ]
+  },
+  {
     "slug": "ccw-autonomous-weapons-geneva-2026",
     "title": "UN talks extend work on autonomous weapons to 2028 without binding rules",
     "date": "21 November 2026",
