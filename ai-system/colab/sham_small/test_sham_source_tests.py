@@ -3,10 +3,6 @@ import unittest
 
 class VerifiedTests(unittest.TestCase):
     def test_selftest(self):
-        try:
-            import pytest  # noqa: F401
-        except ImportError:
-            self.skipTest("pytest is not installed in this image (the collector job installs it)")
         import sham_source_tests
         sham_source_tests._selftest()
 

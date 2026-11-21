@@ -38,13 +38,32 @@ def isolation_prefix() -> list[str] | None:
     return ["sudo", "-n", "-u", "nobody", "env", "-i"] if ok else None
 
 
+_PYTEST_DIR: list = []
+
+
+def ensure_pytest() -> str:
+    """The extra PYTHONPATH entry that makes pytest importable for the sandboxed child ("" when this interpreter already has it). The collector image has no pytest: it is installed once into a
+    private folder (world-readable, so `nobody` can import it) instead of editing the workflow."""
+    try:
+        import pytest  # noqa: F401
+        return ""
+    except ImportError:
+        pass
+    if not _PYTEST_DIR:
+        d = tempfile.mkdtemp(prefix="vt_pytest_")
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--target", d, "pytest"], capture_output=True, timeout=240)
+        subprocess.run(["chmod", "-R", "a+rX", d], capture_output=True, timeout=60)
+        _PYTEST_DIR.append(d if r.returncode == 0 else "")
+    return _PYTEST_DIR[0]
+
+
 def run_suite(repo_dir: str, prefix: list[str] | None, timeout: int = TIMEOUT_S) -> tuple[bool, int, str]:
     """-> (passed, number of passed tests, last output). Only a clean pass counts; a repo that needs a missing dependency simply fails and is dropped."""
     if prefix is None:
         return False, 0, "no isolation"
     home = tempfile.mkdtemp(prefix="home_")
     os.chmod(home, 0o777)
-    env = [f"HOME={home}", f"PATH={os.path.dirname(sys.executable)}:/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "PYTHONPATH=" + repo_dir + ":" + os.path.join(repo_dir, "src")]
+    env = [f"HOME={home}", f"PATH={os.path.dirname(sys.executable)}:/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "PYTHONPATH=" + ":".join(x for x in (repo_dir, os.path.join(repo_dir, "src"), ensure_pytest()) if x)]
     cmd = prefix + env + [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "--no-header", "--maxfail=1", "-o", "addopts=", repo_dir]
     try:
         r = subprocess.run(cmd, cwd=repo_dir, capture_output=True, text=True, timeout=timeout, start_new_session=True)
