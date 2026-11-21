@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluate, overall, render, SECTIONS, decideRerun } from "./run.mjs";
+import { evaluate, overall, render, SECTIONS, decideRerun, RERUN_OK } from "./run.mjs";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const run = (c, h) => ({ conclusion: c, updated_at: new Date(NOW - h * 3600_000).toISOString(), html_url: "u" });
