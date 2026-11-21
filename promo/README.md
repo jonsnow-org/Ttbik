@@ -70,7 +70,7 @@
 - تشغيل أي workflow ترويجي بوضع المعاينة `dry` (لا ينشر شيئاً).
 - المشرف الموحد للقراءة فقط: لا يعيد تشغيل أي Workflow ولا يستدعي نقاط نشر. لا تُعاد مهام النشر (`channel-post` و`coins-channel-post` و`promo-remotion`) لتجنب تكرار المنشورات. مشغّل `site-crons` يختار Gate ثم Oracle بفحص قراءة فقط، ويرسل طلباً واحداً لكل Cron دون إعادة محاولة قد تكرر أثراً مالياً أو منشوراً.
 - فتح وتحديث وإغلاق Issues (تقرير المشرف، `auto-error`).
-- إصلاح الأخطاء البرمجية الصغيرة في ملفات الترويج (`src/lib/channel*.ts` و`coinsChannel.ts` و`announce.ts` و`promo/**` و`scripts/promo/**` وworkflows الترويج) عبر PR مع اختبار ودمج في فرع الإنتاج المحمي `claude/free-services-marketplace-h6rwk2`؛ بعد نجاح CI تنسخ مهمة `sync-main.yml` الالتزام نفسه إلى `main` وتتحقق من Oracle. لا تُفتح مزامنة يدوية منفصلة.
+- إصلاح الأخطاء البرمجية الصغيرة في ملفات الترويج (`src/lib/channel*.ts` و`coinsChannel.ts` و`announce.ts` و`promo/**` و`scripts/promo/**` وworkflows الترويج) عبر PR مع اختبار ودمج في فرع الإنتاج المحمي `claude/free-services-marketplace-h6rwk2`؛ بعد نجاح CI تحاول `sync-main.yml` تحديث `main` فقط إذا كان تاريخه متضمناً بالكامل في فرع الإنتاج (fast-forward). إذا كان `main` يحتوي commits إضافية، يتوقف المسار دون تغيير أي فرع ويتطلب Recovery PR معتمداً واختباره أولاً؛ لا تستخدم force-push ولا تتجاوز بوابة المزامنة.
 
 **يحتاج موافقة المالك أولاً:**
 - أي نشر يدوي فعلي (`announce` بلا `dry`)، تفعيل `COINS_LAUNCH_FEED`، إنشاء أو حذف `promo/PUBLISH_ON`.
