@@ -199,6 +199,17 @@ export async function shamAgentRun(opts: {
       };
     }
     if (direct?.type === "text") {
+      // commands the model ran on its OWN computer inside the Studio (T-LDM's computer is a shell): shown as computer_run steps, like every other tool the app sees
+      const ran = Array.isArray(direct.computer_steps) ? direct.computer_steps.slice(0, 8) : [];
+      for (const step of ran) {
+        const command = String(step?.command || "").slice(0, 300);
+        if (!command) continue;
+        used.push("computer_run");
+        opts.onEvent?.("tool", "computer_run " + command.slice(0, 200));
+        opts.onStep?.({ type: "tool_start", name: "computer_run", args: JSON.stringify({ command }) });
+        opts.onStep?.({ type: "tool_end", name: "computer_run", ok: step?.ok !== false });
+        opts.onEvent?.("info", clip(String(step?.result || ""), 300));
+      }
       const answer = String(direct.text || "").trim();
       return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
     }

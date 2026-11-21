@@ -805,6 +805,16 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { desktopDo } = await import("@/lib/desktopComputer");
       return await desktopDo(model, computerSessionOf(chatId, model), args as never, deps.fetchImpl || globalThis.fetch) as Json;
     }
+    case "sham_coordinate": {            // Sham Pro's coordinator inside its OWN Studio; owner only; never another model's Studio
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      if (String(selectedModel || "") !== "sham_v2") throw new AppError(400, "the coordinator belongs to Sham Pro");
+      const { shamCoordinate, shamVariant } = await import("@/lib/shamStudio");
+      const act = String(body.action || "status") === "start" ? "start" : "status";
+      return await shamVariant.run("v2", () => shamCoordinate(act, {
+        goal: String(body.goal || ""), taskId: String(body.task_id || ""), session: `coord-sham_v2-${chatId}`,
+        file: String(body.file || ""), studio: body.studio ? String(body.studio) : undefined, owner: true,
+      })) as Json;
+    }
     case "browser": {                    // headless browser API, separate from the graphical desktop
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const model = computerModelOf(String(selectedModel || "coder"));

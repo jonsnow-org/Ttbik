@@ -226,4 +226,8 @@ describe("the shared hub's desktop is Nova's only", () => {
       }
     }
   });
+
+  test("the text-state read is an allowed action (a text-only model reads the windows instead of pixels)", () => {
+    expect(cleanDesktopArgs({ action: "state" })).toEqual({ action: "state" });
+  });
 });

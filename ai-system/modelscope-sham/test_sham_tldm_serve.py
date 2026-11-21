@@ -143,6 +143,9 @@ class Sham2TldmServe(unittest.TestCase):
         self.assertEqual(allowed["computer"], "model_computer")
         self.assertEqual(runs, [("rm -rf /tmp/x", True)])
         self.assertIn("تم", allowed["text"])
+        # the commands that ran on the model's own computer ride in the final reply, so the app can show them as tool steps (they ran inside the Studio)
+        self.assertIn("rm -rf /tmp/x", [c["command"] for c in allowed["computer_steps"]])
+        self.assertTrue(all(c["ok"] for c in allowed["computer_steps"]) and allowed["computer_steps"][-1]["command"] == "rm -rf /tmp/x")
 
     def test_deny_does_not_run_the_command_and_continues(self):
         class R:
