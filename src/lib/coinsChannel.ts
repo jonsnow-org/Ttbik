@@ -9,7 +9,7 @@ import { getConfig } from "@/lib/znbtConfig";
 import { readSnapshot } from "@/lib/znbtIndex";
 import { ensureHiddenTable } from "@/lib/znbtHideDb";
 import platformFeatures from "../../promo/platform-features.json";
-import { hasArabicScript, isEnglishOnlyPublicText } from "@/lib/publicChannelPolicy";
+import { isEnglishOnlyPublicText } from "@/lib/publicChannelPolicy";
 
 const STATE_KEY = "coins_channel_state";
 const MIN_GAP_MS = 3 * 3600 * 1000;
