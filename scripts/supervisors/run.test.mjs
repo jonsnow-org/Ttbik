@@ -15,26 +15,37 @@ test("stale workflow fails, newer failure after success warns", () => {
   assert.equal(overall(evaluate({ workflows: [{ def, runs: [run("failure", 1), run("success", 3)] }] }, NOW)), "warn");
 });
 test("promo-projects pull-request validation is not counted as generated assets", () => {
-  const promoDef = ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"]];
+  const promoDef = ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"], ["claude/free-services-marketplace-h6rwk2"]];
   const prSuccess = {
     event: "pull_request",
+    head_branch: "dependabot/github_actions/example",
     status: "completed",
     conclusion: "success",
     updated_at: new Date(NOW - 10 * 60000).toISOString(),
     html_url: "pr-validation-only",
   };
+  const featureDispatch = {
+    event: "workflow_dispatch",
+    head_branch: "feature/promo-preview",
+    status: "completed",
+    conclusion: "success",
+    updated_at: new Date(NOW - 5 * 60000).toISOString(),
+    html_url: "feature-branch-render",
+  };
   const scheduledFailure = {
     event: "schedule",
+    head_branch: "claude/free-services-marketplace-h6rwk2",
     status: "completed",
     conclusion: "failure",
     updated_at: new Date(NOW - 4 * 3600_000).toISOString(),
     html_url: "scheduled-generator-failure",
   };
-  const failed = evaluate({ workflows: [{ def: promoDef, runs: [prSuccess, scheduledFailure] }] }, NOW)
+  const failed = evaluate({ workflows: [{ def: promoDef, runs: [prSuccess, featureDispatch, scheduledFailure] }] }, NOW)
     .find((c) => c.name === "Workflow: Promo images");
   assert.equal(failed.level, "fail");
   assert.match(failed.detail, /scheduled-generator-failure/);
   assert.doesNotMatch(failed.detail, /pr-validation-only/);
+  assert.doesNotMatch(failed.detail, /feature-branch-render/);
 
   const scheduledSuccess = {
     ...scheduledFailure,
