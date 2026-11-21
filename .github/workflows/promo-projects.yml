@@ -42,7 +42,8 @@ jobs:
           python -m py_compile scripts/promo/tts.py
   make:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 provides Chromium builds for Ubuntu 24.04; ubuntu-latest moved to 26.04 and fails installation.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
