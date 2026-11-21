@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const tag = q.get("tag") || "", asset = q.get("asset") || "", to = (q.get("to") || "general") as keyof typeof CHANNELS;
   // Rewrite stale links to the configured public site; the mutation below is sent exactly once.
   let caption = rewriteLegacyLinks(q.get("caption") || "").slice(0, 1000);
-  if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !Object.hasOwn(CHANNELS, to)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
+  if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !Object.prototype.hasOwnProperty.call(CHANNELS, to)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
   if (to === "general") caption = ensureEnglishFirst(caption);
   if (to === "coins" && !isEnglishOnlyPublicText(caption)) return NextResponse.json({ ok: false, reason: "coins-channel-must-be-english-only" }, { status: 400 });
   if (!caption || !isSafeForChannel(caption)) return NextResponse.json({ ok: false, reason: "caption-blocked" }, { status: 400 });
