@@ -296,6 +296,31 @@ def train_sham2_on_a_tiny_body_saves_only_head_and_adapters_and_refuses_a_real_d
 
 
 @test
+def train_sham2_loop_extra_trains_a_second_head_and_ships_the_winner_only():
+    """The real executed shell traces (data/snapshots) are a SECOND loop head; it is shipped only if it beats the in-domain head on the in-domain full-task benchmark; both numbers are kept."""
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    extra = os.path.join(ROOT, "data", "snapshots", "ultradata_loop_train.jsonl.gz")
+    assert os.path.isfile(extra), "the snapshot file must be in the repository (the Studio gets the tldm tree)"
+    d = tempfile.mkdtemp(prefix="sham2_extra_")
+    cfg = os.path.join(d, "c.yaml")
+    with open(os.path.join(ROOT, "configs", "sham2.yaml")) as f, open(cfg, "w") as g:
+        g.write(f.read().replace("loop_episodes: 500", "loop_episodes: 6").replace("loop_steps: 900", "loop_steps: 2") + "\nloop_eval_episodes: 3\n")
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "1", "--loop", "--loop_extra", extra, "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    e = r["loop"][0]
+    assert e["extra_rows"] > 0 and ("with_extra" in e or e.get("variant") == "with extra real shell traces"), e
+    assert e["variant"] in ("in-domain only", "with extra real shell traces")
+    heads = torch.load(out)["heads"]
+    assert set(heads) == {"writer", "loop_seed0"}, "only the winner is saved, under the name serving loads"
+    xs, ys, n = train_sham2.load_loop_extra(extra, lambda t, k: [5 + (ord(c) % 200) for c in t[:k]], 96, 64, cap=50, share=0.2, base_rows=100)
+    assert n == 25 and len(xs) == len(ys) == 25, "at most 20% of the mixed set"
+    assert train_sham2.load_loop_extra(os.path.join(d, "none.gz"), None, 96, 64)[2] == 0
+
+
 def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only():
     import json as _json
     import tempfile

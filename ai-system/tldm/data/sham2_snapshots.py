@@ -124,6 +124,34 @@ def tools_records(row: dict, revision: str, config: str):
     return out
 
 
+def loop_rows(row: dict, max_cmd_bytes: int = 62):
+    """Training views of the agent LOOP head (task + the tail of the terminal history -> the next command), one per shell decision whose command fits the loop writer (<= max_cmd_bytes).
+    Lean records: {task, hist: [[cmd, result]...] (last 3, results shortened), cmd, trace_id, split}. The result of every earlier step was really executed by the source's runtime."""
+    messages = row.get("messages") or []
+    trace_id = str(row.get("uuid") or "")
+    if not trace_id:
+        return []
+    task = next((m.get("content") for m in messages if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+    task = " ".join(task.replace("<uploaded_files>", " ").replace("</uploaded_files>", " ").split())[:200]
+    out, hist = [], []
+    for i, m in enumerate(messages):
+        if m.get("role") != "assistant":
+            continue
+        for call in m.get("tool_calls") or []:
+            fn = (call or {}).get("function") or {}
+            if str(fn.get("name", "")).lower() not in SHELL_NAMES:
+                continue
+            cmd = " ".join(_command(fn.get("arguments")).split())
+            result = next((x.get("content") for x in messages[i + 1:i + 4] if x.get("role") == "tool"), None)
+            if not cmd or result is None:
+                continue
+            if len(cmd.encode("utf-8")) <= max_cmd_bytes:
+                out.append({"task": task, "hist": [list(h) for h in hist[-3:]], "cmd": cmd, "trace_id": trace_id, "split": split_of(trace_id)})
+            res = " ".join(str(result).replace("Execution output of [shell]:", " ").split())
+            hist.append([cmd[:120], res[:160]])
+    return out
+
+
 def _write(path: str, rows: list) -> dict:
     import gzip
     opener = gzip.open if path.endswith(".gz") else open
@@ -253,6 +281,28 @@ def build_v1tools(out: str, train: int, limit_rows: int = 0) -> dict:
             break
     return {"stage": "v1tools", "revision": rev, "scanned_traces": scanned, "files": [_write(os.path.join(out, "agent_traces_v1.jsonl.gz"), rows[:train])]}
 
+def build_loop(out: str, train: int, heldout: int, limit_rows: int = 0) -> dict:
+    from datasets import load_dataset
+    repo = "openbmb/UltraData-SFT-Agent-2609"
+    rev = _revision(repo)
+    rows = {"train": [], "heldout": []}
+    want = {"train": train, "heldout": heldout}
+    scanned = 0
+    for config in ("Code-Agent", "General-Agent"):
+        ds = load_dataset(repo, config, split="train", streaming=True, revision=rev)
+        for r in ds:
+            scanned += 1
+            for rec in loop_rows(r):
+                if len(rows[rec["split"]]) < want[rec["split"]]:
+                    rows[rec["split"]].append(rec)
+            if all(len(rows[k]) >= want[k] for k in want) or (limit_rows and scanned >= limit_rows):
+                break
+        if all(len(rows[k]) >= want[k] for k in want):
+            break
+    assert not ({r["trace_id"] for r in rows["train"]} & {r["trace_id"] for r in rows["heldout"]}), "a trace must not be in both splits"
+    return {"stage": "loop", "revision": rev, "license": "apache-2.0 (dataset); assistant turns written by a commercial model (owner accepted 2026-11-21)", "scanned_traces": scanned,
+            "files": [_write(os.path.join(out, "ultradata_loop_train.jsonl.gz"), rows["train"]), _write(os.path.join(out, "ultradata_loop_heldout.jsonl.gz"), rows["heldout"])]}
+
 
 def _selftest() -> None:
     ar = " ".join(f"هذه الجملة رقم {i} تصف حال المدينة في الصباح الباكر." for i in range(60))
@@ -274,12 +324,15 @@ def _selftest() -> None:
     assert all(r["tool_name"] == "computer_run" and r["approval"] == "not_recorded" and "ok" in t[1]["tool_result"]["stdout"] for r in t[1:]) and "file.py" in t[0]["tool_result"]["stdout"]
     assert t[1]["prompt"].startswith("المهمة:") and "computer_run: ls -la" in t[1]["prompt"]
     assert tools_records({"uuid": "", "messages": row["messages"]}, "r", "c") == []
+    lr = loop_rows(row)
+    assert [r["cmd"] for r in lr] == ["ls -la", "python3 f.py"] and lr[0]["hist"] == [] and lr[1]["hist"][0][0] == "ls -la" and "file.py" in lr[1]["hist"][0][1], lr
+    assert lr[1]["task"].startswith("fix the bug") and loop_rows({"uuid": "x", "messages": [{"role": "user", "content": "t"}, {"role": "assistant", "tool_calls": [{"function": {"name": "shell", "arguments": {"command": "x" * 200}}}]}, {"role": "tool", "content": "r"}]}) == []
     print("sham2_snapshots self-test OK")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", nargs="?", choices=["arabic", "tools", "v1tools"])
+    ap.add_argument("stage", nargs="?", choices=["arabic", "tools", "loop", "v1tools"])
     ap.add_argument("--out", default="sham2_snapshot")
     ap.add_argument("--train", type=int, default=0)
     ap.add_argument("--heldout", type=int, default=0)
@@ -295,6 +348,9 @@ def main() -> int:
         part = build_arabic(a.out, a.train or 12000, a.heldout or 1200, a.limit)
     elif a.stage == "v1tools":
         part = build_v1tools(a.out, a.train or 3000, a.limit)
+
+    elif a.stage == "loop":
+        part = build_loop(a.out, a.train or 4000, a.heldout or 400, a.limit)
     else:
         part = build_tools(a.out, a.train or 6000, a.heldout or 600, a.limit)
     part["seconds"] = round(time.time() - t0, 1)

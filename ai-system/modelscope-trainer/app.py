@@ -487,6 +487,10 @@ def sham2_flatten(res: dict) -> dict:
         out["loop_simple"] = lp[0]["simple"]["success"]
         out["loop_multi"] = lp[0]["multi_step"]["success"]
         out["loop_s_per_task"] = lp[0]["all"]["median_s_per_task"]
+        if lp[0].get("variant"):
+            out["loop_variant"] = lp[0]["variant"]
+        if lp[0].get("extra_rows"):
+            out["loop_extra_rows"] = lp[0]["extra_rows"]
     idn = res.get("identity") or {}
     if idn:
         out["identity_before"] = idn["before"]["identity"]["ok"]
@@ -580,7 +584,7 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]
@@ -617,6 +621,9 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
                "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
                "--dtype", os.environ.get("SHAM2_DTYPE", "bf16"), "--seeds", os.environ.get("SHAM2_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
                "--out", str(heads), "--json", str(report)]
+        extra = root / "data" / "snapshots" / "ultradata_loop_train.jsonl.gz"
+        if extra.is_file() and os.environ.get("SHAM2_LOOP_EXTRA", "1").strip().lower() not in ("0", "off", "false", "no"):
+            cmd += ["--loop_extra", str(extra)]             # real executed shell traces: trained as a second loop head, shipped only if it wins the in-domain benchmark
         if runner is not None:
             code = int(runner(cmd=cmd, report=report, heads=heads))
         else:
@@ -890,7 +897,7 @@ def _short(res) -> dict:
     """Whitelisted numbers only: never a token, never a text."""
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
             "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
-            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
+            "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "loop_variant", "loop_extra_rows", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
             "identity_before", "identity_after", "nll_before", "nll_after", "retention_after")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
