@@ -17,7 +17,7 @@ export type EventItem = {
   sources: EventSource[];
 };
 
-import { EVENT_EXTRAS } from "./eventsExtra";
+import { EVENT_EXTRAS } from "./eventsExtra.ts";
 
 /** Events maintained in the editorial extras index; deduplicated by consumers when combining both lists. */
 export const EVENT_ITEMS: EventItem[] = [];
