@@ -710,7 +710,9 @@ def respond(
             log_episode(message, str(reply or ""), steps, success, time.time() - t0, verified=True, session=sid, source="owner" if owner else "user")
         except Exception:
             pass
-    return json.dumps({"type": "text", "text": str(reply or ""), "tldm": True, "computer": "model_computer"}, ensure_ascii=False)
+    # what ran on the model's own computer this turn, so the app can show it as tool steps (it ran inside the Studio, the app never saw it): command, ok, a short result
+    shown = [{"command": str(item[0])[:300], "ok": bool(item[2]) if len(item) > 2 else True, "result": str(item[1])[:300] if len(item) > 1 else ""} for item in steps[:8]]
+    return json.dumps({"type": "text", "text": str(reply or ""), "tldm": True, "computer": "model_computer", **({"computer_steps": shown} if shown else {})}, ensure_ascii=False)
 
 
 def status_fields() -> dict:

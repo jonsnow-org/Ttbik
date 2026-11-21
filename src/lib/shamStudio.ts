@@ -166,6 +166,8 @@ export type ShamReply = {
   /** T-LDM paused a sensitive command for this chat's allow/deny (existing shamok/shamno flow). */
   command?: string; session?: string; computer?: string; tldm?: boolean;
   tool_name?: string; tool_arguments?: Record<string, unknown>; tool_request_id?: string; tldmBase?: string;
+  /** What T-LDM ran on its own computer inside the Studio this turn (the app never saw those calls; it shows them as computer_run steps). */
+  computer_steps?: Array<{ command?: string; ok?: boolean; result?: string }>;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };

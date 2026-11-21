@@ -109,6 +109,26 @@ describe("Sham's own agent loop", () => {
     } finally { spy.mockRestore(); }
   });
 
+  it("shows what T-LDM ran on its own computer inside the Studio as computer_run steps (the app never saw those calls)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const spy = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValue({
+      type: "text", text: "ZX7Q-4821", tldm: true, computer: "model_computer",
+      computer_steps: [{ command: "echo ZX7Q-4821", ok: true, result: "ZX7Q-4821" }],
+    } as any);
+    const events: string[] = [];
+    const steps: any[] = [];
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({
+        text: "شغّل الأمر echo ZX7Q-4821 على حاسوبك", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+        onEvent: (k: string, t: string) => { if (k === "tool") events.push(t); },
+        onStep: (e: any) => steps.push(e),
+      } as any)));
+      expect(r).toMatchObject({ kind: "text", text: "ZX7Q-4821", used: ["computer_run"] });
+      expect(events).toEqual(["computer_run echo ZX7Q-4821"]);
+      expect(steps.map((e) => e.type)).toEqual(["tool_start", "tool_end"]);
+    } finally { spy.mockRestore(); }
+  });
+
   it("Sham v2 passes ordinary user text unchanged to its direct chat path", async () => {
     const seen: string[] = [];
     const question = "ما الذي تتقنه وتستطيع القيام به؟";
