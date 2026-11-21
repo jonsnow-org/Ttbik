@@ -42,3 +42,13 @@ describe("task suite verdicts", () => {
     expect(TASKS.map((x) => x.id)).toEqual(expect.arrayContaining(["computer-run", "computer-file", "code-run", "browser", "desktop", "github-list"]));
   });
 });
+
+describe("the judge accepts Nova's Arabic step labels as tool calls (live run 2026-11-21)", () => {
+  const run = (id: string) => TASKS.find((x) => x.id === id)!;
+  it("computer-run / computer-file / code-run with the labels from toolLabel()", () => {
+    expect(judge(run("computer-run"), "coder", "نتيجة الأمر: ZX7Q-4821", true, ["▶️ تشغيل أمر — echo ZX7Q-4821"]).pass).toBe(true);
+    expect(judge(run("computer-file"), "coder", "المحتوى QW9-5503", true, ["📝 كتابة ملف — note.txt", "📖 قراءة ملف — note.txt"]).pass).toBe(true);
+    expect(judge(run("code-run"), "coder", "الناتج 1 4 9 16 25", true, ["▶️ تشغيل أمر — python3 sq.py"]).pass).toBe(true);
+    expect(judge(run("computer-run"), "coder", "الناتج ZX7Q-4821", true, []).pass).toBe(false);   // still fails with no tool call at all
+  });
+});
