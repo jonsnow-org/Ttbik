@@ -13,6 +13,42 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "hormuz-tanker-incidents-khasab-2026",
+    "title": "Two tankers reported hit near Oman’s Khasab in the Strait of Hormuz; no casualties reported",
+    "date": "21 November 2026",
+    "contextDateLabel": "First UKMTO alert: 21 November 2026, 05:00 UTC; second alert: 05:50 UTC; Reuters published: 21 November 2026, 07:57 UTC; Sham AI publication: 21 November 2026",
+    "dek": "The UK Maritime Trade Operations centre reported two incidents in which unknown projectiles hit a tanker near Oman’s Khasab while transiting outbound through the Strait of Hormuz. No casualties were reported; environmental impact remained unconfirmed.",
+    "body": [
+      "The United Kingdom Maritime Trade Operations centre (UKMTO) issued two alerts about incidents near Khasab, Oman, on 21 November 2026. In Warning 215-26 at 05:00 UTC, the stern of an outbound tanker was hit about 11 nautical miles north of Khasab. In Warning 216-26 at 05:50 UTC, an outbound tanker was hit in its engine room about 17 nautical miles east of Khasab by an unknown projectile.",
+      "UKMTO said no casualties had been reported in either alert and that the environmental impact was unconfirmed when the warnings were issued. It advised vessels to transit with caution and report suspicious activity. The agency did not identify the vessels or attribute responsibility.",
+      "Reuters published its report at 07:57 UTC on 21 November and said it was not immediately clear whether the two alerts involved the same vessel or two different vessels. Reuters also reported a separate statement by Iran’s navy that a tanker had caught fire after hitting a naval mine east of the strait. Reuters said it could not independently verify the Iranian account or establish whether it referred to either UKMTO incident. This article therefore does not attribute the attacks to any party.",
+      "Location: near Khasab on Oman’s Musandam Peninsula, at the entrance to the Strait of Hormuz. Incident date: 21 November 2026; alert times: 05:00 and 05:50 UTC; Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      { "href": "https://www.ukmto.org/recent-incidents", "label": "UKMTO — official incident register, Warnings 215-26 and 216-26" },
+      { "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_215-26.pdf", "label": "UKMTO — official Warning 215-26, 21 November 2026, 05:00 UTC" },
+      { "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_216-26.pdf", "label": "UKMTO — official Warning 216-26, 21 November 2026, 05:50 UTC" },
+      { "href": "https://www.reuters.com/business/energy/tanker-hit-by-unknown-projectile-near-omans-khasab-ukmto-says-2026-11-21/", "label": "Reuters — independent report on both incidents, 21 November 2026, 07:57 UTC" }
+    ]
+  },
+  {
+    "slug": "us-ai-tech-selloff-correction-november-2026",
+    "title": "AI-led technology sell-off pushes the S&P 500 into correction territory",
+    "date": "21 November 2026",
+    "contextDateLabel": "Market session: Friday, 20 November 2026; Reuters published: 20 November 2026, 21:17 UTC; AP report: 20 November 2026; Sham AI publication: 21 November 2026",
+    "dek": "U.S. stocks fell sharply on 20 November as technology and AI shares led a broad sell-off. The S&P 500 dropped 3.7% and entered correction territory, while the Nasdaq fell 5.3% and ended the year-to-date period in negative territory.",
+    "body": [
+      "U.S. markets saw a broad sell-off on Friday, 20 November 2026, led by technology and artificial-intelligence shares. The Associated Press reported that the S&P 500 fell 3.7%, leaving it more than 10% below its 6 October record high — the commonly used definition of a market correction. The Nasdaq Composite dropped 5.3%, turning negative for 2026, while the Dow Jones Industrial Average fell 1.9%.",
+      "Reuters published its report at 21:17 UTC on 20 November and reported a similar 5.3% daily fall in the Nasdaq and a roughly 10% weekly decline. Nvidia fell 14% on the day and 23% for the week, while the semiconductor index lost 11%, Reuters said.",
+      "Both reports linked the sell-off to investor concerns about AI-company valuations, spending on infrastructure and data centres, earnings expectations and interest rates. These are explanations and views attributed to analysts and investors; they do not establish that the AI sector has ended or that an investment bubble has definitively burst. AP said the decline also spread to Asian and European markets.",
+      "Event date: the U.S. trading session on 20 November 2026; Reuters and AP report dates: 20 November 2026; Sham AI publication date: 21 November 2026. This is market reporting, not investment advice."
+    ],
+    "sources": [
+      { "href": "https://www.reuters.com/business/view-nasdaq-plunges-5-day-after-anthropic-debut-investors-still-believe-ai-2026-11-20/", "label": "Reuters — 20 November market close and analysis, 21:17 UTC" },
+      { "href": "https://apnews.com/article/stock-markets-anthropic-ai-chips-boom-c4c3f4878b12989347f8a930ed813dad", "label": "Associated Press — S&P 500, Nasdaq and technology shares, 20 November 2026" }
+    ]
+  },
+  {
     "slug": "manipur-suspected-spurious-liquor-incident-2026",
     "title": "Manipur reports 16 deaths linked to suspected spurious liquor; 600 hospitalised",
     "date": "21 November 2026",
@@ -160,28 +196,21 @@ export const EN_NEWS: DeskItem[] = [
     "slug": "gaza-winter-rains-shelter-crisis-2026",
     "title": "Winter rains deepen Gaza’s shelter and food crisis as tents are damaged",
     "date": "18 November 2026",
-    "contextDateLabel": "Recent rainfall: the preceding week; UN update: 18 November 2026",
-    "dek": "The United Nations said winter rain damaged tens of thousands of makeshift shelters in Gaza. The World Food Programme and the International Organization for Migration warned of funding shortfalls and restricted aid access amid continued displacement and acute hunger.",
+    "contextDateLabel": "Original publication: 18 November 2026; article updated: 21 November 2026; Guardian report: 21 November 2026, 00:08 EST (05:08 UTC); UN update: 18 November 2026",
+    "dek": "The United Nations said winter rain damaged tens of thousands of makeshift shelters in Gaza. A 21 November editorial update adds field reporting on continued flooding and the lack of safe shelter, while keeping damage figures attributed to the UN.",
     "body": [
       "In an update published on 18 November, the United Nations said winter rain had flooded makeshift shelters and damaged food stored in tents, worsening conditions for heating, cooking and sanitation at displacement sites.",
       "The UN update quoted the International Organization for Migration as saying tens of thousands of shelters were damaged or destroyed after one day of rain. It also said more than 1.7 million people remained displaced and 1.4 million faced acute hunger.",
       "The World Food Programme said assistance that had provided one hot meal a day in some camps had fallen to one hot meal every two days. It warned that funding gaps and access restrictions threatened the continuity of humanitarian operations.",
-      "Reuters had reported an IOM warning on 17 November about cold-related risks and shortages of winter shelter supplies. Figures here are attributed to the named agencies and their respective update dates; they are not presented as a new independent census.",
-      "Sham AI publication date and the UN update: 18 November 2026. The rainfall and field damage described in the update occurred before publication."
+      "In a field report published on 21 November at 00:08 EST (05:08 UTC), The Guardian described families continuing to live in crowded, damaged tents and struggling to find safer places to move. The newspaper attributed to the United Nations estimates that recent rain affected more than 220,000 people and damaged more than 40,000 shelters; these are UN estimates, not a new independent count.",
+      "Reuters had reported an IOM warning on 17 November about cold-related risks and shortages of winter shelter supplies. Figures here remain attributed to the named agencies and their respective update dates; they are not presented as a new independent census.",
+      "Original Sham AI publication date: 18 November 2026; editorial update date: 21 November 2026. UN update date: 18 November; Guardian report date: 21 November 2026, 00:08 EST (05:08 UTC)."
     ],
     "sources": [
-      {
-        "href": "https://palestine.un.org/en/326353-winter-rains-deepen-gaza-crisis-amid-restricted-access-and-aid-cuts",
-        "label": "United Nations in Palestine — 18 November update"
-      },
-      {
-        "href": "https://www.wfp.org/stories/hunger-crisis-looms-winter-hits-gaza",
-        "label": "World Food Programme — hunger crisis as winter hits Gaza"
-      },
-      {
-        "href": "https://www.reuters.com/world/middle-east/un-agency-warns-gaza-hypothermia-deaths-without-more-supplies-2026-11-17/",
-        "label": "Reuters — warning on shelter and winter supplies"
-      }
+      { "href": "https://palestine.un.org/en/326353-winter-rains-deepen-gaza-crisis-amid-restricted-access-and-aid-cuts", "label": "United Nations in Palestine — 18 November update" },
+      { "href": "https://www.wfp.org/stories/hunger-crisis-looms-winter-hits-gaza", "label": "World Food Programme — hunger crisis as winter hits Gaza" },
+      { "href": "https://www.reuters.com/world/middle-east/un-agency-warns-gaza-hypothermia-deaths-without-more-supplies-2026-11-17/", "label": "Reuters — warning on shelter and winter supplies" },
+      { "href": "https://www.theguardian.com/world/2026/nov/21/displaced-families-gaza-winter-misery", "label": "The Guardian — field report on displaced families, 21 November 2026" }
     ]
   },
   {

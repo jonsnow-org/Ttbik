@@ -197,6 +197,60 @@ test("21 November autonomous-weapons briefing is bilingual, source-matched and d
   assert.match(english.body.join(" "), /does not amount to a new international ban/i);
 });
 
+test("21 November Hormuz tanker incidents are grounded in UKMTO alerts and do not assign responsibility", () => {
+  const slug = "hormuz-tanker-incidents-khasab-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic);
+  assert.ok(english);
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.match(arabic.contextDateLabel, /05:00 UTC/);
+  assert.match(arabic.contextDateLabel, /05:50 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("ukmto.org")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
+  assert.match(arabic.paragraphs.join(" "), /لا تنسب هذه المادة الهجمات إلى طرف محدد/);
+  assert.match(english.body.join(" "), /does not attribute the attacks to any party/i);
+  assert.match(english.body.join(" "), /could not independently verify the Iranian account/i);
+});
+
+test("AI-led market sell-off separates the 20 November session from 21 November publication", () => {
+  const slug = "us-ai-tech-selloff-correction-november-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic);
+  assert.ok(english);
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.match(arabic.contextDateLabel, /جلسة السوق: الجمعة 20 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /Market session: Friday, 20 November 2026/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
+  assert.match(arabic.description, /3\.7%/);
+  assert.match(english.dek, /5\.3%/);
+  assert.match(english.body.join(" "), /not investment advice/i);
+});
+
+test("Gaza winter story preserves its original publication date and records the 21 November update in both languages", () => {
+  const slug = "gaza-winter-rains-shelter-crisis-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic);
+  assert.ok(english);
+  assert.equal(arabic.dateIso, "2026-11-18");
+  assert.equal(english.date, "18 November 2026");
+  assert.match(arabic.contextDateLabel, /تاريخ النشر الأصلي: 18 نوفمبر 2026/);
+  assert.match(arabic.contextDateLabel, /تحديث المادة: 21 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /Original publication: 18 November 2026/);
+  assert.match(english.contextDateLabel, /article updated: 21 November 2026/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com")));
+  assert.match(english.body.join(" "), /220,000 people/);
+  assert.match(english.body.join(" "), /40,000 shelters/);
+});
+
 test("the homepage resolves its event strip from the combined event catalogue, not the empty legacy array", () => {
   const expected = [...EVENT_ITEMS, ...EVENT_EXTRAS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
   assert.ok(expected, "The event catalogue should contain editorial events");
