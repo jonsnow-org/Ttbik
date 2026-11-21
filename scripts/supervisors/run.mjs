@@ -85,7 +85,7 @@ export function evaluate(d, now = Date.now()) {
     const [, name, maxH] = w.def;
     if (w.error) { add(`Workflow: ${name}`, "warn", `could not read runs (${w.error})`); continue; }
     const runs = w.runs || [];
-    const active = runs.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting");
+    const active = runs.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting" || r.status === "requested" || r.status === "pending");
     if (active) {
       const startedAt = active.run_started_at || active.created_at || active.updated_at;
       const activeAge = startedAt ? hours(startedAt, now) : Infinity;
