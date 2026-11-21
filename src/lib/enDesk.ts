@@ -13,6 +13,37 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "bepicolombo-mercury-orbit-insertion-status-2026",
+    "title": "BepiColombo's Mercury orbit insertion is scheduled for 21 November; completion remains unconfirmed",
+    "date": "21 November 2026",
+    "contextDateLabel": "Planned milestone date: 21 November 2026; ESA Quick-Look page timestamp: 21 November 2026, 17:34:35 UTC; Guardian publication date: 20 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "ESA lists 21 November for BepiColombo's Mercury orbit insertion. Its official operations dashboard showed the insertion phase and priority ground-station passes, but the latest page snapshot reviewed at 17:34:35 UTC did not confirm successful capture.",
+    "body": [
+      "The European Space Agency says the joint ESA–Japan Aerospace Exploration Agency BepiColombo spacecraft is scheduled to enter orbit around Mercury on 21 November 2026, after a journey of about eight years. ESA says this is not the end of the arrival sequence: the MPO and Mio orbiters are scheduled to separate on 9–10 December, and the science phase is due to begin in April 2027.",
+      "The ESA BepiColombo Quick-Look Analysis page carried a timestamp of 17:34:35 UTC on 21 November. It listed the orbit-insertion phase for that date and high-priority ground-station passes extending into 22 November. The page snapshot reviewed did not contain an explicit confirmation that orbital capture had succeeded or a mission-team completion announcement.",
+      "The Guardian reported on 20 November that the spacecraft had reached Mercury's vicinity and was preparing to enter orbit. That describes the approach phase, not confirmation that orbit insertion is complete. The operation is therefore reported as a scheduled 21 November milestone with completion status unconfirmed, not as a verified success.",
+      "Location: Mercury orbit; joint ESA/JAXA mission. Planned milestone date: 21 November 2026. Latest timestamp visible on the ESA dashboard reviewed: 17:34:35 UTC. Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://bepicolombo.esac.esa.int/bscs-qla/home",
+        "label": "ESA — BepiColombo Quick-Look Analysis and ground-station status, timestamped 17:34:35 UTC on 21 November"
+      },
+      {
+        "href": "https://www.esa.int/articles/about-us/directorates/science/bepicolombo/latest-updates-bepicolombo-s-arrival-at-mercury",
+        "label": "ESA — official arrival-phase and orbit-insertion schedule, 21 November 2026"
+      },
+      {
+        "href": "https://mio.isas.jaxa.jp/en/mission/",
+        "label": "JAXA — MIO mission page and Mercury arrival date, November 2026"
+      },
+      {
+        "href": "https://www.theguardian.com/science/2026/nov/20/spacecraft-mercury-second-ever-mission-orbit-bepicolombo",
+        "label": "The Guardian — spacecraft reaches Mercury's vicinity and prepares for orbit insertion, 20 November 2026"
+      }
+    ]
+  },
+  {
     "slug": "bahrain-industrial-facility-fire-2026",
     "title": "Bahrain reports Iranian attack on civilian industrial facility, with fire but no injuries",
     "date": "21 November 2026",
