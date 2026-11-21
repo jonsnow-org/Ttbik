@@ -127,6 +127,28 @@ test("APEC news and event records are updated after the 19 November meeting with
 });
 
 
+
+test("COP31 overtime briefing is bilingual, date-aware and distinguishes the draft from an adopted deal", () => {
+  const slug = "cop31-overtime-climate-talks-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic COP31 briefing is missing");
+  assert.ok(english, "English COP31 briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href === "https://unfccc.int/cop31"));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com")));
+  assert.match(arabic.description, /دون تسوية نهائية/);
+  assert.match(english.dek, /still unresolved/i);
+  assert.match(arabic.paragraphs.join(" "), /لا ينبغي عرض القمة على أنها حدث قادم/);
+  assert.match(english.body.join(" "), /must not be presented as upcoming/i);
+  assert.match(english.body.join(" "), /draft must not be described as an adopted agreement/i);
+});
+
 test("21 November autonomous-weapons briefing is bilingual, source-matched and does not overstate the outcome", () => {
   const slug = "ccw-autonomous-weapons-geneva-2026";
   const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
