@@ -8,7 +8,7 @@ const ok200 = () => true;
 const json = (f) => (t) => { try { return f(JSON.parse(t)); } catch { return false; } };
 const hasDigits = (t) => /\d/.test(t) && t.length > 50;
 
-// [label, path-on-gate-or-vercel, base ("gate"|"gate"|"oracle"), predicate, info(not a failure)]
+// [label, path-on-public-origin, base ("gate"|"standby"), predicate, info(not a failure)]
 export const SECTIONS = {
   zenobia: {
     site: [["coin pictures page", "/zenobia/coins.html", "gate", ok200], ["trade page", "/zenobia/trade.html", "gate", ok200], ["journey page", "/zenobia/journey.html", "gate", ok200],
