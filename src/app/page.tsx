@@ -17,7 +17,7 @@ const TOOL_GRADIENTS = [
 import BotCards from "@/components/BotCards";
 import TodayStrip from "@/components/TodayStrip";
 import SectionBackdrop from "@/components/SectionBackdrop";
-import { EVENT_ITEMS } from "@/lib/eventsIndex";
+import { latestEvent } from "@/lib/eventsIndex";
 import { latestNewsItem } from "@/lib/newsItems";
 
 export const revalidate = 30;
@@ -27,6 +27,7 @@ const ATHAR_BOT_URL = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/At
 
 export default async function HomePage() {
   const news = latestNewsItem();
+  const event = latestEvent();
 
   return (
     <div>
@@ -63,7 +64,7 @@ export default async function HomePage() {
       </section>
 
       <TodayStrip
-        latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
+        latestEvent={event && { slug: event.slug, title: event.title }}
         latestNews={news && { slug: news.slug, title: news.title }}
       />
 
