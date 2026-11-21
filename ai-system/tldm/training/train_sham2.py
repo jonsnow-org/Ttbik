@@ -385,6 +385,28 @@ def loop_benchmark(head, reader, tk_encode, cfg, episodes=60, seed=778, max_step
             "approvals_asked": approvals, "terminal": getattr(term_factory, "__name__", str(term_factory))}
 
 
+def load_loop_extra(path, encode, ln, block, cap=3000, share=0.2, base_rows=0, seed=5):
+    """Extra agent-loop views from real executed shell traces (data/snapshots, built by data/sham2_snapshots.py loop): (task, tail of the terminal history) -> "$ <command>".
+    At most `cap` rows and at most `share` of the mixed set (so the in-domain episodes stay the bulk). -> (xs, ys, count)."""
+    import gzip
+    if not path or not os.path.isfile(path):
+        return [], [], 0
+    opener = gzip.open if str(path).endswith(".gz") else open
+    rows = []
+    with opener(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            cmd = str(r.get("cmd") or "")
+            if cmd and len(("$ " + cmd).encode("utf-8")) <= block:
+                rows.append(r)
+    random.Random(seed).shuffle(rows)
+    room = int(base_rows * share / max(1e-6, 1 - share)) if base_rows else cap
+    rows = rows[:max(0, min(cap, room))]
+    xs = [loop_ids(encode, str(r.get("task") or ""), [(c, t) for c, t in (r.get("hist") or [])], ln) for r in rows]
+    ys = [encode_bytes("$ " + r["cmd"], block) for r in rows]
+    return xs, ys, len(rows)
+
+
 def head_args(cfg, d_in, block):
     return dict(d_in=d_in, d=int(cfg.get("head_d", 256)), latents=int(cfg["latents"]), think_steps=int(cfg["think_steps"]), block=block,
                 writer_layers=int(cfg["writer_layers"]), heads=int(cfg["heads"]))
@@ -428,12 +450,32 @@ def run_cached(body, encode, cfg, a, log=print):
         reader.feats(lx, ln)
         log(f"loop features: {len(lx)} views in {time.time() - t0:.0f}s")
         lcfg = dict(cfg, steps=int(cfg.get("loop_steps", 900)), batch=int(cfg.get("loop_batch", 64)))
+        ex, ey, nex = load_loop_extra(getattr(a, "loop_extra", ""), encode, ln, int(cfg["loop_block"]), base_rows=len(lx))
+        if nex:
+            t0 = time.time()
+            reader.feats(ex, ln)
+            log(f"loop extra: {nex} real shell views (UltraData) in {time.time() - t0:.0f}s")
         for seed in range(int(a.loop_seeds)):
             head = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["loop_block"])))
             train_head(head, reader, lx, ly, ln, lcfg, seed, log)
             b = loop_benchmark(head, reader, encode, cfg, episodes=int(cfg.get("loop_eval_episodes", 60)), term_factory=tf)
             log(f"loop seed {seed}: full task {b['all']['success']} simple {b['simple']['success']} multi-step {b['multi_step']['success']}")
-            res["loop"].append({"seed": seed, **b})
+            entry = {"seed": seed, **b, "variant": "in-domain only"}
+            if nex:
+                # A/B inside the same run: the head trained with the extra real traces is shipped only if it does NOT lose on the in-domain full-task benchmark (a tie keeps the in-domain head)
+                head2 = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["loop_block"])))
+                train_head(head2, reader, lx + ex, ly + ey, ln, lcfg, seed, log)
+                b2 = loop_benchmark(head2, reader, encode, cfg, episodes=int(cfg.get("loop_eval_episodes", 60)), term_factory=tf)
+                log(f"loop seed {seed} +extra: full task {b2['all']['success']} simple {b2['simple']['success']} multi-step {b2['multi_step']['success']}")
+                entry["extra_rows"] = nex
+                entry["with_extra"] = {"all": b2["all"]["success"], "simple": b2["simple"]["success"], "multi_step": b2["multi_step"]["success"]}
+                if b2["all"]["success"] > b["all"]["success"]:
+                    head, b, entry = head2, b2, {"seed": seed, **b2, "variant": "with extra real shell traces", "extra_rows": nex,
+                                                 "in_domain_only": {"all": entry["all"]["success"]}}
+                    log("loop: the head WITH the extra traces wins and is the one shipped")
+                else:
+                    log("loop: the in-domain head is kept (the extra traces did not win)")
+            res["loop"].append(entry)
             heads[f"loop_seed{seed}"] = {k: v.detach().cpu() for k, v in head.state_dict().items()}
     res["body_read_secs"] = round(reader.secs, 1)
     if ident is not None:
@@ -460,6 +502,7 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=1)
     ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
     ap.add_argument("--loop_seeds", type=int, default=1)
+    ap.add_argument("--loop_extra", default="", help="(--cached --loop) JSONL(.gz) of real executed shell views (data/sham2_snapshots.py loop); trained as a second loop head, shipped only if it wins the in-domain benchmark")
     ap.add_argument("--identity", action="store_true", help="(--cached) train the body's LoRA on data/identity.py first; check identity before/after")
     ap.add_argument("--identity_steps", type=int, default=80)
     ap.add_argument("--terminal", default="computer", help="computer = Sham's own embedded computer (default, owner 2026-11-18) | sandbox = the test sandbox")
