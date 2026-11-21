@@ -36,7 +36,7 @@ export const SECTIONS = {
   },
   promo: {
     site: [],
-    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200]],
+    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"], ["claude/free-services-marketplace-h6rwk2"]]],
     errorWords: /promo|channel|youtube|video|post/i,
   },
   athar: {
@@ -60,7 +60,12 @@ export function evaluate(d, now = Date.now()) {
   for (const w of d.workflows || []) {
     const [, name, maxH] = w.def;
     if (w.error) { add(`Workflow: ${name}`, "warn", `could not read runs (${w.error})`); continue; }
-    const runs = w.runs || [];
+    // A PR validation for promo-projects only checks generator code; it does not create review assets.
+    // Optional allowed events in def[3] keep validation-only runs out of the generation freshness signal.
+    const runs = (w.runs || []).filter((r) =>
+      (!w.def[3] || w.def[3].includes(r.event)) &&
+      (!w.def[4] || w.def[4].includes(r.head_branch))
+    );
     const active = runs.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting" || r.status === "requested" || r.status === "pending");
     if (active) {
       const startedAt = active.run_started_at || active.created_at || active.updated_at;
@@ -156,7 +161,7 @@ async function main() {
     const cfg = SECTIONS[section];
     const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
     for (const [label, path, b, pred, info] of cfg.site) { const r = b === "gate" ? await publicSiteHttp(site, path) : await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info, via: r.via || b }); }
-    for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
+    for (const def of cfg.workflows) { const perPage = def[3] ? 100 : 10; const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=${perPage}`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
     if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
       try {
         const r = await publicSiteHttp(site, "/api/ops/bots-health", 60000, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
