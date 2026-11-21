@@ -13,6 +13,26 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "ccw-autonomous-weapons-geneva-2026",
+    "title": "UN talks extend work on autonomous weapons to 2028 without binding rules",
+    "date": "21 November 2026",
+    "contextDateLabel": "Official Geneva conference schedule: 16–20 November 2026; negotiations reported to have ended early on 21 November; publication date: 21 November 2026",
+    "dek": "States agreed to continue work toward a possible instrument on lethal autonomous weapons by 2028, but did not commit to binding rules or settle the future instrument's legal status.",
+    "body": [
+      "States parties to the Convention on Certain Conventional Weapons held their seventh review conference in Geneva. The UN Office at Geneva lists the official conference dates as 16–20 November 2026; Reuters and the Associated Press reported that final negotiations continued into the early hours of Saturday, 21 November. The scheduled conference dates and the reported end of negotiations are therefore stated separately.",
+      "Reuters and AP reported that the compromise calls for further work to elaborate a possible instrument on lethal autonomous weapon systems by 2028. It does not commit states to begin negotiations on a legally binding treaty, and it leaves open whether any future instrument would be legally binding. AP reported that a proposal by seven countries to launch negotiations on binding rules did not succeed.",
+      "Reuters said around 100 countries supported binding international rules, while the United States, Russia and Israel opposed that route. AP reported that UN officials described the extension as a significant achievement, while acknowledging that it fell short of the Secretary-General's goal of launching negotiations in 2026. These are positions attributed to the cited reports, not a treaty vote.",
+      "The UN Office at Geneva says the 2024–2026 Group of Governmental Experts produced elements for a possible instrument without prejudging its legal nature. The UN also says the Convention on Certain Conventional Weapons currently has no protocol specifically regulating autonomous weapon systems. The Geneva outcome therefore does not amount to a new international ban or an in-force treaty.",
+      "Location: Geneva, Switzerland. Official conference schedule: 16–20 November 2026; negotiations reportedly concluded early on 21 November. Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      { "href": "https://www.ungeneva.org/en/meetings-events/events/observances-special-events/2026/11/seventh-review-conference-high", "label": "UN Office at Geneva — official conference dates and background" },
+      { "href": "https://www.un.org/en/node/250267", "label": "United Nations — autonomous weapon systems frequently asked questions" },
+      { "href": "https://www.reuters.com/world/states-agree-to-un-talks-aiming-regulate-killer-robots-by-2028-2026-11-21/", "label": "Reuters — outcome of the Geneva talks, 21 November 2026" },
+      { "href": "https://apnews.com/article/un-drones-robots-un-lethal-ai-weapons-ebe057d2a47cde53100970c8f648e7fa", "label": "Associated Press — two-year extension and lack of binding rules" }
+    ]
+  },
+  {
     "slug": "icj-myanmar-rohingya-judgment-2026",
     "title": "World Court finds Myanmar responsible for Rohingya genocide",
     "date": "20 November 2026",
