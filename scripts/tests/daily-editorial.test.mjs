@@ -238,6 +238,25 @@ test("21 November Hormuz tanker incidents are grounded in UKMTO alerts and do no
 });
 
 
+
+test("BepiColombo coverage separates the scheduled Mercury insertion from a confirmed success", () => {
+  const arabic = NEWS_ITEMS.find((entry) => entry.slug === "bepicolombo-mercury-orbit-insertion-status-2026");
+  const english = EN_NEWS.find((entry) => entry.slug === "bepicolombo-mercury-orbit-insertion-status-2026");
+  assert.ok(arabic && english);
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("bepicolombo.esac.esa.int")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("esa.int")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("jaxa.jp")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com")));
+  assert.match(arabic.description, /حالة التنفيذ غير مؤكدة/);
+  assert.match(arabic.paragraphs.join(" "), /17:34:35 UTC/);
+  assert.match(english.body.join(" "), /completion status unconfirmed/i);
+  assert.doesNotMatch(english.title, /successfully entered orbit/i);
+});
+
 test("21 November humanitarian and security updates are bilingual, source-matched and preserve attribution", () => {
   const cases = [
     {
