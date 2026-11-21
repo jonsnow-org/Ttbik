@@ -39,3 +39,10 @@ test("Remotion validates only existing channels and selects origin after choosin
   assert.match(workflow, /remotion_publish\.py episode\.json/);
   assert.doesNotMatch(workflow, /vercelUrl/);
 });
+test("unknown Telegram album outcome never triggers a fallback duplicate photo", () => {
+  const source = read("src/lib/channelRotation.ts");
+  const unknown = source.indexOf('if (result === "unknown") return false;');
+  const fallback = source.indexOf('return (await call("sendPhoto"');
+  assert.ok(unknown >= 0 && fallback > unknown);
+  assert.match(source, /data\?\.ok === false \? "rejected" : "unknown"/);
+});
