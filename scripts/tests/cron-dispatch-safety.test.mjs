@@ -31,6 +31,14 @@ test("monitor never dispatches or reruns Actions", () => {
   assert.match(source, /RERUN_OK = new Set\(\)/);
 });
 
+test("unknown Telegram album outcome never triggers a fallback duplicate photo", () => {
+  const source = read("src/lib/channelRotation.ts");
+  const unknown = source.indexOf('if (result === "unknown") return false;');
+  const fallback = source.indexOf('return (await call("sendPhoto"');
+  assert.ok(unknown >= 0 && fallback > unknown);
+  assert.match(source, /data\?\.ok === false \? "rejected" : "unknown"/);
+});
+
 test("Remotion validates only existing channels and selects origin after choosing episode", () => {
   const workflow = read(".github/workflows/promo-remotion.yml");
   const pick = workflow.indexOf("id: pick");
