@@ -29,10 +29,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - name: select public origin (Gate first, Oracle fallback)
-        if: steps.pick.outputs.id != ''
-        working-directory: .
-        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: Pick episode
         id: pick
         run: |
@@ -41,6 +37,10 @@ jobs:
           ID=$(python3 scripts/prepare.py "$DONE" "$FORCE")
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           if [ -z "$ID" ]; then echo "All episodes rendered. Add more to episodes.json."; fi
+      - name: select public origin (Gate first, Oracle fallback)
+        if: steps.pick.outputs.id != ''
+        working-directory: .
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         if: steps.pick.outputs.id != ''
         with:
