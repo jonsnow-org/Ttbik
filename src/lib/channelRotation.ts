@@ -8,6 +8,7 @@ import { isSafeForChannel } from "@/lib/channelPublisher";
 import { supabaseAdmin } from "@/lib/supabase";
 import { buildPool, formatPost, ROTATION, type PoolFlags, type PoolItem } from "@/lib/channelPool";
 import { getConfig } from "@/lib/znbtConfig";
+import { ensureEnglishFirst } from "@/lib/publicChannelPolicy";
 
 /**
  * Channel rotation. Owner list, 2026-10-09:
@@ -225,7 +226,7 @@ async function sendMedia(captionText: string, media: { photo: string; video?: st
     const data = res ? await res.json().catch(() => null) : null;
     return data?.ok === true;
   };
-  const cap = captionText.slice(0, 1000);
+  const cap = ensureEnglishFirst(captionText).slice(0, 1000);
   if (media.video) {
     // image + video in one album; the caption sits on the first item
     const ok = await call("sendMediaGroup", {
@@ -246,7 +247,7 @@ async function sendText(captionText: string): Promise<boolean> {
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: channel, text: captionText.slice(0, 4000), link_preview_options: { is_disabled: true } }),
+    body: JSON.stringify({ chat_id: channel, text: ensureEnglishFirst(captionText).slice(0, 4000), link_preview_options: { is_disabled: true } }),
   }).catch(() => null);
   const data = res ? await res.json().catch(() => null) : null;
   return data?.ok === true;
