@@ -94,6 +94,56 @@ class ShamMedia:
         return raw
 
 
+class GradioMedia:
+    """The same four calls (ask / text / make) as ShamMedia, over a Studio's Gradio API (the way the real Sham Pro Studio is served: api_name understand_media,
+    generate_chat, generate_media; protocol POST /gradio_api/call/v2/<api> then GET the event stream, as ai-system/colab/sham_small/web/studio_client.py proved).
+    It is ONE model's client: the address and the token are given by the caller, there is no default and no fallback to another model's Studio, and a busy / notice /
+    error answer is raised as a failure (the coordinator retries or replans) and never turned into a result."""
+
+    def __init__(self, base_url: str, token: str, timeout: float = 180.0, session=None):
+        if not base_url or not token:
+            raise ValueError("a Studio address and its token are both required (no default Studio, no other model's Studio)")
+        import requests
+        self.base, self.timeout = base_url.rstrip("/"), timeout
+        self.http = session or requests
+        self.headers = {"Authorization": f"Bearer {token}", "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
+
+    def _call(self, api: str, payload: dict):
+        sub = self.http.post(f"{self.base}/gradio_api/call/v2/{api}", headers=self.headers, json=payload, timeout=30)
+        sub.raise_for_status()
+        res = self.http.get(f"{self.base}/gradio_api/call/{api}/{sub.json()['event_id']}", headers=self.headers, timeout=self.timeout, stream=True)
+        res.raise_for_status()
+        for line in res.iter_lines():
+            line = line.decode("utf-8", "replace") if isinstance(line, bytes) else line
+            if line and line.startswith("data:"):
+                data = json.loads(line[len("data:"):].strip())
+                if isinstance(data, list) and data:
+                    out = data[0]
+                    return json.loads(out) if isinstance(out, str) and out[:1] in "{[" else out
+        raise RuntimeError(f"{api}: the Studio sent no result")
+
+    @staticmethod
+    def _ok(res, *types):
+        if not isinstance(res, dict) or res.get("type") not in types:
+            what = (res.get("text") or res.get("reason") or res.get("type")) if isinstance(res, dict) else str(res)[:80]
+            raise RuntimeError(f"studio did not answer: {str(what)[:160]}")      # busy / notice / error: reported, never faked
+        return res
+
+    def ask(self, kind: str, filename: str, data: bytes, question: str) -> dict:
+        import base64
+        r = self._ok(self._call("understand_media", {"kind": kind, "b64": base64.b64encode(data).decode("ascii"), "question": question, "teach": "", "num_frames": 2}), "text")
+        return {"answer": r.get("text", "")}
+
+    def text(self, prompt: str, max_new_tokens: int = 200) -> str:
+        msgs = json.dumps([{"role": "user", "content": prompt}], ensure_ascii=False)
+        return str(self._ok(self._call("generate_chat", {"messages_json": msgs, "max_new_tokens": max_new_tokens, "temperature": 0.6, "think_tokens": 0}), "text").get("text", ""))
+
+    def make(self, kind: str, prompt: str, num_frames: int = 2) -> bytes:
+        import base64
+        r = self._ok(self._call("generate_media", {"kind": kind, "prompt": prompt}), kind)
+        return base64.b64decode(r["b64"])
+
+
 EXT = {"image": ".png", "audio": ".wav", "video": ".mp4"}
 
 

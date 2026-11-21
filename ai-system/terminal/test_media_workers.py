@@ -143,6 +143,81 @@ def media_steps_cannot_read_or_write_outside_the_task_folder():
     assert c.run(c.new_task("g")).status == "failed"
 
 
+class Gr(BaseHTTPRequestHandler):
+    """A fake Studio shaped like Gradio's call/v2 + event-stream protocol and the real api_names/results of modelscope-sham/app.py."""
+    EV = {}
+    SEEN_AUTH = []
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        import base64
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        Gr.SEEN_AUTH.append(self.headers.get("Authorization"))
+        api = self.path.rsplit("/", 1)[-1]
+        if api == "understand_media":
+            out = {"type": "text", "text": f"I see a {body['kind']}"}
+        elif api == "generate_chat":
+            out = {"type": "text", "text": "[]" if "PLAN" in body["messages_json"] else "# Report"}
+        elif api == "generate_media":
+            m = body["prompt"].split()[0]
+            data = png(m) if body["kind"] == "image" else wav(m)
+            out = {"type": body["kind"], "b64": base64.b64encode(data).decode()} if m != "busy" else {"type": "busy", "text": "الاستوديو مشغول"}
+        else:
+            out = {"type": "error"}
+        eid = str(len(Gr.EV)); Gr.EV[eid] = out
+        b = json.dumps({"event_id": eid}).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+    def do_GET(self):
+        out = Gr.EV[self.path.rsplit("/", 1)[-1]]
+        b = ("event: complete\ndata: " + json.dumps([json.dumps(out)]) + "\n\n").encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+
+def gradio_coord(plan):
+    from media_workers import GradioMedia
+    srv = HTTPServer(("127.0.0.1", 0), Gr)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    c = Coordinator(tempfile.mkdtemp(prefix="gr_"), P(plan))
+    install(c, GradioMedia(f"http://127.0.0.1:{srv.server_port}", "tok-123", timeout=10))
+    open(os.path.join(c.dir, "photo.png"), "wb").write(png("good"))
+    return c
+
+
+@test
+def the_gradio_adapter_runs_see_write_make_against_a_studio_shaped_service():
+    plan = [{"id": "look", "kind": "see", "args": {"media": "image", "file": "photo.png"}, "check": {"file": "look.json", "has": "I see a image"}},
+            {"id": "text", "kind": "write", "args": {"prompt": "write"}, "needs": ["look"], "check": {"file": "text.md", "has": "# Report"}},
+            {"id": "pic", "kind": "make", "args": {"media": "image", "prompt": "good sunset"}, "check": {"file": "pic.png", "quality": True}},
+            {"id": "snd", "kind": "make", "args": {"media": "audio", "prompt": "good tone"}, "check": {"file": "snd.wav", "quality": True}}]
+    c = gradio_coord(plan)
+    t = c.run(c.new_task("g"))
+    assert t.status == "done", t.log
+    assert set(Gr.SEEN_AUTH) == {"Bearer tok-123"}
+
+
+@test
+def a_busy_studio_and_a_noise_picture_fail_the_step_never_become_a_result():
+    for prompt, name in (("busy x", "b.png"), ("noise x", "n.png")):
+        c = gradio_coord([{"id": "p", "kind": "make", "args": {"media": "image", "prompt": prompt, "out": name}, "check": {"file": name, "quality": True}}])
+        t = c.run(c.new_task("g"))
+        assert t.status == "failed" and not os.path.exists(os.path.join(c.dir, name)), (prompt, t.log)
+
+
+@test
+def the_adapter_has_no_default_studio_and_the_planner_refuses_a_bad_plan():
+    from media_workers import GradioMedia
+    for args in (("", "t"), ("http://x", "")):
+        try:
+            GradioMedia(*args); raise SystemExit("must refuse")
+        except ValueError:
+            pass
+    from sham_pro_agent import _json_list
+    assert _json_list("junk") == [] and _json_list('x [{"id":"a","kind":"make","args":{}}] y')[0]["kind"] == "make" and _json_list('[1,2]') == []
+
+
 if __name__ == "__main__":
     bad = 0
     for f in TESTS:
