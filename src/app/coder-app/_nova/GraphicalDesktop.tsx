@@ -17,6 +17,14 @@ function computerPlace(model: string, ar: boolean): string {
   return ar ? "الحاسوب المركزي المشترك" : "the shared computer hub";
 }
 
+const SITES = [
+  { url: "https://www.youtube.com/", ar: "يوتيوب", en: "YouTube" },
+  { url: "https://www.google.com/", ar: "بحث", en: "Search" },
+  { url: "https://www.wikipedia.org/", ar: "ويكيبيديا", en: "Wikipedia" },
+  { url: "https://maps.google.com/", ar: "خرائط", en: "Maps" },
+  { url: "https://translate.google.com/", ar: "ترجمة", en: "Translate" },
+];
+
 export default function GraphicalDesktop({ model, ar }: { model: string; ar: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [frame, setFrame] = useState("");
@@ -52,7 +60,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   // The desktop is created in the shape of the page's own screen area (a phone is tall), so the picture fills it
   // instead of leaving a black band below a short landscape screen.
   const desktopSize = () => {
-    const width = 640;       // phone-sized: the picture is shown at about half size, so the hub draws everything bigger and a fingertip can hit it
+    const width = 720;       // still under 800, so the desktop keeps large icons a fingertip can hit
     const frameWidth = frameBox.current?.getBoundingClientRect().width || 340;
     const room = Math.max(420, (typeof window !== "undefined" ? window.innerHeight : 800) - 230);
     return { width, height: Math.max(700, Math.min(1200, Math.round((width * room) / frameWidth))) };
@@ -411,7 +419,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     if (!el || !running || !sw || !sh) { setFit(null); return; }
     const measure = () => {
       const availW = el.clientWidth || 320;
-      const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 230 : 320));
+      const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 278 : 368));
       const w = Math.floor(Math.min(availW, availH * (sw / sh)));
       setFit({ w, h: Math.floor(w * (sh / sw)) });
     };
@@ -518,6 +526,11 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "terminal" })}>🖥 {ar ? "طرفية" : "Terminal"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "browser" })}>🌐 {ar ? "متصفح" : "Browser"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "files" })}>📁 {ar ? "ملفات" : "Files"}</button>
+          </div>
+          <div style={bar} role="toolbar" aria-label={ar ? "تطبيقات الشاشة" : "Desktop apps"}>
+            {SITES.map((site) => (
+              <button key={site.url} type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "browser", url: site.url })}>{ar ? site.ar : site.en}</button>
+            ))}
           </div>
           <div className="n-meta" style={{ fontSize: 11 }}>
             {ar ? "نقرة قصيرة = نقر، لمسة طويلة = زر يمين، سحب بإصبعين = تكبير وتحريك، سحب بإصبع = تمرير (أو سحب العناصر في وضع السحب)." : "Short tap = click, long press = right click, two fingers = zoom and pan, one finger = scroll (or drag items in Drag mode)."}
