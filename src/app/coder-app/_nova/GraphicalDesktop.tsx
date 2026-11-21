@@ -9,6 +9,14 @@ import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
 
 // The page draws only the screen. The apps are a real taskbar INSIDE the Linux desktop (tint2 on the hub), so tapping them is
 // tapping the screen; nothing here sits beside it (owner's order 2026-11-09).
+
+function computerPlace(model: string, ar: boolean): string {
+  if (model === "sham_v2") return ar ? "استوديو شام برو" : "Sham Pro's own Studio";
+  if (model === "sham") return ar ? "استوديو شام" : "Sham's own Studio";
+  if (model === "nova2") return ar ? "حاسوب نوفا 2 الخاص" : "Nova 2's own computer";
+  return ar ? "الحاسوب المركزي المشترك" : "the shared computer hub";
+}
+
 export default function GraphicalDesktop({ model, ar }: { model: string; ar: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [frame, setFrame] = useState("");
@@ -447,9 +455,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       </div>
       {!running ? (
         <div className="n-meta" style={{ marginBottom: 8 }}>
-          {model === "sham_v2"
-            ? (ar ? "الذاكرة المتاحة في استوديو شام 2: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Memory available in Sham 2's own Studio: " + available + ". Start requires at least 3072 MB.")
-            : (ar ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Computer hub memory available: " + available + ". Start requires at least 3072 MB.")}
+          {ar ? "الذاكرة المتاحة في " + computerPlace(model, ar) + ": " + available + ". يتطلب البدء 3072 MB على الأقل." : "Memory available in " + computerPlace(model, ar) + ": " + available + ". Start requires at least 3072 MB."}
           {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
         </div>
       ) : null}
@@ -473,9 +479,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <div className="n-meta">
             {preparing
               ? (ar ? "يتم تجهيز خادم الشاشة ومدير النوافذ والطرفية. ستظهر الشاشة عند اكتمال التشغيل." : "Preparing the display server, window manager and terminal. The screen appears when startup completes.")
-              : (model === "sham_v2"
-                ? (ar ? "هذا سطح مكتب Linux رسومي يعمل داخل استوديو شام 2 نفسه؛ جلسة المستخدم وملفاته محفوظة هناك. شغّله لعرض الشاشة والتحكم بها." : "This Linux desktop runs inside Sham 2's own Studio; the user's session and files stay there. Start it to view and control it.")
-                : (ar ? "هذا سطح مكتب Linux رسومي على الحاسوب المركزي؛ لكل مستخدم ونموذج جلسة وملفات منفصلة. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux session on the shared computer hub, isolated by user and selected model. Start it to view and control the screen."))}
+              : (ar ? "هذا سطح مكتب Linux رسومي على " + computerPlace(model, ar) + ". الجلسة والملفات تخص هذا النموذج فقط، ولا تُفتح على حاسوب نموذج آخر. شغّله لعرض الشاشة والتحكم بها." : "This graphical Linux desktop runs on " + computerPlace(model, ar) + ". The session and files belong to this model only and are not opened on another model's computer. Start it to view and control the screen.")}
           </div>
         </div>
       )}
@@ -486,7 +490,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <input ref={typeRef} aria-label={ar ? "اكتب هنا ليصل النص إلى الشاشة" : "Type here to send text to the screen"} placeholder={ar ? "اكتب هنا — يصل إلى الشاشة فورًا" : "Type here — goes to the screen at once"}
             dir="auto" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="send"
             onChange={(e) => onTypeInput(e.currentTarget.value)} onKeyDown={typeKey}
-            style={{ flex: 1, minWidth: 0, height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid #5eead4", background: "#0b1220", color: "#fff", font: "15px system-ui" }} />
+            style={{ flex: 1, minWidth: 0, height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid #5eead4", background: "#0b1220", color: "#fff", font: "16px system-ui" }} />
           <button type="button" style={btn()} onClick={() => { enqueue({ key: "Return" }); if (typeRef.current) typeRef.current.value = ""; typed.current = ""; }}>↵</button>
           <button type="button" style={btn()} onClick={() => setKbOn(false)} aria-label={ar ? "إغلاق" : "Close"}>✕</button>
         </div>
