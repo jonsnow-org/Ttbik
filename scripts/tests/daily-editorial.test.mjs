@@ -138,7 +138,7 @@ test("COP31 overtime briefing is bilingual, date-aware and distinguishes the dra
   assert.equal(english.date, "21 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
   assert.match(arabic.contextDateLabel, /14:36 UTC/);
-  assert.match(english.contextDateLabel, /18:46 UTC/);
+  assert.match(english.contextDateLabel, /19:25 UTC/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href === "https://unfccc.int/cop31"));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
