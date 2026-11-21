@@ -3,6 +3,7 @@
 import { supabaseAdmin } from "@/lib/supabase";
 import { channelBotToken, isSafeForChannel } from "@/lib/channelPublisher";
 import { posterToken } from "@/lib/coinsChannel";
+import { isEnglishOnlyPublicText } from "@/lib/publicChannelPolicy";
 import { HOSTING } from "@/lib/hostingOps";
 
 type Where = "general" | "coins";
@@ -40,6 +41,7 @@ export async function announce(id: string, to: Where | "both", dry = false): Pro
     if (state[key]) { out[where] = "already-sent"; continue; }
     const text = a.text[where];
     if (!isSafeForChannel(text)) { out[where] = "blocked-by-filter"; continue; }
+    if (where === "coins" && !isEnglishOnlyPublicText(text, ...a.buttons.flatMap((button) => [button.text, button.url]))) { out[where] = "non-english-content-blocked"; continue; }
     if (dry) { out[where] = "dry-run"; continue; }
     const token = where === "coins" ? (await posterToken()) || (await channelBotToken()) : await channelBotToken();
     const chat = where === "coins" ? process.env.TELEGRAM_COINS_CHANNEL_ID || "@Zenobiaton" : process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
