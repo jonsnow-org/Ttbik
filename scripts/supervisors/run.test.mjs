@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluate, overall, render, SECTIONS, decideRerun } from "./run.mjs";
+import { evaluate, overall, render, SECTIONS, decideRerun, RERUN_OK } from "./run.mjs";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const run = (c, h) => ({ conclusion: c, updated_at: new Date(NOW - h * 3600_000).toISOString(), html_url: "u" });
@@ -27,19 +27,28 @@ test("render carries the status marker and every section has config", () => {
   for (const k of ["zenobia", "palmyra-launch", "telegram-bots", "site-content", "athar"]) assert.ok(SECTIONS[k].site.length && SECTIONS[k].workflows.length);
 });
 
-test("tier-1 rerun: only after 12 h, once, when nobody fixed it and nobody is working", () => {
-  const f = (m, extra = {}) => ({ conclusion: "failure", run_attempt: 1, updated_at: new Date(NOW - m * 60000).toISOString(), ...extra });
-  const base = (over) => ({ file: "znbt-index.yml", runs: [f(13 * 60)], active: [], lastPushAt: new Date(NOW - 60 * 60000).toISOString(), paused: false, ...over });
-  assert.equal(decideRerun(base({}), NOW).ok, true);
-  assert.equal(decideRerun(base({ runs: [f(11 * 60)] }), NOW).ok, false);                       // too fresh
-  assert.equal(decideRerun(base({ runs: [f(13 * 60, { run_attempt: 2 })] }), NOW).ok, false);   // already retried
-  assert.equal(decideRerun(base({ runs: [f(13 * 60), { conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }] }), NOW).ok, false);
-  assert.equal(decideRerun(base({ runs: [{ conclusion: "success", updated_at: new Date(NOW - 5 * 60000).toISOString() }, f(13 * 60)] }), NOW).ok, false);   // latest is a success
-  assert.equal(decideRerun(base({ active: [{ id: 1 }] }), NOW).ok, false);                  // someone re-dispatched
-  assert.equal(decideRerun(base({ lastPushAt: new Date(NOW - 5 * 60000).toISOString() }), NOW).ok, false);   // someone is pushing
-  assert.equal(decideRerun(base({ paused: true }), NOW).ok, false);                         // bots-pause label
-  assert.equal(decideRerun(base({ file: "athar-mints.yml" }), NOW).ok, false);              // never money / posting workflows
-  assert.equal(decideRerun(base({ file: "channel-post.yml" }), NOW).ok, false);
+test("supervisor is strictly read-only and never reruns a workflow", () => {
+  const failed = { conclusion: "failure", run_attempt: 1, updated_at: new Date(NOW - 24 * 3600_000).toISOString() };
+  assert.equal(RERUN_OK.size, 0);
+  for (const file of ["znbt-index.yml", "znbt-guard.yml", "promo-projects.yml", "channel-post.yml", "coins-channel-post.yml", "promo-remotion.yml", "athar-stars.yml"]) {
+    assert.equal(decideRerun({ file, runs: [failed], active: [], paused: false }, NOW).ok, false, file);
+  }
+});
+
+test("a running workflow is reported as running, not as a stale missing success", () => {
+  const recent = { status: "in_progress", created_at: new Date(NOW - 5 * 60000).toISOString(), html_url: "active-run" };
+  const checks = evaluate({ workflows: [{ def, runs: [recent, run("success", 10)] }] }, NOW);
+  const c = checks.find((x) => x.name === "Workflow: A");
+  assert.equal(c.level, "ok");
+  assert.match(c.detail, /in_progress/);
+  const old = { ...recent, created_at: new Date(NOW - 8 * 3600_000).toISOString() };
+  const oldCheck = evaluate({ workflows: [{ def, runs: [old, run("success", 10)] }] }, NOW).find((x) => x.name === "Workflow: A");
+  assert.equal(oldCheck.level, "warn");
+});
+
+test("site checks include the route used for the public origin", () => {
+  const c = evaluate({ site: [{ label: "home", status: 200, ok: true, via: "oracle" }] });
+  assert.match(c[0].detail, /via oracle/);
 });
 
 test("bots live check: broken webhook fails, healthy passes, unreadable warns", () => {
@@ -77,6 +86,7 @@ test("the ONE monitoring report: every section in one body, overall status first
   assert.match(all, /✅ \*\*athar\*\*: all good/);
   assert.match(renderAll([{ section: "athar", checks: good }], "d"), /<!-- status:ok -->/);
   for (const k of ["zenobia", "palmyra-launch", "telegram-bots", "site-content", "athar", "promo"]) assert.ok(SECTIONS[k]);
-  // the monitor never lists itself under a section that could wake it for nothing, and the removed bots are gone from the repair list
+  // the monitor never includes the removed supervisor as a separate workflow.
   assert.ok(!JSON.stringify(SECTIONS).includes("error-triage"));
+  assert.equal(RERUN_OK.size, 0);
 });

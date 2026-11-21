@@ -18,7 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: deploy/hosting/site.json
+          sparse-checkout: |
+            deploy/hosting/site.json
+            scripts/hosting/select-site-base.sh
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: send
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -26,7 +30,6 @@ jobs:
           TO: ${{ github.event.inputs.to }}
           DRY: ${{ github.event.inputs.dry }}
         run: |
-          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
           code=$(curl -sS -o resp.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" -G "${SITE_BASE}/api/cron/announce" --data-urlencode "id=${ID}" --data-urlencode "to=${TO}" ${DRY:+--data-urlencode "dry=1"})
           echo "HTTP $code"; cat resp.json; echo
           [ "$code" = "200" ]

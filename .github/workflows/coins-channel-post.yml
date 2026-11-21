@@ -16,9 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: deploy/hosting/site.json
-      - name: the site's public address (deploy/hosting/site.json)
-        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+          sparse-checkout: |
+            deploy/hosting/site.json
+            scripts/hosting/select-site-base.sh
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: publish
         run: |
           if [ -z "${CRON_SECRET}" ]; then
@@ -30,10 +32,10 @@ jobs:
           cat body.json
           echo
           if [ "${code}" = "401" ]; then
-            echo "::error::CRON_SECRET in GitHub does not match the one in Vercel"
+            echo "::error::CRON_SECRET in GitHub does not match the site's configured secret"
             exit 1
           fi
-          [ "${code}" -lt 500 ]
+          [[ "${code}" =~ ^2[0-9][0-9]$ ]]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DRY: ${{ github.event.inputs.dry }}

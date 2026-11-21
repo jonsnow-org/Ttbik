@@ -5,6 +5,7 @@ import { callGroq } from "@/lib/groq";
 import { fetchTopStories } from "@/lib/newsRss";
 import { CHANNEL_CHANGELOG } from "@/lib/channelChangelog";
 import sitemap from "@/app/sitemap";
+import { ensureEnglishFirst, hasEarningsClaim as policyHasEarningsClaim, isExcludedPublicPromoProductText } from "@/lib/publicChannelPolicy";
 
 /**
  * Telegram channel publisher (owner request, 2026-09-25): three runs a day
@@ -21,12 +22,6 @@ import sitemap from "@/app/sitemap";
  *      service page…) → one short "tweet" per page, from its own public
  *      <title>/<meta description>.
  * Slot 1 also posts a daily digest of the top news stories, linking to /news.
- * Independently of slot or new content, once every 7 days it also posts a
- * reminder that the owner personally builds a bot on request — the AD_BOT
- * "أريد بوتاً مماثلاً" $100 manual-purchase flow (owner request, 2026-09-05:
- * the service exists but gets no customers without recurring marketing in
- * the channel; see weeklyBotPromoPost()).
- *
  * Every outgoing text also passes isSafeForChannel() as a last line of
  * defence. Progress (what was already posted, which pages are known) is
  * kept in bot_settings under STATE_KEY.
@@ -41,7 +36,6 @@ type State = {
   posted: string[]; // changelog ids + "ann:<id>" + "page:<path>"
   pages: string[] | null; // known sitemap paths; null until the first baseline
   newsDay: string; // YYYY-MM-DD of the last news digest
-  lastBotPromoAt: string; // ISO timestamp of the last weekly "/bots" reminder
 };
 
 export type Post = { kind: string; key: string; text: string };
@@ -65,15 +59,13 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /8452320/,
 ];
 
-/** A claim of earnings or returns. The owner's rule: no public text promises profit or return, in any form. Used on the weekly bot promo, whose
- *  wording used to say the bot "distributes viewing profits" and whose model-written hook could say anything. */
-const EARNINGS_CLAIM = /(أرباح|ارباح|اربح|ربح|عائد|عوائد|مضاعفة|ضمان|دخل|profit|earn|income|yield|returns?\b|guarantee)/i;
-export function hasEarningsClaim(text: string): boolean {
-  return EARNINGS_CLAIM.test(text);
-}
+/** Public copy cannot promise profit/returns or promote owner-review products. */
+export const hasEarningsClaim = policyHasEarningsClaim;
 
 export function isSafeForChannel(text: string): boolean {
-  return !BLOCKED_PATTERNS.some((re) => re.test(text));
+  return !BLOCKED_PATTERNS.some((re) => re.test(text)) &&
+    !policyHasEarningsClaim(text) &&
+    !isExcludedPublicPromoProductText(text);
 }
 
 // ---------------------------------------------------------------------
@@ -87,10 +79,9 @@ async function loadState(): Promise<State> {
       posted: Array.isArray(v.posted) ? v.posted : [],
       pages: Array.isArray(v.pages) ? v.pages : null,
       newsDay: typeof v.newsDay === "string" ? v.newsDay : "",
-      lastBotPromoAt: typeof v.lastBotPromoAt === "string" ? v.lastBotPromoAt : "",
     };
   } catch {
-    return { posted: [], pages: null, newsDay: "", lastBotPromoAt: "" };
+    return { posted: [], pages: null, newsDay: "" };
   }
 }
 
@@ -176,37 +167,6 @@ async function pageTweet(path: string): Promise<Post | null> {
   return { kind: "page", key: `page:${path}`, text };
 }
 
-// Weekly reminder (owner request, 2026-09-05: "بناء بوتات هذا نعم ولكن
-// لايوجد زبائن يحتاج تسويق في قناتنا يقوم به بوت النشر كل فترة اسبوع") that
-// the owner personally builds a bot on request — the existing "أريد بوتاً
-// مماثلاً" flow already live inside every AD_BOT instance: a customer picks
-// it from that bot's menu, transfers $100, the owner approves manually in
-// the bot, and the buyer gets an activation code for /bots. This mirrors
-// getBotPromos()/buildBotPromoText() in the cron route exactly (same price,
-// same manual-only CTA, same PROMO_AD_BOT_USERNAME gate) — that route's
-// version stays in its own random daily pool; this one guarantees it
-// actually gets said at least once a week instead of leaving it to chance.
-// Returns null (skip, don't burn this week's slot) when the owner hasn't
-// set PROMO_AD_BOT_USERNAME yet, same as getBotPromos().
-async function weeklyBotPromoPost(): Promise<string | null> {
-  const username = process.env.PROMO_AD_BOT_USERNAME;
-  if (!username) return null;
-  const botLink = `https://t.me/${username}`;
-  const intro = "📢 عندك قناة أو مجموعة على تليجرام؟ فعّل بوت إعلانات ومهام خاصاً بك: إعلانات تصل إلى مستخدميك، ومهام بسيطة يؤدّونها داخل البوت.";
-  let hook = intro;
-  try {
-    hook = await callGroq(
-      `اكتب سطراً أو سطرين ترويجيين جذابين بالعربية (بدون رابط، بدون ذكر سعر، وبدون أي ذكر لأرباح أو عوائد أو دخل) عن هذا المنتج، بنفس روح المثال التالي دون نسخه حرفياً: "${intro}"`,
-      "بوت الإعلانات والمهام",
-      250
-    );
-    if (hasEarningsClaim(hook)) hook = intro; // the model must not promise earnings; fall back to the fixed text
-  } catch {
-    /* keep default intro */
-  }
-  return `${hook}\n\n🔗 هنا: ${botLink}\n💰 السعر: 100$ (تحويل بنكي)\nالتفعيل يتم يدوياً فقط: افتح البوت واضغط زر «أريد بوتاً مماثلاً» من القائمة، ثم اتبع الخطوات — لا تفعيل تلقائي ولا كود مجاني.`;
-}
-
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -273,7 +233,8 @@ export async function sendToChannel(
   const token = await channelBotToken();
   const channel = process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
   if (!token || !channel) return false;
-  text = freshenSiteLinks(rewriteLegacyLinks(text)); // a stored text that still names ttbik.vercel.app goes out with the live address
+  text = ensureEnglishFirst(freshenSiteLinks(rewriteLegacyLinks(text))); // English first, then Arabic; legacy links use the public site
+  if (!isSafeForChannel(text)) return false; // Final fail-closed guard for every publisher caller.
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -353,20 +314,6 @@ export async function publishNew(slot: number): Promise<{ posted: string[]; skip
         state.newsDay = today;
         posted.push("news");
       }
-    }
-  }
-
-  // Weekly "build me a bot" reminder — independent of slot and of whether
-  // anything else was posted this run, so it never silently starves behind
-  // new content or the news digest. If PROMO_AD_BOT_USERNAME isn't set yet,
-  // weeklyBotPromoPost() returns null and this week's slot isn't consumed —
-  // it'll post as soon as the owner configures it.
-  const lastPromo = state.lastBotPromoAt ? Date.parse(state.lastBotPromoAt) : 0;
-  if (!lastPromo || Date.now() - lastPromo >= 7 * 24 * 3600 * 1000) {
-    const promo = await weeklyBotPromoPost();
-    if (promo && isSafeForChannel(promo) && (await sendToChannel(promo))) {
-      state.lastBotPromoAt = new Date().toISOString();
-      posted.push("bot-promo");
     }
   }
 

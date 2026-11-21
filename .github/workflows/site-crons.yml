@@ -40,8 +40,8 @@ jobs:
             vercel.json
             scripts/hosting
             deploy/hosting
-      - name: the site's public address (deploy/hosting/site.json)
-        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: is the scheduler switched on here?
         id: on
         run: |
