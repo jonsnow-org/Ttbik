@@ -517,6 +517,46 @@ def budget_first_loss_of_a_fresh_model_is_near_ln_of_the_vocabulary():
     assert not init_loss_check(0.0, 416)["ok"] and not init_loss_check(20.0, 416)["ok"], "a first loss of 0 or 20 means the loss, the vocabulary offsets or the tokenizer is wrong"
 
 
+@test
+def thresholds_have_one_source_and_a_close_call_is_called_inconclusive():
+    import json, re
+    sys.path.insert(0, os.path.join(ROOT, "gate"))
+    from stats import verdict, wilson
+    th = json.load(open(os.path.join(ROOT, "gate", "thresholds.json"), encoding="utf-8"))
+    assert 0 < th["publish_floor"] < th["acceptance_heldout"] < 1
+    for f in sorted(os.listdir(os.path.join(ROOT, "configs"))):
+        text = open(os.path.join(ROOT, "configs", f), encoding="utf-8").read()
+        m = re.search(r"^gate_heldout:\s*([0-9.]+)", text, re.M)
+        if m:
+            assert float(m.group(1)) == th["acceptance_heldout"], (f, m.group(1))
+    trainer = open(os.path.join(ROOT, "..", "modelscope-trainer", "app.py"), encoding="utf-8").read()
+    assert float(re.search(r"^HELDOUT_PUBLISH_FLOOR\s*=\s*([0-9.]+)", trainer, re.M).group(1)) == th["publish_floor"], "the trainer's floor must be the one in thresholds.json"
+    assert verdict(9, 14, 0.6) == "inconclusive" and verdict(8, 14, 0.6) == "inconclusive", "one task either side of the gate is noise at n=14"
+    assert verdict(14, 14, 0.6) == "pass" and verdict(2, 14, 0.6) == "fail"
+    lo, hi = wilson(9, 14)
+    assert 0.38 < lo < 0.40 and 0.83 < hi < 0.85, (lo, hi)
+
+
+@test
+def sham_vocabulary_layout_is_contiguous_disjoint_and_inside_the_head_in_both_modes():
+    """Read-only check of ShamSmall's vocabulary contract (a layout mismatch once broke Sham v1's video: motion ids outside the published head's rows)."""
+    import subprocess
+    code = (
+        "import sys; sys.path.insert(0, %r); import model as m\n"
+        "S = m.SpecialTokens; b = S._base; ids = {k: v for k, v in vars(S).items() if k.isupper()}\n"
+        "assert m.IMAGE_VOCAB_BASE == m.TEXT_VOCAB_SIZE and m.AUDIO_VOCAB_BASE == m.TEXT_VOCAB_SIZE + m.IMAGE_VOCAB_SIZE\n"
+        "assert b == m.AUDIO_VOCAB_BASE + m.AUDIO_VOCAB_SIZE and m.MOTION_VOCAB_BASE == b + m.NUM_SPECIAL_TOKENS\n"
+        "assert m.TOTAL_VOCAB_SIZE == m.MOTION_VOCAB_BASE + m.MOTION_VOCAB_SIZE == m.ShamSmallConfig().vocab_size\n"
+        "assert len(set(ids.values())) == len(ids) and all(b <= v < m.MOTION_VOCAB_BASE for v in ids.values()), 'a special id left its range or collided'\n"
+        "print(m.TEXT_VOCAB_SIZE, m.TOTAL_VOCAB_SIZE)\n"
+    ) % os.path.join(ROOT, "..", "colab", "sham_small")
+    for env_text, total in (("", 43284), ("151936", 151936 + 8192 + 2048 + 20 + 1024)):
+        env = dict(os.environ, SHAM_TEXT_VOCAB=env_text)
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, env=env, timeout=120)
+        assert r.returncode == 0, r.stderr[-300:]
+        assert r.stdout.split()[1] == str(total), (env_text, r.stdout)
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:
