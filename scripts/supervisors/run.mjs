@@ -8,7 +8,7 @@ const ok200 = () => true;
 const json = (f) => (t) => { try { return f(JSON.parse(t)); } catch { return false; } };
 const hasDigits = (t) => /\d/.test(t) && t.length > 50;
 
-// [label, path-on-gate-or-vercel, base ("gate"|"vercel"|"oracle"), predicate, info(not a failure)]
+// [label, path-on-gate-or-vercel, base ("gate"|"gate"|"oracle"), predicate, info(not a failure)]
 export const SECTIONS = {
   zenobia: {
     site: [["coin pictures page", "/zenobia/coins.html", "gate", ok200], ["trade page", "/zenobia/trade.html", "gate", ok200], ["journey page", "/zenobia/journey.html", "gate", ok200],
@@ -23,14 +23,14 @@ export const SECTIONS = {
     errorWords: /palmyra|launch|coin|referral|stars/i, frozen: true,
   },
   "telegram-bots": {
-    site: [["bots directory", "/bots", "vercel", ok200], ["home", "/", "vercel", ok200], ["Vercel standby (home)", "/", "standby", ok200, true]],
+    site: [["bots directory", "/bots", "gate", ok200], ["home", "/", "gate", ok200], ["Vercel standby (home)", "/", "standby", ok200, true]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72], ["monitor.yml", "Monitor (this report)", 4]],
     errorWords: /bot|telegram|webhook|stars|match|jobs|confession|mini ?app/i, botsHealth: true,
   },
   "site-content": {
-    site: [["home", "/", "vercel", ok200], ["news", "/news", "vercel", ok200], ["articles", "/articles", "vercel", ok200], ["prices", "/prices", "vercel", ok200],
-      ["markets", "/markets", "vercel", ok200], ["English desk", "/en", "vercel", ok200], ["markets API", "/api/markets", "vercel", hasDigits], ["markets API (English)", "/api/markets-en", "vercel", hasDigits, true],
-      ["sitemap", "/sitemap.xml", "vercel", (t) => t.includes("<urlset") && t.includes("/free-tools/")], ["llms.txt", "/llms.txt", "vercel", ok200, true]],
+    site: [["home", "/", "gate", ok200], ["free tools", "/free-tools", "gate", ok200], ["channels", "/channels", "gate", ok200], ["channel audit", "/channel-audit", "gate", ok200], ["khatma", "/khatma", "gate", ok200], ["contests", "/contests", "gate", ok200], ["shop", "/shop", "gate", ok200], ["remit", "/remit", "gate", ok200], ["markets", "/markets", "gate", ok200], ["news", "/news", "gate", ok200], ["articles", "/articles", "gate", ok200], ["events", "/events", "gate", ok200], ["health API", "/api/health", "gate", json((j) => j.ok === true), true], ["prices", "/prices", "gate", ok200],
+      ["English desk", "/en", "gate", ok200], ["markets API", "/api/markets", "gate", hasDigits], ["markets API (English)", "/api/markets-en", "gate", hasDigits, true],
+      ["sitemap", "/sitemap.xml", "gate", (t) => t.includes("<urlset") && t.includes("/free-tools/")], ["llms.txt", "/llms.txt", "gate", ok200, true]],
     workflows: [["ci.yml", "CI (typecheck + tests)", 72]],
     errorWords: /news|article|price|market|ticker|tool|seo|sitemap|ad/i,
   },
@@ -40,15 +40,15 @@ export const SECTIONS = {
     errorWords: /promo|channel|youtube|video|post/i,
   },
   athar: {
-    site: [["Athar health (mirror)", "/api/ops/athar-health", "vercel", json((j) => j.alive === true && Object.entries(j.checks || {}).every(([k, c]) => c.ok || k === "mirrorImg"))], // mirrorImg probes the Vercel standby: down (HTTP 402) while Vercel is paused, which is not an Athar fault
-      ["Athar app (Oracle)", "/", "oracle", ok200, true], ["Athar pictures via the mirror", "/api/athar/img/1.svg", "vercel", (t) => t.includes("<svg")]],
+    site: [["Athar health (mirror)", "/api/ops/athar-health", "gate", json((j) => j.alive === true && Object.entries(j.checks || {}).every(([k, c]) => c.ok || k === "mirrorImg"))], // mirrorImg probes the Vercel standby: down (HTTP 402) while Vercel is paused, which is not an Athar fault
+      ["Athar app (Oracle)", "/", "oracle", ok200, true], ["Athar pictures via the mirror", "/api/athar/img/1.svg", "gate", (t) => t.includes("<svg")]],
     workflows: [["athar-mints.yml", "Athar mints", 12], ["athar-stars.yml", "Athar Stars", 12]],
     errorWords: /athar/i,
   },
 };
 // Tier-1 repair: the ONLY thing a bot may do on its own is rerun the failed jobs of these idempotent workflows (read-only checks / index rebuilds).
 // Never anything that mints, pays, posts or edits code. Rules that keep the bots out of our way are in decideRerun().
-export const RERUN_OK = new Set(["znbt-index.yml", "znbt-guard.yml", "zenobia-watch.yml", "promo-projects.yml"]);
+export const RERUN_OK = new Set(); // read-only supervisor: it never reruns any workflow
 export const FAIL_AGE_MIN = 12 * 60;   // owner order 2026-10-25: a failure must stay unfixed for 12 hours before a bot touches it
 export const PUSH_QUIET_MIN = 15;   // and nobody may have pushed to main/production in the last 15 minutes (a person or session is working right now)
 export const PAUSE_LABEL = "bots-pause";   // any OPEN issue with this label pauses every automatic action (we are mid-change)
@@ -81,15 +81,25 @@ export function decideRerun({ file, runs, active = [], lastPushAt, paused = fals
 /** Pure: facts -> checks. level: ok | warn | fail | info */
 export function evaluate(d, now = Date.now()) {
   const out = [], add = (name, level, detail) => out.push({ name, level, detail });
-  for (const s of d.site || []) add(`Page: ${s.label}`, s.ok ? "ok" : s.info ? "info" : "fail", s.ok ? `HTTP ${s.status}` : `HTTP ${s.status || "no answer"}${s.status === 200 ? " · unexpected content" : ""}`);
+  for (const s of d.site || []) add(`Page: ${s.label}`, s.ok ? "ok" : s.info ? "info" : "fail", s.ok ? `HTTP ${s.status} via ${s.via || "unknown"}` : `HTTP ${s.status || "no answer"} via ${s.via || "unknown"}${s.status === 200 ? " · unexpected content" : ""}`);
   for (const w of d.workflows || []) {
     const [, name, maxH] = w.def;
     if (w.error) { add(`Workflow: ${name}`, "warn", `could not read runs (${w.error})`); continue; }
-    const last = w.runs[0], good = w.runs.find((r) => r.conclusion === "success");
+    const runs = w.runs || [];
+    const active = runs.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting");
+    if (active) {
+      const startedAt = active.run_started_at || active.created_at || active.updated_at;
+      const activeAge = startedAt ? hours(startedAt, now) : Infinity;
+      const elapsed = Number.isFinite(activeAge) ? Math.max(0, Math.round(activeAge * 10) / 10) + "h" : "an unknown time";
+      add(`Workflow: ${name}`, activeAge > maxH ? "warn" : "ok", `run ${active.status} for ${elapsed}: ${active.html_url || "GitHub Actions"}`);
+      continue;
+    }
+    const completed = runs.filter((r) => r.status === "completed" || r.conclusion);
+    const last = completed[0], good = completed.find((r) => r.conclusion === "success");
     if (!last) { add(`Workflow: ${name}`, "warn", "no completed run yet"); continue; }
     const age = good ? hours(good.updated_at, now) : Infinity;
     if (age > maxH) add(`Workflow: ${name}`, "fail", `no successful run for ${good ? Math.round(age) + "h" : "ever"} (limit ${maxH}h). Last: ${last.conclusion} ${last.html_url}`);
-    else if (last.conclusion !== "success" && Date.parse(last.updated_at) > Date.parse(good.updated_at)) add(`Workflow: ${name}`, "warn", `latest run ${last.conclusion}: ${last.html_url} (last success ${Math.round(age)}h ago)`);
+    else if (last.conclusion !== "success" && (!good || Date.parse(last.updated_at) > Date.parse(good.updated_at))) add(`Workflow: ${name}`, "warn", `latest run ${last.conclusion}: ${last.html_url} (last success ${Math.round(age)}h ago)`);
     else add(`Workflow: ${name}`, "ok", `last success ${Math.round(age)}h ago`);
   }
   if (d.bots) {
@@ -116,6 +126,17 @@ export function render(section, checks, date) {
 async function http(url, ms = 20000) {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: "follow" }); return { status: r.status, text: await r.text().catch(() => "") }; }
   catch { return { status: 0, text: "" }; }
+}
+
+/** Read-only Gate probe with Oracle fallback on network/5xx errors only. */
+async function publicSiteHttp(site, path, ms = 20000) {
+  const gate = (site.gateUrl || site.engineUrl || "").replace(/\\/$/, "");
+  const oracle = (site.oracleUrl || "").replace(/\\/$/, "");
+  const primary = gate ? await http(`${gate}${path}`, ms) : { status: 0, text: "" };
+  if (primary.status > 0 && primary.status < 500) return { ...primary, via: "gate" };
+  if (!oracle) return { ...primary, via: "gate" };
+  const backup = await http(`${oracle}${path}`, ms);
+  return backup.status > 0 ? { ...backup, via: "oracle", gateStatus: primary.status } : { ...primary, via: "gate", oracleStatus: backup.status };
 }
 
 // Mail control (owner's order 2026-11-01): a GitHub comment is an e-mail. Only a real outage reaches the owner:
@@ -148,9 +169,9 @@ async function main() {
   if (names.some((n) => !SECTIONS[n])) { console.error(`unknown section: ${arg}`); process.exit(2); }
   const repo = process.env.GITHUB_REPOSITORY || "jonsnow-org/Ttbik", token = process.env.GITHUB_TOKEN || "";
   const site = JSON.parse(fs.readFileSync(process.env.SITE_JSON || "deploy/hosting/site.json", "utf8"));
-  // "vercel" entries are checked through the GATE (the real public site: Oracle first, Vercel standby behind it). While Vercel answers 402 (free-plan limit) the old
+  // "gate" entries are checked through the GATE (the real public site: Oracle first, Vercel standby behind it). While Vercel answers 402 (free-plan limit) the old
   // direct probes reported a healthy site as broken. "standby" is the direct Vercel address, informational only.
-  const base = { gate: site.gateUrl || site.engineUrl, vercel: site.gateUrl || site.engineUrl, standby: site.vercelUrl, oracle: site.oracleUrl };
+  const base = { gate: site.gateUrl || site.engineUrl, standby: site.vercelUrl, oracle: site.oracleUrl };
   const gh = async (path, init = {}) => {
     const r = await fetch(`https://api.github.com${path}`, { ...init, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28", "content-type": "application/json" }, signal: AbortSignal.timeout(30000) }).catch(() => ({ status: 0, json: async () => null }));
     return { status: r.status, body: r.status === 204 ? null : await r.json().catch(() => null) };
@@ -170,8 +191,8 @@ async function main() {
   for (const section of names) {
     const cfg = SECTIONS[section];
     const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
-    for (const [label, path, b, pred, info] of cfg.site) { const r = await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info }); }
-    for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
+    for (const [label, path, b, pred, info] of cfg.site) { const r = b === "gate" ? await publicSiteHttp(site, path) : await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info, via: r.via || b }); }
+    for (const def of cfg.workflows) { const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
     if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
       try {
         const r = await fetch(`${base.gate}/api/ops/bots-health`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, signal: AbortSignal.timeout(60000) });
