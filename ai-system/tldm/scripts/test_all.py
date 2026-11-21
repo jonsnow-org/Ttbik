@@ -557,6 +557,73 @@ def sham_vocabulary_layout_is_contiguous_disjoint_and_inside_the_head_in_both_mo
         assert r.stdout.split()[1] == str(total), (env_text, r.stdout)
 
 
+@test
+def llama_cpp_server_as_the_frozen_reader_features_cache_fallback_pooled_refusal_and_the_whole_trainer():
+    """A fake llama-server with the documented /embeddings format (--pooling none: one vector per token). Checks the reader and wires the real trainer/evaluator end to end."""
+    import json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from sham_tldm.llama_reader import LlamaReader
+    D = 24
+    table = torch.randn(400, D, generator=torch.Generator().manual_seed(3))
+
+    def make_server(accept_tokens=True, pooled=False):
+        stats = {"embed": 0, "detok": 0}
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, obj):
+                b = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/detokenize":
+                    stats["detok"] += 1
+                    return self._send(200, {"content": "".join(chr(97 + (i % 26)) for i in body["tokens"])})
+                stats["embed"] += 1
+                inp = body["input"]
+                if isinstance(inp, list) and not accept_tokens:
+                    return self._send(400, {"error": "input must be a string"})
+                ids = inp if isinstance(inp, list) else [ord(c) - 97 for c in inp]
+                if pooled:
+                    return self._send(200, [{"index": 0, "embedding": table[ids].mean(0).tolist()}])
+                self._send(200, [{"index": 0, "embedding": [table[i % 400].tolist() for i in ids]}])
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, stats
+
+    srv, stats = make_server()
+    r = LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10)
+    assert r.probe() == D
+    h, pad = r.feats([[5, 6, 7], [9]], 6)
+    assert h.shape == (2, 6, D) and pad.tolist() == [[False] * 3 + [True] * 3, [False] + [True] * 5] and torch.equal(h[0, 1], table[6]) and not h[1, 3:].any()
+    calls = stats["embed"]
+    r.feats([[5, 6, 7], [9]], 6)
+    assert stats["embed"] == calls, "an input read once must come from the cache"
+    srv2, stats2 = make_server(accept_tokens=False)
+    r2 = LlamaReader(f"http://127.0.0.1:{srv2.server_port}", timeout=10)
+    h2, _ = r2.feats([[5, 6, 7]], 4)
+    assert r2.mode == "text" and stats2["detok"] >= 1 and h2.shape == (1, 4, D), "a server that refuses token arrays must be fed the detokenised text"
+    srv3, _ = make_server(pooled=True)
+    try:
+        LlamaReader(f"http://127.0.0.1:{srv3.server_port}", timeout=10).feats([[1, 2]], 4)
+        raise AssertionError("a pooled (single-vector) answer must be refused")
+    except RuntimeError as e:
+        assert "--pooling none" in str(e)
+    # the whole trainer + evaluator on the fake server's features (wiring only: the fake features are a token-id lookup)
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("train_gguf_head", os.path.join(ROOT, "training", "train_gguf_head.py"))
+    G = iu.module_from_spec(spec); spec.loader.exec_module(G)
+    cfg = dict(in_len=32, block=24, latents=4, think_steps=2, writer_layers=1, heads=4, head_d=32, steps=30, batch=8, lr=0.001, diffusion_steps=4, rewordings=False, gate_heldout=0.6)
+    enc = lambda text, n: ([(b % 200) + 5 for b in text.encode("utf-8")][:n] + [0] * n)[:n]
+    res = G.run(cfg, LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10), enc, seeds=1, log=lambda *a: None)
+    assert res["feature_width"] == D and len(res["seeds"]) == 1 and res["texts"] >= 30
+    for k in ("heldout", "heldout2"):
+        assert res[k]["verdict_mean"] in ("pass", "fail", "inconclusive") and 0.0 <= res[k]["mean"] <= 1.0
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:
