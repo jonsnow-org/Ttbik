@@ -36,7 +36,7 @@ export const EN_NEWS: DeskItem[] = [
     "slug": "ccw-autonomous-weapons-geneva-2026",
     "title": "UN talks extend work on autonomous weapons to 2028 without binding rules",
     "date": "21 November 2026",
-    "contextDateLabel": "Official Geneva conference schedule: 16–20 November 2026; negotiations reported to have ended early on 21 November; publication date: 21 November 2026",
+    "contextDateLabel": "Official Geneva conference schedule: 16–20 November 2026; negotiations ended early on 21 November (03:00 GMT per Reuters); Reuters published: 21 November 2026, 05:36 UTC; AP publication date: 21 November 2026 (exact time not shown); publication date: 21 November 2026",
     "dek": "States agreed to continue work toward a possible instrument on lethal autonomous weapons by 2028, but did not commit to binding rules or settle the future instrument's legal status.",
     "body": [
       "States parties to the Convention on Certain Conventional Weapons held their seventh review conference in Geneva. The UN Office at Geneva lists the official conference dates as 16–20 November 2026; Reuters and the Associated Press reported that final negotiations continued into the early hours of Saturday, 21 November. The scheduled conference dates and the reported end of negotiations are therefore stated separately.",
@@ -48,8 +48,8 @@ export const EN_NEWS: DeskItem[] = [
     "sources": [
       { "href": "https://www.ungeneva.org/en/meetings-events/events/observances-special-events/2026/11/seventh-review-conference-high", "label": "UN Office at Geneva — official conference dates and background" },
       { "href": "https://www.un.org/en/node/250267", "label": "United Nations — autonomous weapon systems frequently asked questions" },
-      { "href": "https://www.reuters.com/world/states-agree-to-un-talks-aiming-regulate-killer-robots-by-2028-2026-11-21/", "label": "Reuters — outcome of the Geneva talks, 21 November 2026" },
-      { "href": "https://apnews.com/article/un-drones-robots-un-lethal-ai-weapons-ebe057d2a47cde53100970c8f648e7fa", "label": "Associated Press — two-year extension and lack of binding rules" }
+      { "href": "https://www.reuters.com/world/states-agree-to-un-talks-aiming-regulate-killer-robots-by-2028-2026-11-21/", "label": "Reuters — outcome of the Geneva talks, 21 November 2026, 05:36 UTC" },
+      { "href": "https://apnews.com/article/un-drones-robots-un-lethal-ai-weapons-ebe057d2a47cde53100970c8f648e7fa", "label": "Associated Press — two-year extension and lack of binding rules, 21 November 2026" }
     ]
   },
   {
