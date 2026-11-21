@@ -22,6 +22,6 @@ jobs:
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
           code=$(curl -sS -m 120 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/zenobia-season")
           echo "HTTP ${code}"; cat body.json; echo
-          [ "${code}" -lt 500 ]
+          [[ "${code}" =~ ^2[0-9][0-9]$ ]]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
