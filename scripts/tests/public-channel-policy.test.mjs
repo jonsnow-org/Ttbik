@@ -21,6 +21,9 @@ test("earnings policy blocks promises but allows risk disclaimers and neutral de
   assert.equal(hasEarningsClaim("يوزع أرباح المشاهدة تلقائياً"), true);
   assert.equal(hasEarningsClaim("اربح المال كل يوم"), true);
   assert.equal(hasEarningsClaim("Guaranteed returns every week"), true);
+  assert.equal(hasEarningsClaim("Get paid to watch ads"), true);
+  assert.equal(hasEarningsClaim("Earn from viewing videos"), true);
+  assert.equal(hasEarningsClaim("اكسب من مشاهدة الإعلانات"), true);
   assert.equal(hasEarningsClaim("No promise of any return; crypto is risky."), false);
   assert.equal(hasEarningsClaim("The board shows ranks only, not profit."), false);
   assert.equal(hasEarningsClaim("Creators can see recorded earnings from launched coins."), false);
