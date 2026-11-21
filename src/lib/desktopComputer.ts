@@ -34,7 +34,7 @@ export function desktopTargetFor(modelId: string | undefined): { base: string; o
 }
 
 const ACTIONS = new Set([
-  "status", "start", "frame", "stop", "launch",
+  "status", "start", "frame", "state", "stop", "launch",
   "click", "move", "type", "key", "scroll",
   "dblclick", "drag", "mousedown", "mouseup", "clipboard_set", "clipboard_get",
 ]);

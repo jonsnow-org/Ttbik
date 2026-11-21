@@ -85,9 +85,9 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use state to read the screen as text (the visible windows, the focused one, the pointer) or frame for the picture; after launch/click/key the reply already carries the window list; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
     obj({
-      action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
+      action: { type: "string", enum: ["start", "status", "frame", "state", "stop", "launch", "click", "move", "type", "key", "scroll"] },
       app: { type: "string", enum: ["browser", "terminal", "files"] },
       url: s("URL to open when launching the browser"),
       x: n("horizontal pixel coordinate from the latest screenshot"),

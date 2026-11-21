@@ -702,6 +702,24 @@ def _run_input(args: list[str]) -> None:
         raise RuntimeError((result.stderr or result.stdout or "Desktop input failed.")[-180:])
 
 
+def _xdo_text(args: list[str]) -> str:
+    result = subprocess.run(["xdotool", *args], env=_ENV, capture_output=True, text=True, timeout=5, preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
+    return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+
+def text_state() -> dict:
+    """What the screen holds, as TEXT: the visible windows, the focused one, the pointer and the screen size. A text-only model cannot read pixels; this is what it reads
+    (the same view Sham's embedded desktop gives its model). Best effort: a failing X query gives an empty field, never an exception."""
+    if not _ENV:
+        return {}
+    try:
+        ids = _xdo_text(["search", "--onlyvisible", "--name", "."]).split()[:30]
+        windows = [n for n in (_xdo_text(["getwindowname", i]) for i in ids) if n]
+        return {"windows": windows, "focused": _xdo_text(["getwindowfocus", "getwindowname"]), "pointer": _xdo_text(["getmouselocation"]), "screen": f"{DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}"}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 _LAST_FRAME = {"hash": "", "raw": b""}
 
 
@@ -815,7 +833,7 @@ def api_desktop_do(body: str) -> str:
         action = str(job.get("action") or "").lower()
         if not session or len(session) > 240:
             return json.dumps({"ok": False, "error": "a valid session is required"})
-        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer"}:
+        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer", "state"}:
             return json.dumps({"ok": False, "error": "unknown desktop action"})
         if action == "status":
             return json.dumps(_desktop_status(session), ensure_ascii=False)
@@ -836,6 +854,8 @@ def api_desktop_do(body: str) -> str:
             return json.dumps({"ok": True, "phase": "running", **shot, **({"activity": extra.get("activity", []), "activity_seq": extra.get("seq", 0), "running_jobs": extra.get("running_jobs", [])} if extra else {})}, ensure_ascii=False)
         _check_live(session)
         _touch()
+        if action == "state":
+            return json.dumps({"ok": True, "phase": "running", **text_state()}, ensure_ascii=False)
         if action == "pointer":                       # where the pointer is (the live view draws it; the smoke test checks clicks land exactly)
             got = subprocess.run(["xdotool", "getmouselocation", "--shell"], env=_ENV, capture_output=True, text=True, timeout=5,
                                  preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
@@ -857,6 +877,9 @@ def api_desktop_do(body: str) -> str:
         wait = SETTLE.get(action)
         if job.get("nopic") and action in ("type", "key", "scroll"):
             wait = None          # the live view already streams frames: typing does not wait for a picture (that wait made every keystroke batch feel slow)
+        if wait is not None and reply.get("ok", True) and action in ("launch", "click", "dblclick", "key", "drag") and not job.get("nopic"):
+            time.sleep(wait)
+            reply.update(text_state())                  # the text view beside the picture: a text-only model reads the windows, a multimodal one reads both
         if wait is not None and reply.get("ok", True) and "screenshot_b64" not in reply:
             # one round trip per action: the reply carries the picture after the screen had a moment to react (the gateway costs ~2.5 s a call,
             # so a separate "frame" call doubled every tap; and the model's tool says "inspect the returned screenshot")
