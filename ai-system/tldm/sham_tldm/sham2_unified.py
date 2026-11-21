@@ -1322,10 +1322,46 @@ def latent_diversity(model: "Sham2Unified", prompt_token_ids: List[List[int]],
     return result
 
 
-LATENT_VARIANCE_TARGET = 1.0
-LATENT_VARIANCE_WEIGHT = 0.5
-LATENT_COVARIANCE_WEIGHT = 0.05
+# Mission 9: the Mission 8 hinge used gamma=1.0, unreachable for these latents
+# (natural cross-prompt std before training was 0.4383), so the term sat at its
+# maximum and its gradient was weak relative to the writer loss. The target is
+# now the measured natural scale and the hinge is normalised by it, so the
+# restorative gradient is 1/gamma ~ 2.3x larger per unit of missing spread, on
+# top of a 5x weight increase.
+LATENT_VARIANCE_TARGET = 0.4383
+LATENT_VARIANCE_WEIGHT = 2.5
+LATENT_COVARIANCE_WEIGHT = 0.25
 LATENT_PRESERVATION_BUFFER = 8
+
+# Mission 9: swapped-latent writer objective. A constant encoder output makes
+# the correct and the wrong latent identical, so the hinge below cannot fall to
+# zero no matter how well the writer fits the bytes; its only escape is making
+# the latent prompt-specific.
+SWAP_FRACTION = 0.5
+SWAP_MARGIN = 0.5
+SWAP_WEIGHT = 1.0
+
+
+def latent_swap_loss(correct_writer_loss: torch.Tensor, wrong_writer_loss: torch.Tensor,
+                     margin: float = SWAP_MARGIN,
+                     weight: float = SWAP_WEIGHT) -> torch.Tensor:
+    """Hinge that requires the correct prompt's latent to beat a wrong prompt's latent.
+
+      L_swap = weight * relu(margin + CE(correct latent, anchor target)
+                             - CE(wrong latent,   anchor target))
+
+    `correct_writer_loss` is DETACHED on purpose. If both arguments carried
+    gradient through the same encoder, a constant latent would send two equal
+    and opposite gradients into the shared parameters and they would cancel
+    exactly, leaving the hinge at its maximum with no direction to escape. With
+    the anchor detached, the wrong-latent branch is the only path to the
+    encoder, so a constant latent keeps paying `weight * margin` and the
+    gradient pushes the wrong prompt's latent to fit the anchor target worse,
+    i.e. it pushes the encoder to separate prompts.
+    """
+    return float(weight) * torch.relu(
+        float(margin) + correct_writer_loss.detach() - wrong_writer_loss
+    )
 
 
 def latent_preservation_loss(latents: torch.Tensor, buffer: List[torch.Tensor],
@@ -1340,17 +1376,17 @@ def latent_preservation_loss(latents: torch.Tensor, buffer: List[torch.Tensor],
 
       Z    = [z_t, buffer]                      # (n, 16*256)
       v_j  = sqrt(Var_j(Z) + eps)               # per-dimension standard deviation
-      L_var = mean_j relu(gamma - v_j)          # hinge, gamma = 1.0
+      L_var = mean_j relu(1 - v_j / gamma)      # normalised hinge, gamma = 0.4383
       P    = [mean_latents(z) || std_latents(z)]  # (n, 512) pooled summary
       C    = cov(P)                              # (512, 512)
       L_cov = (sum_{i != j} C_ij^2) / 512
 
-      L_pres = 0.5 * L_var + 0.05 * L_cov
+      L_pres = 2.5 * L_var + 0.25 * L_cov
 
     Only the current step's latent receives gradient; the buffer is detached, so
     this never changes the batch size or the fixed data. It answers the Mission 7
     collapse (cross-prompt std 0.4383 -> 2.35e-08) by making a constant encoder
-    output directly expensive.
+    output directly expensive at the encoder's natural scale.
     """
     current = latents[0].float()
     flat = current.reshape(1, -1)
@@ -1364,7 +1400,7 @@ def latent_preservation_loss(latents: torch.Tensor, buffer: List[torch.Tensor],
         return zero, zero.detach(), zero.detach()
     centered = stacked - stacked.mean(dim=0, keepdim=True)
     std = torch.sqrt(centered.var(dim=0, unbiased=False) + eps)
-    variance_loss = torch.relu(float(variance_target) - std).mean()
+    variance_loss = torch.relu(1.0 - std / float(variance_target)).mean()
     pooled = torch.stack([
         torch.cat([
             row.reshape(-1, current.shape[-1]).mean(dim=0),
@@ -1717,18 +1753,37 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     # VICReg-style preservation term without changing batch_size=1 or the data.
     report["latent_preservation"] = {
         "formula": (
-            "L_pres = 0.5 * mean_j relu(1.0 - sqrt(Var_j(Z)+1e-4)) "
-            "+ 0.05 * (sum_{i!=j} cov(P)_ij^2) / 512; "
+            "L_pres = 2.5 * mean_j relu(1 - sqrt(Var_j(Z)+1e-4)/0.4383) "
+            "+ 0.25 * (sum_{i!=j} cov(P)_ij^2) / 512; "
             "Z = [z_current, 8 detached previous-step latents]; "
             "P = [mean_latents(z) || std_latents(z)] (512 values)"
         ),
         "variance_target": LATENT_VARIANCE_TARGET,
         "variance_weight": LATENT_VARIANCE_WEIGHT,
         "covariance_weight": LATENT_COVARIANCE_WEIGHT,
+        "variance_target_source": "natural cross-prompt std measured before training (Mission 7/8)",
         "buffer_size": LATENT_PRESERVATION_BUFFER,
         "batch_size_unchanged": int(cfg.batch),
         "buffer_detached": True,
     }
+    report["latent_swap"] = {
+        "formula": (
+            "L_swap = 1.0 * relu(0.5 + CE(correct latent, anchor target).detach() "
+            "- CE(wrong prompt latent, anchor target)); "
+            "alternates every swapped step between (z_a, t_a) vs (z_b, t_a) "
+            "and (z_b, t_b) vs (z_a, t_b)"
+        ),
+        "fraction": SWAP_FRACTION,
+        "margin": SWAP_MARGIN,
+        "weight": SWAP_WEIGHT,
+        "anchor_detached": True,
+        "wrong_latent": "latent of a different real training prompt, encoded in the same step",
+        "batch_size_unchanged": int(cfg.batch),
+    }
+    swap_interval = max(1, int(round(1.0 / SWAP_FRACTION))) if SWAP_FRACTION > 0 else 0
+    swap_losses_all: List[float] = []
+    swap_anchors_all: List[float] = []
+    swap_wrongs_all: List[float] = []
     latent_buffer: List[torch.Tensor] = []
     for stage_name in stages:
         rows = [row for row in train_rows if row["stage"] == stage_name]
@@ -1738,10 +1793,15 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         preservation_totals: List[float] = []
         preservation_variances: List[float] = []
         preservation_covariances: List[float] = []
+        swap_losses: List[float] = []
+        swap_anchors: List[float] = []
+        swap_wrongs: List[float] = []
+        swap_used = 0
         steps = stage_steps[stage_name]
         model.train()
         for step in range(steps):
-            row = rows[step % len(rows)]
+            row_index = step % len(rows)
+            row = rows[row_index]
             input_ids = torch.tensor([row["input_ids"]], dtype=torch.long)
             target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
             valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
@@ -1751,6 +1811,33 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
                 latents, latent_buffer
             )
             loss = writer_loss + preservation_loss
+            # Mission 9 (b): swapped-latent writer objective on every other step.
+            # The wrong latent comes from a different real training prompt encoded
+            # in this same step; no example, byte or target is synthesised.
+            if swap_interval and len(rows) > 1 and step % swap_interval == 0:
+                wrong_row = rows[(row_index + 1) % len(rows)]
+                wrong_input_ids = torch.tensor([wrong_row["input_ids"]], dtype=torch.long)
+                wrong_latents = model(wrong_input_ids)
+                if swap_used % 2 == 0:
+                    swap_anchor = writer_loss.detach()
+                    swap_wrong = model.writer.loss(
+                        wrong_latents, target_ids, valid_mask=valid_mask
+                    )
+                else:
+                    wrong_target_ids = torch.tensor([wrong_row["target_ids"]], dtype=torch.long)
+                    wrong_valid_mask = torch.tensor([wrong_row["valid_mask"]], dtype=torch.bool)
+                    swap_anchor = model.writer.loss(
+                        wrong_latents, wrong_target_ids, valid_mask=wrong_valid_mask
+                    ).detach()
+                    swap_wrong = model.writer.loss(
+                        latents, wrong_target_ids, valid_mask=wrong_valid_mask
+                    )
+                swap_loss = latent_swap_loss(swap_anchor, swap_wrong)
+                loss = loss + swap_loss
+                swap_used += 1
+                swap_losses.append(float(swap_loss.detach().cpu()))
+                swap_anchors.append(float(swap_anchor.detach().cpu()))
+                swap_wrongs.append(float(swap_wrong.detach().cpu()))
             if not torch.isfinite(loss):
                 raise RuntimeError(f"non-finite real-data loss at stage={stage_name}, step={step}")
             optimizer.zero_grad(set_to_none=True)
@@ -1766,11 +1853,13 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             if len(latent_buffer) > LATENT_PRESERVATION_BUFFER:
                 latent_buffer.pop(0)
             if step % 50 == 0 or step == steps - 1:
+                swap_text = f" swap={swap_losses[-1]:.5f}" if swap_losses else ""
                 print(
                     f"[Sham2] stage={stage_name} step={step + 1}/{steps} "
                     f"writer_loss={losses[-1]:.5f} "
                     f"preservation={preservation_totals[-1]:.5f} "
-                    f"(var={preservation_variances[-1]:.5f} cov={preservation_covariances[-1]:.5f})",
+                    f"(var={preservation_variances[-1]:.5f} cov={preservation_covariances[-1]:.5f})"
+                    f"{swap_text}",
                     flush=True,
                 )
         report["stages"].append({
@@ -1787,7 +1876,22 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             "preservation_loss_last": preservation_totals[-1],
             "preservation_variance_loss_mean": sum(preservation_variances) / len(preservation_variances),
             "preservation_covariance_loss_mean": sum(preservation_covariances) / len(preservation_covariances),
+            "swap_steps": len(swap_losses),
+            "swap_loss_mean": sum(swap_losses) / len(swap_losses) if swap_losses else 0.0,
+            "swap_anchor_loss_mean": sum(swap_anchors) / len(swap_anchors) if swap_anchors else 0.0,
+            "swap_wrong_loss_mean": sum(swap_wrongs) / len(swap_wrongs) if swap_wrongs else 0.0,
         })
+        swap_losses_all.extend(swap_losses)
+        swap_anchors_all.extend(swap_anchors)
+        swap_wrongs_all.extend(swap_wrongs)
+
+    report["latent_swap"].update({
+        "steps": len(swap_losses_all),
+        "loss_mean": sum(swap_losses_all) / len(swap_losses_all) if swap_losses_all else 0.0,
+        "loss_last": swap_losses_all[-1] if swap_losses_all else 0.0,
+        "anchor_loss_mean": sum(swap_anchors_all) / len(swap_anchors_all) if swap_anchors_all else 0.0,
+        "wrong_loss_mean": sum(swap_wrongs_all) / len(swap_wrongs_all) if swap_wrongs_all else 0.0,
+    })
 
     report["final_training_loss"] = report["stages"][-1]["loss_last"]
     report["latent_diversity"]["after"] = latent_diversity(
@@ -2056,6 +2160,8 @@ def main():
                     help="offline test of the latent-diversity diagnostic and the additive latent conditioning; no checkpoint download")
     ap.add_argument("--selftest-latent-preservation", action="store_true",
                     help="offline test of the VICReg-style latent-preservation term; no checkpoint download")
+    ap.add_argument("--selftest-latent-swap", action="store_true",
+                    help="offline test of the swapped-latent writer objective; no checkpoint download")
     args = ap.parse_args()
 
     if getattr(args, "selftest_latent_preservation", False):
@@ -2113,8 +2219,8 @@ def main():
             "network_used": False,
             "optimizer_steps": 0,
             "formula": (
-                "L_pres = 0.5 * mean_j relu(1.0 - sqrt(Var_j(Z)+1e-4)) "
-                "+ 0.05 * (sum_{i!=j} cov(P)_ij^2) / 512"
+                "L_pres = 2.5 * mean_j relu(1 - sqrt(Var_j(Z)+1e-4)/0.4383) "
+                "+ 0.25 * (sum_{i!=j} cov(P)_ij^2) / 512"
             ),
             "variance_target": LATENT_VARIANCE_TARGET,
             "variance_weight": LATENT_VARIANCE_WEIGHT,
@@ -2128,6 +2234,92 @@ def main():
             "constant_covariance_term": float(cov_const),
             "diverse_covariance_term": float(cov_div),
             "encoder_parameters_with_gradient": len(encoder_grads),
+        }, ensure_ascii=False, indent=2))
+        return
+
+    if getattr(args, "selftest_latent_swap", False):
+        from types import SimpleNamespace
+
+        class _IdentityDonorLayer(nn.Module):
+            def forward(self, hidden, _cos, _sin, past_kv=None, use_cache=False):
+                return hidden, None
+
+        class _TinyDonor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.cfg = SimpleNamespace(
+                    d_model=16, max_seq_len=64, use_gradient_checkpointing=False
+                )
+                self.token_embedding = nn.Embedding(300, 16)
+                self.layers = nn.ModuleList([_IdentityDonorLayer(), _IdentityDonorLayer()])
+                self.final_norm = nn.LayerNorm(16)
+                self.register_buffer("rope_cos", torch.zeros(64, 1, 1))
+                self.register_buffer("rope_sin", torch.zeros(64, 1, 1))
+
+        cfg = Sham2UnifiedConfig(
+            d_model=16, vocab_size=300, n_layers=2, max_seq_len=64,
+            latents=4, think_steps=2, block=32, writer_layers=1,
+            heads=4, head_d=16, bitnet_head=False, batch=1,
+        )
+        model = Sham2Unified(cfg, _TinyDonor())
+        model.train()
+        target = torch.randint(0, 50, (1, 32), dtype=torch.long)
+        valid = torch.ones_like(target, dtype=torch.bool)
+        prompt_a = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+        prompt_b = torch.tensor([[30, 31, 32, 33]], dtype=torch.long)
+        latent_a = model(prompt_a)
+        latent_b = model(prompt_b)
+
+        # Satisfied margin -> exactly zero; violated margin -> positive.
+        satisfied = float(latent_swap_loss(torch.tensor(0.5), torch.tensor(3.0)))
+        violated = float(latent_swap_loss(torch.tensor(3.0), torch.tensor(0.5)))
+        assert satisfied == 0.0, satisfied
+        assert violated > 0.0, violated
+
+        # A constant encoder (same latent for correct and wrong) cannot satisfy the
+        # hinge, and the gradient must still reach the encoder through the
+        # non-detached wrong branch, i.e. there is a direction to escape collapse.
+        model.zero_grad(set_to_none=True)
+        same_correct = model.writer.loss(latent_a, target, valid_mask=valid).detach()
+        same_wrong = model.writer.loss(latent_a, target, valid_mask=valid)
+        same_loss = latent_swap_loss(same_correct, same_wrong)
+        assert float(same_loss) > 0.0, float(same_loss)
+        same_loss.backward()
+        encoder_grads = [
+            name for name, parameter in model.named_parameters()
+            if name.startswith(("compressor.", "thinker.")) and parameter.grad is not None
+            and float(parameter.grad.abs().sum()) > 0.0
+        ]
+        assert encoder_grads, "the swapped-latent hinge must reach compressor/thinker parameters"
+
+        model.zero_grad(set_to_none=True)
+        correct = model.writer.loss(latent_a, target, valid_mask=valid).detach()
+        wrong = model.writer.loss(latent_b, target, valid_mask=valid)
+        pair_loss = latent_swap_loss(correct, wrong)
+        assert torch.isfinite(pair_loss), pair_loss
+        pair_loss.backward()
+        pair_grads = [
+            name for name, parameter in model.named_parameters()
+            if name.startswith(("compressor.", "thinker.")) and parameter.grad is not None
+        ]
+        assert pair_grads, "the swapped-latent hinge must reach the encoder for a real prompt pair"
+        print(json.dumps({
+            "selftest": "passed",
+            "network_used": False,
+            "optimizer_steps": 0,
+            "formula": (
+                "L_swap = 1.0 * relu(0.5 + CE(correct latent, anchor target).detach() "
+                "- CE(wrong prompt latent, anchor target))"
+            ),
+            "fraction": SWAP_FRACTION,
+            "margin": SWAP_MARGIN,
+            "weight": SWAP_WEIGHT,
+            "satisfied_margin_loss": satisfied,
+            "violated_margin_loss": violated,
+            "constant_latent_loss": float(same_loss),
+            "constant_latent_encoder_grads": len(encoder_grads),
+            "prompt_pair_loss": float(pair_loss),
+            "prompt_pair_encoder_grads": len(pair_grads),
         }, ensure_ascii=False, indent=2))
         return
 
