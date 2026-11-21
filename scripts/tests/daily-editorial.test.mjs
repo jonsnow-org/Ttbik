@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { NEWS_ITEMS } from "../../src/lib/newsItems.ts";
 import { ARTICLE_ITEMS } from "../../src/lib/articlesIndex.ts";
 import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
-import { latestEvent } from "../../src/lib/eventsIndex.ts";
+import { EVENT_ITEMS, latestEvent } from "../../src/lib/eventsIndex.ts";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
 const sourceUrls = (item) => (item.sources ?? []).map((source) => source.href).sort();
@@ -176,7 +176,7 @@ test("21 November autonomous-weapons briefing is bilingual, source-matched and d
 });
 
 test("the homepage resolves its event strip from the combined event catalogue, not the empty legacy array", () => {
-  const expected = [...EVENT_EXTRAS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
+  const expected = [...EVENT_ITEMS, ...EVENT_EXTRAS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
   assert.ok(expected, "The event catalogue should contain editorial events");
   assert.equal(latestEvent()?.slug, expected.slug);
   const home = readFileSync(new URL("../../src/app/page.tsx", import.meta.url), "utf8");
