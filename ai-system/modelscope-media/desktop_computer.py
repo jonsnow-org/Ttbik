@@ -265,7 +265,24 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _launcher_script(session: str, app: str) -> str | None:
+def _site_url(url: str) -> str:
+    """A built-in https address only. Quoted into the launcher; never resolved here."""
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~:/?&=%+-]*)?", url):
+        raise ValueError("site url")
+    return url
+
+
+# Home-screen icons. The taskbar stays Browser / Terminal / Files so a phone-width desktop does not overflow.
+SITES = (
+    ("youtube", "YouTube", "https://www.youtube.com/"),
+    ("search", "Search", "https://www.google.com/"),
+    ("wiki", "Wikipedia", "https://www.wikipedia.org/"),
+    ("maps", "Maps", "https://maps.google.com/"),
+    ("translate", "Translate", "https://translate.google.com/"),
+)
+
+
+def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | None:
     """The shell script a taskbar button runs: the same command the Mini App's launch action uses (the browser is looked up when clicked, because Chromium may be installed after the desktop started)."""
     if app == "browser":
         import browser_computer
@@ -274,7 +291,7 @@ def _launcher_script(session: str, app: str) -> str | None:
         flags = " ".join(shlex.quote(f) for f in [
             "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
-            f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank"])
+            f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
         return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
@@ -294,8 +311,9 @@ def _write_launchers(session: str, uid: int) -> dict[str, str]:
     folder = box.session_home(session) / ".desktop" / "panel"
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, str] = {}
-    for app, _label in APPS:
-        script = _launcher_script(session, app)
+    jobs = [(app, "about:blank") for app, _label in APPS] + [(key, url) for key, _label, url in SITES]
+    for app, url in jobs:
+        script = _launcher_script(session, "browser" if app not in ("terminal", "files") else app, url)
         if not script:
             continue
         path = folder / (app + ".sh")
@@ -318,6 +336,23 @@ def _make_icon(kind: str, path: Path, size: int = 64) -> None:
         d.ellipse((20, 6, 44, 58), outline=(255, 255, 255, 255), width=2)
         d.line((6, 32, 58, 32), fill=(255, 255, 255, 255), width=2)
         d.arc((10, 14, 54, 50), 200, 340, fill=(255, 255, 255, 255), width=2)
+    elif kind == "youtube":
+        d.rounded_rectangle((6, 14, 58, 50), radius=10, fill=(220, 38, 38, 255))
+        d.polygon([(26, 22), (26, 42), (44, 32)], fill=(255, 255, 255, 255))
+    elif kind == "search":
+        d.ellipse((10, 8, 40, 38), outline=(37, 99, 235, 255), width=5)
+        d.line((36, 34, 54, 54), fill=(37, 99, 235, 255), width=6)
+    elif kind == "wiki":
+        d.rounded_rectangle((6, 6, 58, 58), radius=12, fill=(17, 24, 39, 255))
+        d.line((18, 46, 26, 18, 32, 36), fill=(255, 255, 255, 255), width=4)
+        d.line((32, 36, 38, 18, 46, 46), fill=(255, 255, 255, 255), width=4)
+    elif kind == "maps":
+        d.ellipse((16, 8, 48, 40), fill=(14, 165, 164, 255))
+        d.polygon([(32, 58), (18, 34), (46, 34)], fill=(14, 165, 164, 255))
+        d.ellipse((24, 16, 40, 32), fill=(255, 255, 255, 255))
+    elif kind == "translate":
+        d.rounded_rectangle((6, 14, 36, 40), radius=6, fill=(37, 99, 235, 255))
+        d.rounded_rectangle((28, 26, 58, 52), radius=6, fill=(13, 148, 136, 255))
     elif kind == "terminal":
         d.rounded_rectangle((4, 8, 60, 56), radius=7, fill=(17, 24, 39, 255), outline=(94, 234, 212, 255), width=3)
         d.line((14, 22, 26, 32, 14, 42), fill=(94, 234, 212, 255), width=4)
@@ -338,7 +373,8 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
     icons = home / ".desktop" / "icons"
     desktop.mkdir(parents=True, exist_ok=True)
     icons.mkdir(parents=True, exist_ok=True)
-    for app, label in APPS:
+    entries = list(APPS) + [(key, label) for key, label, _url in SITES]
+    for app, label in entries:
         if app not in scripts:
             continue
         icon = icons / (app + ".png")
