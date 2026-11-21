@@ -36,7 +36,7 @@ jobs:
           kaggle datasets download -d jonsnowjonsnow/sham-crawl-gh-collect-corpus -p /tmp/raw --unzip -q
           du -sh /tmp/raw
           python ai-system/colab/sham_small/sham_curate.py --in /tmp/raw --out /tmp/clean --report /tmp/curate-report.json --limit "${{ inputs.limit || '400000' }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sham-curate-report
           path: /tmp/curate-report.json
