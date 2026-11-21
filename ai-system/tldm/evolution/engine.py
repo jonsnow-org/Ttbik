@@ -29,6 +29,13 @@ import adapters as AD  # noqa: E402
 import curriculum as CU  # noqa: E402
 import experience as EX  # noqa: E402
 import lessons as LS  # noqa: E402
+import web_training as WT  # noqa: E402
+
+# The web-learning recipe measured in docs/experiments/tldm_web_learning_2026-11-18.json (3 seeds): web rows whose command template the model already knows
+# ("known": new wordings) -> adapters "kn_<family>", replay-heavy with an L2-to-base (EWC) term; new commands/options ("new") -> "web_<family>". BOTH are
+# ROUTED: an adapter serves only requests whose nearest examples (k-NN, the model's own frozen reader) are its web rows; every other request keeps the
+# unchanged path. Every adapter still passes the same no-regression gate (previously-correct rows + dev set).
+WEB_RECIPE = {"known": dict(ratio=3, lr=5e-4, steps=150, l2=0.1), "new": dict(ratio=1, lr=1e-3, steps=300)}
 
 
 class CachedExecutor:
@@ -73,6 +80,7 @@ class EvolutionEngine:
         self.router = AD.Router(self._embed)
         self._refit_router([])
         self.events: list = []
+        self.web_router = None
 
     # ------------------------------------------------------------ inference
     @torch.no_grad()
@@ -92,10 +100,12 @@ class EvolutionEngine:
     def commands(self, tasks: list, use_lessons: bool | None = None) -> list:
         active = self.registry.active()
         fams = [f for f, _ in self.router.route(tasks)] if active else [None] * len(tasks)
+        webs = self.web_router.route(tasks) if self.web_router is not None and any(k.startswith(("web_", "kn_")) for k in active) else [None] * len(tasks)
         out = [None] * len(tasks)
         groups = defaultdict(list)
-        for i, f in enumerate(fams):
-            groups[f if f in active else None].append(i)
+        for i, f in enumerate(fams):                                 # priority: routed web knowledge > the family's user adapter > base
+            pick = webs[i] if webs[i] in active else f if f in active else None
+            groups[pick].append(i)
         for f, idx in groups.items():
             AD.set_active(self.model, f)
             res = self.P.commands([tasks[i] for i in idx])
@@ -177,6 +187,51 @@ class EvolutionEngine:
         self.model.eval()
         AD.set_active(self.model, None)
         return name
+
+    def _system_score(self, items: dict) -> dict:
+        if not items:
+            return {}
+        keys = list(items)
+        outs = self.commands([items[k][0] for k in keys], use_lessons=False)
+        return {k: bool(items[k][1](o)) for k, o in zip(keys, outs)}
+
+    def learn_web(self, kept: list, recipe: dict | None = None) -> dict:
+        """The web-learning stage (training data only). kept: verify_and_filter() output. -> per-adapter gate results."""
+        import augment as AUG
+        recipe = recipe or WEB_RECIPE
+        for k in kept:
+            ok, out, _ = self.ex.run(k["command"]) if self.ex else (True, "", "")
+            self.observe("web", k["task"], k["command"], 0 if ok else 1, out, "", True, source="web", meta={"url": k["url"], "license": k["license"]})
+        rows = [(k["task"], k["command"], k["family"]) for k in kept if self.P.fits(k["command"]) and not (self.too_close and self.too_close(k["task"]))]
+        known_tpl = {AUG.delex(t, c)[1] for t, c in self.replay}
+        tier = {(t, c): ("known" if AUG.delex(t, c)[1] in known_tpl else "new") for t, c, _ in rows}
+        self.web_router = WT.WebRouter(self._embed)                    # both tiers ROUTED: an adapter only serves requests whose nearest examples are its web rows
+        self.web_router.fit([t for t, _ in self.replay], [t for t, _, _ in rows], [("kn_" if tier[(t, c)] == "known" else "web_") + f for t, c, f in rows], prefix="")
+        rep = {}
+        for which, prefix in (("known", "kn_"), ("new", "web_")):
+            sel = [r for r in rows if tier[r[:2]] == which]
+            for fam in sorted({f for _, _, f in sel}, key=lambda f: -sum(1 for r in sel if r[2] == f)):
+                fr = [(t, c) for t, c, f in sel if f == fam]
+                name = prefix + fam
+                target = {f"w{i}": (t, (lambda o, ref=c: self.ex.same_effect(ref, o))) for i, (t, c) in enumerate(fr)}
+                before = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "target": self._system_score(target)}
+                WT.train_adapter(self.P, self.model, name, fr, self.replay, seed=self.seed, **recipe[which])
+                self.registry.m["clusters"].setdefault(name, {"active": None, "history": [], "versions": []})
+                vid = self.registry.propose(name, AD.adapter_state(self.model, name), {})
+                self.registry.accept(name, vid, "candidate")             # tentatively active, so commands() routes to it
+                after = {"prev_correct": self._system_score(self.prev_correct), "dev": self._system_score(self.dev), "target": self._system_score(target)}
+                ok, why = AD.gate(before, after, "target", ("prev_correct", "dev"), self.max_lost)
+                v = self.registry._v(name, vid)
+                v["metrics"] = {k: [sum(before[k].values()), sum(after[k].values()), len(before[k])] for k in before}
+                if ok:
+                    v.update(status="accepted", why=why)
+                    self.registry._save()
+                else:
+                    self.registry.rollback(name)
+                    self.registry.reject(name, vid, why)
+                    AD.drop_adapter(self.model, name)
+                rep[name] = {"pairs": len(fr), "accepted": ok, "why": why}
+        return rep
 
     def _score(self, items: dict, adapter: str | None) -> dict:
         if not items:

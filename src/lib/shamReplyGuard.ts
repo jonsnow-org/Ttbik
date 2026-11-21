@@ -77,9 +77,41 @@ export function lastUserContent(messages: ShamChatTurn[]): string {
 
 export const STALE_REPLY_USER = "تعذّر تكوين جواب مناسب لهذه الرسالة. أعد المحاولة بصيغة مختلفة.";
 
-/** Last-line defense before a reply is shown: training reports and copied prior answers stay out of the model chat. */
+/** Collapse adjacent identical sentence blocks; never synthesize or rewrite the model's wording. */
+export function collapseAdjacentDuplicateSentences(text: string): string {
+  let cleaned = String(text || "");
+  for (let pass = 0; pass < 8; pass++) {
+    const chunks = [...cleaned.matchAll(/[^.!?؟\n]+[.!?؟]?/gu)];
+    const keys = chunks.map((chunk) => chunk[0].normalize("NFKC")
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+      .toLocaleLowerCase("ar")
+      .replace(/[\p{P}\p{S}\s]+/gu, " ")
+      .trim());
+    let removed = false;
+    for (let i = 0; i < chunks.length && !removed; i++) {
+      const maxBlock = Math.min(6, Math.floor((chunks.length - i) / 2));
+      for (let size = maxBlock; size >= 1; size--) {
+        const left = keys.slice(i, i + size);
+        const right = keys.slice(i + size, i + size * 2);
+        if (left.some((key) => !key) || left.join("\u0000") !== right.join("\u0000")) continue;
+        const weight = left.reduce((sum, key) => sum + key.length, 0);
+        if (weight < 32 || (size === 1 && left[0].length < 32)) continue;
+        const start = chunks[i + size].index ?? 0;
+        const last = chunks[i + size * 2 - 1];
+        const end = (last.index ?? start) + last[0].length;
+        cleaned = cleaned.slice(0, start) + cleaned.slice(end);
+        removed = true;
+        break;
+      }
+    }
+    if (!removed) break;
+  }
+  return cleaned.trim();
+}
+
+/** Last-line defense before a reply is shown: repeated sentences, training reports and copied prior answers stay out of the chat. */
 export function visibleShamReply(text: string, history?: Array<{ q?: string; a?: string }>): { text: string; blocked: "echo" | "report" | "" } {
-  const raw = String(text || "").trim();
+  const raw = collapseAdjacentDuplicateSentences(String(text || "").trim());
   if (!raw) return { text: "", blocked: "" };
   if (isTrainingStatusReply(raw)) return { text: STALE_REPLY_USER, blocked: "report" };
   if (isEchoedPriorReply(raw, history)) return { text: STALE_REPLY_USER, blocked: "echo" };

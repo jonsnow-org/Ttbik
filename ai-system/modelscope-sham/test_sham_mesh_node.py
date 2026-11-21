@@ -37,7 +37,7 @@ class ShamMeshNodeTest(unittest.TestCase):
         self.hub = MN.LocalHub()
         self.tmp = tempfile.mkdtemp()
         os.environ["SHAM_TLDM_EVOLUTION_ROOT"] = os.path.join(self.tmp, "evo")
-        SMN._STATE.update(net=None, error="", chat=None)
+        SMN._STATE.update(net=None, error="", chat=None, propose=None)
         SMN._root = lambda: __import__("pathlib").Path(self.tmp) / "mesh"
         hub = self.hub
         self._orig = MN.RelayClient
@@ -102,6 +102,31 @@ class ShamMeshNodeTest(unittest.TestCase):
         self.assertIs(SMN.attach(c).writer.__func__, w.__func__)
         self.assertFalse(SMN.status()["online"])
 
+
+    def test_presence_at_startup_joins_without_a_chat_and_attach_reuses_that_node(self):
+        os.environ.pop("SHAM_MESH_SERVE_PEERS", None)
+        self.assertTrue(SMN.start_presence())
+        end = time.time() + 5
+        while time.time() < end and not (SMN._STATE.get("net") and SMN._STATE["net"].online):
+            time.sleep(0.05)
+        net = SMN._STATE["net"]
+        self.assertTrue(net.online and SMN.status()["online"], SMN.status())
+        self.assertIn(net.ident.id, self.hub.nodes)                          # visible to every peer before any T-LDM chat exists
+        self.assertFalse(net.caps()["propose"], "serving proposals stays opt-in")
+        self.assertIsNone(net.me.propose("list the files"))
+        chat = SMN.attach(Chat({}, self.folder()))
+        self.assertIs(SMN._STATE["net"], net, "the chat reuses the start-up node (one node per Studio process)")
+        self.assertTrue(chat._mesh_attached)
+        self.assertIsNone(SMN._STATE.get("propose"))
+
+    def test_presence_off_switches(self):
+        os.environ["SHAM_MESH_PRESENCE"] = "0"
+        try:
+            self.assertFalse(SMN.start_presence())
+        finally:
+            os.environ.pop("SHAM_MESH_PRESENCE", None)
+        os.environ["SHAM_MESH"] = "0"
+        self.assertFalse(SMN.start_presence())
 
 if __name__ == "__main__":
     unittest.main()

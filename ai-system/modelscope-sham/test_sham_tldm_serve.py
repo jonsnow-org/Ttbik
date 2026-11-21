@@ -56,6 +56,46 @@ class Sham2TldmServe(unittest.TestCase):
             os.environ["SHAM_TLDM_CKPT"] = str(path)
             self.assertEqual(S._find_local_head(), path)
 
+    def test_web_tool_request_returns_to_app_and_resumes_the_same_tldm_session(self):
+        seen = []
+        class Backend:
+            def run(self, cmd, confirm=False):
+                raise AssertionError("read-only web tools must not execute as shell commands")
+        class Chat:
+            max_steps = 4
+            def backend_factory(self, session):
+                return Backend()
+            def writer(self, task, hist):
+                seen.append(list(hist))
+                if any(str(item[0]).startswith("@tool web_search") for item in hist if isinstance(item, (list, tuple)) and item):
+                    return "وجدت نتيجة البحث وسأجيب عنها."
+                return '$ @tool web_search {"query":"موقع أكواد ضخم"}'
+        with mock.patch.object(S, "load_chat", return_value=(Chat(), "")):
+            first = json.loads(S.respond(None, None, "tldm-sham_v2-web", "قم بجولة بحث في الإنترنت عن موقع أكواد ضخم"))
+        self.assertEqual(first["type"], "tool_request")
+        self.assertEqual(first["tool_name"], "web_search")
+        self.assertEqual(first["tool_arguments"], {"query": "موقع أكواد ضخم"})
+        self.assertEqual(first["session"], "tldm-sham_v2-web")
+        self.assertTrue(first["tool_request_id"])
+        with mock.patch.object(S, "load_chat", return_value=(Chat(), "")):
+            stale = json.loads(S.respond(
+                None, None, "tldm-sham_v2-web", "قم بجولة بحث في الإنترنت عن موقع أكواد ضخم",
+                resume_tool_name="web_search", resume_tool_arguments_json='{"query":"different"}',
+                resume_tool_result="not allowed", resume_tool_request_id=first["tool_request_id"],
+            ))
+        self.assertEqual(stale["type"], "error")
+        self.assertIn("لا تطابق", stale["text"])
+        with mock.patch.object(S, "load_chat", return_value=(Chat(), "")):
+            final = json.loads(S.respond(
+                None, None, "tldm-sham_v2-web", "قم بجولة بحث في الإنترنت عن موقع أكواد ضخم",
+                resume_tool_name="web_search", resume_tool_arguments_json='{"query":"موقع أكواد ضخم"}',
+                resume_tool_result="مصادر البحث: موقع برمجي وملفات توثيق.",
+                resume_tool_request_id=first["tool_request_id"],
+            ))
+        self.assertEqual(final["type"], "text")
+        self.assertIn("نتيجة البحث", final["text"])
+        self.assertTrue(any("مصادر البحث" in str(item[1]) for item in seen[-1] if isinstance(item, (list, tuple)) and len(item) > 1))
+
     def test_sensitive_command_pauses_for_allow_deny_on_model_computer(self):
         class R:
             def __init__(self, needs=False, out="", ok=True, refused=""):

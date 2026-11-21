@@ -63,8 +63,8 @@ export function lfmStudioUrls(): string[] {
 }
 // ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
 // Like LFM2.5 it has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
-// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Its conversation is Nova's own (same chat state): switching
-// between Nova and Nova 2 continues the same thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
+// is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Nova 2 keeps its own thread and memory under
+// its private model chat key; it does not continue or overwrite Nova 1's thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
 export const NOVA2_DEFAULT = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
 export function nova2Urls(): string[] {
   const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || (process.env.NODE_ENV === "test" ? "" : NOVA2_DEFAULT)).trim();
@@ -82,6 +82,11 @@ export async function tokenForAsync(base: string): Promise<string> {
   if (/\.modelscope\.ai(\/|$)/i.test(base)) return ((process.env.NOVA2_STUDIO_TOKEN || (await getSecret("AI_NOVA2_TOKEN")) || "") as string).trim();
   return coderToken();
 }
+/** A cold server must wait for the encrypted international account token before deciding Nova 2 cannot be warmed. */
+export async function nova2WarmStartReady(): Promise<boolean> {
+  const base = nova2Urls()[0];
+  return Boolean(base && (await tokenForAsync(base)));
+}
 function novaStudioUrls(): string[] {
   return oldNovaStudioUrls();
 }
@@ -93,9 +98,10 @@ function oldNovaStudioUrls(): string[] {
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
 }
-/** Nova 2 is its own model on its own Studio: its task stays on that one Studio (one warm cache) and it starts NO agents (agents queue and slow a task down, owner 2026-11-17),
- *  and it never hands work to Nova's cn Studios. Other models keep their own rules. */
-export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean => model !== "nova2";
+/** Agents use only the selected model's Studio pool. Nova 2 may run one serial child on its
+ *  dedicated Studio; no child is ever routed to Nova 1's cn Studios. */
+export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean =>
+  model !== "nova2" || nova2Urls().length > 0;
 /** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
   const nova = oldNovaStudioUrls();
@@ -424,7 +430,13 @@ export async function coderChat(
       temperature: opts.temperature ?? 0.6,
       wait_s: waitS,
   };
-  const call = (payload: Record<string, unknown>) => coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools), opts.prefer || "");
+  // The engine is selected in the request options by the durable task runner. Honour it
+  // even when this call is made outside the original Telegram AsyncLocalStorage scope
+  // (for example, a recovered/background leg). Job ids still carry their global Studio
+  // index, so every later poll returns to the Studio that accepted this request.
+  const call = (payload: Record<string, unknown>) => withEngineModel(opts.model ?? currentEngineModel(), () =>
+    coderCall("chat", payload, opts.timeoutMs ?? (waitS + 12) * 1000, opts.affinity, opts.fresh, opts.avoidHome, opts.tag, hasImages(messages), tierFor(messages, opts.tools), opts.prefer || ""),
+  );
   if (!(opts.priority && opts.priority > 0)) return call(base);                       // no field at all: the payload is what every Studio already understands
   const o = await call({ ...base, priority: 1 });                                     // Pro / owner: ahead in the Studio's queue
   return o.status === 400 || o.status === 422 ? call(base) : o;                       // a Studio from before the field existed rejects it: same call without it

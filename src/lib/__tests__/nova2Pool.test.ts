@@ -1,8 +1,15 @@
 import { coderToolsFor } from "@/lib/coderAgent";
-import { agentsAllowedFor, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
+import { agentsAllowedFor, coderChat, coderJobResult, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, nova2WarmStartReady, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { browserStudioFor } from "@/lib/browserComputer";
+import { ownMediaBase, modelMediaConfigured } from "@/lib/modelMedia";
+import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
+
+jest.mock("@/lib/hostedSecrets", () => ({
+  secretCached: jest.fn(() => ""),
+  getSecret: jest.fn(async (name: string) => name === "AI_NOVA2_TOKEN" ? "db-stored-ai-token" : ""),
+}));
 
 const OLD = ["https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net", "https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net"];
 const N2 = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
@@ -27,12 +34,15 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     const names = withEngineModel("nova2", () => (coderToolsFor(true, true, msgs) as { function: { name: string } }[]).map((t) => t.function.name));
     expect(names).toContain("load_tools");
     expect(names).toContain("ask_user");
-    expect(names).not.toContain("delegate");
+    expect(names).toContain("delegate");
   });
 
-  test("Nova 2 works alone: no agents, and never the cn token on its international Studio", () => {
-    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(false);
+  test("Nova 2 agents use its own pool and only one serial child on its single Studio", () => {
+    expect(withEngineModel("nova2", () => agentsAllowedFor())).toBe(true);
     expect(withEngineModel("coder", () => agentsAllowedFor())).toBe(true);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1))).toBe(1);
+    expect(withEngineModel("nova2", () => maxParallelAgentsForStudios(1, true))).toBe(0);
+    expect(withEngineModel("coder", () => maxParallelAgentsForStudios(1))).toBe(0);
     delete process.env.NOVA2_STUDIO_TOKEN;
     expect(tokenFor(N2)).not.toContain("cn-token");
   });
@@ -74,12 +84,117 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(DEFAULT_MODELS.find((x) => x.id === "coder")).toBeTruthy();   // Nova is still there
   });
 
-  test("Nova 2 is independent: its own session on the same Mini App computer as Nova (owner 2026-11-18)", () => {
+  test("an explicit model option routes Nova 2 to its international Studio even outside Nova 2's async context", async () => {
+    process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+    process.env.CODER_STUDIO_BALANCE = "off";
+    const calls: string[] = [];
+    const realFetch = global.fetch;
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (init?.method === "POST") return Response.json({ event_id: "nova2-event" });
+      const payload = JSON.stringify([JSON.stringify({ type: "pending", job: "nova2-job" })]);
+      return new Response("event: complete\ndata: " + payload + "\n\n", {
+        status: 200, headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+    try {
+      const result = await withEngineModel("coder", () => coderChat(
+        [{ role: "user", content: "hello" }],
+        { model: "nova2", waitS: 1, timeoutMs: 5000 },
+      ));
+      expect(result.reply?.job).toBe("s2~nova2-job");
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((url) => url.startsWith(N2))).toBe(true);
+
+      const beforePoll = calls.length;
+      await withEngineModel("coder", () => coderJobResult("s2~nova2-job", 0, 5000));
+      expect(calls.length).toBeGreaterThan(beforePoll);
+      expect(calls.slice(beforePoll).every((url) => url.startsWith(N2))).toBe(true);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test("an explicit Nova 1 option overrides an ambient Nova 2 context", async () => {
+    process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+    process.env.CODER_STUDIO_BALANCE = "off";
+    const calls: string[] = [];
+    const realFetch = global.fetch;
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (init?.method === "POST") return Response.json({ event_id: "nova1-event" });
+      const payload = JSON.stringify([JSON.stringify({ type: "pending", job: "nova1-job" })]);
+      return new Response("event: complete\ndata: " + payload + "\n\n", {
+        status: 200, headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+    try {
+      const result = await withEngineModel("nova2", () => coderChat(
+        [{ role: "user", content: "hello" }],
+        { model: "coder", waitS: 1, timeoutMs: 5000 },
+      ));
+      expect(result.reply?.job).toBe("nova1-job");
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((url) => url.startsWith(OLD[0]))).toBe(true);
+      expect(calls.some((url) => url.startsWith(N2))).toBe(false);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  test("Nova 2's first warm-up waits for its encrypted account token on a cold server", async () => {
+    delete process.env.NOVA2_STUDIO_TOKEN;
+    expect(await nova2WarmStartReady()).toBe(true);
+  });
+
+  test("Nova 2 is independent: own computer identity and no shared computer/media route", () => {
     expect(computerModelOf("nova2")).toBe("nova2");
     expect(computerModelOf("coder")).toBe("coder");
     expect(computerModelOf("lfm25")).toBe("lfm25");
     expect(computerModelOf(undefined)).toBe("coder");
     expect(COMPUTER_MODEL_IDS).toContain("nova2");
-    expect(browserStudioFor("nova2")).toBe(browserStudioFor("coder"));   // same Mini App computer host
+    const priorComputer = process.env.NOVA2_COMPUTER_STUDIO_URL;
+    const priorHub = process.env.COMPUTER_STUDIO_URL;
+    const priorMedia = process.env.NOVA2_MEDIA_STUDIO_URL;
+    const priorNovaMedia = process.env.NOVA_MEDIA_STUDIO_URL;
+    const priorNovaImage = process.env.NOVA_IMAGE_STUDIO_URL;
+    const priorShamMedia = process.env.SHAM_MEDIA_STUDIO_URL;
+    const priorSham2Media = process.env.SHAM_V2_MEDIA_STUDIO_URL;
+    try {
+      delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+      delete process.env.NOVA2_MEDIA_STUDIO_URL;
+      expect(browserStudioFor("nova2")).toBeNull();
+      expect(ownMediaBase("nova2")).toBe("");
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-nova2-computer.api-inference.modelscope.ai";
+      process.env.COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+      process.env.NOVA2_MEDIA_STUDIO_URL = "https://studio-jonjithup-nova2-media.api-inference.modelscope.ai";
+      process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
+      expect(browserStudioFor("nova2")).toBe(process.env.NOVA2_COMPUTER_STUDIO_URL);
+      expect(browserStudioFor("nova2")).not.toBe(browserStudioFor("coder"));
+      expect(ownMediaBase("nova2")).toBe(process.env.NOVA2_MEDIA_STUDIO_URL);
+      expect(ownMediaBase("nova2")).not.toBe(ownMediaBase("coder"));
+      expect(modelMediaConfigured("nova2", "image")).toBe(true);
+      expect(modelMediaConfigured("nova2", "audio")).toBe(true);
+      process.env.NOVA2_COMPUTER_STUDIO_URL = process.env.NOVA2_MEDIA_STUDIO_URL!;
+      expect(browserStudioFor("nova2")).toBeNull();
+      process.env.NOVA2_MEDIA_STUDIO_URL = process.env.NOVA2_COMPUTER_STUDIO_URL!;
+      expect(ownMediaBase("nova2")).toBe("");
+      process.env.NOVA2_MEDIA_STUDIO_URL = "https://nova-image.example.test";
+      process.env.NOVA_IMAGE_STUDIO_URL = "https://nova-image.example.test";
+      expect(ownMediaBase("nova2")).toBe("");
+      process.env.NOVA2_MEDIA_STUDIO_URL = "https://neutral-sham-media.example.test";
+      process.env.SHAM_MEDIA_STUDIO_URL = "https://neutral-sham-media.example.test";
+      expect(ownMediaBase("nova2")).toBe("");
+    } finally {
+      if (priorComputer === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = priorComputer;
+      if (priorHub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = priorHub;
+      if (priorMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = priorMedia;
+      if (priorNovaMedia === undefined) delete process.env.NOVA_MEDIA_STUDIO_URL; else process.env.NOVA_MEDIA_STUDIO_URL = priorNovaMedia;
+      if (priorNovaImage === undefined) delete process.env.NOVA_IMAGE_STUDIO_URL; else process.env.NOVA_IMAGE_STUDIO_URL = priorNovaImage;
+      if (priorShamMedia === undefined) delete process.env.SHAM_MEDIA_STUDIO_URL; else process.env.SHAM_MEDIA_STUDIO_URL = priorShamMedia;
+      if (priorSham2Media === undefined) delete process.env.SHAM_V2_MEDIA_STUDIO_URL; else process.env.SHAM_V2_MEDIA_STUDIO_URL = priorSham2Media;
+    }
   });
 });

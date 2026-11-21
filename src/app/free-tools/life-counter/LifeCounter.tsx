@@ -6,28 +6,25 @@ import ShareCard from "@/components/ShareCard";
 const STORE_KEY = "lifeCounter.birth";
 const DAYS_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
-const ZODIAC: { name: string; icon: string; from: [number, number] }[] = [
-  { name: "الجدي", icon: "♑", from: [12, 22] },
-  { name: "الدلو", icon: "♒", from: [1, 20] },
-  { name: "الحوت", icon: "♓", from: [2, 19] },
-  { name: "الحمل", icon: "♈", from: [3, 21] },
-  { name: "الثور", icon: "♉", from: [4, 20] },
-  { name: "الجوزاء", icon: "♊", from: [5, 21] },
-  { name: "السرطان", icon: "♋", from: [6, 21] },
-  { name: "الأسد", icon: "♌", from: [7, 23] },
-  { name: "العذراء", icon: "♍", from: [8, 23] },
-  { name: "الميزان", icon: "♎", from: [9, 23] },
-  { name: "العقرب", icon: "♏", from: [10, 23] },
-  { name: "القوس", icon: "♐", from: [11, 22] },
-];
-
 function zodiac(m: number, d: number) {
-  let pick = ZODIAC[0];
-  for (const z of ZODIAC) {
-    if (m > z.from[0] || (m === z.from[0] && d >= z.from[1])) pick = z;
-  }
-  // before Jan 20 -> Capricorn
-  if (m === 1 && d < 20) pick = ZODIAC[0];
+  // Month*100+day so December is not overwritten by every earlier sign.
+  const key = m * 100 + d;
+  const signs: { name: string; icon: string; from: number }[] = [
+    { name: "الدلو", icon: "♒", from: 120 },
+    { name: "الحوت", icon: "♓", from: 219 },
+    { name: "الحمل", icon: "♈", from: 321 },
+    { name: "الثور", icon: "♉", from: 420 },
+    { name: "الجوزاء", icon: "♊", from: 521 },
+    { name: "السرطان", icon: "♋", from: 621 },
+    { name: "الأسد", icon: "♌", from: 723 },
+    { name: "العذراء", icon: "♍", from: 823 },
+    { name: "الميزان", icon: "♎", from: 923 },
+    { name: "العقرب", icon: "♏", from: 1023 },
+    { name: "القوس", icon: "♐", from: 1122 },
+    { name: "الجدي", icon: "♑", from: 1222 },
+  ];
+  let pick = signs[signs.length - 1];
+  for (const z of signs) if (key >= z.from) pick = z;
   return pick;
 }
 
@@ -83,8 +80,12 @@ export default function LifeCounter() {
     const secs = (now - born.getTime()) / 1000;
     const { y, m, d } = ymd(born, cur);
     const todayStart = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate());
-    let next = new Date(cur.getFullYear(), born.getMonth(), born.getDate());
-    if (next.getTime() < todayStart.getTime()) next = new Date(cur.getFullYear() + 1, born.getMonth(), born.getDate());
+    const birthdayIn = (year: number) => {
+      const dim = new Date(year, born.getMonth() + 1, 0).getDate();
+      return new Date(year, born.getMonth(), Math.min(born.getDate(), dim));
+    };
+    let next = birthdayIn(cur.getFullYear());
+    if (next.getTime() < todayStart.getTime()) next = birthdayIn(cur.getFullYear() + 1);
     const isToday = next.getTime() === todayStart.getTime();
     const daysToNext = isToday ? 0 : Math.round((next.getTime() - todayStart.getTime()) / 86400000);
     let hijri = "";

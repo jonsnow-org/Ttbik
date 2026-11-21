@@ -1,4 +1,4 @@
-// The owner's isolated graphical Linux desktop on the shared 16 GB computer hub.
+// The owner's isolated graphical Linux desktop: Nova 1/LFM use the shared hub; Nova 2 requires its own configured Studio.
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
@@ -22,8 +22,8 @@ export type DesktopArgs = {
   height?: number;
 };
 
-/** Where a model's graphical desktop runs. Nova and LFM: the shared computer hub. Sham and Sham v2: THEIR OWN Studio, where the desktop is part of the model's code (sham_desktop.py;
- *  owner's order 2026-11-12) - never Nova's hub, which is Nova's only. The app is only a viewer there. */
+/** Nova 1/LFM use the shared computer hub; Nova 2 uses only NOVA2_COMPUTER_STUDIO_URL.
+ *  Sham/Sham Pro use their own embedded model Studio. The Mini App is a viewer/controller, not a shared backend. */
 export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
   if (modelId === "sham" || modelId === "sham_v2") {
     const url = (modelId === "sham_v2" ? process.env.SHAM_V2_URL || DEFAULT_V2_URL : process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).split(",")[0].trim().replace(/\/+$/, "");
@@ -59,11 +59,11 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   if (["click", "move", "dblclick", "drag", "mousedown", "mouseup"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
-    out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+    out.y = Math.max(0, Math.min(1499, Math.trunc(Number(input.y))));
     if (action === "drag") {
       if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
       out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
-      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+      out.y2 = Math.max(0, Math.min(1499, Math.trunc(Number(input.y2))));
     }
     if (action === "click" || action === "mousedown" || action === "mouseup") {
       const button = String(input.button || "left");
@@ -87,7 +87,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     out.direction = direction;
     if (Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y))) {
       out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
-      out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+      out.y = Math.max(0, Math.min(1499, Math.trunc(Number(input.y))));
     }
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
@@ -106,12 +106,19 @@ export async function desktopLive(
   const base = target.base;
   if (!session || session.length > 240) throw new Error("invalid desktop session");
   const duration = Number.isFinite(Number(seconds)) ? Math.max(1, Math.min(25, Number(seconds))) : 20;
-  if (target.own) return studioStream(base, "desktop_live", { session, seconds: duration }, fetchImpl, (duration + 15) * 1000);
+  if (target.own) return studioStream(
+    base,
+    "desktop_live",
+    { session, seconds: duration },
+    fetchImpl,
+    (duration + 15) * 1000,
+    modelId === "sham_v2", // only Sham 2 retries 412 when the Studio explicitly reports a transient warm-up/deploy state
+  );
   return studioStream(base, "live", {
     session,
     seconds: duration,
-    interval: 0.5,
-    quality: 55,
+    interval: 0.4,
+    quality: 68,
     scale: 1,
   }, fetchImpl, (duration + 15) * 1000);
 }
@@ -127,11 +134,17 @@ export async function desktopDo(
   const base = target.base;
   const clean = cleanDesktopArgs(args);
   if (!clean) return { ok: false, error: "invalid graphical desktop action or arguments" };
+  // Sham 2's own Studio viewer API accepts "state" for a screen read; "frame"
+  // is the Nova hub's action name. Translate only this viewer fallback, never
+  // the model's learned desktop tool or any other model's computer path.
+  const studioArgs = modelId === "sham_v2" && clean.action === "frame"
+    ? { ...clean, action: "state" }
+    : clean;
   try {
     return await studioCall(
       base,
       "desktop_do",
-      { ...clean, session },
+      { ...studioArgs, session },
       fetchImpl,
       45000,
     );

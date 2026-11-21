@@ -1,0 +1,63 @@
+{
+  "what": "Sham v2 (internal id sham_v2; self-name «شام برو» / «Sham Pro») = a COPY of the donor body novaai2026/sham-v2 (Qwen3-based, 2091.2M params incl. LoRA, bf16, frozen) + identity LoRA + the T-LDM head (cached body features)",
+  "where": "cn ModelScope Studio sham2-tldm (2 vCPU / 8 GB, CPU), job=tldm name=sham2; deploy run 44243707126 at a973e8bc; started 2026-11-18 05:26 UTC, done ~06:28 UTC",
+  "recipe": "train_sham2.py --cached --dtype bf16 --seeds 3 --loop --loop_seeds 1 --identity (configs/sham2.yaml; identity LoRA 60 steps first, then the head reads the body WITH the LoRA)",
+  "donor_weights_unchanged": true,
+  "weights_check": "load_checkpoint uses strict load_state_dict (missing/unexpected keys raise) on a zip .pt (a truncated file cannot load); 2091.2M params; general NLL 1.949 before LoRA (a random 152k-vocab body would be ~11.9); train_sham2 now stops if NLL > 6 and sham2_donor checks file sizes against the hub listing on download (#1101)",
+  "heldout_same_effect": {
+    "mean": 0.805,
+    "seeds": [
+      0.75,
+      0.833,
+      0.833
+    ],
+    "gate": 0.6
+  },
+  "heldout2_same_effect": {
+    "mean": 0.619,
+    "seeds": [
+      0.643,
+      0.643,
+      0.571
+    ],
+    "gate": 0.6
+  },
+  "train_same_effect": 1.0,
+  "full_task_benchmark": {
+    "episodes": 60,
+    "seed": 778,
+    "all": 1.0,
+    "simple": 1.0,
+    "multi_step": 1.0,
+    "s_per_task": 0.628,
+    "terminal": "Sham's embedded model_computer (ShamEmbeddedBackend, separate session, policy model_computer_approvals; held commands counted then run owner-approved)"
+  },
+  "identity": {
+    "name": "شام برو / Sham Pro",
+    "heldout_prompts": 8,
+    "pass_rule": "contains 'شام برو' or 'Sham Pro' and none of qwen/通义/tongyi/alibaba/علي بابا",
+    "before_lora": 0.0,
+    "after_lora": 1.0,
+    "general_nll_before": 1.9492,
+    "general_nll_after": 2.0742
+  },
+  "body_read_secs": 134.8,
+  "earlier_run_same_day": {
+    "self_name": "Sham 2 / شام 2 (superseded by the owner's decision)",
+    "heldout": 0.778,
+    "heldout2": 0.666,
+    "loop_all": 1.0,
+    "identity_before": 0.0,
+    "identity_after": 1.0,
+    "nll_after": 2.0664
+  },
+  "artifacts": "private ModelScope repo novaai2026/sham2-tldm-head: sham2_heads.pt ({'heads': {writer, loop_seed0, identity_lora}}; LoRA adapters only, no donor weight) + sham2_results.json (per-seed details, identity answers, approvals asked)",
+  "not_here": "approvals_asked and the identity answers are only in sham2_results.json in the private repo (the Studio status tail truncates long lines)",
+  "publish_evidence": {
+    "modelscope_commit": "430377d 'Sham 2 T-LDM heads (head only, no donor weight)'",
+    "pushed_at": "2026-11-18 06:26 UTC (Studio log 14:26 UTC+8)",
+    "studio_status": "last.published=true (GitHub run 44253268670)",
+    "repo_inventory": "novaai2026/sham2-tldm-head private, files sham2_heads.pt (0.07 GB) + sham2_results.json + configuration.json (GitHub run 44252887125)"
+  },
+  "after": "the Studio started cycle 2 of the same recipe at ~06:27 UTC; a later cycle republishes only through the same path"
+}

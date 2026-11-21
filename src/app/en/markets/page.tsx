@@ -29,18 +29,14 @@ export default async function Page() {
       <EnglishDeskNav />
       <h1 className="text-3xl font-black tracking-tight text-slate-950">Global markets</h1>
       <p className="mt-2 text-sm leading-7 text-slate-600">Major indices, currency pairs, metals, oil and crypto. Refreshed every five minutes. Prices are indicative and may be delayed; this is not investment advice.</p>
-      <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <tbody>
-            {rows.map(([name, value, change]) => (
-              <tr key={name} className="border-b border-slate-100 last:border-0">
-                <td className="px-4 py-2.5 font-bold text-slate-800">{name}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{value}</td>
-                <td className={`px-4 py-2.5 text-right tabular-nums font-bold ${change?.startsWith("-") ? "text-red-600" : "text-emerald-600"}`}>{change || ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {rows.map(([name, value, change]) => (
+          <article key={name} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h2 className="text-xs font-bold text-slate-500">{name}</h2>
+            <p className="mt-1 text-xl font-extrabold text-slate-900">{value}</p>
+            {change ? <p className={`mt-1 text-sm font-bold ${change.startsWith("-") ? "text-red-600" : "text-emerald-700"}`}>{change}</p> : null}
+          </article>
+        ))}
       </div>
       <p className="mt-3 text-xs text-slate-500">Sources: Yahoo Finance, Frankfurter (ECB rates), gold-api.com.</p>
       <div className="mt-6"><AdSlot position="in-content" label="English markets" /></div>

@@ -3,7 +3,12 @@ name: terminal-mesh
 # ai-system/terminal/mesh_net.py (client). Every run: worker auth unit test + Python tests + the multi-process e2e against a local `wrangler dev`.
 # On the default branch (or by hand): deploy https://sham-mesh.jonsnowx1r.workers.dev with the existing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID
 # secrets (the Worker has no secrets of its own) and run the same multi-process e2e against the REAL Worker from this runner.
-# workflow_dispatch helper_mesh=<name>: keep one honest helper node online on this runner for helper_secs (a second host for cross-host checks).
+# Device nodes: scripts/mesh/device_node_test.mts checks the Mini App's own mesh code (src/lib/meshNode.ts) against the Python side, and the e2e
+# also runs it as a live device node (check 8).
+# Cross-host (every run): xhost-helper keeps an honest helper online on one runner (until it has served the asker) while xhost-asker, on
+# ANOTHER runner (either may be queued minutes after the other: the asker waits up to 9 min before its local roles start), requires that helper
+# to be seen, to propose a command that runs in the asker's own sandbox, and to compute a spot-checked shard (checks 1b/1c/1d), over the real Worker.
+# workflow_dispatch helper_mesh=<name>: keep one honest helper node online on this runner for helper_secs (a second host for manual checks).
 on:
   push:
     branches: [claude/free-services-marketplace-h6rwk2]
@@ -13,6 +18,11 @@ on:
       - cloudflare/sham-mesh.wrangler.jsonc
       - ai-system/terminal/mesh*.py
       - ai-system/terminal/test_mesh*.py
+      - ai-system/modelscope-sham/sham_mesh_node.py
+      - ai-system/modelscope-sham/test_sham_mesh_node.py
+      - src/lib/meshNode.ts
+      - src/lib/deviceMeshCore.ts
+      - scripts/mesh/**
       - .github/workflows/terminal-mesh.yml
   pull_request:
     paths:
@@ -21,6 +31,11 @@ on:
       - cloudflare/sham-mesh.wrangler.jsonc
       - ai-system/terminal/mesh*.py
       - ai-system/terminal/test_mesh*.py
+      - ai-system/modelscope-sham/sham_mesh_node.py
+      - ai-system/modelscope-sham/test_sham_mesh_node.py
+      - src/lib/meshNode.ts
+      - src/lib/deviceMeshCore.ts
+      - scripts/mesh/**
       - .github/workflows/terminal-mesh.yml
   workflow_dispatch:
     inputs:
@@ -54,8 +69,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: worker auth unit test
+      - name: worker auth + CORS unit test
         run: node cloudflare/sham-mesh-worker.test.mjs
+      - name: device node (the Mini App's mesh code) against the Python side
+        run: node --experimental-strip-types --no-warnings scripts/mesh/device_node_test.mts
       - name: python tests (pure-Python ed25519 path, no extra packages)
         run: |
           python ai-system/terminal/test_mesh.py
@@ -68,8 +85,10 @@ jobs:
           for i in $(seq 1 60); do curl -fs http://127.0.0.1:8799/health && break; sleep 2; done
           cd ..
           set -o pipefail
-          python ai-system/terminal/mesh_net_e2e.py --url http://127.0.0.1:8799 | tee /tmp/e2e.txt
+          python ai-system/terminal/mesh_net_e2e.py --url http://127.0.0.1:8799 --device yes | tee /tmp/e2e.txt
           grep -q "passed" /tmp/e2e.txt
+      - name: owner switch in a real browser (headless Chrome, cross-origin to the relay; on joins, off leaves)
+        run: python scripts/mesh/browser_switch_check.py --url http://127.0.0.1:8799
   deploy:
     needs: test
     if: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy == 'true')) && !inputs.helper_mesh }}
@@ -103,7 +122,7 @@ jobs:
           for i in $(seq 1 30); do curl -fs $U/health && break; sleep 3; done
           echo
           set -o pipefail
-          python ai-system/terminal/mesh_net_e2e.py --url $U | tee /tmp/e2e.txt
+          python ai-system/terminal/mesh_net_e2e.py --url $U --device yes | tee /tmp/e2e.txt
           { echo '### sham-mesh e2e over the real Worker'; echo '```'; grep -v '^EVIDENCE' /tmp/e2e.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           grep '^EVIDENCE' /tmp/e2e.txt | cut -c10- | python3 -m json.tool | head -c 8000
   helper:
@@ -117,3 +136,40 @@ jobs:
           python-version: "3.12"
       - name: one honest helper node on this host
         run: python ai-system/terminal/mesh_net_e2e.py --role helper --url https://sham-mesh.jonsnowx1r.workers.dev --mesh "${{ inputs.helper_mesh }}" --delay 0.05 --hold "${{ inputs.helper_secs }}"
+  xhost-helper:
+    needs: [test, deploy]
+    if: ${{ always() && !inputs.helper_mesh && needs.test.result == 'success' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: honest helper node on host A (the asker runs on another runner)
+        run: |
+          python ai-system/terminal/mesh_net_e2e.py --role helper --url https://sham-mesh.jonsnowx1r.workers.dev \
+            --mesh "xh-${{ github.run_id }}-${{ github.run_attempt }}" --delay 0.05 --hold 840 --until-served | tee /tmp/helper.txt
+          grep '"served"' /tmp/helper.txt | grep -q '"jobs_served": [1-9]'
+  xhost-asker:
+    needs: [test, deploy]
+    if: ${{ always() && !inputs.helper_mesh && needs.test.result == 'success' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: cross-host e2e on host B over the REAL Worker (requires the helper on host A)
+        run: |
+          set -o pipefail
+          echo "this host: $(hostname) $(curl -fs https://api.ipify.org || true)"
+          python ai-system/terminal/mesh_net_e2e.py --url https://sham-mesh.jonsnowx1r.workers.dev --mesh "xh-${{ github.run_id }}-${{ github.run_attempt }}" \
+            --remote-peer --remote-wait 540 --device yes | tee /tmp/xh.txt
+          { echo '### sham-mesh cross-host e2e (two runners) over the real Worker'; echo '```'; grep -v '^EVIDENCE' /tmp/xh.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          grep '^EVIDENCE' /tmp/xh.txt | cut -c10- | python3 -c "import json,sys; e=json.load(sys.stdin); print(json.dumps({k: e.get(k) for k in ('remote_peers','cross_host','device')}, indent=1))"
+          grep -q "1c the other host" /tmp/xh.txt

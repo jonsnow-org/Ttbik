@@ -81,8 +81,29 @@ export async function authenticate(request, bodyBytes, now = Date.now()) {
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 
+// Browser nodes (the Telegram Mini App, src/lib/meshNode.ts) call the relay directly. Auth is the ed25519 request signature, never a cookie,
+// so any origin may call it; the preflight only has to allow the signature headers.
+export const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type, x-mesh-node, x-mesh-ts, x-mesh-sig",
+  "access-control-max-age": "86400",
+};
+
+function withCors(resp) {
+  const r = new Response(resp.body, resp);
+  for (const [k, v] of Object.entries(CORS)) r.headers.set(k, v);
+  return r;
+}
+
 export default {
   async fetch(request, env) {
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    return withCors(await handle(request, env));
+  },
+};
+
+async function handle(request, env) {
     const u = new URL(request.url);
     if (u.pathname === "/" || u.pathname === "") {
       return new Response("sham-mesh relay: presence, mailboxes, lesson and adapter index. It runs nothing. See ai-system/terminal/mesh_net.py\n", {
@@ -100,8 +121,7 @@ export default {
     if (!a.ok) return json({ error: a.why }, 401);
     const h = new Headers({ "x-mesh-verified": a.node, "x-mesh-sig": a.sig, "x-mesh-ip": request.headers.get("cf-connecting-ip") || "", "content-type": "application/json" });
     return stub.fetch(new Request(`https://hub/${route}${u.search}`, { method: request.method, headers: h, body: request.method === "GET" ? undefined : body }));
-  },
-};
+}
 
 export class MeshHub {
   constructor(ctx, env) {

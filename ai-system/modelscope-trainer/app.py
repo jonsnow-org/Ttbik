@@ -9,6 +9,7 @@ blocked from China). Nothing here prints a secret. Offline self-test: python app
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -326,6 +327,10 @@ def _json_ok(path: Path) -> bool:
         return False
 
 
+# 2026-11-18: a cycle whose held-out score is at or below this is the all-UNK / pwd floor (seed 8 scored 0.067/0.083/0.071): never publish it.
+HELDOUT_PUBLISH_FLOOR = 0.2
+
+
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
     """Main cycle: train the frozen-reader head (writer_donor.yaml) and evaluate both held-out sets, then publish.
     Optional (SHAM_TLDM_EVOLVE=1): replay-mixed LoRA on verified failures (and, later, anonymized verified session results), kept only if held-out and previously-correct do not regress."""
@@ -421,8 +426,8 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     heldout = _num(res.get("heldout"), "same_effect")
-    if heldout is None or heldout <= 0.2:
-        print("tldm publish skipped: heldout={} is at the floor (need > 0.2)".format(heldout), flush=True)
+    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
+        print("tldm publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
     else:
         try:
             published = publish_tldm(work, seed, artifacts)
@@ -465,6 +470,8 @@ def sham2_flatten(res: dict) -> dict:
         out["identity_after"] = idn["after"]["identity"]["ok"]
         out["nll_before"] = idn["before"]["general_nll"]
         out["nll_after"] = idn["after"]["general_nll"]
+        if "retention" in idn["after"]:
+            out["retention_after"] = idn["after"]["retention"]["ok"]
     for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
         if k in res:
             out[k] = res[k]
@@ -550,7 +557,7 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]
@@ -599,6 +606,15 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         key_file.write_text(key, encoding="utf-8")
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
+    heldout = sham2_flatten(res).get("heldout")
+    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
+        # same gate as run_tldm: a floor score (missing tokenizer / UNK reader / broken body) must never replace the served head
+        print("sham2 publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
+        out = {**sham2_flatten(res), "published": False, "hours": float(hours)}
+        print("sham2 done " + json.dumps(out), flush=True)
+        if runner is None:
+            time.sleep(1800)                                         # no tight loop on a floor result; a recipe change retrains
+        return out
     try:
         snap = work / "publish_snap"
         import shutil
@@ -620,6 +636,169 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
     out = {**sham2_flatten(res), "published": bool(got), "hours": float(hours)}
     print("sham2 done " + json.dumps(out), flush=True)
     return out
+
+
+NOVA_DONOR_REPO = {
+    "nova1": "Qwen/Qwen3.5-4B",                  # Nova 1's donor body: READ only (an HF copy on disk); the live Studio is untouched
+    "nova2": "Qwen/Qwen3.6-35B-A3B",             # Nova 2's donor body: READ only; its own head and repo, never Nova 1's
+}
+NOVA_HEAD_REPO = {"nova1": "nova1-tldm-head", "nova2": "nova2-tldm-head"}     # heads + results per model; never mixed, never Sham's
+NOVA_CONFIG = {"nova1": "configs/nova1.yaml", "nova2": "configs/nova2.yaml"}
+
+
+def nova_mode(name: str) -> str:
+    """job=tldm with name nova1*/nova2* runs that Nova's T-LDM job instead of Sham's writer cycles. "" when it is not a Nova job.
+    The prefix decides WHICH Nova: `nova1` and `nova2` are separate heads, separate repos, separate work folders."""
+    n = str(name or "").strip().lower()
+    if n.startswith("nova1"):
+        return "nova1"
+    if n.startswith("nova2"):
+        return "nova2"
+    return ""
+
+
+def nova_flatten(res: dict) -> dict:
+    """The whitelisted numbers the status page shows, for one Nova. Same shape as sham2_flatten (same benchmark), different model."""
+    out = {}
+    for k in ("train", "heldout", "heldout2"):
+        v = (res.get(k) or {}).get("same_effect")
+        if isinstance(v, (int, float)):
+            out[k] = v
+    w = res.get("writer") or []
+    if w:
+        out["heldout_seeds"] = "/".join(str(r["heldout"]["same_effect"]) for r in w)
+        out["heldout2_seeds"] = "/".join(str(r["heldout2"]["same_effect"]) for r in w)
+    lp = res.get("loop") or []
+    if lp:
+        out["loop_all"] = lp[0]["all"]["success"]
+        out["loop_simple"] = lp[0]["simple"]["success"]
+        out["loop_multi"] = lp[0]["multi_step"]["success"]
+        out["loop_s_per_task"] = lp[0]["all"]["median_s_per_task"]
+    for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
+        if k in res:
+            out[k] = res[k]
+    return out
+
+
+def nova_run_key(which: str) -> str:
+    """A hash of that Nova's recipe (config + trainer + identity data). A change retrains; an unchanged recipe only reports."""
+    root = tldm_root()
+    h = hashlib.sha256()
+    for rel in (NOVA_CONFIG.get(which, ""), "training/train_sham2.py", "data/identity.py"):
+        if not rel:
+            continue
+        p = root / rel
+        h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
+    return h.hexdigest()[:16]
+
+
+def run_nova(hours: float = 10.0, name: str = "nova1", runner=None, fetch=None, publish=None, **_ignored) -> dict:
+    """One Nova's T-LDM cycle: freeze a COPY of that Nova's donor body, train only its head (Compressor + Thinker + Writer),
+    measure the frozen held-out sets and the full-task benchmark on THIS body, publish to that Nova's own head repo.
+
+    Independence (owner's rule): Nova 1 and Nova 2 each have their own config, work folder, head file, run key and head repo;
+    nothing here reads or writes the other Nova's files, Sham 2's files, or any live Studio. `which` comes from the job name
+    (`nova1*` / `nova2*`), so a Nova 1 cycle can never train or publish Nova 2's head."""
+    which = nova_mode(name)
+    if not which:
+        raise RuntimeError(f"run_nova: name {name!r} is not nova1*/nova2* (refusing to guess which Nova)")
+    work = tldm_work() / which
+    work.mkdir(parents=True, exist_ok=True)
+    report, heads = work / f"{which}_results.json", work / f"{which}_heads.pt"
+    key, key_file = nova_run_key(which), work / ".run_key"
+    if report.exists() and (not key_file.exists() or key_file.read_text(encoding="utf-8") != key):
+        print(f"{which}: recipe changed since the last run; retraining on the cached donor copy", flush=True)
+        for f in (report, heads, work / ".published"):
+            f.unlink(missing_ok=True)
+    if report.exists() and (work / ".published").exists():
+        if runner is None:
+            time.sleep(1800)                                         # done once: later cycles only report
+        return {**nova_flatten(json.loads(report.read_text(encoding="utf-8"))), "published": True, "hours": float(hours), "model": which}
+    if not report.exists():
+        ck, tk = nova_donor(which, work, fetch)
+        root = tldm_root()
+        cfg = root / NOVA_CONFIG[which]
+        if not cfg.is_file():
+            raise FileNotFoundError(f"{which}: config {NOVA_CONFIG[which]} is missing from the tldm tree")
+        cmd = [sys.executable, "-u", str(root / "training" / "train_sham2.py"), "--config", str(cfg),
+               "--donor", str(ck), "--tokenizer", str(tk), "--gate", str(sham2_gate(root)), "--cached",
+               "--dtype", os.environ.get("NOVA_DTYPE", "bf16"), "--seeds", os.environ.get("NOVA_SEEDS", "3"), "--loop", "--loop_seeds", "1", "--identity",
+               # independence: Nova's benchmark runs in the neutral test sandbox (T.fresh), never in Sham's embedded computer
+               "--terminal", os.environ.get("NOVA_TERMINAL", "sandbox"),
+               "--out", str(heads), "--json", str(report)]
+        if runner is not None:
+            code = int(runner(cmd=cmd, report=report, heads=heads))
+        else:
+            import subprocess
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+            code = int(subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode)
+        if code != 0 or not report.exists():
+            raise RuntimeError(f"{which} train exited with code {code}")
+        key_file.write_text(key, encoding="utf-8")
+    res = json.loads(report.read_text(encoding="utf-8"))
+    got = None
+    heldout = nova_flatten(res).get("heldout")
+    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
+        # same gate as run_sham2: a floor score (missing tokenizer / UNK reader / broken body) must never replace a served head
+        print(f"{which} publish skipped: heldout={heldout} is at the floor (need > {HELDOUT_PUBLISH_FLOOR})", flush=True)
+        out = {**nova_flatten(res), "published": False, "hours": float(hours), "model": which}
+        print(f"{which} done " + json.dumps(out), flush=True)
+        if runner is None:
+            time.sleep(1800)
+        return out
+    try:
+        snap = work / "publish_snap"
+        import shutil
+        shutil.rmtree(snap, ignore_errors=True)
+        snap.mkdir()
+        for f in (heads, report):
+            if f.exists():
+                shutil.copy2(f, snap / f.name)
+        if publish is None:
+            sys.path.insert(0, str(SHAM))
+            import sham_inputs
+            publish = sham_inputs.publish_modelscope
+        got = publish(snap, os.environ.get(f"{which.upper()}_HEAD_REPO") or NOVA_HEAD_REPO[which],
+                      f"{which} T-LDM heads (head only, no donor weight)")
+        shutil.rmtree(snap, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001 - the files stay on disk; the next cycle retries the publish
+        print(f"{which} publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    if got:
+        (work / ".published").write_text(str(got), encoding="utf-8")
+    out = {**nova_flatten(res), "published": bool(got), "hours": float(hours), "model": which}
+    print(f"{which} done " + json.dumps(out), flush=True)
+    return out
+
+
+def nova_donor(which: str, work: Path, fetch=None) -> tuple[Path, Path]:
+    """Download (once) a COPY of that Nova's donor body to this Studio's disk; -> (checkpoint, tokenizer). Read only."""
+    dest = work / "donor"
+    ck = next(iter(sorted(dest.rglob("*.pt"))), None) if dest.exists() else None
+    tk = None
+    if dest.exists():
+        for nm in ("tokenizer.json", "sham_small_tokenizer.json", "sentencepiece.bpe.model", "vocab.txt"):
+            hit = next(iter(sorted(dest.rglob(nm))), None)
+            if hit:
+                tk = hit
+                break
+    if ck is None or tk is None:
+        dest.mkdir(parents=True, exist_ok=True)
+        repo = os.environ.get(f"{which.upper()}_DONOR_REPO") or NOVA_DONOR_REPO[which]
+        if fetch is not None:
+            fetch(repo, dest)
+        else:
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo_id=repo, local_dir=str(dest), local_dir_use_symlinks=False)
+        ck = next(iter(sorted(dest.rglob("*.pt"))), None) or next(iter(sorted(dest.rglob("*.safetensors"))), None)
+        for nm in ("tokenizer.json", "sentencepiece.bpe.model", "vocab.txt"):
+            hit = next(iter(sorted(dest.rglob(nm))), None)
+            if hit:
+                tk = hit
+                break
+    if ck is None or tk is None:
+        raise RuntimeError(f"{which}: donor {NOVA_DONOR_REPO[which]} has no weights/tokenizer on disk (a head must never train on a random body)")
+    return ck, tk
 
 
 def settings(env=None) -> dict:
@@ -687,7 +866,7 @@ def _short(res) -> dict:
     keep = ("steps", "published", "corpus", "guard_score", "rollbacks", "device", "hours",
             "seed", "config", "train", "heldout", "heldout2", "train_secs", "evo_after", "evolve_kept", "loop_trained", "params_M",
             "heldout_seeds", "heldout2_seeds", "loop_all", "loop_simple", "loop_multi", "loop_s_per_task", "body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged",
-            "identity_before", "identity_after", "nll_before", "nll_after")
+            "identity_before", "identity_after", "nll_before", "nll_after", "retention_after")
     return {k: res[k] for k in keep if isinstance(res, dict) and k in res and isinstance(res[k], (int, float, bool, str)) and len(str(res[k])) <= 80}
 
 
@@ -705,6 +884,8 @@ def _resolve_run_fn(cfg: dict):
     if cfg["job"] == "motion":
         return run_motion
     if cfg["job"] == "tldm":
+        if nova_mode(cfg["name"]):
+            return run_nova                                    # nova1* / nova2*: that Nova's own head, repo and work folder
         return run_sham2 if sham2_mode(cfg["name"]) else run_tldm
     sys.path.insert(0, str(SHAM))
     import sham_live
@@ -722,6 +903,8 @@ def child_cycle() -> None:
             got = prepare_resume(WORK)
             if got:
                 os.environ["SHAM_RESUME_DIR"] = str(got)
+            else:
+                _flag_cycle(True)                    # not resuming: this cycle starts now, so only its own saves count as resumable
         except Exception as exc:  # noqa: BLE001 - a resume problem never blocks the cycle: it starts from the head as before
             print(f"resume: not used ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
     run_fn = _resolve_run_fn(cfg)
@@ -797,7 +980,7 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
     import subprocess
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
     cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
-    _flag_cycle(True)
+    _flag_cycle(True, keep=True)                     # an interrupted cycle's flag stays: the child's prepare_resume decides (and restarts the flag when it does not resume)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
     _CYCLE_LINE_AT[0] = time.time()
     _KILL_REQUEST.clear()
@@ -927,9 +1110,13 @@ def backoff_seconds(fails: int) -> int:
     return int(min(1800, 60 * 2 ** max(0, fails - 1)))
 
 
-def _flag_cycle(on: bool) -> None:
+def _flag_cycle(on: bool, keep: bool = False) -> None:
+    """keep=True (the supervisor starting a cycle): a flag left by an INTERRUPTED cycle is kept, so its final.pt still counts as that cycle's and the child resumes from it.
+    Rewriting it here made every saved checkpoint look older than the flag, so a killed cycle restarted from the head (live resume-test on ai/sham-trainer-2, 2026-11-18)."""
     try:
         f = WORK / "checkpoints" / CYCLE_FLAG
+        if on and keep and f.exists():
+            return
         if on:
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(str(time.time()), encoding="utf-8")
@@ -1392,6 +1579,63 @@ if __name__ == "__main__":
         (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")                # identity data / config / trainer changed -> retrain, donor copy reused
         r3 = run_sham2(runner=fake_sham2, fetch=fake_fetch, publish=lambda d, n, m: "modelscope:novaai2026/" + n)
         assert len(ran) == 2 and fetched == ["novaai2026/sham-v2"] and r3["published"] and (_w2 / ".run_key").read_text(encoding="utf-8") == sham2_run_key()
+        # a floor held-out (broken reader / body) must not replace the served sham2 head
+        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")
+        sent_floor = []
+
+        def fake_sham2_floor(cmd, report, heads):
+            ran.append(cmd)
+            heads.write_bytes(b"h")
+            report.write_text(json.dumps({"train": {"same_effect": 0.07}, "heldout": {"same_effect": 0.083}, "heldout2": {"same_effect": 0.071}}), encoding="utf-8")
+            return 0
+        r4 = run_sham2(runner=fake_sham2_floor, fetch=fake_fetch, publish=lambda d, n, m: (sent_floor.append(n), "modelscope:novaai2026/" + n)[1])
+        assert r4["published"] is False and r4["heldout"] == 0.083 and sent_floor == [] and not (_w2 / ".published").exists(), (r4, sent_floor)
+        # ---- Nova 1 / Nova 2 on T-LDM: Sham 2's technique, but each with its OWN config, work folder, head file and head repo ----
+        assert nova_mode("nova1-live") == "nova1" and nova_mode("Nova2-ms1") == "nova2" and nova_mode("sham2") == "" and nova_mode("nova3") == ""
+        assert nova_mode("nova12") == "nova1", "nova12 is a Nova 1 job, not Nova 2"
+        nova_fetch, nova_cmds, nova_sent = [], [], []
+
+        def fake_nova_fetch(repo, dest):
+            nova_fetch.append(repo)
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "model.safetensors").write_bytes(b"w")
+            (dest / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+        def fake_nova(cmd, report, heads):
+            nova_cmds.append(cmd)
+            assert "--cached" in cmd and "--loop" in cmd and "--identity" in cmd
+            assert cmd[cmd.index("--terminal") + 1] == "sandbox", "Nova must not use Sham's embedded computer"
+            assert cmd[cmd.index("--config") + 1].endswith(("nova1.yaml", "nova2.yaml"))
+            heads.write_bytes(b"h")
+            report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65},
+                                          "donor_weights_unchanged": True,
+                                          "writer": [{"heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}}],
+                                          "loop": [{"all": {"success": 0.9, "median_s_per_task": 2.0}, "simple": {"success": 0.95}, "multi_step": {"success": 0.8}}]}), encoding="utf-8")
+            return 0
+
+        def pub(d, n, m):
+            nova_sent.append((n, sorted(p.name for p in Path(d).iterdir())))
+            return "modelscope:novaai2026/" + n
+        n1 = run_nova(name="nova1-x", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
+        n2 = run_nova(name="nova2-x", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
+        # each Nova fetched ITS OWN donor, trained with ITS OWN config, and published to ITS OWN head repo
+        assert nova_fetch == ["Qwen/Qwen3.5-4B", "Qwen/Qwen3.6-35B-A3B"], nova_fetch
+        assert nova_cmds[0][nova_cmds[0].index("--config") + 1].endswith("nova1.yaml")
+        assert nova_cmds[1][nova_cmds[1].index("--config") + 1].endswith("nova2.yaml")
+        assert [x[0] for x in nova_sent] == ["nova1-tldm-head", "nova2-tldm-head"], nova_sent
+        assert nova_sent[0][1] == ["nova1_heads.pt", "nova1_results.json"] and nova_sent[1][1] == ["nova2_heads.pt", "nova2_results.json"]
+        assert n1["model"] == "nova1" and n2["model"] == "nova2" and n1["published"] and n2["published"]
+        # separate work folders: neither cycle can see the other's files
+        assert (tldm_work() / "nova1" / "nova1_heads.pt").is_file() and (tldm_work() / "nova2" / "nova2_heads.pt").is_file()
+        assert not (tldm_work() / "nova1" / "nova2_heads.pt").exists() and not (tldm_work() / "nova2" / "nova1_heads.pt").exists()
+        # a Nova cycle with an ambiguous name is refused (never guesses which head to train)
+        try:
+            run_nova(name="nova", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
+            raise AssertionError("run_nova must refuse a name that is neither nova1* nor nova2*")
+        except RuntimeError as exc:
+            assert "refusing to guess" in str(exc), exc
+        # the recipe key differs per Nova (a change to one config never invalidates the other)
+        assert nova_run_key("nova1") != nova_run_key("nova2")
         os.environ.pop("TLDM_WORK", None)
         # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
         assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]
@@ -1438,6 +1682,10 @@ if __name__ == "__main__":
         _flag_cycle(True)
         os.utime(ck / "final.pt", (time.time() - 60,) * 2)
         assert prepare_resume(WORK) is None                                              # final.pt is from the cycle BEFORE: not resumed
+        (ck / CYCLE_FLAG).write_text(str(time.time() - 120))                            # a cycle that started 2 min ago, saved 1 min ago, then was killed
+        os.utime(ck / "final.pt", (time.time() - 60,) * 2)
+        _flag_cycle(True, keep=True)                                                     # the supervisor restarting it must not move the start past that save
+        assert _saved_in_running_cycle(ck) and prepare_resume(WORK) is not None, "a restarted cycle must resume from its interrupted save"
         os.utime(ck / "final.pt", None)
         snap = prepare_resume(WORK)
         assert snap and (snap / "final.pt").read_bytes() == b"w1" and _live_progress(snap)["step"] == 77 and not (snap / CYCLE_FLAG).exists()

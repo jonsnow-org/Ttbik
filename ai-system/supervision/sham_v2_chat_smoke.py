@@ -206,6 +206,25 @@ def streaming_smoke() -> None:
     print(f"PASS Sham v2 streamed {len(pieces)} pieces: {text[:160]}")
 
 
+def factual_and_multiturn_smoke() -> None:
+    answer = chat([{"role": "user", "content": "ما عاصمة سوريا؟"}], 128)
+    if answer.strip() == "ما عاصمة سوريا؟":
+        raise RuntimeError("model returned the question verbatim")
+    if "دمشق" not in answer:
+        raise RuntimeError(f"model failed the Syria-capital smoke check: {answer[:240]!r}")
+    print(f"PASS Sham v2 factual response: {answer[:300]}")
+    latin_words = re.findall(r"[A-Za-z]{3,}", answer)
+    if len(latin_words) > 2:      # an Arabic answer that drifts into English words is a quality warning, not a failure
+        print(f"WARN Sham v2 answer mixes scripts ({len(latin_words)} Latin words): {' '.join(latin_words[:6])}")
+
+    followup = chat([
+        {"role": "user", "content": "اسمي سارة."},
+        {"role": "assistant", "content": "مرحباً سارة."},
+        {"role": "user", "content": "ما اسمي؟"},
+    ], 128)
+    print(f"PASS Sham v2 multi-turn response: {followup[:240]}")
+
+
 def tldm_smoke(status: dict) -> None:
     """T-LDM on the published head (novaai2026/sham2-tldm-head). Until it is published the Studio reports tldm_head=false: SKIP, not a failure."""
     if not status.get("tldm_head"):
@@ -271,33 +290,24 @@ def main() -> int:
     # The live self-name is Sham Pro / «شام برو», from the identity LoRA in the published head (applied to the body at start, every chat).
     # Before the head is published (status identity_lora=false) a donor that still says Qwen is reported, not failed, so media smoke can run.
     wrong = re.search(r"qwen|alibaba|openai|chatgpt|gpt-?\d|claude", identity, re.I) or not re.search(r"شام\s*برو|sham\s*pro", identity, re.I)
+    failures: list[str] = []
     if wrong and status.get("identity_lora"):
-        raise RuntimeError(f"Sham Pro identity LoRA is applied but the model does not answer as Sham Pro: {identity[:240]!r}")
-    if wrong:
+        failures.append(f"Sham Pro identity LoRA is applied but the model does not answer as Sham Pro: {identity[:240]!r}")
+        print("FAIL " + failures[-1])
+    elif wrong:
         print(f"KNOWN_FAILURE Sham Pro identity: head not published/applied yet ({status.get('identity_lora_why') or 'no head'}): {identity[:240]!r}")
     else:
         print(f"PASS Sham Pro model-authored identity response (wording unrestricted, but it is Sham Pro): {identity[:240]}")
 
-    answer = chat([{"role": "user", "content": "ما عاصمة سوريا؟"}], 128)
-    if answer.strip() == "ما عاصمة سوريا؟":
-        raise RuntimeError("model returned the question verbatim")
-    if "دمشق" not in answer:
-        raise RuntimeError(f"model failed the Syria-capital smoke check: {answer[:240]!r}")
-    print(f"PASS Sham v2 factual response: {answer[:300]}")
-    latin_words = re.findall(r"[A-Za-z]{3,}", answer)
-    if len(latin_words) > 2:      # an Arabic answer that drifts into English words is a quality warning, not a failure
-        print(f"WARN Sham v2 answer mixes scripts ({len(latin_words)} Latin words): {' '.join(latin_words[:6])}")
-
-    followup = chat([
-        {"role": "user", "content": "اسمي سارة."},
-        {"role": "assistant", "content": "مرحباً سارة."},
-        {"role": "user", "content": "ما اسمي؟"},
-    ], 128)
-    print(f"PASS Sham v2 multi-turn response: {followup[:240]}")
-
-    streaming_smoke()
-    native_model_terminal_smoke()
-    tldm_smoke(status)
+    # every check runs (one failure does not hide the others); the script fails at the end
+    for check in (factual_and_multiturn_smoke, streaming_smoke, native_model_terminal_smoke, lambda: tldm_smoke(status)):
+        try:
+            check()
+        except Exception as exc:  # noqa: BLE001 - reported, then the next check runs
+            failures.append(f"{type(exc).__name__}: {str(exc)[:300]}")
+            print("FAIL " + failures[-1])
+    if failures:
+        raise RuntimeError(f"{len(failures)} Sham v2 chat check(s) failed: " + " | ".join(f[:160] for f in failures))
     return 0
 
 

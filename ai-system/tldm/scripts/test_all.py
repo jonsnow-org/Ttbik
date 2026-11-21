@@ -312,7 +312,21 @@ def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only
     assert r["donor_weights_unchanged"] and len(r["writer"]) == 2 and r["loop"][0]["all"]["n"] == 3 and "heldout2" in r
     assert r["loop"][0]["terminal"] == "computer_terminal", "Sham 2 runs its terminal through its own embedded computer"
     heads = torch.load(out)["heads"]
-    assert set(r["identity"]["after"]) == {"identity", "general_nll"} and len(r["identity"]["after"]["identity"]["answers"]) == 8
+    assert set(r["identity"]["after"]) == {"identity", "general_nll", "retention"} and len(r["identity"]["after"]["identity"]["answers"]) == 8
+    import retention as RT
+    assert len(r["identity"]["after"]["retention"]["rows"]) == len(RT.CHECKS) and not set(RT.CHECKS) & set(RT.PROMPTS), "retention checks are held out of the replay"
+    # replay: with a chat tokenizer that decodes, the body's OWN pre-LoRA answers are mixed into every LoRA batch (self-distillation)
+    tb, _ = train_sham2.tiny_body(4)
+    seen_batches = []
+    real_fwd = tb.forward
+    def spy(ids, *a, **k):
+        if k.get("labels") is not None and ids.shape[0] > 1:
+            seen_batches.append(ids.shape[0])
+        return real_fwd(ids, *a, **k)
+    tb.forward = spy
+    ct = train_sham2.ChatTok(lambda t: [5 + (ord(c) % 200) for c in t[:24]], lambda ids: "ok " * max(1, len(ids) // 8), 3)
+    got = train_sham2.identity_lora(tb, ct, steps=2, batch=4, log=lambda *_: None)
+    assert got["replay_pairs"] == len(RT.PROMPTS) and got["after"]["retention"]["rows"] and seen_batches == [4, 4], got
     import identity as ID
     assert ID.identity_ok("I am Sham Pro.") and ID.identity_ok("أنا شام برو") and not ID.identity_ok("I am Qwen, made by Alibaba Cloud") and not ID.identity_ok("I am Sham Pro, not Qwen") and not ID.identity_ok("أنا شام 2")
     assert heads["identity_lora"] and all(".adapter_" in k for k in heads["identity_lora"]), "identity: only LoRA adapters are saved"

@@ -138,24 +138,73 @@ export async function shamAgentRun(opts: {
       .slice(-12)
       .map((message) => ({ role: message.role, content: message.content }));
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
-    const direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
-    if (await isStopped()) return { kind: "stopped", used, steps: 1 };
+    let direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
+    let tldmSteps = 1;
+    const tldmReadTools = new Set(["web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    while (direct?.type === "tool_request" && tldmSteps < 7 && left() > 2500) {
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      const toolName = String(direct.tool_name || "");
+      const rawArgs = direct.tool_arguments && typeof direct.tool_arguments === "object" ? direct.tool_arguments as Record<string, unknown> : {};
+      const available = tldmReadTools.has(toolName) && opts.tools.some((item) => item.function?.name === toolName);
+      const call: CoderToolCall = {
+        id: "tldm-tool-" + tldmSteps,
+        type: "function",
+        function: { name: toolName, arguments: JSON.stringify(rawArgs) },
+      };
+      let result = "";
+      if (!available || shamNeedsOk(call)) {
+        result = "error: T-LDM requested an unavailable or non-read-only tool: " + (toolName || "(missing name)");
+      } else {
+        used.push(toolName);
+        opts.onEvent?.("tool", toolName + " " + JSON.stringify(rawArgs).slice(0, 200));
+        opts.onStep?.({ type: "tool_start", name: toolName, args: JSON.stringify(rawArgs) });
+        try { result = await exec(call, opts.ctx); }
+        catch (e) { result = "error: " + String((e as Error)?.message || e).slice(0, 300); }
+        opts.onStep?.({ type: "tool_end", name: toolName, ok: !/^error/i.test(result) });
+        opts.onEvent?.("info", clip(result, 300));
+      }
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      const previousBase = String(direct.tldmBase || "");
+      const requestId = String(direct.tool_request_id || "");
+      tldmSteps++;
+      direct = await shamTldmSession.run(session, () => shamGenerateTldm(
+        chatMessages,
+        session,
+        Math.max(1000, Math.min(timeout, left() - 1000)),
+        {
+          bypassContentHeuristics: Boolean(opts.ctx.owner),
+          owner: Boolean(opts.ctx.owner),
+          resumeTool: {
+            requestId,
+            name: toolName,
+            arguments: rawArgs,
+            result: String(result || "").slice(0, 7000),
+            error: /^error/i.test(result),
+            routeBase: previousBase,
+          },
+        },
+      ));
+    }
+    if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+    if (direct?.type === "tool_request") {
+      return { kind: "text", text: "لم تكتمل خطوات البحث في الوقت المتاح. أعد إرسال الطلب لمتابعته.", used, steps: tldmSteps };
+    }
     if (direct?.type === "confirm") {
       const command = String(direct.command || "");
       return {
         kind: "confirm",
         call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
         used,
-        steps: 1,
+        steps: tldmSteps,
       };
     }
     if (direct?.type === "text") {
       const answer = String(direct.text || "").trim();
-      return answer ? { kind: "text", text: answer, used, steps: 1 } : { kind: "none", used, steps: 1 };
+      return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
     }
-    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: 1 };
-    if (opts.continuable) return { kind: "more", messages, used, steps: 0 };
-    return { kind: "none", used, steps: 0 };
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: tldmSteps };
+    if (opts.continuable) return { kind: "more", messages, used, steps: tldmSteps };
+    return { kind: "none", used, steps: tldmSteps };
   }
 
   // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,

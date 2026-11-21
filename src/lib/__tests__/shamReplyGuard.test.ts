@@ -4,6 +4,13 @@ import { shamAgentRun, type ShamAsk } from "@/lib/shamAgent";
 import { shamVariant } from "@/lib/shamStudio";
 import type { ShamCtx } from "@/lib/shamExec";
 
+describe("visibleShamReply duplicate sentence protection", () => {
+  it("removes a repeated greeting-plus-identity block without replacing the model's wording", () => {
+    const block = "مرحباً! أنا شام برو، مساعد ذكاء اصطناعي من فريق المشروع، وأساعدك في الكتابة والبرمجة والبحث.";
+    expect(visibleShamReply(block + " " + block).text).toBe(block);
+  });
+});
+
 describe("shamDirectChatMessages", () => {
   it("always ends with the new user text, even when history has a previous greeting", () => {
     const first = shamDirectChatMessages([], "مرحبا كيف حالك");

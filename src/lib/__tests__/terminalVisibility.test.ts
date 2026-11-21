@@ -7,9 +7,10 @@ jest.mock("@/lib/tmaInitData", () => ({ verifyTmaInitData: jest.fn((h: string) =
 jest.mock("@/lib/coderPlans", () => ({ terminalAllowed: jest.fn(async (id: number) => PAID.has(Number(id))) }));
 jest.mock("@/lib/coderTasks", () => ({
   ...jest.requireActual("@/lib/coderTasks"),                     // keep the real isTaskModelFilter / TASK_MODEL_FILTERS
-  listTasks: jest.fn(async (id: number) => [{ run_id: `run-of-${id}`, status: "running" }]),
-  taskEvents: jest.fn(async (id: number, runId: string) => (runId === `run-of-${id}` || runId === `sham-${id}-live` ? [{ id: 1, run_id: runId, kind: "text", text: `سري ${id}` }] : [])),
+  listTasks: jest.fn(async (id: number) => [{ run_id: `run-of-${id}`, status: "running" }, { run_id: `nova2-of-${id}`, status: "running" }]),
+  taskEvents: jest.fn(async (id: number, runId: string) => (runId === `run-of-${id}` || runId === `nova2-of-${id}` || runId === `sham-${id}-live` ? [{ id: 1, run_id: runId, kind: "text", text: `سري ${id}` }] : [])),
 }));
+jest.mock("@/lib/coderChats", () => ({ tasksOfModel: jest.fn(async (id: number, model: string, rows: any[]) => rows.filter((r) => r.run_id === (model === "nova2" ? `nova2-of-${id}` : `run-of-${id}`))) }));
 jest.mock("@/lib/coderSections", () => ({ loadState: jest.fn(async () => ({ run: null })) }));
 jest.mock("@/lib/coderAuth", () => ({ prismaDb: {} }));
 
@@ -52,17 +53,20 @@ describe("terminal visibility", () => {
     expect(owner.body.tasks.map((t: any) => t.run_id)).toEqual(["run-of-1"]);
     expect(plus.body.tasks.map((t: any) => t.run_id)).toEqual(["run-of-2"]);
     const peek = await call("@/app/api/coder/terminal/route", "u2", "?runId=run-of-1");      // the paid user asks for the owner's run id
-    expect(peek.body.events).toEqual([]);
+    expect(peek.status).toBe(404); // a run ID not owned by this Telegram user is not disclosed as an event feed
     const own = await call("@/app/api/coder/terminal/route", "u2", "?runId=run-of-2");
     expect(own.body.events[0].text).toBe("سري 2");
   });
-  it("both routes accept the SAME model filter list (no silent 400 for a supported model)", async () => {
+  it("both routes accept the same model filters, and Nova 2 cannot follow a Nova task id", async () => {
     const { TASK_MODEL_FILTERS } = await import("@/lib/coderTasks");
-    for (const m of ["@/app/api/coder/terminal/route", "@/app/api/coder/stream/route"]) {
-      for (const model of TASK_MODEL_FILTERS) {
-        expect(await statusOf(m, "u1", `?runId=run-of-1&model=${model}`)).toBe(200);
-      }
-      expect(await statusOf(m, "u1", "?runId=run-of-1&model=nope")).toBe(400);
-    }
+    const { tasksOfModel } = await import("@/lib/coderChats");
+    for (const model of TASK_MODEL_FILTERS) expect(TASK_MODEL_FILTERS).toContain(model);
+    expect(await statusOf("@/app/api/coder/terminal/route", "u1", "?model=nova2")).toBe(200);
+    expect(await statusOf("@/app/api/coder/terminal/route", "u1", "?runId=nova2-of-1&model=nova2")).toBe(200);
+    expect(await statusOf("@/app/api/coder/terminal/route", "u1", "?runId=run-of-1&model=nova2")).toBe(404);
+    expect(await statusOf("@/app/api/coder/stream/route", "u1", "?runId=nova2-of-1&model=nova2")).toBe(200);
+    expect(await statusOf("@/app/api/coder/stream/route", "u1", "?runId=run-of-1&model=nova2")).toBe(404);
+    expect(await statusOf("@/app/api/coder/stream/route", "u1", "?runId=run-of-1&model=nope")).toBe(400);
+    expect(tasksOfModel).toBeTruthy();
   });
 });

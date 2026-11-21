@@ -73,4 +73,13 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
       "كل شيء داخل متصفحك دون رفع ملفاتك، وتنزّل فيديو قصيراً. استعمل صوراً تملكها أو بإذن أصحابها.",
     url: "https://ttbik-gate.jonsnowx1r.workers.dev/free-tools/talking-photo",
   },
+  {
+    id: "2026-11-20-tools-studio",
+    date: "2026-11-20",
+    title: "استوديو الأدوات المجانية",
+    body:
+      "كل الأدوات المجانية صارت في صفحة واحدة: ابحث بالاسم أو اختر تصنيفاً بين الحساب والتواريخ والصور والكتابة والتجارة والألعاب.\n" +
+      "آخر أربع أدوات فتحتها تبقى محفوظة في متصفحك.",
+    url: "https://ttbik-gate.jonsnowx1r.workers.dev/tools",
+  },
 ];

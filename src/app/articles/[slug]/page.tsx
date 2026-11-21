@@ -82,7 +82,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
             <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-emerald-800 ring-1 ring-emerald-100">
               {a.category}
             </span>
-            <span className="text-slate-500">{a.dateLabel}</span>
+            <span className="text-slate-500">تاريخ النشر · {a.dateLabel}</span>
             <span className="text-slate-400">· {a.readMinutes} د قراءة</span>
           </div>
           <h1 className="text-2xl font-black leading-10 text-slate-900 sm:text-[1.7rem]">{a.title}</h1>

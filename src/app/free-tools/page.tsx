@@ -1,8 +1,7 @@
 import { permanentRedirect } from "next/navigation";
 
-// Retired 2026-09-23 (owner): it duplicated the homepage's free-tools
-// section exactly. Old links, bookmarks and Telegram posts land on that
-// section instead of a 404. The individual tools under /free-tools/* stay.
+// The catalog lives at /tools. Old /free-tools links (bookmarks, Telegram) land there.
+// Individual tools stay at /free-tools/<slug>.
 export default function FreeToolsIndex() {
-  permanentRedirect("/#free-tools");
+  permanentRedirect("/tools");
 }

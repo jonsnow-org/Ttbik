@@ -42,5 +42,71 @@ class DesktopTests(unittest.TestCase):
             del os.environ["SHAM_DESKTOP_TOKEN"]
 
 
+class ChromeForDesktopTest(unittest.TestCase):
+    def test_finds_chrome_for_testing_and_old_layout_newest_first(self):
+        import sham_desktop as d
+        fake = {"chrome-linux64": ["/r/chromium-1200/chrome-linux64/chrome"], "chrome-linux": ["/r/chromium-1100/chrome-linux/chrome"]}
+        hit = d._playwright_chrome(lambda pat: next((v for k, v in fake.items() if f"/{k}/" in pat), []))
+        self.assertEqual(hit, "/r/chromium-1200/chrome-linux64/chrome")
+        self.assertIsNone(d._playwright_chrome(lambda pat: []))
+
+    def test_missing_chrome_starts_one_background_install(self):
+        import sham_desktop as d
+        d._CHROME_INSTALL.update(started=False, note="")
+        calls = []
+        r = d.chrome_missing_reply(start=lambda: calls.append(1))
+        if r.get("phase") == "installing":            # playwright importable here
+            self.assertEqual(len(calls), 1)
+            d.chrome_missing_reply(start=lambda: calls.append(1))
+            self.assertEqual(len(calls), 1)             # once per process
+            d._CHROME_INSTALL["note"] = "playwright install failed: x"
+            self.assertIn("could not be installed", d.chrome_missing_reply()["error"])
+        else:
+            self.assertIn("no Chromium", r["error"])
+        d._CHROME_INSTALL.update(started=False, note="")
+
+
+class BrowserAliveTest(unittest.TestCase):
+    """ok=True from launch means the browser is still running; one that dies at once reports why (a black screen never passes as a working browser)."""
+
+    class Proc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+    def _log(self, text):
+        import tempfile
+        f = tempfile.NamedTemporaryFile("w", delete=False, suffix=".log")
+        f.write(text)
+        f.close()
+        return f.name
+
+    def test_alive_browser_is_ok(self):
+        import sham_desktop as d
+        self.assertIsNone(d.browser_exit(self.Proc(None), self._log(""), wait=0.3))
+
+    def test_dead_browser_reports_the_reason(self):
+        import sham_desktop as d
+        r = d.browser_exit(self.Proc(1), self._log("[1:1] Failed to connect to the bus\nMissing X server"), wait=0)
+        self.assertFalse(r["ok"])
+        self.assertIn("exited at once (code 1)", r["error"])
+        self.assertIn("Missing X server", r["error"])
+
+    def test_missing_libraries_start_one_background_fetch(self):
+        import sham_desktop as d
+        d._CHROME_DEPS.update(started=False, note="")
+        calls = []
+        log = self._log("chrome: error while loading shared libraries: libnss3.so: cannot open shared object file")
+        r = d.browser_exit(self.Proc(127), log, wait=0, start_deps=lambda: calls.append(1))
+        self.assertEqual((r["phase"], len(calls)), ("installing", 1))
+        d.browser_exit(self.Proc(127), log, wait=0, start_deps=lambda: calls.append(1))
+        self.assertEqual(len(calls), 1)
+        d._CHROME_DEPS["note"] = "needs root (run install_desktop.sh on the host)"
+        self.assertIn("could not be installed", d.browser_exit(self.Proc(127), log, wait=0)["error"])
+        d._CHROME_DEPS.update(started=False, note="")
+
+
 if __name__ == "__main__":
     unittest.main()

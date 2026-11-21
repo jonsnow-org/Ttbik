@@ -29,6 +29,8 @@ ${bots}
 
 ## صفحات رئيسية / Key pages
 - [الرئيسية](${SITE_URL}/)
+- [استوديو الأدوات](${SITE_URL}/tools): بحث وتصنيف لكل الأدوات المجانية
+- [الأسواق](${SITE_URL}/markets)
 - [مواقيت الصلاة](${SITE_URL}/prayer-times)
 - [الأخبار](${SITE_URL}/news)
 - [منشئ البوتات](${SITE_URL}/bots)

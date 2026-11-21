@@ -203,7 +203,10 @@ def _load(model_dir: Path) -> None:
         if _V2:
             try:
                 import sham_tldm_serve as _tldm
-                ident = _tldm.apply_identity(serve._state["model"], head)
+                if os.environ.get("SHAM_IDENTITY_LORA", "1").strip().lower() in ("0", "off", "false", "no"):
+                    ident = {"identity_lora": False, "identity_lora_why": "off (SHAM_IDENTITY_LORA=0)"}
+                else:
+                    ident = _tldm.apply_identity(serve._state["model"], head)
             except Exception as exc:
                 ident = {"identity_lora": False, "identity_lora_why": f"{type(exc).__name__}: {str(exc)[:120]}"}
             STATE["identity_lora"] = bool(ident.get("identity_lora"))
@@ -459,7 +462,12 @@ def _tldm_user_text(messages_json: str) -> str:
     return last["content"]
 
 
-def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0, deny_list: str = "", owner: float = 0) -> str:
+def generate_tldm(
+    messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1,
+    confirm_cmd: str = "", confirm_ok: float = 0, deny_list: str = "", owner: float = 0,
+    resume_tool_name: str = "", resume_tool_arguments_json: str = "", resume_tool_result: str = "",
+    resume_tool_error: float = 0, resume_tool_request_id: str = "",
+) -> str:
     """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used.
 
     Public generate_chat never enters this path. The owner-gated client calls this endpoint
@@ -490,6 +498,11 @@ def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float =
             confirm_ok=bool(float(confirm_ok or 0)),
             deny_list="" if owner else str(deny_list or ""),
             owner=bool(float(owner or 0)),
+            resume_tool_name=str(resume_tool_name or ""),
+            resume_tool_arguments_json=str(resume_tool_arguments_json or ""),
+            resume_tool_result=str(resume_tool_result or ""),
+            resume_tool_error=bool(float(resume_tool_error or 0)),
+            resume_tool_request_id=str(resume_tool_request_id or ""),
         )
     except Exception as exc:
         print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
@@ -973,7 +986,10 @@ def build_ui():
             [gr.Textbox(label="messages_json"), gr.Textbox(label="session", value=""),
              gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
              gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0),
-             gr.Textbox(label="deny_list", value=""), gr.Number(label="owner", value=0)],
+             gr.Textbox(label="deny_list", value=""), gr.Number(label="owner", value=0),
+             gr.Textbox(label="resume_tool_name", value=""), gr.Textbox(label="resume_tool_arguments_json", value="{}"),
+             gr.Textbox(label="resume_tool_result", value=""), gr.Number(label="resume_tool_error", value=0),
+             gr.Textbox(label="resume_tool_request_id", value="")],
             gr.Textbox(label="Sham Pro T-LDM result"), api_name="generate_tldm", flagging_mode="never")
         interfaces.insert(1, tldm_chat)
         labels.insert(1, "محادثة T-LDM (شام برو)")

@@ -230,7 +230,7 @@ class Desktop:
         if app == "browser":
             exe = next((self._which(n) for n in ("chromium", "chromium-browser", "google-chrome", "chrome") if self._which(n)), None) or _playwright_chrome()
             if not exe:
-                return {"ok": False, "error": "no Chromium installed here (run install_desktop.sh)"}
+                return chrome_missing_reply()
             profile = os.path.join(self.home, "chrome-profile")
             os.makedirs(profile, mode=0o700, exist_ok=True)
             argv = [exe, "--no-sandbox", "--no-first-run", "--disable-extensions", "--disable-smooth-scrolling", f"--user-data-dir={profile}", f"--window-size={self.width - 24},{self.height - 90}", url or "about:blank"]
@@ -240,7 +240,21 @@ class Desktop:
                 argv.append(self.home)
         else:
             return {"ok": False, "error": f"app must be terminal, files or browser (and installed)"}
-        self.procs.append(self._popen(argv, env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
+        if app != "browser":
+            self.procs.append(self._popen(argv, env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
+            return {"ok": True, "phase": "running", "app": app}
+        # The browser: keep its error output and make sure it is still alive after a moment. "ok" means a window can be on the screen, not just that a process was spawned
+        # (a Chromium missing its system libraries exits at once and used to leave a black screen behind an ok=True).
+        log_path = os.path.join(self.home, "browser.log")
+        log = open(log_path, "ab")
+        try:
+            proc = self._popen(argv, env=self._env(), stdout=log, stderr=log, cwd=self.home)
+        finally:
+            log.close()
+        self.procs.append(proc)
+        dead = browser_exit(proc, log_path, wait=BROWSER_ALIVE_WAIT)
+        if dead:
+            return dead
         return {"ok": True, "phase": "running", "app": app}
 
     def clipboard(self, text: str | None = None) -> dict:
@@ -259,7 +273,9 @@ class Desktop:
     def windows(self) -> list[str]:
         if self._which("wmctrl"):
             out = self._run(["wmctrl", "-l"], env=self._env(), capture_output=True, text=True, timeout=5, check=False).stdout or ""
-            return [" ".join(line.split()[3:]) for line in out.splitlines() if len(line.split()) > 3][:30]
+            listed = [" ".join(line.split()[3:]) for line in out.splitlines() if len(line.split()) > 3][:30]
+            if listed:
+                return listed                     # wmctrl only sees windows a window manager announces; with none running, ask X directly below
         ids = (self._xdo(["search", "--onlyvisible", "--name", "."]).stdout or "").split()[:30]
         names = [(self._xdo(["getwindowname", i]).stdout or "").strip() for i in ids]
         return [n for n in names if n]
@@ -301,10 +317,103 @@ def _pil_grab(display: str, quality: int) -> bytes | None:
         return None
 
 
-def _playwright_chrome() -> str | None:
+def _playwright_roots() -> list[str]:
+    roots = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), os.path.expanduser("~/.cache/ms-playwright"), "/root/.cache/ms-playwright"]
+    return [r for i, r in enumerate(roots) if r and r != "0" and r not in roots[:i]]
+
+
+def _playwright_chrome(glob_fn=None) -> str | None:
+    """The full (windowed) Chromium Playwright downloaded: `chrome-linux` up to Playwright 1.56, `chrome-linux64` (Chrome for Testing) since 1.57. Newest first.
+    The headless shell is skipped on purpose: it cannot draw a window on the desktop."""
     import glob
-    hits = glob.glob(os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")) + glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome")
-    return hits[0] if hits else None
+    g = glob_fn or glob.glob
+    hits: list[str] = []
+    for root in _playwright_roots():
+        for sub in ("chrome-linux64", "chrome-linux"):
+            hits += g(os.path.join(root, "chromium-*", sub, "chrome"))
+    return sorted(set(hits), reverse=True)[0] if hits else None
+
+
+_CHROME_INSTALL = {"started": False, "note": ""}
+_CHROME_DEPS = {"started": False, "note": ""}
+BROWSER_ALIVE_WAIT = float(os.environ.get("SHAM_DESKTOP_BROWSER_WAIT", "4"))
+
+
+def _log_tail(path: str, n: int = 400) -> str:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - n))
+            return f.read().decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def browser_exit(proc, log_path: str, wait: float = 4.0, start_deps=None) -> dict | None:
+    """None while the browser is alive after `wait` seconds; otherwise why it died. Missing system libraries on a root host: fetch them once in the background
+    (`playwright install-deps chromium`, which knows each distro's package names) and answer phase=installing so the caller launches again."""
+    poll = getattr(proc, "poll", None)
+    if poll is None:
+        return None
+    end = time.time() + max(0.0, wait)
+    while time.time() < end:
+        if poll() is not None:
+            break
+        time.sleep(0.25)
+    code = poll()
+    if code is None:
+        return None
+    tail = _log_tail(log_path)
+    if "shared libraries" in tail or "cannot open shared object" in tail:
+        if not _CHROME_DEPS["started"]:
+            _CHROME_DEPS["started"] = True
+            (start_deps or (lambda: threading.Thread(target=_install_chrome_deps, daemon=True).start()))()
+        if _CHROME_DEPS["note"] and _CHROME_DEPS["note"] != "installed":
+            return {"ok": False, "error": "the browser's system libraries could not be installed: " + _CHROME_DEPS["note"]}
+        return {"ok": False, "phase": "installing", "error": "installing the browser's system libraries (one time); launch the browser again shortly"}
+    return {"ok": False, "error": f"the browser exited at once (code {code}): " + (tail[-240:] or "no output")}
+
+
+def _install_chrome_deps(run=subprocess.run) -> None:
+    import sys
+    root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if not root:
+        _CHROME_DEPS["note"] = "needs root (run install_desktop.sh on the host)"
+        return
+    try:
+        env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
+        done = run([sys.executable, "-m", "playwright", "install-deps", "chromium"], env=env, capture_output=True, text=True, timeout=1200, check=False)
+        _CHROME_DEPS["note"] = "installed" if done.returncode == 0 else "install-deps failed: " + (done.stderr or "")[-160:]
+    except Exception as exc:  # noqa: BLE001
+        _CHROME_DEPS["note"] = f"install-deps failed: {type(exc).__name__}"
+
+
+def _install_playwright_chrome(run=subprocess.run) -> None:
+    """Fetch the windowed Chromium once per process with Playwright (no root needed); the desktop browser then opens like any app."""
+    import sys
+    try:
+        done = run([sys.executable, "-m", "playwright", "install", *(["--with-deps"] if hasattr(os, "geteuid") and os.geteuid() == 0 and shutil.which("apt-get") else []), "chromium"], capture_output=True, text=True, timeout=900, check=False)
+        _CHROME_INSTALL["note"] = "installed" if done.returncode == 0 else "playwright install failed: " + (done.stderr or "")[-160:]
+    except Exception as exc:  # noqa: BLE001
+        _CHROME_INSTALL["note"] = f"install failed: {type(exc).__name__}"
+
+
+def chrome_missing_reply(start=None) -> dict:
+    """No windowed Chromium yet: start fetching it in the background (once) and tell the caller to retry, instead of a dead end."""
+    try:
+        import importlib.util
+        can = importlib.util.find_spec("playwright") is not None
+    except Exception:  # noqa: BLE001
+        can = False
+    if not can:
+        return {"ok": False, "error": "no Chromium installed here (run install_desktop.sh)"}
+    if not _CHROME_INSTALL["started"]:
+        _CHROME_INSTALL["started"] = True
+        (start or (lambda: threading.Thread(target=_install_playwright_chrome, daemon=True).start()))()
+    note = _CHROME_INSTALL["note"]
+    if note and note != "installed":
+        return {"ok": False, "error": "Chromium could not be installed: " + note}
+    return {"ok": False, "phase": "installing", "error": "installing Chromium for the desktop (one time, about a minute); launch the browser again shortly"}
 
 
 # ---- the registry: one display per session, a watchdog that stops idle ones

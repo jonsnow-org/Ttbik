@@ -32,3 +32,12 @@ body {
 @keyframes heart-pop { 0% { transform: scale(.8); } 50% { transform: scale(1.18); } 100% { transform: scale(1); } }
 .heart-pop { animation: heart-pop .3s ease; }
 @media (prefers-reduced-motion: reduce) { .sk::after, .fade-up, .sheet-up, .heart-burst { animation: none; } }
+
+/* Phones zoom the whole page when a focused field is smaller than 16px. */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

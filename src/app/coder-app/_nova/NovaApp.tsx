@@ -7,6 +7,7 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
+import { syncDeviceMesh } from "./deviceMesh";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
 import { threadBubbles } from "@/lib/chatBubbles";
@@ -1030,6 +1031,8 @@ export default function NovaApp() {
   const [err, setErr] = useState("");
   const { d: models, load: reloadModels, error: modelsError, loading: modelsLoading } = useModels();
   useFonts();
+  const meshModel = me?.settings.model || "";
+  useEffect(() => { if (meshModel) void syncDeviceMesh(meshModel); }, [meshModel]);   // silent; follows the owner's switch (default off)
   const reload = useCallback(async () => {
     try { setMe(await api<Me>("me")); setErr(""); } catch (e: any) { setErr(e.status === 401 ? "__tg" : e.message); }
   }, []);

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -463,7 +465,37 @@ class ApprovalNeeded(Exception):
         self.hist = list(hist)
 
 
-# Per-Studio-process pending approvals, keyed by the chat's T-LDM session (isolated workspace).
+class ToolRequested(Exception):
+    """T-LDM asked Sham's app to run one existing read-only tool and return its result."""
+
+    def __init__(self, name: str, arguments: dict, hist: list):
+        super().__init__(name)
+        self.name = name
+        self.arguments = dict(arguments)
+        self.hist = list(hist)
+
+
+TLDM_READ_TOOLS = {
+    "web_search", "fetch_page", "deep_research",
+    "github_list_files", "github_read_file", "github_read_files",
+    "github_search_code", "github_repo_scan", "github_prs", "github_ci",
+}
+WEB_TASK = re.compile(
+    r"(?:جولة\s+بحث|ابحث|بحث|تصفح|فتّش|مصادر).{0,70}(?:الإنترنت|الانترنت|الويب|موقع|مواقع|صفحة|صفحات|الشيفرة|الأكواد)|"
+    r"(?:الإنترنت|الانترنت|الويب).{0,70}(?:بحث|ابحث|تصفح)|"
+    r"\b(?:search|browse|research).{0,60}\b(?:web|internet|website|online|sources|pages)\b",
+    re.I,
+)
+WEB_TOOL_GUIDE = (
+    'ابحث باستخدام $ @tool web_search {"query":"...","limit":6}؛ '
+    'واقرأ الصفحة باستخدام $ @tool fetch_page {"url":"https://...","max_chars":20000}؛ '
+    'ولبحث متعدد المصادر استخدم $ @tool deep_research {"question":"...","max_sources":6}؛ '
+    'إذا كان GitHub متصلاً في هذا الحساب افحص المستودع بـ $ @tool github_repo_scan {"repo":"owner/name"}، '
+    'واقرأ عدة ملفات بـ $ @tool github_read_files {"repo":"owner/name","paths":["README.md","src/file.ts"]}؛ '
+    "إذا قالت نتيجة الأداة إن اتصال GitHub غير متاح فلا تدّع قراءة المستودع. انتظر نتيجة كل أداة ثم تابع، ولا تنفذ أي كتابة عبر هذا الجسر."
+)
+
+# Per-Studio-process pending approvals and tool requests, keyed by the T-LDM session.
 _PENDING: dict = {}
 
 
@@ -511,7 +543,7 @@ def _record_step(session: str, message: str, cmd: str, result, t0: float, owner:
         return
 
 
-def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None, deny_list=None, owner: bool = False):
+def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approved=None, deny_list=None, owner: bool = False, pending_tool=None):
     """Hidden-terminal loop on Sham 2's existing embedded computer (ShamEmbeddedBackend / model_computer).
 
     Sensitive commands pause with ApprovalNeeded so THIS chat can allow or deny.
@@ -528,6 +560,14 @@ def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approve
     elif deny_list is not None and hasattr(backend, "deny_list"):
         backend.deny_list = list(deny_list)
     hist = list(hist or [])
+    if WEB_TASK.search(message) and not any(str(item[0]).strip() == "@tool protocol" for item in hist if isinstance(item, (list, tuple)) and item):
+        # A task-local instruction: T-LDM still decides whether to search, it only learns the tool syntax.
+        hist.append(("@tool protocol", WEB_TOOL_GUIDE, True))
+    if pending_tool:
+        name, arguments, result, is_error = pending_tool
+        tool_call = "@tool " + name + " " + json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+        value = ("error: " if is_error else "result: ") + str(result or "")
+        hist.append((tool_call, value[:8000], not is_error))
     max_steps = int(getattr(chat, "max_steps", 5) or 5)
     hint_ctx = ""
     try:
@@ -552,6 +592,23 @@ def drive(chat, session: str, message: str, hist=None, pending_cmd=None, approve
     for _ in range(max_steps):
         asked = f"{message}\n{hint_ctx}" if hint_ctx else message
         text = str(chat.writer(asked, hist) or "").strip()
+        candidate = text[2:].strip() if text.startswith("$ ") else text
+        if candidate.startswith("@tool"):
+            try:
+                parts = candidate.split(" ", 2)
+                if len(parts) != 3 or parts[0] != "@tool":
+                    raise ValueError("format must be: $ @tool <name> <JSON object>")
+                name = parts[1].strip()
+                arguments = json.loads(parts[2])
+                if not isinstance(arguments, dict):
+                    raise ValueError("tool arguments must be a JSON object")
+            except Exception as exc:
+                hist.append(("@tool", "error: invalid tool request: " + str(exc)[:180], False))
+                continue
+            if name not in TLDM_READ_TOOLS:
+                hist.append(("@tool " + name, "error: this tool is not available through T-LDM's read-only bridge", False))
+                continue
+            raise ToolRequested(name, arguments, hist)
         if not text.startswith("$ "):
             return text, hist
         cmd = text[2:].strip()
@@ -577,7 +634,12 @@ def _parse_deny(raw) -> list:
         return [x.strip() for x in str(raw or "").splitlines() if x.strip() and not x.strip().startswith("#")]
 
 
-def respond(body, tok, session: str, message: str, token: str | None = None, confirm=None, confirm_cmd: str = "", confirm_ok: bool = False, deny_list=None, owner: bool = False) -> str:
+def respond(
+    body, tok, session: str, message: str, token: str | None = None, confirm=None,
+    confirm_cmd: str = "", confirm_ok: bool = False, deny_list=None, owner: bool = False,
+    resume_tool_name: str = "", resume_tool_arguments_json: str = "", resume_tool_result: str = "",
+    resume_tool_error: bool = False, resume_tool_request_id: str = "",
+) -> str:
     """Run or resume a T-LDM turn. `confirm` is accepted for compatibility but approvals
     go through confirm_cmd/confirm_ok so THIS chat's allow/deny UI can decide."""
     chat, err = load_chat(body, tok, token=token, confirm=confirm)
@@ -587,11 +649,26 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
     hist = None
     pending_cmd = None
     approved = None
+    pending_tool = None
     deny = [] if owner else _parse_deny(deny_list)
     t0 = time.time()
+    if resume_tool_name:
+        pending = _PENDING.get(sid)
+        if not pending or pending.get("kind") != "tool" or pending.get("id") != resume_tool_request_id or pending.get("tool") != resume_tool_name:
+            return error_json("انتهت صلاحية طلب أداة البحث أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
+        try:
+            received_args = json.loads(resume_tool_arguments_json or "{}")
+        except Exception:
+            return error_json("تعذّر التحقق من معاملات أداة البحث.")
+        if received_args != (pending.get("arguments") or {}):
+            return error_json("معاملات استكمال أداة البحث لا تطابق الطلب الأصلي.")
+        hist = list(pending.get("hist") or [])
+        message = pending.get("message") or message
+        pending_tool = (resume_tool_name, received_args, str(resume_tool_result or ""), bool(resume_tool_error))
+        _PENDING.pop(sid, None)
     if confirm_cmd:
         pending = _PENDING.get(sid)
-        if not pending or pending.get("cmd") != confirm_cmd:
+        if not pending or pending.get("kind", "confirm") != "confirm" or pending.get("cmd") != confirm_cmd:
             return error_json("انتهت صلاحية طلب الموافقة أو لا يطابق الأمر المنتظر. لم يُنفَّذ الأمر، ولم يُستخدم صندوق معزول.")
         hist = list(pending.get("hist") or [])
         message = pending.get("message") or message
@@ -599,9 +676,9 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
         approved = bool(confirm_ok)
         _PENDING.pop(sid, None)
     try:
-        reply, done_hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved, deny_list=deny, owner=owner)
+        reply, done_hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved, deny_list=deny, owner=owner, pending_tool=pending_tool)
     except ApprovalNeeded as exc:
-        _PENDING[sid] = {"message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question}
+        _PENDING[sid] = {"kind": "confirm", "message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question}
         return json.dumps({
             "type": "confirm",
             "text": exc.question,
@@ -610,8 +687,23 @@ def respond(body, tok, session: str, message: str, token: str | None = None, con
             "tldm": True,
             "computer": "model_computer",
         }, ensure_ascii=False)
+    except ToolRequested as exc:
+        request_id = secrets.token_hex(12)
+        _PENDING[sid] = {
+            "kind": "tool", "id": request_id, "message": message, "hist": exc.hist,
+            "tool": exc.name, "arguments": exc.arguments,
+        }
+        return json.dumps({
+            "type": "tool_request",
+            "tool_name": exc.name,
+            "tool_arguments": exc.arguments,
+            "tool_request_id": request_id,
+            "session": sid,
+            "tldm": True,
+            "computer": "model_computer",
+        }, ensure_ascii=False)
     success = bool(reply) and reply != "I could not finish within the allowed number of steps."
-    steps = done_hist or []
+    steps = [item for item in (done_hist or []) if isinstance(item, (list, tuple)) and item and not str(item[0]).startswith("@tool")]
     if steps:
         try:
             from sham_tldm_experience import log_episode

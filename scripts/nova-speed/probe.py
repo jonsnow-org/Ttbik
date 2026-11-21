@@ -75,7 +75,7 @@ def one(label: str, messages: list, tools: list, max_tokens: int) -> dict:
            "prompt_s": round(p_ms / 1000, 1) if p_ms else None,
            "prompt_tok_s": tm.get("prompt_per_second") or (round(read_now / (p_ms / 1000), 1) if read_now and p_ms else None),
            "gen_tokens": tm.get("predicted_n"), "gen_tok_s": round(tm["predicted_per_second"], 2) if tm.get("predicted_per_second") else None,
-           "restored": r.get("restored"), "text": (r.get("text") or "")[:120]}
+           "restored": r.get("restored"), "majflt": r.get("majflt"), "text": (r.get("text") or "")[:120]}
     print("== " + json.dumps(res, ensure_ascii=False), flush=True)
     if OUT:
         with open(OUT, "a") as f:
@@ -92,6 +92,13 @@ def main() -> None:
     tools = START["tools"]
     example = [{"role": "user", "content": "من أنت؟"}, {"role": "assistant", "content": "أنا Nova AI. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟"}]
     stamp = time.strftime("%H%M%S")
+    def mem() -> None:     # memory after each step: a box short of memory re-reads the model from disk (majflt grows)
+        try:
+            m = call("status", {})
+            print("   memory", json.dumps({k: m.get(k) for k in ("mem_total_gb", "mem_available_gb", "llama", "starts")}, ensure_ascii=False), flush=True)
+        except SystemExit:
+            pass
+    mem()
     for s in steps:
         if s == "lite":
             one("lite 'hello' (greeting path, no tools)", [{"role": "system", "content": lite_sys}, *example, {"role": "user", "content": f"hello ({stamp})"}], [], 120)
@@ -104,6 +111,7 @@ def main() -> None:
             one("full start, ANOTHER new conversation (shared start reuse)", [{"role": "system", "content": full_sys}, {"role": "user", "content": f"اكتب دالة بايثون تجمع رقمين ({stamp})"}], tools, 200)
         elif s == "gen":
             one("generation speed (same start, ~250 tokens)", [{"role": "system", "content": full_sys}, {"role": "user", "content": f"Explain in about 180 words what a Python decorator is, with a tiny example. Do not call tools. ({stamp})"}], tools, 300)
+        mem()
 
 
 if __name__ == "__main__":

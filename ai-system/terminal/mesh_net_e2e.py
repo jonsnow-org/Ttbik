@@ -12,7 +12,10 @@ Checks (each prints PASS/FAIL, exit 1 on any FAIL; the JSON evidence is printed 
   4 poisoned lessons (rm -rf /, curl|sh, a lesson altered after signing) published by the evil process are rejected by every receiver;
   5 a forged compute result (evil process answers sha256 jobs with garbage) is rejected and recomputed; the honest shard is accepted;
   6 a signed adapter is fetched peer-to-peer through the relay, hash-checked and gated; a forged entry is refused;
-  7 a node whose relay is unreachable still works alone.
+  7 a node whose relay is unreachable still works alone;
+  8 (when node >= 22 is present) a device node running the Mini App's own code (src/lib/meshNode.ts) joins, computes a verified shard,
+    publishes a signed lesson that the Python nodes accept, and answers a proposal from its own vetted lessons;
+  with --remote-peer: 1b/1c/1d a helper on ANOTHER host is present, proposes a command that runs in this host's sandbox, computes a checked shard.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -70,6 +74,8 @@ def role_helper(a):
     end = time.time() + a.hold
     while time.time() < end:
         time.sleep(1)
+        if a.until_served and net.stats["proposals_served"] >= 1 and net.stats["jobs_served"] >= 1:     # cross-host: the other host is done with us
+            end = min(end, time.time() + 15)
     emit({"role": "helper", "served": net.stats, "files_in_my_sandbox": sorted(os.listdir(net.me.term.dir))})
     net.stop()
 
@@ -127,7 +133,7 @@ def relay_auth_checks(a) -> dict:
         except urllib.error.HTTPError as e:
             return e.code
     ts = str(int(time.time() * 1000))
-    path = urllib.request.urlparse(url).path
+    path = urllib.request.urlparse(url).path[len(urllib.request.urlparse(a.url).path.rstrip("/")):]     # relative to the relay root (proxy mounts)
     sig = ident.sign(f"POST\n{path}\n{ts}\n{hashlib.sha256(body).hexdigest()}".encode())
     out["unsigned"] = call({})
     out["forged"] = call({"x-mesh-node": Identity.generate().id, "x-mesh-ts": ts, "x-mesh-sig": sig})
@@ -138,6 +144,12 @@ def relay_auth_checks(a) -> dict:
 
 def spawn(a, role, *extra):
     return subprocess.Popen([sys.executable, os.path.abspath(__file__), "--role", role, "--url", a.url, "--mesh", a.mesh, *extra],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def spawn_device(a, *extra):
+    script = os.path.join(HERE, "..", "..", "scripts", "mesh", "device_node.mts")
+    return subprocess.Popen(["node", "--experimental-strip-types", "--no-warnings", script, "--url", a.url, "--mesh", a.mesh, "--hold", "90", *extra],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
@@ -166,6 +178,31 @@ def main(a):
         ev["relay_health_before"] = h
         ev["auth"] = relay_auth_checks(a)
         check("0 relay refuses unsigned, forged and replayed requests", ev["auth"] == {"unsigned": 401, "forged": 401, "replayed": 409, "signed": 200}, ev["auth"])
+        if a.remote_peer:                                              # FIRST, before the local roles (their hold would run out while we wait):
+            xme = node(a.url, a.mesh, {}).start()                       # a helper started on ANOTHER machine (CI: a second runner, which can be queued minutes later)
+            end = time.time() + a.remote_wait
+            remote = []
+            while time.time() < end:
+                remote = [k for k in xme.nodes if k != xme.ident.id and isinstance(xme.nodes[k], MN.RemotePeer) and xme.nodes[k].caps.get("propose")]
+                if remote:
+                    break
+                time.sleep(3)
+                xme._join()
+            ev["remote_peers"] = remote
+            ev["remote_waited_s"] = round(a.remote_wait - max(0.0, end - time.time()), 1)
+            check("1b a peer on ANOTHER host is present", bool(remote), ev)
+            if remote:
+                rp = xme.nodes[remote[0]]
+                cmd = rp.propose("show errors")
+                res = xme.me.term.run(cmd) if cmd else None
+                ev["cross_host"] = {"peer": remote[0][:12], "proposed": cmd, "ran_here_ok": bool(res and res.ok), "out": (res.out if res else "")[:80]}
+                check("1c the other host proposed a command; it ran in THIS host's sandbox", bool(res and res.ok and "ERROR" in res.out), ev["cross_host"])
+                xc = [base64.b64encode(os.urandom(128)).decode() for _ in range(6)]
+                xj = xme.submit_job("sha256", {"chunks": xc}, peers=[remote[0]], timeout=30)
+                ev["cross_host"]["job"] = {"shards": xj["shards"], "correct": xj["result"] == MN._job_sha256({"chunks": xc})}
+                check("1d a sha256 job computed on the other host was spot-checked and accepted here",
+                      xj["result"] == MN._job_sha256({"chunks": xc}) and any(sh["ok"] and remote[0] in sh["peers"] for sh in xj["shards"]), ev["cross_host"]["job"])
+            xme.stop()
         fast, slow, evil = spawn(a, "helper", "--delay", "0.05", "--adapter"), spawn(a, "helper", "--delay", "6"), spawn(a, "evil")
         procs += [fast, slow, evil]
         f_info, s_info, e_info = first_result(fast), first_result(slow), first_result(evil)
@@ -177,11 +214,6 @@ def main(a):
             me._join()
         ev["peers_seen_by_asker"] = len(set(me.nodes) - {me.ident.id})
         check("1 three nodes (+evil) join and see each other via the relay", want <= set(me.nodes), ev)
-        if a.remote_peer:
-            remote = [k for k in me.nodes if k not in want and k != me.ident.id]
-            ev["remote_peers"] = remote
-            check("1b a peer on ANOTHER host is present", bool(remote), ev)
-
         t0 = time.time()
         r = me.ask("list the files", hedge=8)
         el = time.time() - t0
@@ -218,6 +250,26 @@ def main(a):
                          "evil_id": e_info["id"]}
         check("5 forged compute result rejected, honest shard accepted, answer correct",
               jr["result"] == truth and jr["rejected"] == [e_info["id"]] and any(s["ok"] and s["peers"] == [f_info["id"]] for s in jr["shards"]), ev["compute"])
+
+        if a.device:                                                   # the Mini App's own code (src/lib/meshNode.ts) as a device node
+            dv = spawn_device(a, "--publish", "show the device date=>date")
+            procs.append(dv)
+            d_info = first_result(dv, 60)
+            end = time.time() + 30
+            while time.time() < end and d_info["id"] not in me.nodes:
+                time.sleep(1)
+                me._join()
+            me.sync_lessons()
+            dc = [base64.b64encode(os.urandom(200)).decode() for _ in range(6)]
+            dj = me.submit_job("sha256", {"chunks": dc}, peers=[d_info["id"]], timeout=30) if d_info["id"] in me.nodes else {"result": None, "shards": []}
+            dprop = me.nodes[d_info["id"]].propose("count the lines in the log") if d_info["id"] in me.nodes else None
+            dpub = MN.lesson_hash("show the device date", "date")
+            ev["device"] = {"joined": d_info["id"] in me.nodes, "published": d_info.get("published"), "lessons_received": d_info.get("lessons_received"),
+                            "its_lesson_in_python_pool": dpub in me.pool, "job_correct": dj["result"] == MN._job_sha256({"chunks": dc}),
+                            "job_shards": dj["shards"], "proposal_from_its_lessons": dprop}
+            check("8 a device node running the Mini App's code joins, computes a verified shard, shares a signed lesson and answers from vetted lessons",
+                  ev["device"]["joined"] and ev["device"]["job_correct"] and any(sh["ok"] and d_info["id"] in sh["peers"] for sh in dj["shards"])
+                  and ev["device"]["its_lesson_in_python_pool"] and dprop == "wc -l app.log", ev["device"])
 
         entry = f_info["adapter"]
         me.adapter_dir = tempfile.mkdtemp()
@@ -258,7 +310,11 @@ if __name__ == "__main__":
     ap.add_argument("--hold", type=float, default=150.0)
     ap.add_argument("--adapter", action="store_true")
     ap.add_argument("--remote-peer", action="store_true")
+    ap.add_argument("--until-served", action="store_true", help="helper: leave 15 s after it served a proposal and a job (cross-host CI)")
+    ap.add_argument("--remote-wait", type=float, default=540.0)
+    ap.add_argument("--device", default="auto", help="auto|yes|no: also run a device node with the Mini App's code (needs node >= 22)")
     a = ap.parse_args()
+    a.device = a.device == "yes" or (a.device == "auto" and bool(shutil.which("node")) and os.path.isfile(os.path.join(HERE, "..", "..", "scripts", "mesh", "device_node.mts")))
     if a.role:
         {"helper": role_helper, "evil": role_evil, "newcomer": role_newcomer, "offline": role_offline}[a.role](a)
         sys.exit(0)

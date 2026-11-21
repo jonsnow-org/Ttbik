@@ -9,8 +9,9 @@ export default function WhatsappLinkGenerator() {
   const [price, setPrice] = useState("");
   const [number, setNumber] = useState("");
 
-  const digitsOnly = number.replace(/\D/g, "");
-  const valid = digitsOnly.length >= 8;
+  const digitsOnly = number.replace(/\D/g, "").replace(/^00/, "");
+  const leadingZero = digitsOnly.startsWith("0");
+  const valid = !leadingZero && digitsOnly.length >= 8 && digitsOnly.length <= 15;
 
   function generate() {
     if (!valid) return;
@@ -45,6 +46,12 @@ export default function WhatsappLinkGenerator() {
         />
       </div>
 
+      {leadingZero && (
+        <p className="mt-3 text-sm text-amber-800">احذف الصفر الأول واكتب مفتاح الدولة، مثل 963 أو 90 أو 966، وإلا لن يفتح واتساب الرقم الصحيح.</p>
+      )}
+      {digitsOnly.length > 15 && (
+        <p className="mt-3 text-sm text-amber-800">الرقم أطول من 15 خانة. راجع مفتاح الدولة.</p>
+      )}
       <button
         onClick={generate}
         disabled={!valid}

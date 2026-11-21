@@ -21,9 +21,9 @@ VARIANTS = [
     ("kv q8_0 + flash", ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0"]),
     ("ubatch 1024 / batch 2048", ["-ub", "1024", "-b", "2048"]),
     ("draft 0.8B (max 8)", ["-md", "draft.gguf", "--draft-max", "8", "--draft-min", "2"]),
-    ("mlock", ["--mlock"]),
-    ("no-mmap", ["--no-mmap"]),
-    ("ngram-mod + mlock", ["--spec-type", "ngram-mod", "--mlock"]),
+    ("mlock", ["--load-mode", "mmap+mlock"]),
+    ("no-mmap", ["--load-mode", "none"]),
+    ("ngram-mod + mlock", ["--spec-type", "ngram-mod", "--load-mode", "mmap+mlock"]),
 ]
 # ONLY="baseline,ngram-mod,..." runs a subset (the 35B Nova 2 file takes minutes per variant)
 _only = [x.strip() for x in os.environ.get("ONLY", "").split(",") if x.strip()]

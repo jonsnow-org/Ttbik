@@ -3,6 +3,7 @@
 // (src/lib/coderModels.ts modelUsableBy); (2) WHICH media engine makes image / speech / video for each model, with the live health of every Studio behind it
 // (src/lib/mediaEngines.ts). Shared by the Nova UI and the telegram-ui screens. Server decides; the owner is checked on every call.
 import { useCallback, useEffect, useState } from "react";
+import { MESH_URL, MODEL_MESH } from "@/lib/meshNode";
 import { Button, Caption, Cell, Input, Section, Select, Spinner, Switch } from "@telegram-apps/telegram-ui";
 
 type Api = <T = any>(op: string, body?: Record<string, unknown>) => Promise<T>;
@@ -28,6 +29,8 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [tldmOpen, setTldmOpen] = useState(false);
+  const [meshOn, setMeshOn] = useState<boolean | null>(null);
+  const [meshNodes, setMeshNodes] = useState<Record<string, number>>({});
   const [denyText, setDenyText] = useState("");
   const [denySaved, setDenySaved] = useState("");
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
@@ -44,6 +47,16 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
     const d = (r.tldmPolicy?.deny || []).join("\n");
     setDenyText(d); setDenySaved(d);
   }).catch(() => null); }, [api]);
+  // the owner's ONE switch for users' devices in the terminal mesh (src/lib/meshPolicy.ts); users never see anything about it
+  const loadMesh = useCallback(async () => {
+    try { setMeshOn(Boolean((await api<{ on?: boolean }>("mesh_devices")).on)); } catch { setMeshOn(null); }
+    const out: Record<string, number> = {};
+    await Promise.all(Object.entries(MODEL_MESH).map(async ([, mesh]) => {
+      try { const r = await fetch(`${MESH_URL}/m/${mesh}/health`, { cache: "no-store" }); out[mesh] = Number((await r.json()).nodes_online) || 0; } catch { out[mesh] = -1; }
+    }));
+    setMeshNodes(out);
+  }, [api]);
+  useEffect(() => { void loadMesh(); const id = setInterval(() => void loadMesh(), 20000); return () => clearInterval(id); }, [loadMesh]);
   const setVisible = async (m: OwnerModel, visible: boolean) => {
     setBusy("vis-" + m.id);
     try { await api("model_update", { id: m.id, visible }); haptic("success"); await reload(); } catch (e: any) { setErr(String(e?.message || e)); haptic("error"); }
@@ -72,6 +85,23 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
               onBlur={async (e) => { try { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); } catch { haptic("error"); } }} />
           </div>
         ))}
+      </Section>
+      <Section
+        header={ar ? "🕸 شبكة الأجهزة" : "🕸 Device mesh"}
+        footer={ar
+          ? "مفتاح واحد لكل المستخدمين، مطفأ افتراضيًا. عند تشغيله ينضم جهاز كل مستخدم أثناء فتح التطبيق إلى شبكة النموذج الذي اختاره فقط، بصمت ودون أي إشعار. الجهاز لا ينفّذ أوامر لأحد، يقدّم حوسبة قابلة للتحقق ودروسًا موثّقة فقط، ولا يشارك بيانات شخصية، وقائمة المنع تنطبق. عند إطفائه تغادر الأجهزة خلال نصف دقيقة."
+          : "One switch for all users, off by default. When on, each user's device joins the mesh of the model they selected while the app is open, silently with no notice. A device never runs commands for anyone, offers only verifiable compute and verified lessons, shares no personal data, and the deny list applies. When off, devices leave within half a minute."}
+      >
+        <Cell Component="label" multiline
+          subtitle={Object.entries(meshNodes).map(([m, c]) => `${m}: ${c < 0 ? "?" : c}`).join(" · ") || "…"}
+          after={<Switch checked={Boolean(meshOn)} disabled={meshOn === null || busy === "mesh"} onChange={async (e) => {
+            const on = e.currentTarget.checked; setBusy("mesh"); setErr("");
+            try { const r = await api<{ on?: boolean }>("mesh_devices", { on }); setMeshOn(Boolean(r.on)); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy(""); void loadMesh();
+          }} />}>
+          {ar ? (meshOn ? "أجهزة المستخدمين: مشاركة" : "أجهزة المستخدمين: متوقفة") : (meshOn ? "Users' devices: sharing" : "Users' devices: off")}
+        </Cell>
       </Section>
       <Section
         header={ar ? "⚡ T-LDM لشام برو" : "⚡ T-LDM for Sham Pro"}

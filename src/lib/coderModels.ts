@@ -232,16 +232,21 @@ export function setMemorySettings(st: MemoryState, id: string, patch: Partial<Me
   return next;
 }
 
-// ---------------------------------------------------------------- Sham 2 T-LDM
-/** Audience gates live in src/lib/tldmPolicy.ts (env SHAM_TLDM_OPEN or the stored owner switch). */
-export { tldmOpenToAll, tldmAllowedFor } from "@/lib/tldmPolicy";
-/** Per-chat T-LDM switch on Sham 2 only. It never applies to Sham 1. Enabling it still requires tldmAllowedFor. */
+// ---------------------------------------------------------------- T-LDM (Sham Pro, Nova 1, Nova 2)
+/** Audience gates live in src/lib/tldmPolicy.ts, PER MODEL (env SHAM_/NOVA1_/NOVA2_TLDM_OPEN or that model's stored switch). */
+export { tldmOpenToAll, tldmAllowedFor, TLDM_MODELS, isTldmModel } from "@/lib/tldmPolicy";
+import { isTldmModel } from "@/lib/tldmPolicy";
+/** Per-chat T-LDM switch, PER MODEL: each of Sham Pro / Nova 1 / Nova 2 has its own, and one never enables another.
+ *  Sham 1 (the old body) has none. Enabling a model's switch still requires tldmAllowedFor(tier, that model). */
 export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
 export function tldmEnabled(st: TldmState, id?: string): boolean {
-  return canonModelId(id) === "sham_v2" && st.perModel?.sham_v2?.tldm === true;
+  const m = canonModelId(id);
+  return isTldmModel(m) && st.perModel?.[m]?.tldm === true;
 }
-export function setTldmEnabled(st: TldmState, on: boolean): boolean {
-  const cur = st.perModel?.sham_v2 || {};
-  st.perModel = { ...(st.perModel || {}), sham_v2: { ...cur, tldm: Boolean(on) } };
+export function setTldmEnabled(st: TldmState, on: boolean, id?: string): boolean {
+  const m = canonModelId(id) || "sham_v2";
+  if (!isTldmModel(m)) return false;
+  const cur = st.perModel?.[m] || {};
+  st.perModel = { ...(st.perModel || {}), [m]: { ...cur, tldm: Boolean(on) } };
   return Boolean(on);
 }

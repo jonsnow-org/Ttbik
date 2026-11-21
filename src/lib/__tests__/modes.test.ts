@@ -321,7 +321,10 @@ describe("owner override op", () => {
     const me: any = await appOp(user, "me", {}, { db: d, bot, botRow });
     expect(me.settings.forced).toEqual({ coder: "precise" });
     expect(await appOp(owner, "mode_force", { for: "sham_v2", mode: "fast" }, { db: d, bot, botRow })).toEqual({ forced: { coder: "precise", sham_v2: "fast" } });
-    expect(await appOp(owner, "mode_force", { for: "coder", mode: "" }, { db: d, bot, botRow })).toEqual({ forced: { sham_v2: "fast" } });
+    expect(await appOp(owner, "mode_force", { for: "nova2", mode: "balanced" }, { db: d, bot, botRow })).toEqual({ forced: { coder: "precise", sham_v2: "fast", nova2: "balanced" } });
+    expect(forcedMode("nova2")).toBe("balanced");
+    expect(forcedMode("coder")).toBe("precise");
+    expect(await appOp(owner, "mode_force", { for: "coder", mode: "" }, { db: d, bot, botRow })).toEqual({ forced: { sham_v2: "fast", nova2: "balanced" } });
   });
 });
 

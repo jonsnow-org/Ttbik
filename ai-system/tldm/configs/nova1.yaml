@@ -1,0 +1,33 @@
+# Nova 1 on T-LDM — Sham 2's technique on Nova 1's OWN body (Qwen3.5-4B), never Sham's and never Nova 2's.
+#
+# The recipe is Sham 2's (`configs/sham2.yaml`), and so is the code path (`training/train_sham2.py --cached`): freeze a COPY of
+# the donor body, read each text through it once, and train ONLY the head (Compressor + Latent Thinker + Diffusion Writer) on
+# those frozen features. Nothing here writes to the donor repo, to the live Studio, to Sham, or to Nova 2.
+#
+#   python training/train_sham2.py --config configs/nova1.yaml --donor <copy of Qwen/Qwen3.5-4B> --tokenizer <its tokenizer.json> \
+#          --gate gate/tldm_heldout_gate_2026-11-18.json --cached --dtype bf16 --seeds 3 --loop --identity \
+#          --out <nova1_heads.pt> --json <nova1_results.json>
+#   (the trainer Studio job does exactly this: SHAM_TRAINER_JOB=tldm SHAM_TRAINER_NAME=nova1-*)
+#
+# The head's width is chosen for Nova 1's body: Qwen3.5-4B's hidden size is 2560, so d_in is set by the trainer from the body,
+# and head_d stays 256 like Sham 2's (same measured speed/accuracy point, docs/experiments/tldm_speed_accuracy_*.json).
+latents: 16
+think_steps: 5
+block: 48
+writer_layers: 3
+heads: 4
+adapter_rank: 16
+in_len: 64
+steps: 600
+batch: 32
+lr: 0.001
+diffusion_steps: 10
+rewordings: true
+gate_heldout: 0.6
+head_d: 256
+confident: 0.9
+loop_in_len: 96
+loop_block: 64
+loop_episodes: 500
+loop_steps: 900
+loop_batch: 64

@@ -152,7 +152,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
 export type ShamReply = {
-  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error" | "confirm";
+  type: "text" | "tool_calls" | "embedded_step" | "tool_call_error" | "tool_request" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone" | "error" | "confirm";
   reason?: string; text?: string; mime?: string; b64?: string; route?: string;
   /** Structured assistant function calls returned by Sham v2's own agent_step endpoint. */
   tool_calls?: Array<{ id?: string; type?: "function"; function: { name: string; arguments: string } }>;
@@ -165,6 +165,7 @@ export type ShamReply = {
   raw?: string;
   /** T-LDM paused a sensitive command for this chat's allow/deny (existing shamok/shamno flow). */
   command?: string; session?: string; computer?: string; tldm?: boolean;
+  tool_name?: string; tool_arguments?: Record<string, unknown>; tool_request_id?: string; tldmBase?: string;
   // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
   decision?: string; job?: string; later?: ShamReply[];
 };
@@ -217,20 +218,34 @@ async function shamCallAt(base: string, api: string, payload: Record<string, unk
 /** A Studio that answers "busy" (on another request) or not at all hands the call to the next Studio of the pool at once; with one Studio nothing changes. */
 export const shamBusyHop = (reply: ShamReply | null | undefined): boolean => reply?.type === "busy";
 
-async function shamCall(api: string, payload0: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
-  if (!shamStudioEnabled()) { setFailure(`${api}: MODELSCOPE_API_TOKEN is empty in this environment`); return null; }
+async function shamCall(
+  api: string,
+  payload0: Record<string, unknown>,
+  timeoutMs: number,
+  route: { preferredBase?: string; onUsedBase?: (base: string) => void } = {},
+): Promise<string | null> {
+  if (!shamStudioEnabled()) { setFailure(api + ": MODELSCOPE_API_TOKEN is empty in this environment"); return null; }
   const variant = shamVariant.getStore();
-  if (variant !== "v1" && variant !== "v2") { setFailure(`${api}: no selected Sham variant; refusing model fallback`); return null; }
-  // Media prompts are user content, not reasoning prompts: never prepend Sham's text-mode header to them.
+  if (variant !== "v1" && variant !== "v2") { setFailure(api + ": no selected Sham variant; refusing model fallback"); return null; }
   const payload = api === "generate_media_from_panel" ? payload0 : withMode(payload0, variant);
-  const bases = shamBases();
-  if (!bases.length) { setFailure(`${api}: no dedicated Studio endpoint for the selected variant`); return null; }
+  const configured = shamBases();
+  if (!configured.length) { setFailure(api + ": no dedicated Studio endpoint for the selected variant"); return null; }
+  let bases = configured;
+  if (route.preferredBase) {
+    // T-LDM stores pending tool requests in-process; continue on the exact process that issued it.
+    if (!configured.includes(route.preferredBase)) {
+      setFailure(api + ": the T-LDM continuation Studio is no longer in this model's pool");
+      return null;
+    }
+    bases = [route.preferredBase];
+  }
   let last: string | null = null;
   const t0 = Date.now();
   for (let i = 0; i < bases.length; i++) {
-    const left = timeoutMs - (Date.now() - t0);                 // the pool shares ONE limit: a later Studio only gets what is left (and none if too little)
+    const left = timeoutMs - (Date.now() - t0);
     if (i > 0 && left < 1500) break;
     const body = await tracked(bases[i], () => shamCallAt(bases[i], api, payload, Math.max(1000, left)), (b) => b === null || shamBusyHop(parseShamReply(b)));
+    if (body !== null) route.onUsedBase?.(bases[i]);
     if (body && !(i < bases.length - 1 && shamBusyHop(parseShamReply(body)))) return body;
     last = body ?? last;
   }
@@ -264,7 +279,17 @@ export type ShamChatMessage = { role: "user" | "assistant"; content: string };
 const TLDM_NO_FALLBACK = "تعذّر مسار T-LDM لشام برو. لم يُستخدم شام 1، ولا يوجد تحويل صامت.";
 
 /** Sham 2 T-LDM chat: hidden terminal + the model's existing internal computer. Sham 1 is never used. */
-export async function shamGenerateTldm(messages: ShamChatMessage[], session = "", timeoutMs = 180000, opts: { bypassContentHeuristics?: boolean; owner?: boolean; resume?: { command: string; approved: boolean } } = {}): Promise<ShamReply | null> {
+export async function shamGenerateTldm(
+  messages: ShamChatMessage[],
+  session = "",
+  timeoutMs = 180000,
+  opts: {
+    bypassContentHeuristics?: boolean;
+    owner?: boolean;
+    resume?: { command: string; approved: boolean };
+    resumeTool?: { requestId: string; name: string; arguments: Record<string, unknown>; result: string; error?: boolean; routeBase?: string };
+  } = {},
+): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_tldm refused outside Sham 2; Sham 1 was not used");
     return { type: "error", text: "مسار T-LDM متاح لشام برو فقط. لم يُستخدم شام 1.", reason: "no-fallback" };
@@ -283,14 +308,25 @@ export async function shamGenerateTldm(messages: ShamChatMessage[], session = ""
   };
   if (opts.owner) payload.owner = 1;
   else {
-    const deny = tldmOwnerDenyList();
+    const deny = tldmOwnerDenyList("sham_v2");
     if (deny.length) payload.deny_list = deny.join("\n");
   }
   if (opts.resume?.command) {
     payload.confirm_cmd = opts.resume.command;
     payload.confirm_ok = opts.resume.approved ? 1 : 0;
   }
-  const body = await shamCall("generate_tldm", payload, timeoutMs);
+  if (opts.resumeTool) {
+    payload.resume_tool_name = opts.resumeTool.name;
+    payload.resume_tool_arguments_json = JSON.stringify(opts.resumeTool.arguments || {});
+    payload.resume_tool_result = String(opts.resumeTool.result || "").slice(0, 8000);
+    payload.resume_tool_error = opts.resumeTool.error ? 1 : 0;
+    payload.resume_tool_request_id = opts.resumeTool.requestId;
+  }
+  let calledBase = "";
+  const body = await shamCall("generate_tldm", payload, timeoutMs, {
+    preferredBase: opts.resumeTool?.routeBase,
+    onUsedBase: (usedBase) => { calledBase = usedBase; },
+  });
   if (!body) {
     setFailure("generate_tldm: no reply; Sham 1 was not used");
     return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
@@ -300,6 +336,7 @@ export async function shamGenerateTldm(messages: ShamChatMessage[], session = ""
     setFailure(`generate_tldm: unreadable answer (${body.slice(0, 120).replace(/\s+/g, " ")}); Sham 1 was not used`);
     return { type: "error", text: TLDM_NO_FALLBACK, reason: "no-fallback" };
   }
+  if (calledBase && reply.type === "tool_request") reply.tldmBase = calledBase;
   return reply;
 }
 

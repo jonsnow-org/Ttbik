@@ -1,7 +1,8 @@
 """Sham 2 / «شام برو» (Sham Pro) serving side as a node of the terminal mesh (ai-system/terminal/mesh_net.py).
 
-Reached only from the T-LDM path (sham_tldm_serve.load_chat), which is owner-only during testing (bot `/tldm on`, app owner switch; later
-SHAM_TLDM_OPEN). With the mesh attached, each chat's hidden-terminal turn gains, on the chat's OWN embedded computer (ShamEmbeddedBackend,
+Presence: start_presence() (called by the Studio wrapper at start-up) joins the mesh as soon as the Studio runs: heartbeat, the lesson
+index, idle pure jobs. The chat hooks below are reached only from the T-LDM path (sham_tldm_serve.load_chat), which is owner-only during
+testing (bot `/tldm on`, app owner switch; later SHAM_TLDM_OPEN). With the mesh attached, each chat's hidden-terminal turn gains, on the chat's OWN embedded computer (ShamEmbeddedBackend,
 same approvals, nothing new restricts the owner):
   * recall: the first step of a turn reuses a verified lesson (own or from the mesh, re-vetted) instead of a model call;
   * help from peers: after a failed step, peers PROPOSE a command (first one this node's policy accepts); drive() then runs it on the chat's
@@ -21,9 +22,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 MODEL_ID = "sham2-tldm"
 SELF_NAME = "شام برو"
-_STATE: dict = {"net": None, "error": "", "chat": None}
+_STATE: dict = {"net": None, "error": "", "chat": None, "propose": None}
 _LOCAL = threading.local()
 _MODEL_LOCK = threading.Lock()
+_START_LOCK = threading.Lock()
 
 
 def enabled() -> bool:
@@ -90,20 +92,78 @@ def _failed(step) -> bool:
     return out.startswith(("denied", "error")) or "refused" in out[:80]
 
 
-def attach(chat):
-    """Wrap chat.writer / chat.backend_factory once per loaded head. Never raises; on any failure the chat is left untouched."""
-    if not enabled() or chat is None or getattr(chat, "_mesh_attached", False):
-        return chat
-    try:
+def _serve_peers() -> bool:
+    return os.environ.get("SHAM_MESH_SERVE_PEERS", "0").strip() == "1"
+
+
+def _proposer(task: str):
+    """The node's proposer. None until a T-LDM chat is attached AND SHAM_MESH_SERVE_PEERS=1 (the same weights serve users)."""
+    p = _STATE.get("propose")
+    return p(task) if p is not None else None
+
+
+FALLBACK_URL = "https://89-168-89-15.sslip.io/api/mesh"     # the site's pass-through to the same Worker (src/app/api/mesh), for hosts that cannot reach workers.dev
+
+
+def _relay_url(MN) -> str:
+    """The first relay this Studio can reach: SHAM_MESH_URL, else the Worker, else the site's pass-through. The reason for each miss is kept."""
+    tried = []
+    for url in [u for u in (os.environ.get("SHAM_MESH_URL"), MN.DEFAULT_URL, os.environ.get("SHAM_MESH_FALLBACK_URL") or FALLBACK_URL) if u]:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/m/sham2/health", headers=MN.UA), timeout=12) as r:
+                if r.status == 200:
+                    _STATE["relay"] = url
+                    _STATE["relay_misses"] = tried
+                    return url
+        except Exception as exc:
+            tried.append(f"{url.split('/')[2]}: {type(exc).__name__}")
+    _STATE["relay_misses"] = tried
+    return os.environ.get("SHAM_MESH_URL") or MN.DEFAULT_URL
+
+
+def _net():
+    """The one node of this Studio process (created once; joining runs in the background threads of NetMesh). Raises on a missing module."""
+    with _START_LOCK:
+        if _STATE.get("net") is not None:
+            return _STATE["net"]
         _paths()
         from mesh import Node
         from mesh_crypto import Identity
         import mesh_net as MN
         ident = Identity.load_or_create(str(_root() / "node.key"))
-        serve = os.environ.get("SHAM_MESH_SERVE_PEERS", "0").strip() == "1"
-        node = Node(ident.id, _LessonTerm(_root() / "vet"), proposer_from(chat) if serve else (lambda t: None), slots=1)
-        relay = MN.RelayClient(os.environ.get("SHAM_MESH_URL") or MN.DEFAULT_URL, os.environ.get("SHAM_MESH_NAME", "sham2"), ident)
+        serve = _serve_peers()
+        node = Node(ident.id, _LessonTerm(_root() / "vet"), _proposer, slots=1)
+        relay = MN.RelayClient(_relay_url(MN), os.environ.get("SHAM_MESH_NAME", "sham2"), ident)
         net = MN.NetMesh(node, ident, relay, serve_peers=serve, serve_jobs=True, evolution=_evolution(), propose_timeout=12.0).start()
+        _STATE.update(net=net, error="")
+        return net
+
+
+def start_presence() -> bool:
+    """Join the mesh at Studio start-up (heartbeat, lesson index, idle pure jobs), before any T-LDM chat exists, so Sham 2 is a live node
+    whenever its Studio runs. Proposals stay off unless SHAM_MESH_SERVE_PEERS=1 and a T-LDM chat is loaded. Never raises, never blocks
+    the caller (the first hello runs in a daemon thread). SHAM_MESH=0 or SHAM_MESH_PRESENCE=0 turns it off."""
+    if not enabled() or os.environ.get("SHAM_MESH_PRESENCE", "1").strip() == "0":
+        return False
+
+    def go():
+        try:
+            _net()
+        except Exception as exc:
+            _STATE["error"] = f"{type(exc).__name__}: {exc}"[:200]
+    threading.Thread(target=go, daemon=True, name="sham-mesh-presence").start()
+    return True
+
+
+def attach(chat):
+    """Wrap chat.writer / chat.backend_factory once per loaded head. Never raises; on any failure the chat is left untouched."""
+    if not enabled() or chat is None or getattr(chat, "_mesh_attached", False):
+        return chat
+    try:
+        net = _net()                                       # reuses the start-up node when start_presence() already joined
+        if _serve_peers():
+            _STATE["propose"] = proposer_from(chat)
     except Exception as exc:
         _STATE["error"] = f"{type(exc).__name__}: {exc}"[:200]
         return chat
@@ -158,5 +218,5 @@ def status() -> dict:
     net = _STATE.get("net")
     if net is None:
         return {"enabled": enabled(), "online": False, "error": _STATE.get("error", "")}
-    return {"enabled": True, "online": bool(net.online), "node": net.ident.id[:12], "peers": len(net.nodes) - 1, "slots": net.slots(),
+    return {"enabled": True, "online": bool(net.online), "relay": str(_STATE.get("relay") or "").split("/")[2:3], "relay_misses": _STATE.get("relay_misses", []), "node": net.ident.id[:12], "peers": len(net.nodes) - 1, "slots": net.slots(),
             "lessons": len(net.pool), "stats": dict(net.stats), "self_name": SELF_NAME}

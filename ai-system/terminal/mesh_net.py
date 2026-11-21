@@ -97,7 +97,8 @@ class RelayClient:
     def _req(self, method: str, route: str, body=None, query: str = "", timeout: float | None = None) -> dict:
         data = b"" if body is None else json.dumps(body, ensure_ascii=False).encode()
         url = self.base + route + (("?" + query) if query else "")
-        pathq = urllib.request.urlparse(url).path + (("?" + query) if query else "")
+        # signed path is relative to the relay root, so a proxy mount (e.g. https://site/api/mesh -> the Worker) verifies the same bytes
+        pathq = urllib.request.urlparse(url).path[len(urllib.request.urlparse(self.root).path.rstrip("/")):] + (("?" + query) if query else "")
         ts = str(int(time.time() * 1000))
         msg = f"{method}\n{pathq}\n{ts}\n{hashlib.sha256(data).hexdigest()}".encode()
         req = urllib.request.Request(url, data=data if method != "GET" else None, method=method, headers={
