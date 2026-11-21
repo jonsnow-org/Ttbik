@@ -327,8 +327,30 @@ def _json_ok(path: Path) -> bool:
         return False
 
 
-# 2026-11-18: a cycle whose held-out score is at or below this is the all-UNK / pwd floor (seed 8 scored 0.067/0.083/0.071): never publish it.
-HELDOUT_PUBLISH_FLOOR = 0.2
+# A head replaces the served one only if it passes the acceptance gate on BOTH never-trained-on sets (held-out and held-out 2). The numbers live in ONE file,
+# tldm/gate/thresholds.json (a test fails if anything else defines them); the degenerate floor still catches the all-UNK / pwd failure (seed 8 scored 0.067/0.083/0.071).
+def _publish_gate():
+    for base in (HERE / "tldm", HERE.parent / "tldm"):
+        f = base / "gate" / "thresholds.json"
+        if f.is_file():
+            try:
+                th = json.loads(f.read_text(encoding="utf-8"))
+                return float(th["acceptance_heldout"]), float(th["degenerate_floor"])
+            except (OSError, ValueError, KeyError):
+                break
+    return 0.6, 0.2                                               # the values in force when the file is missing: never fail open
+
+
+def publish_blocked(heldout, heldout2) -> str:
+    """"" when the head may be published, else why not. A missing score blocks (fail closed)."""
+    gate, floor = _publish_gate()
+    if heldout is None or heldout2 is None:
+        return f"a held-out score is missing (held-out={heldout}, held-out 2={heldout2})"
+    if heldout <= floor:
+        return f"held-out={heldout} is at the degenerate floor ({floor})"
+    if heldout < gate or heldout2 < gate:
+        return f"below the acceptance gate {gate} (held-out={heldout}, held-out 2={heldout2})"
+    return ""
 
 
 def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) -> dict:
@@ -426,8 +448,9 @@ def run_tldm(hours: float = 10.0, name: str = "ms1", runner=None, **_ignored) ->
         f.write(json.dumps({"seed": seed, **slim}, ensure_ascii=False) + "\n")
     published = None
     heldout = _num(res.get("heldout"), "same_effect")
-    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
-        print("tldm publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
+    blocked = publish_blocked(heldout, _num(res.get("heldout2"), "same_effect"))
+    if blocked:
+        print("tldm publish skipped: " + blocked, flush=True)
     else:
         try:
             published = publish_tldm(work, seed, artifacts)
@@ -606,10 +629,11 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         key_file.write_text(key, encoding="utf-8")
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
-    heldout = sham2_flatten(res).get("heldout")
-    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
-        # same gate as run_tldm: a floor score (missing tokenizer / UNK reader / broken body) must never replace the served head
-        print("sham2 publish skipped: heldout={} is at the floor (need > {})".format(heldout, HELDOUT_PUBLISH_FLOOR), flush=True)
+    flat2 = sham2_flatten(res)
+    blocked = publish_blocked(flat2.get("heldout"), flat2.get("heldout2"))
+    if blocked:
+        # same gate as run_tldm: a head below the gate (or a floor score: missing tokenizer / UNK reader / broken body) must never replace the served head
+        print("sham2 publish skipped: " + blocked, flush=True)
         out = {**sham2_flatten(res), "published": False, "hours": float(hours)}
         print("sham2 done " + json.dumps(out), flush=True)
         if runner is None:
@@ -738,10 +762,11 @@ def run_nova(hours: float = 10.0, name: str = "nova1", runner=None, fetch=None, 
         key_file.write_text(key, encoding="utf-8")
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
-    heldout = nova_flatten(res).get("heldout")
-    if heldout is None or heldout <= HELDOUT_PUBLISH_FLOOR:
-        # same gate as run_sham2: a floor score (missing tokenizer / UNK reader / broken body) must never replace a served head
-        print(f"{which} publish skipped: heldout={heldout} is at the floor (need > {HELDOUT_PUBLISH_FLOOR})", flush=True)
+    flatn = nova_flatten(res)
+    blocked = publish_blocked(flatn.get("heldout"), flatn.get("heldout2"))
+    if blocked:
+        # same gate as run_sham2: a head below the gate (or a floor score) must never replace a served head
+        print(f"{which} publish skipped: {blocked}", flush=True)
         out = {**nova_flatten(res), "published": False, "hours": float(hours), "model": which}
         print(f"{which} done " + json.dumps(out), flush=True)
         if runner is None:
@@ -1446,8 +1471,8 @@ if __name__ == "__main__":
                 Path(tldm_cmd_opt(cmd, "--json") or kw.get("report")).write_text(json.dumps({
                     "config": "writer_donor.yaml", "seed": seed, "train_secs": 1,
                     "train": {"same_effect": 0.9, "exact_text": 0.8},
-                    "heldout": {"same_effect": 0.5, "exact_text": 0.4},
-                    "heldout2": {"same_effect": 0.4, "exact_text": 0.3},
+                    "heldout": {"same_effect": 0.7, "exact_text": 0.6},
+                    "heldout2": {"same_effect": 0.65, "exact_text": 0.5},
                 }), encoding="utf-8")
             elif script == "train_loop.py" or kw.get("arm") == "loop":
                 Path(tldm_cmd_opt(cmd, "--out") or kw.get("ckpt")).write_bytes(b"loop")
@@ -1463,7 +1488,7 @@ if __name__ == "__main__":
         first = run_tldm(runner=fake_tldm)
         second = run_tldm(runner=fake_tldm)
         assert first["seed"] == 0 and second["seed"] == 1, (first, second)
-        assert first["heldout"] == 0.5 and first["heldout2"] == 0.4 and first["train"] == 0.9 and first["published"] is True
+        assert first["heldout"] == 0.7 and first["heldout2"] == 0.65 and first["train"] == 0.9 and first["published"] is True
         assert first["config"] == "writer_donor.yaml"
         assert [a[1] for a in tldm_arms] == ["train_0.3b.py", "train_0.3b.py"], tldm_arms  # evolve is off; only the donor head
         assert sent_tldm[0][0] == "tldm-writer-runs" and "donor_seed0.pt" in sent_tldm[0][1] and "latest.json" in sent_tldm[0][1]
@@ -1487,6 +1512,18 @@ if __name__ == "__main__":
         floor = run_tldm(runner=fake_floor)
         assert floor["heldout"] == 0.083 and floor["published"] is False, floor
         assert len(sent_tldm) == floor_n, sent_tldm
+        # above the old floor but below the acceptance gate (0.6 on BOTH never-trained-on sets): must not replace the served head either
+        for h1, h2 in ((0.5, 0.4), (0.7, 0.4), (0.4, 0.7)):
+            def fake_mid(h1=h1, h2=h2, **kw):
+                rc = fake_tldm(**kw)
+                report = tldm_cmd_opt(kw.get("cmd") or [], "--json") or kw.get("report")
+                if report:
+                    Path(report).write_text(json.dumps({"config": "writer_donor.yaml", "seed": kw["seed"], "train_secs": 1, "train": {"same_effect": 0.9},
+                                                        "heldout": {"same_effect": h1}, "heldout2": {"same_effect": h2}}), encoding="utf-8")
+                return rc
+            mid = run_tldm(runner=fake_mid)
+            assert mid["heldout"] == h1 and mid["published"] is False and len(sent_tldm) == floor_n, (h1, h2, mid)
+        assert publish_blocked(0.6, 0.6) == "" and publish_blocked(0.59, 0.9) and publish_blocked(0.9, None) and publish_blocked(None, 0.9), "the gate is >= 0.6 on both, a missing score blocks"
         # optional evolve: 0 verified pairs -> adapter not kept; previously-correct regression is refused
         from safe_evolve import anonymize_record, load_session_pairs, no_regress
         assert no_regress({"C": {"rate": 1.0}, "eval60_778": {"episode_success": 0.8}},

@@ -481,6 +481,153 @@ def long_term_file_memory_recall_lessons_and_one_memory_per_model():
 
 
 @test
+def budget_parameters_are_exact_and_a_vocabulary_change_is_visible_to_the_last_parameter():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import parameter_report, vocab_dependent_params
+    kw = dict(d=640, layers=8, latents=16, think_steps=5, block=24, writer_layers=3, heads=4, bitnet=False, in_len=32)
+    a, b = Sham1_TLDM(vocab=416, **kw), Sham1_TLDM(vocab=417, **kw)
+    ra, rb = parameter_report(a), parameter_report(b)
+    assert ra["total"] == a.count_params() == sum(ra["groups"].values()), "the groups must add up to the total"
+    assert ra["total"] == 66_432_640 and ra["biases"] == 37_120, (ra["total"], ra["biases"])           # asserted with ==, not a range: any change of width, depth or vocabulary shows
+    assert rb["total"] - ra["total"] == 3 * 640 == vocab_dependent_params(b.cfg) - vocab_dependent_params(a.cfg), "one more token adds exactly 3 x d parameters (input embedding, writer embedding, writer head)"
+
+
+@test
+def budget_flops_formula_equals_the_measured_forward_of_the_writer():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import measured_flops, writer_pass_flops_formula
+    from sham_tldm.writer import DiffusionWriter
+    for d, N, m, V, L in ((64, 16, 8, 50, 2), (128, 24, 16, 416, 3)):
+        w = DiffusionWriter(d, N, V, L, 4).eval()
+        z, tok, mk = torch.randn(1, m, d), torch.zeros(1, N, dtype=torch.long), torch.ones(1, N, dtype=torch.bool)
+        with torch.no_grad():
+            got = measured_flops(lambda: w.logits(tok, mk, z))
+        assert got == writer_pass_flops_formula(N, m, d, L, V), (got, writer_pass_flops_formula(N, m, d, L, V))   # attention scores included; the fused fast path would hide ~30%
+
+
+@test
+def budget_first_loss_of_a_fresh_model_is_near_ln_of_the_vocabulary():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import init_loss_check
+    torch.manual_seed(0)
+    for V in (50, 257, 416):
+        m = Sham1_TLDM(d=64, layers=2, latents=4, think_steps=2, block=12, writer_layers=2, heads=4, in_len=16, vocab=V)
+        ids, tgt = torch.randint(1, V, (8, 16)), torch.randint(1, V, (8, 12))
+        r = init_loss_check(m.loss(ids, tgt).item(), V)
+        assert r["ok"], r
+    assert not init_loss_check(0.0, 416)["ok"] and not init_loss_check(20.0, 416)["ok"], "a first loss of 0 or 20 means the loss, the vocabulary offsets or the tokenizer is wrong"
+
+
+@test
+def thresholds_have_one_source_and_a_close_call_is_called_inconclusive():
+    import json, re
+    sys.path.insert(0, os.path.join(ROOT, "gate"))
+    from stats import verdict, wilson
+    th = json.load(open(os.path.join(ROOT, "gate", "thresholds.json"), encoding="utf-8"))
+    assert 0 < th["degenerate_floor"] < th["acceptance_heldout"] < 1
+    for f in sorted(os.listdir(os.path.join(ROOT, "configs"))):
+        text = open(os.path.join(ROOT, "configs", f), encoding="utf-8").read()
+        m = re.search(r"^gate_heldout:\s*([0-9.]+)", text, re.M)
+        if m:
+            assert float(m.group(1)) == th["acceptance_heldout"], (f, m.group(1))
+    trainer = open(os.path.join(ROOT, "..", "modelscope-trainer", "app.py"), encoding="utf-8").read()
+    assert "HELDOUT_PUBLISH_FLOOR" not in trainer and "thresholds.json" in trainer, "the trainer must read the one threshold file, not keep a copy"
+    fb = re.search(r"return (\d\.\d+), (\d\.\d+)\s+# the values in force when the file is missing", trainer)
+    assert fb and (float(fb.group(1)), float(fb.group(2))) == (th["acceptance_heldout"], th["degenerate_floor"]), "the in-code fallback must equal the file (never fail open)"
+    assert verdict(9, 14, 0.6) == "inconclusive" and verdict(8, 14, 0.6) == "inconclusive", "one task either side of the gate is noise at n=14"
+    assert verdict(14, 14, 0.6) == "pass" and verdict(2, 14, 0.6) == "fail"
+    lo, hi = wilson(9, 14)
+    assert 0.38 < lo < 0.40 and 0.83 < hi < 0.85, (lo, hi)
+
+
+@test
+def sham_vocabulary_layout_is_contiguous_disjoint_and_inside_the_head_in_both_modes():
+    """Read-only check of ShamSmall's vocabulary contract (a layout mismatch once broke Sham v1's video: motion ids outside the published head's rows)."""
+    import subprocess
+    code = (
+        "import sys; sys.path.insert(0, %r); import model as m\n"
+        "S = m.SpecialTokens; b = S._base; ids = {k: v for k, v in vars(S).items() if k.isupper()}\n"
+        "assert m.IMAGE_VOCAB_BASE == m.TEXT_VOCAB_SIZE and m.AUDIO_VOCAB_BASE == m.TEXT_VOCAB_SIZE + m.IMAGE_VOCAB_SIZE\n"
+        "assert b == m.AUDIO_VOCAB_BASE + m.AUDIO_VOCAB_SIZE and m.MOTION_VOCAB_BASE == b + m.NUM_SPECIAL_TOKENS\n"
+        "assert m.TOTAL_VOCAB_SIZE == m.MOTION_VOCAB_BASE + m.MOTION_VOCAB_SIZE == m.ShamSmallConfig().vocab_size\n"
+        "assert len(set(ids.values())) == len(ids) and all(b <= v < m.MOTION_VOCAB_BASE for v in ids.values()), 'a special id left its range or collided'\n"
+        "print(m.TEXT_VOCAB_SIZE, m.TOTAL_VOCAB_SIZE)\n"
+    ) % os.path.join(ROOT, "..", "colab", "sham_small")
+    for env_text, total in (("", 43284), ("151936", 151936 + 8192 + 2048 + 20 + 1024)):
+        env = dict(os.environ, SHAM_TEXT_VOCAB=env_text)
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, env=env, timeout=120)
+        assert r.returncode == 0, r.stderr[-300:]
+        assert r.stdout.split()[1] == str(total), (env_text, r.stdout)
+
+
+@test
+def llama_cpp_server_as_the_frozen_reader_features_cache_fallback_pooled_refusal_and_the_whole_trainer():
+    """A fake llama-server with the documented /embeddings format (--pooling none: one vector per token). Checks the reader and wires the real trainer/evaluator end to end."""
+    import json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from sham_tldm.llama_reader import LlamaReader
+    D = 24
+    table = torch.randn(400, D, generator=torch.Generator().manual_seed(3))
+
+    def make_server(accept_tokens=True, pooled=False):
+        stats = {"embed": 0, "detok": 0}
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, obj):
+                b = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/detokenize":
+                    stats["detok"] += 1
+                    return self._send(200, {"content": "".join(chr(97 + (i % 26)) for i in body["tokens"])})
+                stats["embed"] += 1
+                inp = body["input"]
+                if isinstance(inp, list) and not accept_tokens:
+                    return self._send(400, {"error": "input must be a string"})
+                ids = inp if isinstance(inp, list) else [ord(c) - 97 for c in inp]
+                if pooled:
+                    return self._send(200, [{"index": 0, "embedding": table[ids].mean(0).tolist()}])
+                self._send(200, [{"index": 0, "embedding": [table[i % 400].tolist() for i in ids]}])
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, stats
+
+    srv, stats = make_server()
+    r = LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10)
+    assert r.probe() == D
+    h, pad = r.feats([[5, 6, 7], [9]], 6)
+    assert h.shape == (2, 6, D) and pad.tolist() == [[False] * 3 + [True] * 3, [False] + [True] * 5] and torch.equal(h[0, 1], table[6]) and not h[1, 3:].any()
+    calls = stats["embed"]
+    r.feats([[5, 6, 7], [9]], 6)
+    assert stats["embed"] == calls, "an input read once must come from the cache"
+    srv2, stats2 = make_server(accept_tokens=False)
+    r2 = LlamaReader(f"http://127.0.0.1:{srv2.server_port}", timeout=10)
+    h2, _ = r2.feats([[5, 6, 7]], 4)
+    assert r2.mode == "text" and stats2["detok"] >= 1 and h2.shape == (1, 4, D), "a server that refuses token arrays must be fed the detokenised text"
+    srv3, _ = make_server(pooled=True)
+    try:
+        LlamaReader(f"http://127.0.0.1:{srv3.server_port}", timeout=10).feats([[1, 2]], 4)
+        raise AssertionError("a pooled (single-vector) answer must be refused")
+    except RuntimeError as e:
+        assert "--pooling none" in str(e)
+    # the whole trainer + evaluator on the fake server's features (wiring only: the fake features are a token-id lookup)
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("train_gguf_head", os.path.join(ROOT, "training", "train_gguf_head.py"))
+    G = iu.module_from_spec(spec); spec.loader.exec_module(G)
+    cfg = dict(in_len=32, block=24, latents=4, think_steps=2, writer_layers=1, heads=4, head_d=32, steps=30, batch=8, lr=0.001, diffusion_steps=4, rewordings=False, gate_heldout=0.6)
+    enc = lambda text, n: ([(b % 200) + 5 for b in text.encode("utf-8")][:n] + [0] * n)[:n]
+    res = G.run(cfg, LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10), enc, seeds=1, log=lambda *a: None)
+    assert res["feature_width"] == D and len(res["seeds"]) == 1 and res["texts"] >= 30
+    for k in ("heldout", "heldout2"):
+        assert res[k]["verdict_mean"] in ("pass", "fail", "inconclusive") and 0.0 <= res[k]["mean"] <= 1.0
+
+
+
 def writer_end_exit_is_lossless_and_parallel_threshold_cuts_passes():
     from sham_tldm import fast_inference
     from sham_tldm.writer import _ended

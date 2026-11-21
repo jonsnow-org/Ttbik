@@ -50,6 +50,34 @@ Therefore:
 
 This is the same standard the owner set for Sham 2: no silent fallback, a clear error when the path is not ready.
 
+## A serving route that was measured (2026-11-21): the GGUF itself is the frozen reader
+
+`llama-server` started with `--embeddings --pooling none` returns one unnormalised final-layer vector per input token
+(documented `/embeddings` format), so the quantised GGUF that Nova already serves can feed the head without any PyTorch body.
+`sham_tldm/llama_reader.py` is that reader, `training/train_gguf_head.py` trains and scores a head on its features with Sham 2's
+recipe, and `.github/workflows/tldm-nova-gguf-head.yml` runs it on a GitHub runner (no secret, no Studio touched).
+
+Measured on Nova 1's own file (`unsloth/Qwen3.5-4B-GGUF`, Q4_K_M; 4 vCPU runner; run 44904324347):
+
+| | result |
+|---|---|
+| feature width | 2560 (token ids go in directly: `input mode: tokens`) |
+| reading the 368 training texts | 106 s in total (about 0.29 s per text) |
+| head (4.5M parameters), 3 seeds, 600 steps | train 1.0 / 1.0 / 1.0 |
+| held-out (12 tasks, never trained on) | 0.75 / 0.917 / 0.917, mean 0.861 |
+| held-out 2 (14 tasks, never trained on) | 0.643 / 0.714 / 0.571, mean 0.643 |
+| 95% Wilson verdict against the 0.6 gate | held-out: inconclusive / pass / pass; held-out 2: inconclusive on every seed |
+
+Same order as the other readers (Sham Pro on its own frozen body: 0.805 / 0.619; the MiniLM reader: 0.778 / 0.81). With 12 and 14 tasks,
+one task is 7-8 points, so none of these is a clean pass or fail against 0.6.
+
+What is still true and not measured:
+- A server in embedding mode does not generate text, so serving needs a **second** `llama-server` on the same GGUF next to the chat one (the file is
+  memory-mapped, so the weights are shared; each process still pays its own compute buffers). That fits Nova 1 (a 2.7 GB file on 8 GB) in principle; it was
+  not tried on a Studio. It does **not** fit Nova 2 (a ~12 GB file on a 16 GB box), so Nova 2 stays training-only.
+- The head must be trained on these GGUF features, not on the PyTorch body's: a Q4 file's numbers differ from the full-precision body's.
+- Nothing here is deployed; `novaGenerateTldm` still returns its honest error until a Studio runs the second server and the head.
+
 ## Independence guarantees (enforced in code and tests)
 
 - `src/lib/novaTldm.ts` imports nothing from Sham; `novaShamBoundary` guards it.

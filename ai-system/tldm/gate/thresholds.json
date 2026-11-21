@@ -1,0 +1,6 @@
+{
+  "note": "The ONLY place a T-LDM threshold is defined. scripts/test_all.py fails if a config or the trainer disagrees. A head is published only if it reaches acceptance_heldout on BOTH never-trained-on sets; degenerate_floor additionally blocks the all-UNK / pwd failure.",
+  "acceptance_heldout": 0.6,
+  "degenerate_floor": 0.2,
+  "decision_rule": "The publish rule compares the cycle's point score with acceptance_heldout. gate/stats.py gives the 95% Wilson interval (pass / fail / inconclusive) to say how sure a score on 12-14 tasks is; it is for reporting, not for publishing."
+}
