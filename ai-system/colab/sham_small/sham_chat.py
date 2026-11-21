@@ -722,7 +722,7 @@ if __name__ == "__main__":
     for _n in (800, 3000, 4000):
         _w = _wants(_full, _n)
         assert sum(_w) == _n and min(_w) >= 1, _w
-        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil") or p[0].startswith(("fineweb2_ar", "wikipedia_ar")))   # the Intelligence Lab's pairs are Arabic prompts
+        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil") or p[0].startswith("fineweb2_ar"))   # the Intelligence Lab's pairs are Arabic prompts
         assert _ar >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                              # Arabic >= half, code >= a quarter
         _b = _wants(_base, _n)
         assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before
