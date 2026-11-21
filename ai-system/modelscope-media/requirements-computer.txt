@@ -1,4 +1,4 @@
 gradio==6.17.3
 playwright>=1.50,<2
 requests>=2.32,<3
-Pillow>=10,<13
+Pillow>=13.0.0,<14
