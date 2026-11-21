@@ -128,6 +128,27 @@ test("APEC news and event records are updated after the 19 November meeting with
 
 
 
+
+test("Manipur public-health incident briefing uses matching official and independent figures without claiming a confirmed toxin", () => {
+  const slug = "manipur-suspected-spurious-liquor-incident-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Manipur briefing is missing");
+  assert.ok(english, "English Manipur briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /21:36 IST/);
+  assert.match(english.contextDateLabel, /16:06 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("newsonair.gov.in")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("indianexpress.com")));
+  assert.match(arabic.description, /الفحوص/);
+  assert.match(english.dek, /tests.*still pending/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تصف هذه المادة الحادثة بأنها تسمم بالميثانول مؤكد/);
+  assert.match(english.body.join(" "), /does not describe the incident as confirmed methanol poisoning/i);
+});
+
 test("COP31 overtime briefing is bilingual, date-aware and distinguishes the draft from an adopted deal", () => {
   const slug = "cop31-overtime-climate-talks-2026";
   const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
