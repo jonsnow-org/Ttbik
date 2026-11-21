@@ -84,17 +84,18 @@ jobs:
           import json, re
           episode = json.load(open("episode.json", encoding="utf-8"))
           channel = episode.get("channel", "general")
-          caption = episode.get("caption") or (episode["hook"] + "\\n" + episode["title"] + " | Sham AI" + "\\n" + episode["site"] + episode["path"])
+          caption = episode.get("caption") or (episode["hook"] + chr(10) + episode["title"] + " | Sham AI" + chr(10) + episode["site"] + episode["path"])
           fields = [caption, episode.get("title", ""), episode.get("hook", "")]
-          arabic = re.compile(r"[\\u0600-\\u06ff\\u0750-\\u077f\\u08a0-\\u08ff]")
+          def has_arabic(value):
+              return any(0x0600 <= ord(ch) <= 0x06ff or 0x0750 <= ord(ch) <= 0x077f or 0x08a0 <= ord(ch) <= 0x08ff for ch in str(value))
           if channel not in ("general", "coins"):
               raise SystemExit("Unsupported promo channel; only general and coins are permitted.")
-          if channel == "coins" and any(arabic.search(str(value)) for value in fields):
+          if channel == "coins" and any(has_arabic(value) for value in fields):
               raise SystemExit("Coins channel episode must be English-only; refusing to publish.")
           if channel == "general":
               first = next((line.strip() for line in caption.splitlines() if line.strip()), "")
               if not re.search(r"[A-Za-z]", re.sub(r"<[^>]*>", "", first)):
-                  caption = "Sham AI update\\n\\n" + caption
+                  caption = "Sham AI update" + chr(10) * 2 + caption
           print(caption)
           PY
           )
