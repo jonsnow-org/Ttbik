@@ -479,6 +479,44 @@ def long_term_file_memory_recall_lessons_and_one_memory_per_model():
     assert res.testsRun >= 8 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
 
 
+@test
+def budget_parameters_are_exact_and_a_vocabulary_change_is_visible_to_the_last_parameter():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import parameter_report, vocab_dependent_params
+    kw = dict(d=640, layers=8, latents=16, think_steps=5, block=24, writer_layers=3, heads=4, bitnet=False, in_len=32)
+    a, b = Sham1_TLDM(vocab=416, **kw), Sham1_TLDM(vocab=417, **kw)
+    ra, rb = parameter_report(a), parameter_report(b)
+    assert ra["total"] == a.count_params() == sum(ra["groups"].values()), "the groups must add up to the total"
+    assert ra["total"] == 66_432_640 and ra["biases"] == 37_120, (ra["total"], ra["biases"])           # asserted with ==, not a range: any change of width, depth or vocabulary shows
+    assert rb["total"] - ra["total"] == 3 * 640 == vocab_dependent_params(b.cfg) - vocab_dependent_params(a.cfg), "one more token adds exactly 3 x d parameters (input embedding, writer embedding, writer head)"
+
+
+@test
+def budget_flops_formula_equals_the_measured_forward_of_the_writer():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import measured_flops, writer_pass_flops_formula
+    from sham_tldm.writer import DiffusionWriter
+    for d, N, m, V, L in ((64, 16, 8, 50, 2), (128, 24, 16, 416, 3)):
+        w = DiffusionWriter(d, N, V, L, 4).eval()
+        z, tok, mk = torch.randn(1, m, d), torch.zeros(1, N, dtype=torch.long), torch.ones(1, N, dtype=torch.bool)
+        with torch.no_grad():
+            got = measured_flops(lambda: w.logits(tok, mk, z))
+        assert got == writer_pass_flops_formula(N, m, d, L, V), (got, writer_pass_flops_formula(N, m, d, L, V))   # attention scores included; the fused fast path would hide ~30%
+
+
+@test
+def budget_first_loss_of_a_fresh_model_is_near_ln_of_the_vocabulary():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import init_loss_check
+    torch.manual_seed(0)
+    for V in (50, 257, 416):
+        m = Sham1_TLDM(d=64, layers=2, latents=4, think_steps=2, block=12, writer_layers=2, heads=4, in_len=16, vocab=V)
+        ids, tgt = torch.randint(1, V, (8, 16)), torch.randint(1, V, (8, 12))
+        r = init_loss_check(m.loss(ids, tgt).item(), V)
+        assert r["ok"], r
+    assert not init_loss_check(0.0, 416)["ok"] and not init_loss_check(20.0, 416)["ok"], "a first loss of 0 or 20 means the loss, the vocabulary offsets or the tokenizer is wrong"
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:
