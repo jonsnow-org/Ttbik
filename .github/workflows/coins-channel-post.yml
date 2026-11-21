@@ -32,10 +32,10 @@ jobs:
           cat body.json
           echo
           if [ "${code}" = "401" ]; then
-            echo "::error::CRON_SECRET in GitHub does not match the one in Vercel"
+            echo "::error::CRON_SECRET in GitHub does not match the site's configured secret"
             exit 1
           fi
-          [ "${code}" -lt 500 ]
+          [[ "${code}" =~ ^2[0-9][0-9]$ ]]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DRY: ${{ github.event.inputs.dry }}
