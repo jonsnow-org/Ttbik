@@ -218,6 +218,69 @@ def build_tools(out: str, train: int, heldout: int, limit_rows: int = 0) -> dict
                               "the assistant turns were produced by a commercial model: provenance decision belongs to the owner"]}
 
 
+V1_TOOL_MAP = {"shell": ("computer_run", lambda a: {"command": _command(a)}), "bash": ("computer_run", lambda a: {"command": _command(a)}),
+               "read_file": ("computer_read", lambda a: {"path": str(a.get("file_path") or a.get("path") or "")} if isinstance(a, dict) else None),
+               "rg": ("computer_search", lambda a: ({"pattern": str(a["pattern"]), **({"path": str(a["path"])} if a.get("path") else {})} if isinstance(a, dict) and a.get("pattern") else None))}
+
+
+def v1_tool_rows(row: dict, max_steps: int = 3):
+    """Sham v1 tool examples from one real trace: {user, steps: [[tool, arguments, result]...], answer}. Tools are renamed to v1's own computer tools (computer_run / computer_read /
+    computer_search); the result is what the source's runtime really returned. The first `max_steps` mapped steps; the answer is the trace's final assistant text only when the
+    trace ends within those steps (otherwise none: the example ends after the last result)."""
+    messages = row.get("messages") or []
+    trace_id = str(row.get("uuid") or "")
+    user = next((m.get("content") for m in messages if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+    user = " ".join(user.replace("<uploaded_files>", " ").replace("</uploaded_files>", " ").split())
+    if not trace_id or not user:
+        return []
+    steps, total = [], 0
+    for i, m in enumerate(messages):
+        if m.get("role") != "assistant":
+            continue
+        for call in m.get("tool_calls") or []:
+            total += 1
+            fn = (call or {}).get("function") or {}
+            mapped = V1_TOOL_MAP.get(str(fn.get("name", "")).lower())
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = None
+            result = next((x.get("content") for x in messages[i + 1:i + 4] if x.get("role") == "tool"), None)
+            if mapped is None or args is None or result is None or len(steps) >= max_steps:
+                continue
+            a2 = mapped[1](args)
+            if not a2 or not any(a2.values()):
+                continue
+            res = str(result).replace("Execution output of [%s]:" % fn.get("name"), "").replace("[INFO] Command may mutate the environment.", "").strip()
+            steps.append([mapped[0], a2, res[:1200]])
+    if not steps:
+        return []
+    final = next((m.get("content") for m in reversed(messages) if m.get("role") == "assistant" and not m.get("tool_calls") and len(str(m.get("content", "")).strip()) >= 20), "")
+    answer = str(final).strip()[:600] if (final and total <= max_steps) else ""
+    return [{"user": user[:700], "steps": steps, "answer": answer, "trace_id": trace_id, "split": split_of(trace_id)}]
+
+
+def build_v1tools(out: str, train: int, limit_rows: int = 0) -> dict:
+    from datasets import load_dataset
+    repo = "openbmb/UltraData-SFT-Agent-2609"
+    rev = _revision(repo)
+    rows, scanned = [], 0
+    for config in ("Code-Agent", "General-Agent", "Tool-Use"):
+        try:
+            ds = load_dataset(repo, config, split="train", streaming=True, revision=rev)
+            for r in ds:
+                scanned += 1
+                rows += [x for x in v1_tool_rows(r) if x["split"] == "train"]
+                if len(rows) >= train or (limit_rows and scanned >= limit_rows):
+                    break
+        except Exception as exc:                                   # a config that cannot be read must not lose the others
+            print(f"config {config} skipped: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+        if len(rows) >= train:
+            break
+    return {"stage": "v1tools", "revision": rev, "scanned_traces": scanned, "files": [_write(os.path.join(out, "agent_traces_v1.jsonl.gz"), rows[:train])]}
+
 def build_loop(out: str, train: int, heldout: int, limit_rows: int = 0) -> dict:
     from datasets import load_dataset
     repo = "openbmb/UltraData-SFT-Agent-2609"
@@ -269,7 +332,7 @@ def _selftest() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", nargs="?", choices=["arabic", "tools", "loop"])
+    ap.add_argument("stage", nargs="?", choices=["arabic", "tools", "loop", "v1tools"])
     ap.add_argument("--out", default="sham2_snapshot")
     ap.add_argument("--train", type=int, default=0)
     ap.add_argument("--heldout", type=int, default=0)
@@ -283,6 +346,9 @@ def main() -> int:
     t0 = time.time()
     if a.stage == "arabic":
         part = build_arabic(a.out, a.train or 12000, a.heldout or 1200, a.limit)
+    elif a.stage == "v1tools":
+        part = build_v1tools(a.out, a.train or 3000, a.limit)
+
     elif a.stage == "loop":
         part = build_loop(a.out, a.train or 4000, a.heldout or 400, a.limit)
     else:

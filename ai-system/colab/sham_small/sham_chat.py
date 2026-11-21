@@ -339,6 +339,12 @@ def _chat_plan(extra: bool = True):
     # Not part of the merge gate's yardstick (extra=False returned above). SHAM_SIL=0 removes it.
     if os.environ.get("SHAM_SIL", "1").strip().lower() not in ("0", "off", "false", "no"):
         plan.append(("sil", lambda: __import__("sham_sil_bridge").chat_source(), "prompt", "target", None, False))
+    # 2026-11-21 (owner: use the new data for the original Sham too): real Arabic web text, a span and the NEXT span of the same document (HuggingFaceFW/fineweb-2 arb_Arab, ODC-By; held-out
+    # documents by id never used). Streamed. Not part of the yardstick (extra=False returned above). SHAM_FINEWEB_AR=0 removes it.
+    import sham_extra_sources
+    if sham_extra_sources.enabled():
+        for _key in sham_extra_sources.SOURCES:
+            plan.append((_key, (lambda k=_key: sham_extra_sources.source(k)), "prompt", "target", None, True))
     return plan
 
 
@@ -348,6 +354,14 @@ CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk
 CHAT_SOURCE_WEIGHTS = {"cidar": 1.5, "aya_ar": 1.5, "alpaca_gpt4_ar": 1.5, "openhermes_ar": 1.5,
                        "magicoder": 1.0, "codefeedback": 1.0, "self_oss_instruct": 0.75, "glaive_code": 0.75,
                        "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5, "sil": 0.5}
+
+
+try:                                    # the extra Arabic sources bring their own wrap-around sizes and shares
+    import sham_extra_sources as _X
+    CHAT_SOURCE_SIZES.update(_X.SOURCE_SIZES)
+    CHAT_SOURCE_WEIGHTS.update({k: v[2] for k, v in _X.SOURCES.items()})
+except Exception:                       # never let an optional module stop the trainer
+    pass
 
 
 def _wants(plan, max_examples: int) -> list[int]:
@@ -708,7 +722,7 @@ if __name__ == "__main__":
     for _n in (800, 3000, 4000):
         _w = _wants(_full, _n)
         assert sum(_w) == _n and min(_w) >= 1, _w
-        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil"))   # the Intelligence Lab's pairs are Arabic prompts
+        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil") or p[0].startswith(("fineweb2_ar", "wikipedia_ar")))   # the Intelligence Lab's pairs are Arabic prompts
         assert _ar >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                              # Arabic >= half, code >= a quarter
         _b = _wants(_base, _n)
         assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before

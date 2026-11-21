@@ -51,6 +51,8 @@ def build_tool_example(text_ids_fn, user: str, steps: list[tuple[str, dict | str
         back = text_ids_fn(result_text(name, result))[:max_result_tokens]
         ids += call + back
         labels += call + [IGNORE] * len(back)
+    if not answer:                   # a trace cut after a tool result (real agent traces end where the source's own run goes on): the calls are learned, nothing after the result is taught
+        return ids, labels
     ans = text_ids_fn(answer)[:max_answer_tokens]
     return ids + ans + [SpecialTokens.EOS], labels + ans + [SpecialTokens.EOS]
 
@@ -82,6 +84,30 @@ def examples_from_lessons(path: str | Path, text_ids_fn, limit: int = 2000, max_
         if steps:
             out.append(build_tool_example(text_ids_fn, str(user["content"])[:700], steps, str(final["content"]).strip()[:600], **kw))
     return out
+
+
+AGENT_TRACES = Path(__file__).resolve().parent / "agent_traces_v1.jsonl.gz"          # real executed agent traces (ai-system/tldm/data/sham2_snapshots.py v1tools), already in Sham's tool names
+
+
+def examples_from_agent_traces(path: str | Path, text_ids_fn, limit: int = 1000, seed: int = 11, **kw) -> list[tuple[list[int], list[int]]]:
+    """Rows {user, steps: [[tool, arguments, result]...], answer?}: real traces whose tool results were really produced by a runtime (UltraData-SFT-Agent-2609, mapped to computer_run /
+    computer_read / computer_search). Calls are learned, results masked; a trace with no final answer ends after its last result."""
+    import gzip
+    p = Path(path)
+    if not p.is_file():
+        return []
+    opener = gzip.open if p.suffix == ".gz" else open
+    rows = []
+    with opener(p, "rt", encoding="utf-8") as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("user") and r.get("steps"):
+                rows.append(r)
+    random.Random(seed).shuffle(rows)
+    return [build_tool_example(text_ids_fn, str(r["user"])[:700], [(n, a, str(res)[:1500]) for n, a, res in r["steps"][:3]], str(r.get("answer") or "")[:600], **kw) for r in rows[:limit]]
 
 
 # (request, tool, arguments, a typical short result, the answer)
@@ -300,8 +326,11 @@ def tool_examples(text_ids_fn, rng: random.Random, n: int, max_len: int = 1100) 
     path = os.environ.get("SHAM_LESSONS_PATH")
     if path:
         lessons = examples_from_lessons(path, text_ids_fn, limit=max(1, n // 4))
-    synth = synthetic_examples(text_ids_fn, rng, max(1, n - len(lessons)))
-    ex = lessons + synth
+    traces: list = []
+    if os.environ.get("SHAM_AGENT_TRACES", "1").strip().lower() not in ("0", "off", "false", "no"):
+        traces = examples_from_agent_traces(os.environ.get("SHAM_AGENT_TRACES_PATH") or AGENT_TRACES, text_ids_fn, limit=max(1, n // 3))
+    synth = synthetic_examples(text_ids_fn, rng, max(1, n - len(lessons) - len(traces)))
+    ex = lessons + traces + synth
     if max_len:
         ex = [e for e in ex if len(e[0]) <= max_len] or ex[:4]
     return [(list(i), list(l)) for i, l in ex[:n]]
