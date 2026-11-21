@@ -2,9 +2,8 @@ name: monitor
 # THE monitoring bot (owner's order 2026-11-14: one comprehensive bot, no GitHub message for every small event). It replaces section-supervisors,
 # promo-supervisor, error-triage, oracle-freshness and stale-issues. Every hour it checks every section (site pages, bots' webhooks, scheduled workflows,
 # frozen coin facts) and rewrites ONE issue "Monitoring: all systems" in place (an edit sends no mail). A comment (= an e-mail) is added only for an outage
-# of 6+ hours and once more for its recovery (scripts/supervisors/run.mjs, notifyDecision). The only automatic repair is one rerun of the idempotent workflows
-# (decideRerun). Site errors become a GitHub issue ("auto-error", fixed by the scheduled Claude session) ONLY when the same error repeated 10+ times; one-off
-# errors stay in the site's error log and cost no mail.
+# of 6+ hours and once more for its recovery (scripts/supervisors/run.mjs, notifyDecision). The monitor is strictly read-only with respect to Actions: it never dispatches or reruns workflows.
+# Site errors become a GitHub issue ("auto-error", fixed by the scheduled Claude session) ONLY when the same error repeated 10+ times; one-off errors stay in the site's error log.
 on:
   schedule:
     - cron: "11 * * * *"
@@ -12,7 +11,7 @@ on:
 permissions:
   contents: read
   issues: write
-  actions: write
+  actions: read
 concurrency:
   group: monitor
   cancel-in-progress: false
@@ -36,12 +35,13 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           FROZEN_CHECK: ${{ steps.frozen.outcome == 'success' && 'ok' || 'fail' }}
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: issues only for errors that repeat (10+ times)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
           gh label create auto-error --color B60205 --description "found by the site's error log, to be fixed automatically" 2>/dev/null || true
           code=$(curl -sS -o open.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" -G "$SITE_BASE/api/ops/errors" --data-urlencode "status=open")
           echo "errors endpoint: HTTP $code"
