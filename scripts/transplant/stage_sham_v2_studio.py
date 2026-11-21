@@ -137,10 +137,14 @@ def stage_tldm_serving(studio: pathlib.Path) -> None:
         shutil.copy2(root / "distill" / "exec_verify.py", distill / "exec_verify.py")
     term = studio / "terminal"
     term.mkdir(parents=True, exist_ok=True)
-    for name in ("approvals.py", "sham_binding.py", "backends.py", "sandbox_terminal.py"):
+    for name in ("approvals.py", "sham_binding.py", "backends.py", "sandbox_terminal.py",
+                 "tasks.py", "media_workers.py", "sham_pro_agent.py"):          # the coordinator (sham_pro_coordinator.py) and its workers
         f = root / "terminal" / name
         if f.is_file():
             shutil.copy2(f, term / name)
+    coord = root / "modelscope-sham" / "sham_pro_coordinator.py"
+    if coord.is_file():
+        shutil.copy2(coord, studio / "sham_pro_coordinator.py")
 
 
 def stage_mesh(studio: pathlib.Path) -> None:

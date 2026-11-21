@@ -342,6 +342,26 @@ export async function shamGenerateTldm(
   return reply;
 }
 
+/** Sham Pro's coordinator (owner-only, Sham v2 only): start a multi-step task or read its status / one of its files. A task lives in ONE Studio process, so start reports which
+ *  Studio took it (`studio`) and status goes back to that exact Studio. No other model's Studio is ever used. */
+export async function shamCoordinate(
+  action: "start" | "status",
+  args: { goal?: string; taskId?: string; session: string; file?: string; studio?: string; owner?: boolean },
+  timeoutMs = 60000,
+): Promise<Record<string, unknown>> {
+  if (shamVariant.getStore() !== "v2") return { type: "error", text: "المنسّق متاح لشام برو فقط." };
+  let used = "";
+  const body = action === "start"
+    ? await shamCall("coordinate_start", { goal: String(args.goal || "").slice(0, 2000), session: args.session, owner: args.owner ? 1 : 0 }, timeoutMs, { onUsedBase: (b) => { used = b; } })
+    : await shamCall("coordinate_status", { task_id: String(args.taskId || ""), session: args.session, file: args.file || "" }, timeoutMs, { preferredBase: args.studio, onUsedBase: (b) => { used = b; } });
+  if (!body) return { type: "error", text: "تعذّر الوصول إلى استوديو شام برو." };
+  try {
+    const obj = JSON.parse(parseShamSse(body) ?? body.trim());
+    if (obj && typeof obj === "object") return action === "start" && used ? { ...obj, studio: used } : obj;
+  } catch { /* fall through */ }
+  return { type: "error", text: "ردّ المنسّق غير مقروء." };
+}
+
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
 export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {

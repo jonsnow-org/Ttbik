@@ -863,6 +863,24 @@ def understand_media(kind: str, b64: str, question: str = "", teach: str = "", n
         _LOCK.release()
 
 
+def coordinate_start(goal: str, session: str = "", owner: float = 0) -> str:
+    """Sham Pro's coordinator (sham_pro_coordinator.py): plan and run a multi-step task (see / hear / write / make / shell / files) in the background. Owner-only; v2 only.
+    Returns the task record at once; poll coordinate_status."""
+    if not _V2:
+        return json.dumps({"type": "error", "text": "coordinate_start is available only on Sham v2."}, ensure_ascii=False)
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import sham_pro_coordinator as coord
+    return json.dumps(coord.start(goal, session, {"understand_media": understand_media, "generate_chat": generate_chat, "generate_media": generate_media}, bool(owner)), ensure_ascii=False)
+
+
+def coordinate_status(task_id: str, session: str = "", file: str = "") -> str:
+    if not _V2:
+        return json.dumps({"type": "error", "text": "coordinate_status is available only on Sham v2."}, ensure_ascii=False)
+    import sham_pro_coordinator as coord
+    return json.dumps(coord.status(task_id, session, file), ensure_ascii=False)
+
+
 def ask_web(question: str, max_new_tokens: float = 60) -> str:
     """The engineer's live web answer (self_learn.ask_web_generate: sources in the prompt), now on the Studio too, and — exactly like serve.py's
     /ask/web — the turn is kept as an experience for the guarded learning round. JSON {"type": "text", "text", "hits", "queued", ...}."""
@@ -993,6 +1011,14 @@ def build_ui():
             gr.Textbox(label="Sham Pro T-LDM result"), api_name="generate_tldm", flagging_mode="never")
         interfaces.insert(1, tldm_chat)
         labels.insert(1, "محادثة T-LDM (شام برو)")
+        coord_start = gr.Interface(coordinate_start, [gr.Textbox(label="goal"), gr.Textbox(label="session", value=""), gr.Number(label="owner", value=0)],
+                                   gr.Textbox(label="coordinator task"), api_name="coordinate_start", flagging_mode="never")
+        coord_status = gr.Interface(coordinate_status, [gr.Textbox(label="task_id"), gr.Textbox(label="session", value=""), gr.Textbox(label="file", value="")],
+                                    gr.Textbox(label="coordinator status"), api_name="coordinate_status", flagging_mode="never")
+        interfaces.insert(1, coord_start)
+        labels.insert(1, "منسّق شام برو (بدء)")
+        interfaces.insert(1, coord_status)
+        labels.insert(1, "منسّق شام برو (حالة)")
     # the live (token-by-token) chat is exposed by BOTH Shams now: v2 streams Qwen3, the legacy Sham streams its own chat path (owner 2026-11-08)
     chat_stream = gr.Interface(
         generate_chat_stream,

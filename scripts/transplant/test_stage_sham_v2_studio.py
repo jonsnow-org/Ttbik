@@ -72,6 +72,8 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertTrue((studio / "tldm" / "sham_tldm" / "model.py").is_file())
             self.assertTrue((studio / "terminal" / "sham_binding.py").is_file())
             self.assertTrue((studio / "terminal" / "approvals.py").is_file())
+            for rel in ("sham_pro_coordinator.py", "terminal/tasks.py", "terminal/media_workers.py", "terminal/sham_pro_agent.py"):
+                self.assertTrue((studio / rel).is_file(), rel)
             self.assertFalse((studio / "tldm" / "training").exists())
             wrapper = (studio / "app.py").read_text(encoding="utf-8")
             self.assertIn('os.environ.setdefault("SHAM_TLDM", "0")', wrapper)
