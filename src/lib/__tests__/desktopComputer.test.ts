@@ -160,6 +160,8 @@ describe("the graphical Linux desktop RPC contract", () => {
   test("clamps mouse coordinates and validates buttons", () => {
     expect(cleanDesktopArgs({ action: "click", x: 99999, y: -12, button: "right" }))
       .toEqual({ action: "click", x: 1599, y: 0, button: "right" });
+    expect(cleanDesktopArgs({ action: "click", x: 10, y: 5000, button: "left" }))
+      .toEqual({ action: "click", x: 10, y: 1499, button: "left" });
     expect(cleanDesktopArgs({ action: "move", x: 20.8, y: 40.2 }))
       .toEqual({ action: "move", x: 20, y: 40 });
     expect(cleanDesktopArgs({ action: "click", x: 1, y: 1, button: "shell" })).toBeNull();
