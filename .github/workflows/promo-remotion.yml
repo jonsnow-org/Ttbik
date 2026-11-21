@@ -29,6 +29,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: select public origin (Gate first, Oracle fallback)
+        if: steps.pick.outputs.id != ''
+        working-directory: .
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: Pick episode
         id: pick
         run: |
@@ -75,30 +79,27 @@ jobs:
           if [ "$PUBLISH" = "0" ]; then echo "publish=0: render only"; exit 0; fi
           if [ -z "$PUBLISH" ] && [ ! -f ../PUBLISH_ON ]; then echo "publishing is off (no promo/PUBLISH_ON, no publish input): video stays a pre-release"; exit 0; fi
           ID=${{ steps.pick.outputs.id }}
-          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
           CH=$(python3 -c "import json;print(json.load(open('episode.json')).get('channel','general'))")
-          CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+' | شام AI'+chr(10)+e['site']+e['path']))")
+          CAP=$(python3 - <<'PY'
+          import json, re
+          episode = json.load(open("episode.json", encoding="utf-8"))
+          channel = episode.get("channel", "general")
+          caption = episode.get("caption") or (episode["hook"] + "\\n" + episode["title"] + " | Sham AI" + "\\n" + episode["site"] + episode["path"])
+          fields = [caption, episode.get("title", ""), episode.get("hook", "")]
+          arabic = re.compile(r"[\\u0600-\\u06ff\\u0750-\\u077f\\u08a0-\\u08ff]")
+          if channel not in ("general", "coins"):
+              raise SystemExit("Unsupported promo channel; only general and coins are permitted.")
+          if channel == "coins" and any(arabic.search(str(value)) for value in fields):
+              raise SystemExit("Coins channel episode must be English-only; refusing to publish.")
+          if channel == "general":
+              first = next((line.strip() for line in caption.splitlines() if line.strip()), "")
+              if not re.search(r"[A-Za-z]", re.sub(r"<[^>]*>", "", first)):
+                  caption = "Sham AI update\\n\\n" + caption
+          print(caption)
+          PY
+          )
           code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" -H "Authorization: Bearer ${CRON_SECRET}" \
             --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
             --data-urlencode "to=$CH" --data-urlencode "caption=$CAP")
           echo "HTTP $code"; cat resp.json; echo
           [ "$code" = "200" ] && grep -q '"ok":true' resp.json
-
-      - name: Upload the video to YouTube (Data API v3, through the site)
-        if: steps.pick.outputs.id != ''
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          PUBLISH: ${{ inputs.publish }}
-        run: |
-          # Same switch as Telegram. Not fatal: until the owner finishes the one-time consent (/api/youtube/oauth) the site answers youtube-not-set-up and the video stays on Telegram + the release.
-          if [ "$PUBLISH" = "0" ]; then exit 0; fi
-          if [ -z "$PUBLISH" ] && [ ! -f ../PUBLISH_ON ]; then exit 0; fi
-          ID=${{ steps.pick.outputs.id }}
-          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
-          TITLE=$(python3 -c "import json;e=json.load(open('episode.json'));print(e['title']+' | '+e.get('brand','Sham AI'))")
-          LANGC=$(python3 -c "import json;print(json.load(open('episode.json')).get('lang','ar'))")
-          CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+chr(10)+e['site']+e['path']))")
-          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" -H "Authorization: Bearer ${CRON_SECRET}" \
-            --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
-            --data-urlencode "to=youtube" --data-urlencode "title=$TITLE" --data-urlencode "lang=$LANGC" --data-urlencode "caption=$CAP") || true
-          echo "HTTP $code"; cat resp.json; echo
