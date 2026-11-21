@@ -39,7 +39,8 @@ jobs:
           node --check scripts/promo/make.mjs
           node --check scripts/promo/cards.mjs
           node --check scripts/promo/copy.mjs
-          python -m py_compile scripts/promo/tts.py
+          python -m py_compile scripts/promo/tts.py scripts/promo/remotion_publish.py
+          python -m unittest discover -s scripts/promo -p 'test_remotion_publish.py' -v
   make:
     if: github.event_name != 'pull_request'
     # Playwright 1.56.1 provides Chromium builds for Ubuntu 24.04; ubuntu-latest moved to 26.04 and fails installation.
