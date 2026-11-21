@@ -53,30 +53,6 @@ export function decideRerun() {
 }
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
 
-/**
- * Pure: should a bot rerun this workflow's latest failure now? Returns { ok, why }.
- * Conflict rules (so bots never collide with people or other sessions):
- *  - paused: an open issue labelled `bots-pause` exists  -> do nothing
- *  - the failure is the latest completed run and nobody fixed it (no newer success)
- *  - it is at least FAIL_AGE_MIN (12 h) old               -> long enough for us to have fixed it ourselves
- *  - no commit landed on main / production in the last PUSH_QUIET_MIN (15) minutes (someone is working right now)
- *  - no run of that workflow is queued or in progress     (someone already re-dispatched it)
- *  - only the first attempt is retried, once              (run_attempt === 1)
- */
-export function decideRerun({ file, runs, active = [], lastPushAt, paused = false }, now = Date.now()) {
-  if (!RERUN_OK.has(file)) return { ok: false, why: "not on the idempotent list" };
-  if (paused) return { ok: false, why: `paused (open issue labelled ${PAUSE_LABEL})` };
-  const last = runs[0];
-  if (!last || last.conclusion !== "failure") return { ok: false, why: "latest run did not fail" };
-  if (runs.some((r) => r.conclusion === "success" && Date.parse(r.updated_at) > Date.parse(last.updated_at))) return { ok: false, why: "already fixed by a newer success" };
-  if (active.length) return { ok: false, why: "a newer run is queued or in progress" };
-  if (last.run_attempt !== 1) return { ok: false, why: "already retried once" };
-  const ageMin = (now - Date.parse(last.updated_at)) / 60000;
-  if (ageMin < FAIL_AGE_MIN) return { ok: false, why: `failure is only ${Math.round(ageMin / 60 * 10) / 10} h old (waits ${FAIL_AGE_MIN / 60} h)` };
-  if (lastPushAt && (now - Date.parse(lastPushAt)) / 60000 < PUSH_QUIET_MIN) return { ok: false, why: `a push landed ${Math.round((now - Date.parse(lastPushAt)) / 60000)} min ago` };
-  return { ok: true, why: `failed ${Math.round(ageMin)} min ago, nobody fixed it` };
-}
-
 /** Pure: facts -> checks. level: ok | warn | fail | info */
 export function evaluate(d, now = Date.now()) {
   const out = [], add = (name, level, detail) => out.push({ name, level, detail });

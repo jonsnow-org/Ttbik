@@ -46,6 +46,13 @@ def has_earnings_claim(text: Any) -> bool:
     return bool(ARABIC_EARNINGS.search(value) or ENGLISH_EARNINGS.search(value))
 
 
+def english_first(text: str) -> bool:
+    """True when the first Latin letter comes before the first Arabic letter (a brand token such as "AI" inside Arabic copy is not English-first)."""
+    latin = re.search(r"[A-Za-z]", text)
+    arabic = re.search(r"[\u0600-\u06FF]", text)
+    return bool(latin) and (not arabic or latin.start() < arabic.start())
+
+
 def public_caption(episode: dict[str, Any]) -> str:
     channel = episode.get("channel", "general")
     if channel not in {"general", "coins"}:
@@ -77,7 +84,7 @@ def public_caption(episode: dict[str, Any]) -> str:
 
     value = re.sub(r"<[^>]*>", "", str(caption)).strip()
     first = next((line.strip() for line in value.splitlines() if line.strip()), "")
-    if not re.search(r"[A-Za-z]", first):
+    if not english_first(first):
         caption = "Sham AI update\n\n" + str(caption).strip()
     return str(caption).strip()
 
