@@ -46,12 +46,11 @@ export const SECTIONS = {
     errorWords: /athar/i,
   },
 };
-// Tier-1 repair: the ONLY thing a bot may do on its own is rerun the failed jobs of these idempotent workflows (read-only checks / index rebuilds).
-// Never anything that mints, pays, posts or edits code. Rules that keep the bots out of our way are in decideRerun().
-export const RERUN_OK = new Set(); // read-only supervisor: it never reruns any workflow
-export const FAIL_AGE_MIN = 12 * 60;   // owner order 2026-10-25: a failure must stay unfixed for 12 hours before a bot touches it
-export const PUSH_QUIET_MIN = 15;   // and nobody may have pushed to main/production in the last 15 minutes (a person or session is working right now)
-export const PAUSE_LABEL = "bots-pause";   // any OPEN issue with this label pauses every automatic action (we are mid-change)
+// Automatic workflow reruns are intentionally disabled. This supervisor only reads and reports.
+export const RERUN_OK = new Set();
+export function decideRerun() {
+  return { ok: false, why: "automatic workflow reruns are disabled" };
+}
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
 
 /**
