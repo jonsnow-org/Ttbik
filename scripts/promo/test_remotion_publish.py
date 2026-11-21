@@ -54,6 +54,8 @@ class RemotionPublishTests(unittest.TestCase):
     def test_both_languages_block_profit_promises_but_allow_disclaimers(self):
         self.assertTrue(has_earnings_claim("Guaranteed returns every week"))
         self.assertTrue(has_earnings_claim("Get paid to watch ads"))
+        self.assertTrue(has_earnings_claim("Earn from viewing videos"))
+        self.assertTrue(has_earnings_claim("اكسب من مشاهدة الإعلانات"))
         self.assertTrue(has_earnings_claim("اكسب من مشاهدة الإعلانات"))
         self.assertFalse(has_earnings_claim("A keepsake only; no promise of any return."))
         self.assertFalse(has_earnings_claim("The points are ranks and titles only, not profit."))
