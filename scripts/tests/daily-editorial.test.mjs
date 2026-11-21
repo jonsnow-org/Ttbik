@@ -165,6 +165,7 @@ test("21 November autonomous-weapons briefing is bilingual, source-matched and d
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.length >= 4);
   assert.ok(arabic.sources.some((source) => source.href.includes("ungeneva.org")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("docs-library.unoda.org")));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
   assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
   assert.match(arabic.description, /2028/);
