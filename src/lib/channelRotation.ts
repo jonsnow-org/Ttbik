@@ -217,28 +217,32 @@ async function sendMedia(captionText: string, media: { photo: string; video?: st
   const token = await channelBotToken();
   const channel = channelId();
   if (!token || !channel) return false;
-  const call = async (method: string, body: Record<string, unknown>) => {
+  const call = async (method: string, body: Record<string, unknown>): Promise<"sent" | "rejected" | "unknown"> => {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: channel, ...body }),
     }).catch(() => null);
-    const data = res ? await res.json().catch(() => null) : null;
-    return data?.ok === true;
+    if (!res) return "unknown"; // Telegram may have accepted the request before the connection failed.
+    const data = await res.json().catch(() => null);
+    if (data?.ok === true) return "sent";
+    return data?.ok === false ? "rejected" : "unknown";
   };
   const cap = ensureEnglishFirst(captionText).slice(0, 1000);
   if (!isSafeForChannel(cap)) return false;
   if (media.video) {
     // image + video in one album; the caption sits on the first item
-    const ok = await call("sendMediaGroup", {
+    const result = await call("sendMediaGroup", {
       media: [
         { type: "photo", media: media.photo, caption: cap },
         { type: "video", media: media.video, supports_streaming: true, width: 720, height: 720 },
       ],
     });
-    if (ok) return true;
+    if (result === "sent") return true;
+    // Only an explicit Telegram rejection is safe to fall back from. A timeout/unknown result may already be published.
+    if (result === "unknown") return false;
   }
-  return call("sendPhoto", { photo: media.photo, caption: cap });
+  return (await call("sendPhoto", { photo: media.photo, caption: cap })) === "sent";
 }
 
 async function sendText(captionText: string): Promise<boolean> {
