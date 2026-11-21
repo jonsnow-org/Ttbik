@@ -13,22 +13,138 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
-    "slug": "hormuz-tanker-incidents-khasab-2026",
-    "title": "Two tankers reported hit near Oman’s Khasab in the Strait of Hormuz; no casualties reported",
+    "slug": "bahrain-industrial-facility-fire-2026",
+    "title": "Bahrain reports Iranian attack on civilian industrial facility, with fire but no injuries",
     "date": "21 November 2026",
-    "contextDateLabel": "First UKMTO alert: 21 November 2026, 05:00 UTC; second alert: 05:50 UTC; Reuters published: 21 November 2026, 07:57 UTC; Sham AI publication: 21 November 2026",
-    "dek": "The UK Maritime Trade Operations centre reported two incidents in which unknown projectiles hit a tanker near Oman’s Khasab while transiting outbound through the Strait of Hormuz. No casualties were reported; environmental impact remained unconfirmed.",
+    "contextDateLabel": "Event date: 21 November 2026; Reuters published: 21 November 2026, 19:15 UTC; Anadolu publication date: 21 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "Bahrain’s Interior Ministry said an Iranian attack hit a civilian industrial facility and caused a fire, with material damage but no reported injuries; it did not identify the site or facility.",
+    "body": [
+      "Bahrain’s Interior Ministry said on Saturday, 21 November, that an Iranian attack hit a civilian industrial facility and caused a fire. It said preliminary information indicated material damage but no injuries, and that Civil Defence teams were working to control the blaze.",
+      "Reuters and Anadolu reported the ministry’s statement. The ministry did not identify the facility’s location, type or the extent of the damage. Earlier, it had warned residents of a potential threat and advised them to move to the nearest safe place.",
+      "Anadolu separately reported that Iran’s Fars News Agency said the Revolutionary Guard had targeted two U.S. bases in Bahrain. That is a claim carried by Iranian state media; it does not establish that the civilian industrial facility identified by Bahrain was a military base, and the exact target was not identified in the reports reviewed.",
+      "Location: Bahrain; the facility’s precise location was not disclosed. Event date: 21 November 2026. Reuters publication: 19:15 UTC (22:15 Istanbul time). Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://x.com/moi_bahrain",
+        "label": "Bahrain Ministry of Interior — official account that issued the fire statement"
+      },
+      {
+        "href": "https://www.reuters.com/world/middle-east/bahrain-warns-residents-potential-threat-iran-conflict-persists-2026-11-21/",
+        "label": "Reuters — Bahrain’s statement on the industrial facility and fire, 21 November 2026, 19:15 UTC"
+      },
+      {
+        "href": "https://www.aa.com.tr/en/middle-east/bahrain-says-iranian-attack-sets-civilian-industrial-site-ablaze/4133214",
+        "label": "Anadolu Agency — Interior Ministry statement and warning details, 21 November 2026"
+      }
+    ]
+  },
+  {
+    "slug": "gaza-city-food-vehicle-strike-2026",
+    "title": "Gaza strike kills three near a food-carrying vehicle as accounts differ over the target",
+    "date": "21 November 2026",
+    "contextDateLabel": "Event date: 21 November 2026; Reuters published: 21 November 2026, 13:53 UTC; AP published: 21 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "Three men were killed in a strike on a vehicle carrying food in Gaza City, according to health officials; Israel said it targeted Islamic Jihad members, while World Central Kitchen said the vehicle was not affiliated with the charity.",
+    "body": [
+      "Gaza’s Health Ministry said three people were killed in a strike on a vehicle carrying food in the Tel al-Hawa district of Gaza City on Saturday, 21 November. The Associated Press quoted the director of Shifa Hospital saying the vehicle was carrying food, while Reuters reported that witnesses saw papers bearing the World Central Kitchen logo inside it.",
+      "The Israeli military said in an official statement that it struck three Islamic Jihad members travelling in a vehicle used to transport food and logistical supplies to the group. World Central Kitchen said the vehicle was not affiliated with the charity: its driver had previously worked for WCK, while the other two men were not its employees. Reuters said it could not independently verify the military’s account.",
+      "Accounts differ over the men’s identities and the vehicle’s purpose, so it should not be described as a humanitarian vehicle belonging to an aid organisation. The reports agree that three people were killed, but Reuters did not independently verify the military’s claim that they were Islamic Jihad members.",
+      "Location: Tel al-Hawa, Gaza City, Gaza Strip. Strike date: 21 November 2026. Reuters publication: 13:53 UTC (16:53 Istanbul time). Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://www.idf.il/en/mini-sites/idf-press-releases-israel-at-war/november-26-pr/the-idf-struck-3-islamic-jihad-terrorists-falsely-presented-as-aid-workers/",
+        "label": "Israel Defense Forces — official statement on the target, 21 November 2026"
+      },
+      {
+        "href": "https://www.reuters.com/world/middle-east/israeli-strike-kills-three-vehicle-distributing-aid-gaza-witnesses-say-2026-11-21/",
+        "label": "Reuters — three killed and WCK says the vehicle was unaffiliated, 21 November 2026, 13:53 UTC"
+      },
+      {
+        "href": "https://apnews.com/article/mideast-iran-gaza-israel-november-21-2026-29159a6f3365ff447c0ccbd1d7260f75",
+        "label": "Associated Press — strike details and accounts from Shifa Hospital and the Israeli military, 21 November 2026"
+      }
+    ]
+  },
+  {
+    "slug": "russian-cargo-ship-sparta-ii-fire-2026",
+    "title": "Russian cargo ship catches fire after drone strike in Gulf of Finland; crew evacuated",
+    "date": "21 November 2026",
+    "contextDateLabel": "Event date: 21 November 2026; Reuters published: 21 November 2026, 11:50 UTC; Finnish Border Guard update: 21 November 2026, 20:55 EET (18:55 UTC); publication date: 21 November 2026",
+    "dek": "The 16-member crew of the Russian cargo ship Sparta II was evacuated after a fire following a drone strike; a Finnish military spokesperson said Ukraine was likely responsible, but Kyiv did not confirm involvement.",
+    "body": [
+      "Finnish authorities said the Russian cargo ship Sparta II was hit by drones in international waters west of Gogland Island on 21 November, then drifted into Finnish waters and caught fire. The 16-member crew evacuated to a nearby Russian vessel, according to the Finnish Border Guard.",
+      "A Finnish armed forces spokesperson said Ukraine was likely behind the attack but did not explain why the ship had been targeted. Kyiv did not claim responsibility and did not immediately respond to Reuters. Finnish authorities said the fire was still burning in their latest update and that they were leading the rescue operation while imposing temporary maritime and aviation restrictions.",
+      "The vessel is linked to Oboronlogistika, a company that provides logistics services to Russia’s Defence Ministry and is subject to U.S. sanctions. The Finnish Border Guard said there was no confirmed information about the cargo, so the ship should not be described as carrying military equipment.",
+      "Location: Gulf of Finland, Baltic Sea, west of Gogland Island. Incident date: 21 November 2026. Reuters publication: 11:50 UTC (14:50 Istanbul time). Finnish Border Guard update: 20:55 Finland local time (18:55 UTC). Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://www.epressi.com/tiedotteet/turvallisuus/the-finnish-border-guard-continues-to-lead-the-rescue-operations-in-the-gulf-of-finland..html",
+        "label": "Finnish Border Guard — official rescue-operation update, 21 November 2026, 20:55 EET"
+      },
+      {
+        "href": "https://www.reuters.com/world/russia-says-cargo-vessel-struck-by-drones-finland-says-it-is-fire-its-waters-2026-11-21/",
+        "label": "Reuters — Sparta II damaged and crew evacuated, 21 November 2026, 11:50 UTC"
+      }
+    ]
+  },
+  {
+    "slug": "iraq-hartha-power-station-fire-2026",
+    "title": "Fire at Iraq’s Hartha power station in Basra kills four and injures 35",
+    "date": "21 November 2026",
+    "contextDateLabel": "Fire began: 21 November 2026, about 06:00 local time (03:00 GMT); Reuters published: 21 November 2026, 06:22 UTC; Anadolu publication date: 21 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "Authorities reported four deaths and 35 injuries after a fire at the Hartha power station north of Basra spread to nearby homes; an investigation into the cause is under way.",
+    "body": [
+      "A fire broke out at the Hartha power station north of Basra at about 06:00 local time (03:00 GMT) on Saturday, 21 November. Iraq’s Security Media Cell gave a preliminary toll of four dead and 35 injured, most of them residents of nearby homes who suffered burns or smoke inhalation.",
+      "Iraq’s state news agency reported that Civil Defence teams brought the fire under control. The Electricity Ministry said the incident involved a gas pipeline supplying the station, and the prime minister’s office said an urgent investigation had been ordered to establish the cause and responsibility. Authorities had not announced a final cause or the full extent of the damage.",
+      "Reuters and Anadolu reported the same preliminary toll of four deaths and 35 injuries, but the figures may change. Security officials said the station had been operating at about 400 megawatts before the fire, against an installed capacity of 800 megawatts.",
+      "Location: Hartha power station, north of Basra, Iraq. Fire began at about 06:00 local time (03:00 GMT) on 21 November 2026. Reuters publication: 06:22 UTC (09:22 Istanbul time). Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      {
+        "href": "https://www.reuters.com/business/energy/iraq-fire-basra-power-station-kills-least-four-injures-30-2026-11-21/",
+        "label": "Reuters — casualty count and investigation at Hartha power station, 21 November 2026, 06:22 UTC"
+      },
+      {
+        "href": "https://www.aa.com.tr/en/middle-east/4-killed-35-injured-in-fire-at-power-station-in-iraq-s-basra/4132750",
+        "label": "Anadolu Agency — Security Media Cell statement and preliminary toll, 21 November 2026"
+      }
+    ]
+  },
+  {
+    "slug": "hormuz-tanker-incidents-khasab-2026",
+    "title": "Reports say three tankers were attacked near Hormuz, but UKMTO issued two confirmed alerts",
+    "date": "21 November 2026",
+    "contextDateLabel": "First UKMTO alert: 21 November 2026, 05:00 UTC; second alert: 05:50 UTC; Reuters published: 21 November 2026, 07:57 UTC; AP publication date: 21 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "UKMTO reported two incidents involving unknown projectiles near Oman’s Khasab. Iran’s navy separately claimed another tanker hit a mine; AP reported at least three tankers attacked, but there were not three separate UKMTO alerts.",
     "body": [
       "The United Kingdom Maritime Trade Operations centre (UKMTO) issued two alerts about incidents near Khasab, Oman, on 21 November 2026. In Warning 215-26 at 05:00 UTC, the stern of an outbound tanker was hit about 11 nautical miles north of Khasab. In Warning 216-26 at 05:50 UTC, an outbound tanker was hit in its engine room about 17 nautical miles east of Khasab by an unknown projectile.",
       "UKMTO said no casualties had been reported in either alert and that the environmental impact was unconfirmed when the warnings were issued. It advised vessels to transit with caution and report suspicious activity. The agency did not identify the vessels or attribute responsibility.",
-      "Reuters published its report at 07:57 UTC on 21 November and said it was not immediately clear whether the two alerts involved the same vessel or two different vessels. Reuters also reported a separate statement by Iran’s navy that a tanker had caught fire after hitting a naval mine east of the strait. Reuters said it could not independently verify the Iranian account or establish whether it referred to either UKMTO incident. This article therefore does not attribute the attacks to any party.",
-      "Location: near Khasab on Oman’s Musandam Peninsula, at the entrance to the Strait of Hormuz. Incident date: 21 November 2026; alert times: 05:00 and 05:50 UTC; Sham AI publication date: 21 November 2026."
+      "The Associated Press reported that at least three oil tankers were attacked in the area. Its account drew on the two UKMTO alerts and a separate statement by Iran’s navy that a tanker had hit a naval mine east of the strait and caught fire. Reuters said it could not independently verify the Iranian account or establish whether it referred to either UKMTO incident; the three-ship count is therefore not three separately confirmed UKMTO alerts.",
+      "Location: near Khasab on Oman’s Musandam Peninsula, at the entrance to the Strait of Hormuz. Reported incident date: 21 November 2026; UKMTO alert times: 05:00 and 05:50 UTC; Sham AI publication date: 21 November 2026."
     ],
     "sources": [
-      { "href": "https://www.ukmto.org/recent-incidents", "label": "UKMTO — official incident register, Warnings 215-26 and 216-26" },
-      { "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_215-26.pdf", "label": "UKMTO — official Warning 215-26, 21 November 2026, 05:00 UTC" },
-      { "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_216-26.pdf", "label": "UKMTO — official Warning 216-26, 21 November 2026, 05:50 UTC" },
-      { "href": "https://www.reuters.com/business/energy/tanker-hit-by-unknown-projectile-near-omans-khasab-ukmto-says-2026-11-21/", "label": "Reuters — independent report on both incidents, 21 November 2026, 07:57 UTC" }
+      {
+        "href": "https://www.ukmto.org/recent-incidents",
+        "label": "UKMTO — official incident register, Warnings 215-26 and 216-26"
+      },
+      {
+        "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_215-26.pdf",
+        "label": "UKMTO — official Warning 215-26, 21 November 2026, 05:00 UTC"
+      },
+      {
+        "href": "https://www.ukmto.org/-/media/ukmto/products/20261121-ukmto_warning_216-26.pdf",
+        "label": "UKMTO — official Warning 216-26, 21 November 2026, 05:50 UTC"
+      },
+      {
+        "href": "https://www.reuters.com/business/energy/tanker-hit-by-unknown-projectile-near-omans-khasab-ukmto-says-2026-11-21/",
+        "label": "Reuters — independent report on the incidents, 21 November 2026, 07:57 UTC"
+      },
+      {
+        "href": "https://apnews.com/article/mideast-iran-gaza-israel-november-21-2026-29159a6f3365ff447c0ccbd1d7260f75",
+        "label": "Associated Press — report of at least three tankers attacked, 21 November 2026"
+      }
     ]
   },
   {
@@ -68,42 +184,70 @@ export const EN_NEWS: DeskItem[] = [
   },
   {
     "slug": "cop31-overtime-climate-talks-2026",
-    "title": "COP31 talks run past scheduled close amid fossil-fuel and climate-finance disputes",
+    "title": "COP31 talks continue beyond the scheduled close amid fossil-fuel and climate-finance disputes",
     "date": "21 November 2026",
-    "contextDateLabel": "Official COP31 schedule: 9–20 November 2026; negotiations continued: 21 November; Reuters published: 21 November 2026, 14:36 UTC; latest Guardian live-page update checked: 21 November 2026, 20:25 CET (19:25 UTC); publication date: 21 November 2026",
-    "dek": "Climate negotiations in Antalya continued beyond their scheduled end on 21 November, with fossil-fuel language and adaptation finance still unresolved in the latest verified update reviewed.",
+    "contextDateLabel": "Official COP31 schedule: 9–20 November 2026; negotiations continued: 21 November; Reuters published: 21 November 2026, 14:36 UTC; latest Guardian live-page update: 21 November 2026, 14:54 EST (19:54 UTC); publication date: 21 November 2026",
+    "dek": "Climate negotiations in Antalya continued beyond their scheduled end, with fossil-fuel language and adaptation finance unresolved; the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels.",
     "body": [
-      "The UN Framework Convention on Climate Change lists COP31 in Antalya, Türkiye, for 9–20 November 2026. Reuters and the Associated Press reported that negotiations continued on Saturday, 21 November, beyond the scheduled close. The latest Guardian live-page update reviewed was at 20:25 CET (19:25 UTC) on 21 November and reported no final agreement; its latest detailed note, at 20:20 CET, said no new text had been distributed and no substantive negotiations had taken place during the day.",
+      "The UN Framework Convention on Climate Change lists COP31 in Antalya, Türkiye, for 9–20 November 2026. Reuters and the Associated Press reported that negotiations continued on Saturday, 21 November, beyond the scheduled close. The latest Guardian live-page update reviewed was at 14:54 EST (19:54 UTC) on 21 November, and no final agreement had been announced.",
       "In its 14:36 UTC update on 21 November, Reuters said negotiators from nearly 200 countries remained divided over whether the outcome should mention fossil fuels and provide adaptation finance to countries with fewer resources. A draft published on Thursday had removed earlier references to ending fossil-fuel use and dropped a proposed $120 billion adaptation-finance target; those details describe a negotiating draft, not a final decision.",
-      "The Associated Press also reported that talks had entered overtime, that civil-society groups warned of a weak outcome, and that climate-vulnerable countries were seeking more support for adaptation and disaster recovery. The reports reviewed did not establish that a final agreement had been adopted by the Guardian page's 20:25 CET (19:25 UTC) update.",
-      "The UNFCCC website confirms that the conference's official dates were 9–20 November 2026. The scheduled conference period should therefore be classified as past, while additional negotiations were still underway according to the latest update available at 20:25 CET (19:25 UTC) on 21 November. The summit must not be presented as upcoming, and a draft must not be described as an adopted agreement.",
-      "Location: Antalya, Türkiye. Official conference dates: 9–20 November 2026; additional negotiations: 21 November. Latest live-page update reviewed: 21 November 2026, 20:25 CET (19:25 UTC). Sham AI publication date: 21 November 2026."
+      "In its 14:54 EST (19:54 UTC) update, the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels in the final text. It said Saudi Arabia continued to resist that language and wanted carbon capture and storage emphasised, while the EU was considering its next move. No final compromise text had been announced in the update reviewed.",
+      "The Associated Press also reported that talks had entered overtime and that climate-vulnerable countries were seeking more support for adaptation and disaster recovery. The reports reviewed did not establish that a final agreement had been adopted by the Guardian’s 19:54 UTC update on 21 November.",
+      "Location: Antalya, Türkiye. Official conference dates: 9–20 November 2026; additional negotiations: 21 November. Latest live-page update reviewed: 21 November 2026, 14:54 EST (19:54 UTC). Sham AI publication date: 21 November 2026."
     ],
     "sources": [
-      { "href": "https://unfccc.int/cop31", "label": "UN Framework Convention on Climate Change — official COP31 dates and information" },
-      { "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/", "label": "Reuters — 21 November 2026 update, 14:36 UTC" },
-      { "href": "https://apnews.com/article/cop31-un-turkey-climate-change-global-warming-b54eebcade92e5ee4c513b9a5b2192a7", "label": "Associated Press — talks continue beyond the scheduled close, 21 November 2026" },
-      { "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates", "label": "The Guardian — live coverage, page updated 20:25 CET (19:25 UTC) on 21 November" }
+      {
+        "href": "https://unfccc.int/cop31",
+        "label": "UN Framework Convention on Climate Change — official COP31 dates and information"
+      },
+      {
+        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
+        "label": "Reuters — 21 November 2026 update, 14:36 UTC"
+      },
+      {
+        "href": "https://apnews.com/article/cop31-un-turkey-climate-change-global-warming-b54eebcade92e5ee4c513b9a5b2192a7",
+        "label": "Associated Press — talks continue beyond the scheduled close, 21 November 2026"
+      },
+      {
+        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
+        "label": "The Guardian — live coverage, updated 14:54 EST (19:54 UTC) on 21 November"
+      }
     ]
   },
   {
     "slug": "ccw-autonomous-weapons-geneva-2026",
-    "title": "UN talks extend work on autonomous weapons to 2028 without binding rules",
+    "title": "Geneva states agree to draft an autonomous-weapons instrument by 2028, leaving its legal form open",
     "date": "21 November 2026",
-    "contextDateLabel": "Official Geneva conference schedule: 16–20 November 2026; negotiations ended early on 21 November (03:00 GMT per Reuters); Reuters published: 21 November 2026, 05:36 UTC; AP publication date: 21 November 2026 (exact time not shown); publication date: 21 November 2026",
-    "dek": "States agreed to continue work toward a possible instrument on lethal autonomous weapons by 2028, but did not commit to binding rules or settle the future instrument's legal status.",
+    "contextDateLabel": "Official Geneva conference schedule: 16–20 November 2026; negotiations ended early on 21 November (03:00 GMT per Reuters); Reuters published: 21 November 2026, 05:36 UTC; Swiss Federal Department of Foreign Affairs published: 21 November 2026 (time not shown); AP publication date: 21 November 2026 (time not shown); publication date: 21 November 2026",
+    "dek": "States adopted a mandate to begin drafting an instrument on lethal autonomous weapons during 2027–2028, while leaving its legal form to be determined after negotiations; no ban or treaty entered into force.",
     "body": [
-      "States parties to the Convention on Certain Conventional Weapons held their seventh review conference in Geneva. The UN Office at Geneva lists the official conference dates as 16–20 November 2026; Reuters and the Associated Press reported that final negotiations continued into the early hours of Saturday, 21 November. The scheduled conference dates and the reported end of negotiations are therefore stated separately.",
-      "Reuters and AP reported that the compromise calls for further work to elaborate a possible instrument on lethal autonomous weapon systems by 2028. It does not commit states to begin negotiations on a legally binding treaty, and it leaves open whether any future instrument would be legally binding. AP reported that a proposal by seven countries to launch negotiations on binding rules did not succeed.",
-      "Reuters said around 100 countries supported binding international rules, while the United States, Russia and Israel opposed that route. AP reported that UN officials described the extension as a significant achievement, while acknowledging that it fell short of the Secretary-General's goal of launching negotiations in 2026. These are positions attributed to the cited reports, not a treaty vote.",
-      "The UN Office at Geneva says the 2024–2026 Group of Governmental Experts adopted its final report on 4 September 2026. The report sets out elements for a possible instrument without prejudging its legal nature and recommends that the Review Conference decide future work modalities by consensus. The Geneva outcome therefore does not amount to a new international ban or an in-force treaty.",
+      "States parties to the Convention on Certain Conventional Weapons held their seventh review conference in Geneva. The UN Office at Geneva lists the official conference dates as 16–20 November 2026; Reuters and the Associated Press reported that final negotiations continued into the early hours of Saturday, 21 November.",
+      "Switzerland’s Federal Department of Foreign Affairs said the conference adopted a mandate for 128 states parties to begin drafting an instrument on lethal autonomous weapon systems during 2027–2028. This is a mandate to prepare negotiating text, not an in-force treaty or an immediate ban; the instrument’s legal nature will be specified after negotiations conclude.",
+      "Reuters and AP reported that many states had sought negotiations on binding rules, but the conference did not settle the final legal form. The distinction is between agreeing on a drafting process and adopting binding rules themselves.",
+      "The UN Office at Geneva says the 2024–2026 Group of Governmental Experts set out elements for a possible instrument without prejudging its legal nature and recommended that the Review Conference decide future work modalities by consensus. The Geneva outcome therefore does not create a new international ban or an in-force treaty.",
       "Location: Geneva, Switzerland. Official conference schedule: 16–20 November 2026; negotiations reportedly concluded early on 21 November. Sham AI publication date: 21 November 2026."
     ],
     "sources": [
-      { "href": "https://www.ungeneva.org/en/meetings-events/events/observances-special-events/2026/11/seventh-review-conference-high", "label": "UN Office at Geneva — official conference dates and background" },
-      { "href": "https://docs-library.unoda.org/Convention_on_Certain_Conventional_Weapons_-Group_of_Governmental_Experts_on_Lethal_Autonomous_Weapons_Systems_(2026)/CCW-GGE.1-2026-3-Advance_copy.pdf", "label": "UN Office for Disarmament Affairs — final Group of Governmental Experts report, 4 September 2026" },
-      { "href": "https://www.reuters.com/world/states-agree-to-un-talks-aiming-regulate-killer-robots-by-2028-2026-11-21/", "label": "Reuters — outcome of the Geneva talks, 21 November 2026, 05:36 UTC" },
-      { "href": "https://apnews.com/article/un-drones-robots-un-lethal-ai-weapons-ebe057d2a47cde53100970c8f648e7fa", "label": "Associated Press — two-year extension and lack of binding rules, 21 November 2026" }
+      {
+        "href": "https://www.admin.ch/en/newnsb/cpYJGLEaQYIi",
+        "label": "Swiss Federal Department of Foreign Affairs — drafting mandate and 128 participating states, 21 November 2026"
+      },
+      {
+        "href": "https://www.ungeneva.org/en/meetings-events/events/observances-special-events/2026/11/seventh-review-conference-high",
+        "label": "UN Office at Geneva — official conference dates and background"
+      },
+      {
+        "href": "https://docs-library.unoda.org/Convention_on_Certain_Conventional_Weapons_-Group_of_Governmental_Experts_on_Lethal_Autonomous_Weapons_Systems_(2026)/CCW-GGE.1-2026-3-Advance_copy.pdf",
+        "label": "UN Office for Disarmament Affairs — final Group of Governmental Experts report, 4 September 2026"
+      },
+      {
+        "href": "https://www.reuters.com/world/states-agree-to-un-talks-aiming-regulate-killer-robots-by-2028-2026-11-21/",
+        "label": "Reuters — outcome of the Geneva talks, 21 November 2026, 05:36 UTC"
+      },
+      {
+        "href": "https://apnews.com/article/un-drones-robots-un-lethal-ai-weapons-ebe057d2a47cde53100970c8f648e7fa",
+        "label": "Associated Press — two-year extension and debate over binding rules, 21 November 2026"
+      }
     ]
   },
   {
@@ -430,18 +574,18 @@ export const EN_EVENTS: DeskItem[] = [
     "date": "2026-11-09",
     "dateLabel": "9–20 November 2026",
     "endDate": "2026-11-20",
-    "dek": "Antalya hosts the 31st UN Climate Change Conference through 20 November, bringing together governments, negotiators and stakeholders working on climate action.",
+    "dek": "The official conference period ended on 20 November, although final negotiations continued into 21 November amid disputes over fossil fuels and adaptation finance.",
     "body": [
-      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) is taking place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. It brings together national delegations, negotiators, observers, civil society and private-sector representatives to advance implementation of the Paris Agreement.",
-      "The session also includes the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
-      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment is scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
-      "The venue is the Antalya Expo Center in Antalya, Türkiye, and local time is UTC+3. Access to the Blue Zone is for accredited participants; Green Zone activities are subject to arrangements set by the host country.",
-      "Event dates: 9–20 November 2026. Status on 18 November: the conference is ongoing, and not all final outcomes have been announced."
+      "COP31 took place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. The official conference period ended on 20 November, but final negotiations continued on 21 November after delegates failed to reach consensus on the outcome text.",
+      "The session also included the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
+      "In its 14:54 EST (19:54 UTC) update on 21 November, the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels, while Saudi Arabia continued to resist that wording and pressed for carbon capture and storage to be emphasised. No final agreement had been announced in the update reviewed.",
+      "The venue was the Antalya Expo Center in Antalya, Türkiye, and local time was UTC+3. The official dates were 9–20 November 2026, so the conference listing is classified as past while noting that additional negotiations continued on 21 November.",
+      "Event status: the official conference period ended on 20 November 2026; latest negotiation update reviewed: 21 November 2026, 14:54 EST (19:54 UTC)."
     ],
     "sources": [
       {
         "href": "https://unfccc.int/cop31/about",
-        "label": "UNFCCC — COP31 overview and dates"
+        "label": "UNFCCC — COP31 overview and official dates"
       },
       {
         "href": "https://unfccc.int/cop31/ifp",
@@ -450,6 +594,14 @@ export const EN_EVENTS: DeskItem[] = [
       {
         "href": "https://unfccc.int/sites/default/files/resource/updated_resumed_hls_2026.pdf",
         "label": "UNFCCC — resumed high-level segment schedule"
+      },
+      {
+        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
+        "label": "Reuters — overtime negotiations after the scheduled close, 21 November 2026"
+      },
+      {
+        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
+        "label": "The Guardian — latest update reviewed at 14:54 EST (19:54 UTC), 21 November 2026"
       }
     ]
   },
@@ -504,6 +656,26 @@ export const EN_EVENTS: DeskItem[] = [
       {
         "href": "https://www.unicef.org/parenting/world-childrens-day-toolkit",
         "label": "UNICEF — 2026 campaign toolkit"
+      }
+    ]
+  },
+  {
+    "slug": "iffi-goa-2026",
+    "title": "57th International Film Festival of India in Goa",
+    "date": "2026-11-20",
+    "endDate": "2026-11-28",
+    "dateLabel": "20–28 November 2026",
+    "dek": "The 57th International Film Festival of India runs in Goa from 20 to 28 November 2026, with screenings and events across several venues; the festival is currently under way.",
+    "body": [
+      "The official schedule says the 57th International Film Festival of India (IFFI) takes place in Goa from 20 to 28 November 2026. The opening ceremony is scheduled for 17:00 on 20 November at Dr. Shyama Prasad Mukherjee Indoor Stadium in Panjim; the closing ceremony is scheduled for 17:00 at the same venue on 28 November.",
+      "On 21 November, the schedule lists the inauguration of Indian Panorama at 11:30 at INOX Panjim Audi 2. Screenings for the section begin at 12:15, with Becoming listed as the opening non-feature film and Dhurandhar as the opening feature film.",
+      "The Indian Panorama opening should not be confused with the festival-wide opening: the main festival’s opening film on 20 November was Fatherland. The official schedule says timings are subject to change, so visitors should check the latest schedule before attending a specific screening.",
+      "Location: Goa, India. Dates: 20–28 November 2026. Local time: India Standard Time (IST, UTC+5:30). Status on 21 November: in progress."
+    ],
+    "sources": [
+      {
+        "href": "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2026/nov/doc_10537_20261119_19391801.pdf",
+        "label": "Government of India / Press Information Bureau — official 57th IFFI schedule, 20–28 November 2026"
       }
     ]
   },
