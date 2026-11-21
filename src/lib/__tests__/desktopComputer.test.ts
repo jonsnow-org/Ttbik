@@ -17,7 +17,7 @@ describe("the graphical Linux desktop RPC contract", () => {
       expect(calls[0].url).toBe("https://computer.test/gradio_api/call/live");
       const encoded = JSON.parse(String(calls[0].init?.body)).data[0] as string;
       const args = JSON.parse(Buffer.from(encoded.slice(4), "base64").toString("utf8"));
-      expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.5 });
+      expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.4, quality: 68, scale: 1 });
       expect(calls[1].url).toBe("https://computer.test/gradio_api/call/live/live-1");
     } finally {
       if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
