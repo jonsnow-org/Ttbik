@@ -36,6 +36,7 @@
 | المراقب الموحد | تقرير صحة واحد لكل أقسام الموقع والبوتات والنشر، يُحدّث Issue واحداً دائماً بعنوان `Monitoring: all systems`؛ وبلاغات `auto-error` تُنشأ عند تكرار الخطأ 10 مرات أو أكثر. فحوص الموقع تستخدم Gate أولاً ثم Oracle عند تعذّر Gate؛ Vercel تشخيصي فقط. المراقب للقراءة فقط ولا يعيد تشغيل أي Workflow. | كل ساعة عند الدقيقة 11 UTC (`11 * * * *` في `monitor.yml`) | `scripts/supervisors/run.mjs` و`.github/workflows/monitor.yml` و`select-site-base.sh` | راجع Issue `Monitoring: all systems`؛ العلامة `needs-attention` تعني مراجعة مطلوبة |
 
 ## 2.1 حزمة حملات المشاريع والبوتات (مراجعة قبل النشر)
+- The monitor counts only scheduled or manually dispatched promo-projects runs as asset-generation attempts; pull-request validation checks code only and is not evidence that videos/images/copy artifacts were produced.
 - workflow `promo-projects.yml` يبني فيديوهات عمودية/أفقية من صفحات الموقع الحية، وبطاقات بثلاثة مقاسات (مربع، ستوري، ومعاينة رابط)، وحزمة نصوص جاهزة لتيليجرام وإنستغرام/فيسبوك وتيك توك/ريلز ويوتيوب شورتس.
 - فيديوهات الحملات العامة تتضمن تعليقاً صوتياً مجانياً عبر Edge TTS وموسيقى خلفية أصلية منخفضة الصوت؛ لا تُستدعى نماذج المحادثة ولا خدمات API مدفوعة. الفيديوهات والصور والنصوص تُرفع كـ Artifacts للمراجعة فقط، ولا تُنشر تلقائياً.
 - أُضيفت حملات للبوتات العامة: تحميل الوسائط، الوظائف والمتجر، التعارف والزواج، والاعترافات المجهولة. استُبعد بوت الإعلان/الربح والبوت الطبي من هذه الحزمة إلى حين مراجعة ادعاءاتهما.

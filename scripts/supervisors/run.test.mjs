@@ -14,6 +14,40 @@ test("stale workflow fails, newer failure after success warns", () => {
   assert.equal(overall(evaluate({ workflows: [{ def, runs: [run("success", 9)] }] }, NOW)), "fail");
   assert.equal(overall(evaluate({ workflows: [{ def, runs: [run("failure", 1), run("success", 3)] }] }, NOW)), "warn");
 });
+test("promo-projects pull-request validation is not counted as generated assets", () => {
+  const promoDef = ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"]];
+  const prSuccess = {
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    updated_at: new Date(NOW - 10 * 60000).toISOString(),
+    html_url: "pr-validation-only",
+  };
+  const scheduledFailure = {
+    event: "schedule",
+    status: "completed",
+    conclusion: "failure",
+    updated_at: new Date(NOW - 4 * 3600_000).toISOString(),
+    html_url: "scheduled-generator-failure",
+  };
+  const failed = evaluate({ workflows: [{ def: promoDef, runs: [prSuccess, scheduledFailure] }] }, NOW)
+    .find((c) => c.name === "Workflow: Promo images");
+  assert.equal(failed.level, "fail");
+  assert.match(failed.detail, /scheduled-generator-failure/);
+  assert.doesNotMatch(failed.detail, /pr-validation-only/);
+
+  const scheduledSuccess = {
+    ...scheduledFailure,
+    conclusion: "success",
+    updated_at: new Date(NOW - 2 * 3600_000).toISOString(),
+    html_url: "scheduled-assets-created",
+  };
+  const healthy = evaluate({ workflows: [{ def: promoDef, runs: [prSuccess, scheduledSuccess] }] }, NOW)
+    .find((c) => c.name === "Workflow: Promo images");
+  assert.equal(healthy.level, "ok");
+  assert.match(healthy.detail, /last success 2h ago/);
+});
+
 test("page down fails; info page down does not", () => {
   assert.equal(overall(evaluate({ site: [{ label: "p", status: 500, ok: false }] }, NOW)), "fail");
   assert.equal(overall(evaluate({ site: [{ label: "p", status: 0, ok: false, info: true }] }, NOW)), "ok");

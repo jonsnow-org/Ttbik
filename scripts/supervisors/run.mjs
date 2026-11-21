@@ -36,7 +36,7 @@ export const SECTIONS = {
   },
   promo: {
     site: [],
-    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200]],
+    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"]]],
     errorWords: /promo|channel|youtube|video|post/i,
   },
   athar: {
@@ -60,7 +60,9 @@ export function evaluate(d, now = Date.now()) {
   for (const w of d.workflows || []) {
     const [, name, maxH] = w.def;
     if (w.error) { add(`Workflow: ${name}`, "warn", `could not read runs (${w.error})`); continue; }
-    const runs = w.runs || [];
+    // A PR validation for promo-projects only checks generator code; it does not create review assets.
+    // Optional allowed events in def[3] keep validation-only runs out of the generation freshness signal.
+    const runs = (w.runs || []).filter((r) => !w.def[3] || w.def[3].includes(r.event));
     const active = runs.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting" || r.status === "requested" || r.status === "pending");
     if (active) {
       const startedAt = active.run_started_at || active.created_at || active.updated_at;
