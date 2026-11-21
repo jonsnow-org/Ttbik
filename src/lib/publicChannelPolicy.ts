@@ -2,8 +2,8 @@
 export const EXCLUDED_PUBLIC_BOT_SLUGS = new Set(["ads-and-earn", "medical"]);
 
 const ARABIC_SCRIPT = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]/u;
-const ARABIC_EARNINGS_PROMISE = /(?:اربح|اكسب)\s+(?:المال|أموال|اموال|دخل|مبلغ)|(?:اربح|اكسب)\s+(?:من|عن طريق|بسبب)\s+(?:(?:مشاهدة|المشاهدة)\s+)?(?:الإعلانات|الاعلانات|النقرات|الضغطات|الفيديوهات|المقاطع)|(?:توزيع|يوزّع|يوزع|توزّع|توزع)\s+(?:الأرباح|الارباح|أرباح|ارباح|ربح)|(?:أرباح|ارباح|عوائد?|دخل)\s*(?:مضمونة|مضمون|ثابتة|ثابت|يومية|يومي|أسبوعية|اسبوعية|أسبوعي|اسبوعي|شهرية|شهري)|(?:ضاعف|مضاعفة)\s+(?:أموالك|اموالك|مالك|رأس المال|راس المال|الأرباح|الارباح)/iu;
-const ENGLISH_EARNINGS_PROMISE = /\b(?:guaranteed|guarantee)\s+(?:profit|profits|earnings?|income|returns?|yield)\b|\b(?:make|earn)\s+(?:easy\s+)?money\b|\bpassive\s+income\b|\b(?:daily|weekly|monthly)\s+(?:profit|profits|returns?|income)\b|\b(?:profits?|earnings?)\s+(?:are|will\s+be|is)\s+(?:paid|distributed|credited|guaranteed)\b|\b(?:distribute|distributes|pay|pays)\s+(?:the\s+)?(?:viewing\s+)?(?:profits?|earnings?)\b|\b(?:earn|earnings?)\s+(?:from|by|through)\s+(?:watching|viewing|videos?|ads?|clicks?|referrals?)\b|\bget\s+paid\s+to\s+(?:watch|view|click)\b|\bpaid\s+per\s+(?:view|click|watch)\b|\bprofit[\s-]sharing\b|\bdouble\s+(?:your\s+)?(?:money|investment|profits?)\b/i;
+const ARABIC_EARNINGS_PROMISE = /(?:اربح|اكسب)\s+(?:المال|أموال|اموال|دخل|مبلغ)|(?:اربح|اكسب)\s+(?:من|عن طريق|بسبب)\s+(?:(?:مشاهدة|المشاهدة)\s+)?(?:الإعلانات|الاعلانات|النقرات|الضغطات|الفيديوهات|المقاطع)|(?:توزيع|يوزّع|يوزع|توزّع|توزع)\s+(?:الأرباح|الارباح|أرباح|ارباح|ربح)|(?:أرباح|ارباح|عوائد?|دخل)\s*(?:مضمونة|مضمون|ثابتة|ثابت|يومية|يومي|أسبوعية|اسبوعية|أسبوعي|اسبوعي|شهرية|شهري)|(?:ضاعف|مضاعفة)\s+(?:أموالك|اموالك|مالك|المبلغ|المال|الأموال|الاموال|رأس المال|راس المال|الأرباح|الارباح)/iu;
+const ENGLISH_EARNINGS_PROMISE = /\b(?:guaranteed|guarantee)\s+(?:profit|profits|earnings?|income|returns?|yield)\b|\b(?:make|earn)\s+(?:easy\s+)?money\b|\bpassive\s+income\b|\b(?:daily|weekly|monthly)\s+(?:profit|profits|returns?|income)\b|\b(?:profits?|earnings?)\s+(?:are|will\s+be|is)\s+(?:paid|distributed|credited|guaranteed)\b|\b(?:distribute|distributes|pay|pays)\s+(?:the\s+)?(?:viewing\s+)?(?:profits?|earnings?)\b|\b(?:earn|earnings?)\s+(?:from|by|through)\s+(?:watching|viewing|videos?|ads?|clicks?|referrals?)\b|\bget\s+paid\s+to\s+(?:watch|view|click)\b|\bpaid\s+per\s+(?:view|click|watch)\b|\bprofit[\s-]shar(?:e|es|ing)\b|\bdouble\s+(?:your\s+)?(?:money|investment|profits?)\b/i;
 
 const EXCLUDED_PRODUCT_TEXT = /(?:ads[-_\s]?and[-_\s]?earn|بوت الإعلانات والمهام|بوت الإعلان والمهام|البوت الطبي|medical bot)/iu;
 
@@ -24,7 +24,11 @@ export function ensureEnglishFirst(text: string): string {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean) || "";
-  return /[A-Za-z]/.test(firstVisibleLine) ? value : `Sham AI update\n\n${value}`;
+  // English first means the first Latin letter comes before the first Arabic one: Arabic copy that merely contains a brand token such as "AI" is not English-first.
+  const latin = firstVisibleLine.search(/[A-Za-z]/);
+  const arabic = firstVisibleLine.search(ARABIC_SCRIPT);
+  const englishFirst = latin >= 0 && (arabic < 0 || latin < arabic);
+  return englishFirst ? value : `Sham AI update\n\n${value}`;
 }
 
 /** Detect positive claims, not neutral mentions or explicit risk disclaimers. */

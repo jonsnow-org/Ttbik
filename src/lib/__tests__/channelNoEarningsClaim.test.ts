@@ -1,4 +1,5 @@
 import { hasEarningsClaim } from "@/lib/channelPublisher";
+import { isExcludedPublicPromoProductText } from "@/lib/publicChannelPolicy";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,9 +10,9 @@ describe("the channel's weekly bot promo promises no earnings", () => {
   test("lets an honest description through", () => {
     expect(hasEarningsClaim("إعلانات تصل إلى مستخدميك، ومهام بسيطة يؤدّونها داخل البوت.")).toBe(false);
   });
-  test("the fixed intro text in the publisher has no earnings wording", () => {
+  test("the weekly ads-and-earn promo is out of the automatic public rotation (owner approval pending)", () => {
     const src = fs.readFileSync(path.join(__dirname, "../channelPublisher.ts"), "utf8");
-    const intro = /const intro = "([^"]+)"/.exec(src)![1];
-    expect(hasEarningsClaim(intro)).toBe(false);
+    expect(/const intro = "/.test(src)).toBe(false);
+    expect(isExcludedPublicPromoProductText("بوت الإعلانات والمهام")).toBe(true);
   });
 });

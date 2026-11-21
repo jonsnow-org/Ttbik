@@ -81,6 +81,7 @@ async function loadState(): Promise<State> {
       newsDay: typeof v.newsDay === "string" ? v.newsDay : "",
     };
   } catch {
+    return { posted: [], pages: null, newsDay: "" };
   }
 }
 
