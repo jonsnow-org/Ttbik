@@ -117,8 +117,8 @@ export async function desktopLive(
   return studioStream(base, "live", {
     session,
     seconds: duration,
-    interval: 0.5,
-    quality: 55,
+    interval: 0.4,
+    quality: 68,
     scale: 1,
   }, fetchImpl, (duration + 15) * 1000);
 }
