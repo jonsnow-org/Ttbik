@@ -78,9 +78,28 @@ class SpanStream:
             yield from pairs_of(str(r.get("id") or ""), r.get("text") or "")
 
 
-def fineweb2_ar() -> SpanStream:
+# key -> (dataset repo, config, plan weight). Arabic web text in the standard language and five dialects, and Arabic Wikipedia (the owner's registry in the Lena9 repository, onecore-ai/data/sources.yaml).
+SOURCES = {
+    "fineweb2_ar": ("HuggingFaceFW/fineweb-2", "arb_Arab", 0.5),
+    "fineweb2_ar_egyptian": ("HuggingFaceFW/fineweb-2", "arz_Arab", 0.25),
+    "fineweb2_ar_saudi": ("HuggingFaceFW/fineweb-2", "ars_Arab", 0.15),
+    "fineweb2_ar_moroccan": ("HuggingFaceFW/fineweb-2", "ary_Arab", 0.15),
+    "fineweb2_ar_iraqi": ("HuggingFaceFW/fineweb-2", "acm_Arab", 0.15),
+    "fineweb2_ar_algerian": ("HuggingFaceFW/fineweb-2", "arq_Arab", 0.15),
+    "wikipedia_ar": ("wikimedia/wikipedia", "20231101.ar", 0.4),
+}
+SOURCE_SIZES = {"fineweb2_ar": 5_000_000, "fineweb2_ar_egyptian": 1_000_000, "fineweb2_ar_saudi": 300_000, "fineweb2_ar_moroccan": 300_000,
+                "fineweb2_ar_iraqi": 300_000, "fineweb2_ar_algerian": 300_000, "wikipedia_ar": 1_200_000}
+
+
+def source(key: str) -> SpanStream:
     from datasets import load_dataset
-    return SpanStream(load_dataset("HuggingFaceFW/fineweb-2", "arb_Arab", split="train", streaming=True))
+    repo, config, _ = SOURCES[key]
+    return SpanStream(load_dataset(repo, config, split="train", streaming=True))
+
+
+def fineweb2_ar() -> SpanStream:
+    return source("fineweb2_ar")
 
 
 def _selftest() -> None:

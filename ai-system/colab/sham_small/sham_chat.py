@@ -343,16 +343,25 @@ def _chat_plan(extra: bool = True):
     # documents by id never used). Streamed. Not part of the yardstick (extra=False returned above). SHAM_FINEWEB_AR=0 removes it.
     import sham_extra_sources
     if sham_extra_sources.enabled():
-        plan.append(("fineweb2_ar", sham_extra_sources.fineweb2_ar, "prompt", "target", None, True))
+        for _key in sham_extra_sources.SOURCES:
+            plan.append((_key, (lambda k=_key: sham_extra_sources.source(k)), "prompt", "target", None, True))
     return plan
 
 
-CHAT_SOURCE_SIZES = {"fineweb2_ar": 5_000_000, "openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk": 1_000_000, "ultrachat": 207_865, "metamath": 395_000}   # a streamed source has no len(): its wrap-around point
+CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk": 1_000_000, "ultrachat": 207_865, "metamath": 395_000}   # a streamed source has no len(): its wrap-around point
 # Each source's share of a session's examples. Arabic stays the majority (it is the model's language); code is the next biggest share; the rest is general talk and maths.
 # A source missing here counts 1. Arabic 6.0 of 11.75 (51%), code 3.5 (30%), general + maths 2.25 (19%).
 CHAT_SOURCE_WEIGHTS = {"cidar": 1.5, "aya_ar": 1.5, "alpaca_gpt4_ar": 1.5, "openhermes_ar": 1.5,
                        "magicoder": 1.0, "codefeedback": 1.0, "self_oss_instruct": 0.75, "glaive_code": 0.75,
-                       "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5, "sil": 0.5, "fineweb2_ar": 0.75}
+                       "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5, "sil": 0.5}
+
+
+try:                                    # the extra Arabic sources bring their own wrap-around sizes and shares
+    import sham_extra_sources as _X
+    CHAT_SOURCE_SIZES.update(_X.SOURCE_SIZES)
+    CHAT_SOURCE_WEIGHTS.update({k: v[2] for k, v in _X.SOURCES.items()})
+except Exception:                       # never let an optional module stop the trainer
+    pass
 
 
 def _wants(plan, max_examples: int) -> list[int]:
@@ -713,7 +722,7 @@ if __name__ == "__main__":
     for _n in (800, 3000, 4000):
         _w = _wants(_full, _n)
         assert sum(_w) == _n and min(_w) >= 1, _w
-        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil", "fineweb2_ar"))   # the Intelligence Lab's pairs are Arabic prompts
+        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil") or p[0].startswith(("fineweb2_ar", "wikipedia_ar")))   # the Intelligence Lab's pairs are Arabic prompts
         assert _ar >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                              # Arabic >= half, code >= a quarter
         _b = _wants(_base, _n)
         assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before
