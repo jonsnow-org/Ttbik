@@ -1257,6 +1257,70 @@ class Sham2Unified(nn.Module):
             temperature=0.0,
         )
 
+
+@torch.no_grad()
+def latent_diversity(model: "Sham2Unified", prompt_token_ids: List[List[int]],
+                     label: str = "") -> Dict:
+    """Measure whether the T-LDM latents and the writer conditioning depend on the prompt.
+
+    Runs on an already-loaded model only (no checkpoint download). This is the
+    measurement the Mission 6 run lacked: it separates "the latents are nearly
+    constant across prompts" from "the latents vary but the writer ignores them".
+    """
+    if len(prompt_token_ids) < 2:
+        raise ValueError("latent_diversity needs at least two non-empty prompts")
+    model.eval()
+    zs, conds, first_logits, block_logits = [], [], [], []
+    for ids in prompt_token_ids:
+        if not ids:
+            raise ValueError("latent_diversity received an empty prompt")
+        z = model.encode_latents(torch.tensor([ids], dtype=torch.long))
+        zs.append(z[0].float())
+        conds.append(model.writer.conditioning(z)[0].float())
+        all_hidden = torch.ones(1, model.writer.block, dtype=torch.bool)
+        logits = model.writer.logits(
+            torch.zeros(1, model.writer.block, dtype=torch.long), all_hidden, z
+        )[0].float()
+        first_logits.append(logits[0])
+        block_logits.append(logits.reshape(-1))
+
+    def pairwise_cosine(vectors: torch.Tensor) -> Dict:
+        flat = F.normalize(vectors.reshape(vectors.shape[0], -1), dim=-1)
+        cosine = flat @ flat.t()
+        count = cosine.shape[0]
+        off_diagonal = cosine[~torch.eye(count, dtype=torch.bool)]
+        return {
+            "mean": float(off_diagonal.mean()),
+            "min": float(off_diagonal.min()),
+            "max": float(off_diagonal.max()),
+        }
+
+    Z = torch.stack(zs)
+    result = {
+        "label": label,
+        "prompts": len(zs),
+        "latent_shape": list(Z.shape[1:]),
+        "latent_abs_mean": float(Z.abs().mean()),
+        "latent_std_mean": float(Z.std(dim=0, unbiased=False).mean()),
+        "latent_pairwise_cosine": pairwise_cosine(Z),
+        "conditioning_pairwise_cosine": pairwise_cosine(torch.stack(conds)),
+        "writer_first_position_logits_pairwise_cosine": pairwise_cosine(torch.stack(first_logits)),
+        "writer_block_logits_pairwise_cosine": pairwise_cosine(torch.stack(block_logits)),
+        "distinct_first_byte": int(torch.stack(first_logits).argmax(-1).unique().numel()),
+        "distinct_block_argmax": int(
+            torch.stack([v.argmax() for v in block_logits]).unique().numel()
+        ),
+    }
+    latent_cosine = result["latent_pairwise_cosine"]["mean"]
+    writer_cosine = result["writer_block_logits_pairwise_cosine"]["mean"]
+    if latent_cosine >= 0.999:
+        result["verdict"] = "latents-near-constant"
+    elif writer_cosine >= 0.9999 or result["distinct_block_argmax"] == 1:
+        result["verdict"] = "latents-vary-writer-invariant"
+    else:
+        result["verdict"] = "prompt-dependent"
+    return result
+
 # ============================================================
 # Codebook Init للوسائط — [إصلاح 3]
 # ============================================================
@@ -1576,6 +1640,18 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
     }
 
     model.to(torch.device("cpu"))
+    # Prompt-dependence diagnostic: measured on the real loaded model, before
+    # and after training, on the first 10 fixed training prompts. It never adds
+    # a checkpoint download and never touches the data.
+    diagnostic_ids = [row["input_ids"] for row in train_rows[:10]]
+    report["latent_diversity"] = {
+        "before": latent_diversity(model, diagnostic_ids, "before_training"),
+    }
+    print(
+        "[Sham2] latent diversity before training: "
+        + json.dumps(report["latent_diversity"]["before"], ensure_ascii=False),
+        flush=True,
+    )
     for stage_name in stages:
         rows = [row for row in train_rows if row["stage"] == stage_name]
         if not rows:
@@ -1614,6 +1690,14 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         })
 
     report["final_training_loss"] = report["stages"][-1]["loss_last"]
+    report["latent_diversity"]["after"] = latent_diversity(
+        model, diagnostic_ids, "after_training"
+    )
+    print(
+        "[Sham2] latent diversity after training: "
+        + json.dumps(report["latent_diversity"]["after"], ensure_ascii=False),
+        flush=True,
+    )
 
     # Persist the trained head BEFORE any held-out evaluation: a failure in the
     # reporting loop must never throw away the optimizer's result again.
@@ -1868,7 +1952,86 @@ def main():
                     help="offline test of the exact ShamSmall attention/MLP rank-16 LoRA target map; no donor or training")
     ap.add_argument("--selftest-byte-writer", action="store_true",
                     help="offline shape, masking, UTF-8, position, gradient and generation test for the canonical byte-diffusion writer")
+    ap.add_argument("--selftest-latent-diversity", action="store_true",
+                    help="offline test of the latent-diversity diagnostic and the additive latent conditioning; no checkpoint download")
     args = ap.parse_args()
+
+    if getattr(args, "selftest_latent_diversity", False):
+        from types import SimpleNamespace
+
+        class _IdentityDonorLayer(nn.Module):
+            def forward(self, hidden, _cos, _sin, past_kv=None, use_cache=False):
+                return hidden, None
+
+        class _TinyDonor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.cfg = SimpleNamespace(
+                    d_model=16, max_seq_len=64, use_gradient_checkpointing=False
+                )
+                self.token_embedding = nn.Embedding(300, 16)
+                self.layers = nn.ModuleList([_IdentityDonorLayer(), _IdentityDonorLayer()])
+                self.final_norm = nn.LayerNorm(16)
+                self.register_buffer("rope_cos", torch.zeros(64, 1, 1))
+                self.register_buffer("rope_sin", torch.zeros(64, 1, 1))
+
+        cfg = Sham2UnifiedConfig(
+            d_model=16, vocab_size=300, n_layers=2, max_seq_len=64,
+            latents=4, think_steps=2, block=32, writer_layers=1,
+            heads=4, head_d=16, bitnet_head=False, batch=1,
+        )
+        model = Sham2Unified(cfg, _TinyDonor())
+        prompts = [[1 + i, 2 + i, 3 + i, 10 + i] for i in range(10)]
+        report = latent_diversity(model, prompts, "selftest")
+        assert report["prompts"] == 10, report
+        assert report["verdict"] in (
+            "latents-near-constant", "latents-vary-writer-invariant", "prompt-dependent"
+        ), report["verdict"]
+        for key in ("latent_abs_mean", "latent_std_mean"):
+            assert math.isfinite(report[key]), (key, report[key])
+        for key in (
+            "latent_pairwise_cosine", "conditioning_pairwise_cosine",
+            "writer_first_position_logits_pairwise_cosine",
+            "writer_block_logits_pairwise_cosine",
+        ):
+            assert set(report[key]) == {"mean", "min", "max"}, (key, report[key])
+            assert all(math.isfinite(v) for v in report[key].values()), (key, report[key])
+        assert isinstance(report["distinct_first_byte"], int)
+        assert isinstance(report["distinct_block_argmax"], int)
+
+        # The additive conditioning must be trainable and must reach the logits.
+        input_ids = torch.tensor([prompts[0]], dtype=torch.long)
+        latents = model(input_ids)
+        target, valid = encode_target_bytes("ls", cfg.block, "latent-diversity self-test")
+        loss = model.writer.loss(
+            latents, torch.tensor([target], dtype=torch.long),
+            valid_mask=torch.tensor([valid], dtype=torch.bool),
+        )
+        assert torch.isfinite(loss), loss
+        loss.backward()
+        assert model.writer.cond[0].weight.grad is not None, "conditioning MLP has no gradient"
+        assert model.writer.cond_logits.weight.grad is not None, "conditioning logit bias has no gradient"
+        with torch.no_grad():
+            model.writer.cond_logits.weight.normal_(0, 0.05)
+        base = model.writer.logits(
+            torch.zeros(1, cfg.block, dtype=torch.long),
+            torch.ones(1, cfg.block, dtype=torch.bool), latents,
+        )
+        other = model.writer.logits(
+            torch.zeros(1, cfg.block, dtype=torch.long),
+            torch.ones(1, cfg.block, dtype=torch.bool), torch.zeros_like(latents),
+        )
+        assert not torch.allclose(base, other), "writer logits are independent of the latent"
+        print(json.dumps({
+            "selftest": "passed",
+            "network_used": False,
+            "optimizer_steps": 0,
+            "latent_diversity": report,
+            "conditioning_mlp_gradient": True,
+            "conditioning_logit_bias_gradient": True,
+            "writer_logits_depend_on_latent": True,
+        }, ensure_ascii=False, indent=2))
+        return
 
     if getattr(args, "selftest_byte_writer", False):
         from writer import DiffusionWriter as _ByteWriter

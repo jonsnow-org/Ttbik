@@ -16,13 +16,32 @@ class DiffusionWriter(nn.Module):
         self.mask_emb = nn.Parameter(torch.zeros(d))
         self.layers = nn.ModuleList(nn.TransformerDecoderLayer(d, heads, 4 * d, dropout=0.0, batch_first=True, norm_first=True) for _ in range(layers))
         self.norm = nn.LayerNorm(d)
+        # Direct additive latent conditioning. Cross-attention alone let the
+        # writer settle on the byte/position prior: the run-44696091074 head
+        # produced one identical command for all 26 held-out prompts. The
+        # latent summary is added to every position embedding AND to the output
+        # logits, so the argmax is forced to depend on the latent and cannot be
+        # satisfied by the prior alone. cond_logits starts at zero, so training
+        # begins from the previous behaviour and learns the dependence.
+        self.cond = nn.Sequential(nn.Linear(2 * d, d), nn.SiLU(), nn.Linear(d, d))
+        self.cond_logits = nn.Linear(d, vocab, bias=False)
+        nn.init.zeros_(self.cond_logits.weight)
+
+    def conditioning(self, z):
+        """Pool the latent block into one prompt vector (mean + spread)."""
+        mean = z.mean(dim=1)
+        std = z.std(dim=1, unbiased=False) if z.shape[1] > 1 else torch.zeros_like(mean)
+        return self.cond(torch.cat([mean, std.to(mean.dtype)], dim=-1))
 
     def logits(self, tokens, masked, z):
+        cond = self.conditioning(z)
         x = self.embed(tokens)
         x = torch.where(masked[..., None], self.mask_emb.to(x.dtype).expand_as(x), x) + self.pos(torch.arange(self.block, device=x.device))
+        x = x + cond.to(x.dtype)[:, None, :]
         for layer in self.layers:
             x = layer(x, z)
-        return self.head(self.norm(x))
+        out = self.head(self.norm(x))
+        return out + self.cond_logits(cond.to(out.dtype))[:, None, :]
 
     def loss(self, z, target, valid_mask=None):   # target (B, block); valid_mask selects bytes + EOS, not padding
         if target.ndim != 2 or target.shape[1] != self.block:
