@@ -13,6 +13,24 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "manipur-suspected-spurious-liquor-incident-2026",
+    "title": "Manipur reports 16 deaths linked to suspected spurious liquor; 600 hospitalised",
+    "date": "21 November 2026",
+    "contextDateLabel": "Reported incidents began: 18 November 2026; Akashvani update: 21 November 2026, 21:36 IST (UTC+5:30; 16:06 UTC); Indian Express update: 21 November 2026, 21:09 IST (UTC+5:30; 15:39 UTC); publication date: 21 November 2026",
+    "dek": "India's public broadcaster reported 16 deaths and about 600 hospital admissions after a suspected spurious-liquor incident in Manipur; tests to identify any toxic substance are still pending.",
+    "body": [
+      "Manipur's Excise Commissioner, Hungyo Worshang, said at a press conference in Imphal that the suspected spurious-liquor incident in Chandel district had resulted in 16 deaths, around 600 admissions to government and private hospitals, 12 patients in intensive care, and six arrests. India's public broadcaster Akashvani reported the figures at 21:36 IST on 21 November 2026.",
+      "The Indian Express reported matching figures at 21:09 IST the same day and quoted a police official saying the deaths and illnesses were suspected to be linked to spurious liquor. The exact cause and the presence of toxic substances remain subject to medical findings and laboratory tests. This report therefore does not describe the incident as confirmed methanol poisoning.",
+      "Akashvani reported that samples of the suspected liquor had been sent for forensic examination and that the state government had formed a high-level inquiry committee, asked to report within one month. Health officials also advised people who had consumed liquor from suspected sources in the previous 48 to 72 hours to seek prompt medical evaluation, even if they had no symptoms.",
+      "Reports of the incidents began on 18 November 2026. The figures of 16 deaths and about 600 hospital admissions are the latest matching count in the public-broadcaster update and the independent report reviewed on 21 November; the substance responsible remains under investigation.",
+      "Location: Chandel district, Manipur, India. Reported incidents began: 18 November 2026; latest official published update reviewed: 21 November 2026, 21:36 IST (16:06 UTC). Sham AI publication date: 21 November 2026."
+    ],
+    "sources": [
+      { "href": "https://newsonair.gov.in/manipur-spurious-liquor-incident-death-toll-rises-to-16/", "label": "Akashvani / News On AIR — government briefing from the Excise Commissioner, 21 November 2026, 21:36 IST" },
+      { "href": "https://indianexpress.com/article/india/manipur-hooch-tragedy-death-toll-16-600-hospitalised-10973024/", "label": "The Indian Express — independent corroboration, 21 November 2026, 21:09 IST" }
+    ]
+  },
+  {
     "slug": "cop31-overtime-climate-talks-2026",
     "title": "COP31 talks run past scheduled close amid fossil-fuel and climate-finance disputes",
     "date": "21 November 2026",
