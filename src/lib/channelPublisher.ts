@@ -22,12 +22,6 @@ import { ensureEnglishFirst, hasEarningsClaim as policyHasEarningsClaim, isExclu
  *      service page…) → one short "tweet" per page, from its own public
  *      <title>/<meta description>.
  * Slot 1 also posts a daily digest of the top news stories, linking to /news.
- * Independently of slot or new content, once every 7 days it also posts a
- * reminder that the owner personally builds a bot on request — the AD_BOT
- * "أريد بوتاً مماثلاً" $100 manual-purchase flow (owner request, 2026-09-05:
- * the service exists but gets no customers without recurring marketing in
- * the channel; see weeklyBotPromoPost()).
- *
  * Every outgoing text also passes isSafeForChannel() as a last line of
  * defence. Progress (what was already posted, which pages are known) is
  * kept in bot_settings under STATE_KEY.
@@ -42,7 +36,6 @@ type State = {
   posted: string[]; // changelog ids + "ann:<id>" + "page:<path>"
   pages: string[] | null; // known sitemap paths; null until the first baseline
   newsDay: string; // YYYY-MM-DD of the last news digest
-  lastBotPromoAt: string; // ISO timestamp of the last weekly "/bots" reminder
 };
 
 export type Post = { kind: string; key: string; text: string };
@@ -64,7 +57,6 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /(^|[^\u0600-\u06FF])شام(?![\u0600-\u06FF])(?![\s_]*(ai\b|للذكاء))/i,
   /\/(admin|api|owner|pay)\b/i, // internal site paths
   /8452320/,
-  /(?:ads[-_\\s]?and[-_\\s]?earn|بوت الإعلانات والمهام|بوت الإعلان والمهام|البوت الطبي|medical bot)/iu,
 ];
 
 /** Public copy cannot promise profit/returns or promote owner-review products. */
@@ -87,7 +79,6 @@ async function loadState(): Promise<State> {
       posted: Array.isArray(v.posted) ? v.posted : [],
       pages: Array.isArray(v.pages) ? v.pages : null,
       newsDay: typeof v.newsDay === "string" ? v.newsDay : "",
-      lastBotPromoAt: typeof v.lastBotPromoAt === "string" ? v.lastBotPromoAt : "",
     };
   } catch {
     return { posted: [], pages: null, newsDay: "", lastBotPromoAt: "" };
@@ -243,6 +234,7 @@ export async function sendToChannel(
   const channel = process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
   if (!token || !channel) return false;
   text = ensureEnglishFirst(freshenSiteLinks(rewriteLegacyLinks(text))); // English first, then Arabic; legacy links use the public site
+  if (!isSafeForChannel(text)) return false; // Final fail-closed guard for every publisher caller.
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
