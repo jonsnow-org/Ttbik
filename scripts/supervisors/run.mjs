@@ -128,8 +128,8 @@ async function http(url, ms = 20000, options = {}) {
 
 /** Read-only Gate probe with Oracle fallback on network/5xx errors only. */
 async function publicSiteHttp(site, path, ms = 20000, options = {}) {
-  const gate = (site.gateUrl || site.engineUrl || "").replace(/\\/$/, "");
-  const oracle = (site.oracleUrl || "").replace(/\\/$/, "");
+  const gate = (site.gateUrl || site.engineUrl || "").replace(/\/$/, "");
+  const oracle = (site.oracleUrl || "").replace(/\/$/, "");
   const primary = gate ? await http(`${gate}${path}`, ms, options) : { status: 0, text: "" };
   if (primary.status > 0 && primary.status < 500) return { ...primary, via: "gate" };
   if (!oracle) return { ...primary, via: "gate" };
