@@ -524,14 +524,16 @@ def thresholds_have_one_source_and_a_close_call_is_called_inconclusive():
     sys.path.insert(0, os.path.join(ROOT, "gate"))
     from stats import verdict, wilson
     th = json.load(open(os.path.join(ROOT, "gate", "thresholds.json"), encoding="utf-8"))
-    assert 0 < th["publish_floor"] < th["acceptance_heldout"] < 1
+    assert 0 < th["degenerate_floor"] < th["acceptance_heldout"] < 1
     for f in sorted(os.listdir(os.path.join(ROOT, "configs"))):
         text = open(os.path.join(ROOT, "configs", f), encoding="utf-8").read()
         m = re.search(r"^gate_heldout:\s*([0-9.]+)", text, re.M)
         if m:
             assert float(m.group(1)) == th["acceptance_heldout"], (f, m.group(1))
     trainer = open(os.path.join(ROOT, "..", "modelscope-trainer", "app.py"), encoding="utf-8").read()
-    assert float(re.search(r"^HELDOUT_PUBLISH_FLOOR\s*=\s*([0-9.]+)", trainer, re.M).group(1)) == th["publish_floor"], "the trainer's floor must be the one in thresholds.json"
+    assert "HELDOUT_PUBLISH_FLOOR" not in trainer and "thresholds.json" in trainer, "the trainer must read the one threshold file, not keep a copy"
+    fb = re.search(r"return (\d\.\d+), (\d\.\d+)\s+# the values in force when the file is missing", trainer)
+    assert fb and (float(fb.group(1)), float(fb.group(2))) == (th["acceptance_heldout"], th["degenerate_floor"]), "the in-code fallback must equal the file (never fail open)"
     assert verdict(9, 14, 0.6) == "inconclusive" and verdict(8, 14, 0.6) == "inconclusive", "one task either side of the gate is noise at n=14"
     assert verdict(14, 14, 0.6) == "pass" and verdict(2, 14, 0.6) == "fail"
     lo, hi = wilson(9, 14)
