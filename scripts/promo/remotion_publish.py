@@ -10,7 +10,7 @@ from typing import Any
 
 ARABIC_EARNINGS = re.compile(
     r"(?:اربح|اكسب)\s+(?:المال|أموال|اموال|دخل|مبلغ)"
-    r"|(?:اربح|اكسب)\s+(?:من|عن طريق|بسبب)\s+(?:مشاهدة|المشاهدة|الإعلانات|الاعلانات|النقرات|الضغطات)"
+    r"|(?:اربح|اكسب)\s+(?:من|عن طريق|بسبب)\s+(?:(?:مشاهدة|المشاهدة)\s+)?(?:الإعلانات|الاعلانات|النقرات|الضغطات|الفيديوهات|المقاطع)"
     r"|(?:توزيع|يوزّع|يوزع|توزّع|توزع)\s+(?:الأرباح|الارباح|أرباح|ارباح|ربح)"
     r"|(?:أرباح|ارباح|عوائد?|دخل)\s*(?:مضمونة|مضمون|ثابتة|ثابت|يومية|يومي|أسبوعية|اسبوعية|أسبوعي|اسبوعي|شهرية|شهري)"
     r"|(?:ضاعف|مضاعفة)\s+(?:أموالك|اموالك|مالك|رأس المال|راس المال|الأرباح|الارباح)",
@@ -23,7 +23,7 @@ ENGLISH_EARNINGS = re.compile(
     r"|\b(?:daily|weekly|monthly)\s+(?:profit|profits|returns?|income)\b"
     r"|\b(?:profits?|earnings?)\s+(?:are|will\s+be|is)\s+(?:paid|distributed|credited|guaranteed)\b"
     r"|\b(?:distribute|distributes|pay|pays)\s+(?:the\s+)?(?:viewing\s+)?(?:profits?|earnings?)\b"
-    r"|\b(?:earn|earnings?)\s+(?:from|by|through)\s+(?:watching|viewing|ads?|clicks?|referrals?)\b"
+    r"|\b(?:earn|earnings?)\s+(?:from|by|through)\s+(?:watching|viewing|videos?|ads?|clicks?|referrals?)\b"
     r"|\bget\s+paid\s+to\s+(?:watch|view|click)\b"
     r"|\bpaid\s+per\s+(?:view|click|watch)\b"
     r"|\bprofit[\s-]sharing\b"
