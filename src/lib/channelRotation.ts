@@ -227,6 +227,7 @@ async function sendMedia(captionText: string, media: { photo: string; video?: st
     return data?.ok === true;
   };
   const cap = ensureEnglishFirst(captionText).slice(0, 1000);
+  if (!isSafeForChannel(cap)) return false;
   if (media.video) {
     // image + video in one album; the caption sits on the first item
     const ok = await call("sendMediaGroup", {
@@ -244,10 +245,12 @@ async function sendText(captionText: string): Promise<boolean> {
   const token = await channelBotToken();
   const channel = channelId();
   if (!token || !channel) return false;
+  const safeText = ensureEnglishFirst(captionText).slice(0, 4000);
+  if (!isSafeForChannel(safeText)) return false;
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: channel, text: ensureEnglishFirst(captionText).slice(0, 4000), link_preview_options: { is_disabled: true } }),
+    body: JSON.stringify({ chat_id: channel, text: safeText, link_preview_options: { is_disabled: true } }),
   }).catch(() => null);
   const data = res ? await res.json().catch(() => null) : null;
   return data?.ok === true;
@@ -274,6 +277,8 @@ function pickPool(state: State): PoolItem | null {
 }
 
 async function sendPost(item: PoolItem, text: string): Promise<{ ok: boolean; error?: string }> {
+  const safeText = ensureEnglishFirst(text).slice(0, 4000);
+  if (!isSafeForChannel(safeText)) return { ok: false, error: "blocked-by-public-channel-policy" };
   const token = await channelBotToken();
   if (!token) return { ok: false, error: "no-bot-token" };
   const rows: { text: string; url: string }[][] = [[{ text: item.cta, url: item.url }]];
@@ -283,7 +288,7 @@ async function sendPost(item: PoolItem, text: string): Promise<{ ok: boolean; er
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: channelId(),
-      text: text.slice(0, 4000),
+      text: safeText,
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: rows },
       link_preview_options: { url: item.url, prefer_large_media: true, show_above_text: true },
