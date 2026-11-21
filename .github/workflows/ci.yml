@@ -94,6 +94,10 @@ jobs:
       - name: Guard content modules against placeholder / shell-artifact clobbering
         run: node scripts/content-shrink-check.mjs HEAD~1
       - run: npm ci
+      - name: Check Gate/Oracle hosting scripts syntax
+        run: |
+          bash -n scripts/hosting/select-site-base.sh
+          node --check scripts/hosting/run-crons.mjs
       - name: Run project source regression tests
         run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tests/*.test.mjs
       - name: Test monitor freshness and read-only supervisor rules
