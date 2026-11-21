@@ -8,6 +8,8 @@ name: Sham 2 partial train-and-gate in the dedicated CN Studio
 # confidence-guided refinement passes, and the terminal stage runs 3000 steps (was 600) on the same 46 examples.
 # Mission 7: the writer gets direct additive latent conditioning (embedding + logit bias) and the run
 # reports prompt-level latent diversity before/after training, on the same fixed data and 3150 steps.
+# Mission 8: a VICReg-style latent-preservation term (variance hinge + covariance, detached 8-step
+# buffer, batch still 1) keeps the encoder from collapsing; the diversity verdict is part of the result.
 # Sham 2 execution is pinned to the CN account and the audited Studio only.
 
 on:
@@ -57,6 +59,7 @@ jobs:
           python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-lora-layout
           python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-byte-writer
           python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-latent-diversity
+          python3 ai-system/tldm/sham_tldm/sham2_unified.py --selftest-latent-preservation
           python3 - <<'PY'
           import json
           from pathlib import Path

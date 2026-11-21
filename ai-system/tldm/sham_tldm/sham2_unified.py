@@ -1321,6 +1321,65 @@ def latent_diversity(model: "Sham2Unified", prompt_token_ids: List[List[int]],
         result["verdict"] = "prompt-dependent"
     return result
 
+
+LATENT_VARIANCE_TARGET = 1.0
+LATENT_VARIANCE_WEIGHT = 0.5
+LATENT_COVARIANCE_WEIGHT = 0.05
+LATENT_PRESERVATION_BUFFER = 8
+
+
+def latent_preservation_loss(latents: torch.Tensor, buffer: List[torch.Tensor],
+                             variance_target: float = LATENT_VARIANCE_TARGET,
+                             variance_weight: float = LATENT_VARIANCE_WEIGHT,
+                             covariance_weight: float = LATENT_COVARIANCE_WEIGHT,
+                             eps: float = 1e-4) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """VICReg-style anti-collapse term for batch_size=1 encoder training.
+
+    The batch stays 1. A small buffer of DETACHED latent blocks from immediately
+    preceding steps (different prompts) supplies the cross-sample statistics:
+
+      Z    = [z_t, buffer]                      # (n, 16*256)
+      v_j  = sqrt(Var_j(Z) + eps)               # per-dimension standard deviation
+      L_var = mean_j relu(gamma - v_j)          # hinge, gamma = 1.0
+      P    = [mean_latents(z) || std_latents(z)]  # (n, 512) pooled summary
+      C    = cov(P)                              # (512, 512)
+      L_cov = (sum_{i != j} C_ij^2) / 512
+
+      L_pres = 0.5 * L_var + 0.05 * L_cov
+
+    Only the current step's latent receives gradient; the buffer is detached, so
+    this never changes the batch size or the fixed data. It answers the Mission 7
+    collapse (cross-prompt std 0.4383 -> 2.35e-08) by making a constant encoder
+    output directly expensive.
+    """
+    current = latents[0].float()
+    flat = current.reshape(1, -1)
+    if buffer:
+        past = torch.stack([item.to(flat.device, flat.dtype) for item in buffer], dim=0)
+        stacked = torch.cat([flat, past], dim=0)
+    else:
+        stacked = flat
+    zero = flat.sum() * 0.0
+    if stacked.shape[0] < 2:
+        return zero, zero.detach(), zero.detach()
+    centered = stacked - stacked.mean(dim=0, keepdim=True)
+    std = torch.sqrt(centered.var(dim=0, unbiased=False) + eps)
+    variance_loss = torch.relu(float(variance_target) - std).mean()
+    pooled = torch.stack([
+        torch.cat([
+            row.reshape(-1, current.shape[-1]).mean(dim=0),
+            row.reshape(-1, current.shape[-1]).std(dim=0, unbiased=False),
+        ])
+        for row in stacked
+    ])
+    pooled_centered = pooled - pooled.mean(dim=0, keepdim=True)
+    covariance = pooled_centered.t() @ pooled_centered / max(1, pooled.shape[0] - 1)
+    covariance_loss = (
+        covariance.pow(2).sum() - covariance.diagonal().pow(2).sum()
+    ) / covariance.shape[0]
+    total = float(variance_weight) * variance_loss + float(covariance_weight) * covariance_loss
+    return total, variance_loss.detach(), covariance_loss.detach()
+
 # ============================================================
 # Codebook Init للوسائط — [إصلاح 3]
 # ============================================================
@@ -1652,11 +1711,33 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
         + json.dumps(report["latent_diversity"]["before"], ensure_ascii=False),
         flush=True,
     )
+    # Mission 8: encoder latents collapsed to a constant during the Mission 7 run
+    # (cross-prompt std 0.4383 -> 2.35e-08) because nothing in the writer objective
+    # rewards keeping prompt information. This detached-latent buffer feeds the
+    # VICReg-style preservation term without changing batch_size=1 or the data.
+    report["latent_preservation"] = {
+        "formula": (
+            "L_pres = 0.5 * mean_j relu(1.0 - sqrt(Var_j(Z)+1e-4)) "
+            "+ 0.05 * (sum_{i!=j} cov(P)_ij^2) / 512; "
+            "Z = [z_current, 8 detached previous-step latents]; "
+            "P = [mean_latents(z) || std_latents(z)] (512 values)"
+        ),
+        "variance_target": LATENT_VARIANCE_TARGET,
+        "variance_weight": LATENT_VARIANCE_WEIGHT,
+        "covariance_weight": LATENT_COVARIANCE_WEIGHT,
+        "buffer_size": LATENT_PRESERVATION_BUFFER,
+        "batch_size_unchanged": int(cfg.batch),
+        "buffer_detached": True,
+    }
+    latent_buffer: List[torch.Tensor] = []
     for stage_name in stages:
         rows = [row for row in train_rows if row["stage"] == stage_name]
         if not rows:
             raise ValueError(f"stage {stage_name} has no real training examples")
         losses = []
+        preservation_totals: List[float] = []
+        preservation_variances: List[float] = []
+        preservation_covariances: List[float] = []
         steps = stage_steps[stage_name]
         model.train()
         for step in range(steps):
@@ -1665,7 +1746,11 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             target_ids = torch.tensor([row["target_ids"]], dtype=torch.long)
             valid_mask = torch.tensor([row["valid_mask"]], dtype=torch.bool)
             latents = model(input_ids)
-            loss = model.writer.loss(latents, target_ids, valid_mask=valid_mask)
+            writer_loss = model.writer.loss(latents, target_ids, valid_mask=valid_mask)
+            preservation_loss, preservation_var, preservation_cov = latent_preservation_loss(
+                latents, latent_buffer
+            )
+            loss = writer_loss + preservation_loss
             if not torch.isfinite(loss):
                 raise RuntimeError(f"non-finite real-data loss at stage={stage_name}, step={step}")
             optimizer.zero_grad(set_to_none=True)
@@ -1673,11 +1758,19 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
             scheduler.step()
-            losses.append(float(loss.detach().cpu()))
+            losses.append(float(writer_loss.detach().cpu()))
+            preservation_totals.append(float(preservation_loss.detach().cpu()))
+            preservation_variances.append(float(preservation_var.cpu()))
+            preservation_covariances.append(float(preservation_cov.cpu()))
+            latent_buffer.append(latents.detach().float().reshape(-1))
+            if len(latent_buffer) > LATENT_PRESERVATION_BUFFER:
+                latent_buffer.pop(0)
             if step % 50 == 0 or step == steps - 1:
                 print(
                     f"[Sham2] stage={stage_name} step={step + 1}/{steps} "
-                    f"loss={losses[-1]:.5f}",
+                    f"writer_loss={losses[-1]:.5f} "
+                    f"preservation={preservation_totals[-1]:.5f} "
+                    f"(var={preservation_variances[-1]:.5f} cov={preservation_covariances[-1]:.5f})",
                     flush=True,
                 )
         report["stages"].append({
@@ -1687,6 +1780,13 @@ def train_sham2_unified(donor_path: str, tokenizer_path: str, out_dir: str,
             "examples_available": len(rows),
             "loss_mean": sum(losses) / len(losses),
             "loss_last": losses[-1],
+            "writer_loss_initial": losses[0],
+            "writer_loss_mean": sum(losses) / len(losses),
+            "writer_loss_last": losses[-1],
+            "preservation_loss_mean": sum(preservation_totals) / len(preservation_totals),
+            "preservation_loss_last": preservation_totals[-1],
+            "preservation_variance_loss_mean": sum(preservation_variances) / len(preservation_variances),
+            "preservation_covariance_loss_mean": sum(preservation_covariances) / len(preservation_covariances),
         })
 
     report["final_training_loss"] = report["stages"][-1]["loss_last"]
@@ -1954,7 +2054,82 @@ def main():
                     help="offline shape, masking, UTF-8, position, gradient and generation test for the canonical byte-diffusion writer")
     ap.add_argument("--selftest-latent-diversity", action="store_true",
                     help="offline test of the latent-diversity diagnostic and the additive latent conditioning; no checkpoint download")
+    ap.add_argument("--selftest-latent-preservation", action="store_true",
+                    help="offline test of the VICReg-style latent-preservation term; no checkpoint download")
     args = ap.parse_args()
+
+    if getattr(args, "selftest_latent_preservation", False):
+        torch.manual_seed(0)
+        constant = torch.full((1, 16, 256), 0.1)
+        loss_const, var_const, cov_const = latent_preservation_loss(
+            constant, [constant[0].reshape(-1)] * 4
+        )
+        diverse = torch.randn(1, 16, 256)
+        loss_div, var_div, cov_div = latent_preservation_loss(
+            diverse, [torch.randn(16, 256).reshape(-1) for _ in range(4)]
+        )
+        assert math.isfinite(float(loss_const)) and math.isfinite(float(loss_div))
+        assert float(loss_const) > float(loss_div), (float(loss_const), float(loss_div))
+        assert float(var_const) > float(var_div), (float(var_const), float(var_div))
+
+        from types import SimpleNamespace
+
+        class _IdentityDonorLayer(nn.Module):
+            def forward(self, hidden, _cos, _sin, past_kv=None, use_cache=False):
+                return hidden, None
+
+        class _TinyDonor(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.cfg = SimpleNamespace(
+                    d_model=16, max_seq_len=64, use_gradient_checkpointing=False
+                )
+                self.token_embedding = nn.Embedding(300, 16)
+                self.layers = nn.ModuleList([_IdentityDonorLayer(), _IdentityDonorLayer()])
+                self.final_norm = nn.LayerNorm(16)
+                self.register_buffer("rope_cos", torch.zeros(64, 1, 1))
+                self.register_buffer("rope_sin", torch.zeros(64, 1, 1))
+
+        cfg = Sham2UnifiedConfig(
+            d_model=16, vocab_size=300, n_layers=2, max_seq_len=64,
+            latents=4, think_steps=2, block=32, writer_layers=1,
+            heads=4, head_d=16, bitnet_head=False, batch=1,
+        )
+        model = Sham2Unified(cfg, _TinyDonor())
+        first = model(torch.tensor([[1, 2, 3]], dtype=torch.long))
+        second = model(torch.tensor([[9, 8, 7]], dtype=torch.long))
+        keep_loss, keep_var, keep_cov = latent_preservation_loss(
+            first, [second[0].detach().float().reshape(-1)]
+        )
+        assert torch.isfinite(keep_loss), keep_loss
+        keep_loss.backward()
+        encoder_grads = [
+            name for name, parameter in model.named_parameters()
+            if name.startswith(("compressor.", "thinker.")) and parameter.grad is not None
+        ]
+        assert encoder_grads, "the preservation loss must reach compressor/thinker parameters"
+        print(json.dumps({
+            "selftest": "passed",
+            "network_used": False,
+            "optimizer_steps": 0,
+            "formula": (
+                "L_pres = 0.5 * mean_j relu(1.0 - sqrt(Var_j(Z)+1e-4)) "
+                "+ 0.05 * (sum_{i!=j} cov(P)_ij^2) / 512"
+            ),
+            "variance_target": LATENT_VARIANCE_TARGET,
+            "variance_weight": LATENT_VARIANCE_WEIGHT,
+            "covariance_weight": LATENT_COVARIANCE_WEIGHT,
+            "buffer_size": LATENT_PRESERVATION_BUFFER,
+            "batch_size_unchanged": 1,
+            "constant_latents_loss": float(loss_const),
+            "diverse_latents_loss": float(loss_div),
+            "constant_variance_term": float(var_const),
+            "diverse_variance_term": float(var_div),
+            "constant_covariance_term": float(cov_const),
+            "diverse_covariance_term": float(cov_div),
+            "encoder_parameters_with_gradient": len(encoder_grads),
+        }, ensure_ascii=False, indent=2))
+        return
 
     if getattr(args, "selftest_latent_diversity", False):
         from types import SimpleNamespace
