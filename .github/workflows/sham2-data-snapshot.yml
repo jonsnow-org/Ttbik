@@ -1,0 +1,48 @@
+name: Sham 2 data snapshots (Arabic + tools; fixed, hashed, with provenance)
+
+# Builds the two missing training stages of ai-system/tldm/data/SHAM2_DATA_REQUIREMENTS.md once, on a runner, and uploads them as an artifact with manifests (SHA-256, immutable dataset revisions, gaps).
+# Sources: HuggingFaceFW/fineweb-2 (arb_Arab, ODC-By) and openbmb/UltraData-SFT-Agent-2609 (Apache-2.0). No secret is used; nothing is published or trained by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      arabic_train:
+        description: "Arabic training records"
+        default: "12000"
+      arabic_heldout:
+        description: "Arabic held-out records"
+        default: "1200"
+      tools_train:
+        description: "tools training decision records"
+        default: "6000"
+      tools_heldout:
+        description: "tools held-out decision records"
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install datasets huggingface_hub
+      - name: Self-test
+        run: python ai-system/tldm/data/sham2_snapshots.py --selftest
+      - name: Arabic snapshot
+        run: python ai-system/tldm/data/sham2_snapshots.py arabic --out snapshot --train "${{ inputs.arabic_train }}" --heldout "${{ inputs.arabic_heldout }}"
+      - name: Tools snapshot
+        run: python ai-system/tldm/data/sham2_snapshots.py tools --out snapshot --train "${{ inputs.tools_train }}" --heldout "${{ inputs.tools_heldout }}"
+      - name: Counts
+        run: wc -l snapshot/*.jsonl && cat snapshot/manifest_*.json | head -80
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sham2-data-snapshot
+          path: snapshot/
+          retention-days: 30
