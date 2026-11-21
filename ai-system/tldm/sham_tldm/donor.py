@@ -8,6 +8,12 @@ import torch.nn as nn
 from .model import _Core
 
 
+def _dtype(lin):
+    w = getattr(lin, "weight", None)
+    w = w() if callable(w) else w                                     # a dynamic-INT8 Linear exposes weight() (qint8): its input stays fp32
+    return w.dtype if isinstance(w, torch.Tensor) and w.is_floating_point() else torch.float32
+
+
 class FeatureTLDM(nn.Module):
     """The head on PRE-COMPUTED reader features (B, L, d_in) of any frozen body: proj + Compressor + Thinker + Writer. Used when the body is too big to run at every
     training step on a CPU (Sham 2, 1.7B): each text goes through the body once, its features are kept, and only this head trains."""
@@ -22,8 +28,8 @@ class FeatureTLDM(nn.Module):
         return self.core.loss(self.proj(h), pad, target)
 
     @torch.no_grad()
-    def generate(self, h, pad, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
-        return self.core.generate(self.proj(h), pad, steps, early_exit, temperature, confident)
+    def generate(self, h, pad, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0):
+        return self.core.generate(self.proj(h.to(_dtype(self.proj))), pad, steps, early_exit, temperature, confident, end_exit, parallel)
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters())
@@ -153,9 +159,9 @@ class DonorTLDM(nn.Module):
         return self.core.loss(self.proj(h), pad, target)
 
     @torch.no_grad()
-    def generate(self, texts, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
+    def generate(self, texts, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0):
         h, pad = self._feats(texts)
-        return self.core.generate(self.proj(h), pad, steps, early_exit, temperature, confident)
+        return self.core.generate(self.proj(h.to(_dtype(self.proj))), pad, steps, early_exit, temperature, confident, end_exit, parallel)
 
     def head_state(self):
         return {k: v for k, v in self.state_dict().items() if not k.startswith("donor.")}
