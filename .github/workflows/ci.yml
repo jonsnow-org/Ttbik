@@ -96,6 +96,8 @@ jobs:
       - run: npm ci
       - name: Run project source regression tests
         run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tests/*.test.mjs
+      - name: Test monitor freshness and read-only supervisor rules
+        run: node --test scripts/supervisors/run.test.mjs
       - run: npm run build
       - name: Test Cloudflare gate failover with simulated origin outages
         run: node cloudflare/site-gate/selftest.mjs
