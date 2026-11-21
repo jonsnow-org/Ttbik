@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { NEWS_ITEMS } from "../../src/lib/newsItems.ts";
 import { ARTICLE_ITEMS } from "../../src/lib/articlesIndex.ts";
 import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
+import { latestEvent } from "../../src/lib/eventsIndex.ts";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
 const sourceUrls = (item) => (item.sources ?? []).map((source) => source.href).sort();
@@ -123,6 +124,39 @@ test("APEC news and event records are updated after the 19 November meeting with
   assert.match(englishEvent.body[0], /took place/);
   assert.doesNotMatch(englishEvent.body[0], /is scheduled/);
   assert.deepEqual(sourceUrls(arabicEvent), sourceUrls(englishEvent));
+});
+
+
+test("21 November autonomous-weapons briefing is bilingual, source-matched and does not overstate the outcome", () => {
+  const slug = "ccw-autonomous-weapons-geneva-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic briefing is missing");
+  assert.ok(english, "English briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(english.date, "21 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.length >= 4);
+  assert.ok(arabic.sources.some((source) => source.href.includes("ungeneva.org")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
+  assert.match(arabic.description, /2028/);
+  assert.match(arabic.description, /ملزمة/);
+  assert.match(english.dek, /2028/);
+  assert.match(english.dek, /binding rules/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تعني نتيجة جنيف حظراً دولياً/);
+  assert.match(english.body.join(" "), /does not amount to a new international ban/i);
+});
+
+test("the homepage resolves its event strip from the combined event catalogue, not the empty legacy array", () => {
+  const expected = [...EVENT_EXTRAS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
+  assert.ok(expected, "The event catalogue should contain editorial events");
+  assert.equal(latestEvent()?.slug, expected.slug);
+  const home = readFileSync(new URL("../../src/app/page.tsx", import.meta.url), "utf8");
+  assert.match(home, /const event = latestEvent\(\)/);
+  assert.match(home, /latestEvent=\{event && \{ slug: event\.slug, title: event\.title \}\}/);
+  assert.doesNotMatch(home, /EVENT_ITEMS\[0\]/);
 });
 
 test("news and article detail pages label publication dates explicitly", () => {
