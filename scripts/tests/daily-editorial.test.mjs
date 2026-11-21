@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { NEWS_ITEMS } from "../../src/lib/newsItems.ts";
 import { ARTICLE_ITEMS } from "../../src/lib/articlesIndex.ts";
-import { EVENT_EXTRAS } from "../../src/lib/eventsExtra.ts";
+import { EVENT_EXTRAS, isEventCurrent, isEventUpcomingOrCurrent } from "../../src/lib/eventsExtra.ts";
 import { EVENT_ITEMS, latestEvent } from "../../src/lib/eventsIndex.ts";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS, isUpcomingDate } from "../../src/lib/enDesk.ts";
 
@@ -52,6 +52,7 @@ test("current and upcoming global events have matching English dates and sources
     { slug: "apec-economic-leaders-meeting-shenzhen-2026", dateIso: "2026-11-18", endDateIso: "2026-11-19", date: "2026-11-18", endDate: "2026-11-19", dateLabel: "18–19 November 2026" },
     { slug: "world-toilet-day-2026", dateIso: "2026-11-19", date: "2026-11-19", dateLabel: "19 November 2026" },
     { slug: "world-childrens-day-2026", dateIso: "2026-11-20", date: "2026-11-20", dateLabel: "20 November 2026" },
+    { slug: "iffi-goa-2026", dateIso: "2026-11-20", endDateIso: "2026-11-28", date: "2026-11-20", endDate: "2026-11-28", dateLabel: "20–28 November 2026" },
     { slug: "world-television-day-2026", dateIso: "2026-11-21", date: "2026-11-21", dateLabel: "21 November 2026" }
   ];
 
@@ -71,6 +72,21 @@ test("current and upcoming global events have matching English dates and sources
   }
 });
 
+
+
+test("current and upcoming event filters distinguish the ongoing IFFI festival from completed COP31", () => {
+  const iffiAr = EVENT_EXTRAS.find((event) => event.slug === "iffi-goa-2026");
+  const iffiEn = EN_EVENTS.find((event) => event.slug === "iffi-goa-2026");
+  const copAr = EVENT_EXTRAS.find((event) => event.slug === "cop31-antalya-2026");
+  const copEn = EN_EVENTS.find((event) => event.slug === "cop31-antalya-2026");
+  assert.ok(iffiAr && iffiEn && copAr && copEn);
+  assert.equal(isEventCurrent(iffiAr, "2026-11-21"), true);
+  assert.equal(isEventUpcomingOrCurrent(iffiAr, "2026-11-21"), true);
+  assert.equal(isUpcomingDate(iffiEn, "2026-11-21"), true);
+  assert.equal(isEventCurrent(copAr, "2026-11-21"), false);
+  assert.equal(isEventUpcomingOrCurrent(copAr, "2026-11-21"), false);
+  assert.equal(isUpcomingDate(copEn, "2026-11-21"), false);
+});
 
 test("20 November global news is bilingual, date-aligned and supported by primary and independent sources", () => {
   const slugs = ["icj-myanmar-rohingya-judgment-2026", "wfp-2027-global-outlook-food-aid-2026"];
@@ -159,7 +175,7 @@ test("COP31 overtime briefing is bilingual, date-aware and distinguishes the dra
   assert.equal(english.date, "21 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
   assert.match(arabic.contextDateLabel, /14:36 UTC/);
-  assert.match(english.contextDateLabel, /19:25 UTC/);
+  assert.match(english.contextDateLabel, /19:54 UTC/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href === "https://unfccc.int/cop31"));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
@@ -185,12 +201,15 @@ test("21 November autonomous-weapons briefing is bilingual, source-matched and d
   assert.match(english.contextDateLabel, /03:00 GMT/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.length >= 4);
+  assert.ok(arabic.sources.some((source) => source.href.includes("admin.ch")));
   assert.ok(arabic.sources.some((source) => source.href.includes("ungeneva.org")));
   assert.ok(arabic.sources.some((source) => source.href.includes("docs-library.unoda.org")));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
   assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
   assert.match(arabic.description, /2028/);
   assert.match(arabic.description, /ملزمة/);
+  assert.match(arabic.paragraphs.join(" "), /128 دولة/);
+  assert.match(english.body.join(" "), /128 states parties/);
   assert.match(english.dek, /2028/);
   assert.match(english.dek, /binding rules/i);
   assert.match(arabic.paragraphs.join(" "), /لا تعني نتيجة جنيف حظراً دولياً/);
@@ -210,9 +229,63 @@ test("21 November Hormuz tanker incidents are grounded in UKMTO alerts and do no
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href.includes("ukmto.org")));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
-  assert.match(arabic.paragraphs.join(" "), /لا تنسب هذه المادة الهجمات إلى طرف محدد/);
+  assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
+  assert.match(arabic.paragraphs.join(" "), /ثلاث ناقلات/);
+  assert.match(english.body.join(" "), /at least three oil tankers/);
+  assert.match(arabic.paragraphs.join(" "), /لا تنسب هذه المادة الهجمات إلى طرف محدد|لا تمثل التقارير الثلاثة/);
   assert.match(english.body.join(" "), /does not attribute the attacks to any party/i);
   assert.match(english.body.join(" "), /could not independently verify the Iranian account/i);
+});
+
+
+test("21 November humanitarian and security updates are bilingual, source-matched and preserve attribution", () => {
+  const cases = [
+    {
+      slug: "gaza-city-food-vehicle-strike-2026",
+      sources: ["idf.il", "reuters.com", "apnews.com"],
+      ar: /لم تكن تابعة لها/,
+      en: /not affiliated with the charity/i,
+      caveat: /لم تتمكن من التحقق مستقلاً/
+    },
+    {
+      slug: "bahrain-industrial-facility-fire-2026",
+      sources: ["x.com/moi_bahrain", "reuters.com", "aa.com.tr"],
+      ar: /دون إصابات/,
+      en: /no injuries/i,
+      caveat: /لم تحدد الوزارة/
+    },
+    {
+      slug: "russian-cargo-ship-sparta-ii-fire-2026",
+      sources: ["epressi.com", "reuters.com"],
+      ar: /الطاقم الستة عشر/,
+      en: /16-member crew/,
+      caveat: /لا توجد معلومات مؤكدة عن الحمولة/
+    },
+    {
+      slug: "iraq-hartha-power-station-fire-2026",
+      sources: ["reuters.com", "aa.com.tr"],
+      ar: /أربعة قتلى و35 مصاباً/,
+      en: /four dead and 35 injured/,
+      caveat: /الأرقام أولية/
+    }
+  ];
+
+  for (const item of cases) {
+    const arabic = NEWS_ITEMS.find((entry) => entry.slug === item.slug);
+    const english = EN_NEWS.find((entry) => entry.slug === item.slug);
+    assert.ok(arabic, `Missing Arabic entry for ${item.slug}`);
+    assert.ok(english, `Missing English entry for ${item.slug}`);
+    assert.equal(arabic.dateIso, "2026-11-21");
+    assert.equal(english.date, "21 November 2026");
+    assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+    assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+    assert.ok(arabic.sources.length >= 2);
+    assert.ok(arabic.sources.every((source) => source.href.startsWith("https://")));
+    for (const domain of item.sources) assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain} for ${item.slug}`);
+    assert.match(arabic.paragraphs.join(" "), item.ar);
+    assert.match(english.body.join(" "), item.en);
+    assert.match(arabic.paragraphs.join(" "), item.caveat);
+  }
 });
 
 test("AI-led market sell-off separates the 20 November session from 21 November publication", () => {
@@ -276,7 +349,10 @@ test("news and article detail pages label publication dates explicitly", () => {
   const englishEvents = readFileSync(new URL("../../src/app/en/events/page.tsx", import.meta.url), "utf8");
   const englishEventDetail = readFileSync(new URL("../../src/app/en/events/[slug]/page.tsx", import.meta.url), "utf8");
   const englishUpcoming = readFileSync(new URL("../../src/app/en/events/upcoming/page.tsx", import.meta.url), "utf8");
+  const arabicUpcoming = readFileSync(new URL("../../src/app/events/upcoming/page.tsx", import.meta.url), "utf8");
   assert.match(englishEvents, /item\.dateLabel/);
   assert.match(englishEventDetail, /item\.dateLabel/);
   assert.match(englishUpcoming, /item\.dateLabel/);
+  assert.match(arabicUpcoming, /الأحداث الجارية والقادمة/);
+  assert.match(englishUpcoming, /Current and upcoming/);
 });
