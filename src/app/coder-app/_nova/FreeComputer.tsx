@@ -28,6 +28,7 @@ export default function FreeComputer({ lang, model, home, modelLabel }: { lang: 
       <div className="n-card" style={{ padding: 10, marginBottom: 8 }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }} dir="auto">💻 {ar ? `حاسوب ${modelLabel}` : `${modelLabel}'s computer`}</div>
         <div className="n-meta" dir="auto" style={{ marginBottom: 4 }}>{where}</div>
+        <div className="n-meta" dir="auto" style={{ marginBottom: 4 }}>{ar ? "يوتيوب والبحث والخرائط والترجمة تفتح داخل هذه الشاشة. لا ينتقل شيء إلى حاسوب نموذج آخر." : "YouTube, search, maps and translate open inside this screen. Nothing moves to another model's computer."}</div>
         <div className="n-meta" style={{ ...mono, fontSize: 12 }}>
           {status == null ? "…" : status.ok !== false
             ? `${ar ? "الحاسوب متصل" : "computer online"}${status.your_disk_mb != null ? ` · ${status.your_disk_mb} MB` : ""}`
