@@ -137,6 +137,8 @@ test("COP31 overtime briefing is bilingual, date-aware and distinguishes the dra
   assert.equal(arabic.dateIso, "2026-11-21");
   assert.equal(english.date, "21 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /14:36 UTC/);
+  assert.match(english.contextDateLabel, /18:46 UTC/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href === "https://unfccc.int/cop31"));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
@@ -158,6 +160,8 @@ test("21 November autonomous-weapons briefing is bilingual, source-matched and d
   assert.equal(arabic.dateIso, "2026-11-21");
   assert.equal(english.date, "21 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /05:36 UTC/);
+  assert.match(english.contextDateLabel, /03:00 GMT/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.length >= 4);
   assert.ok(arabic.sources.some((source) => source.href.includes("ungeneva.org")));
