@@ -14,6 +14,7 @@ back-off, URL memory, fingerprints) drives them.
          hackernews     Hacker News comments and stories (technical discussion)
          stackexchange  Questions with their top answers from many Stack Exchange sites and languages
          github         Source code + READMEs from permissively licensed repositories (needs GITHUB_TOKEN to go fast)
+         verified_tests Python projects whose OWN tests pass when run here (as the unprivileged user `nobody`, empty environment): tests + the code that satisfies them
          crawl_corpus   What the collectors already published (every sham-crawl-*-corpus dataset of the account, e.g.
                         sham-crawl-gh-collect-corpus: text/*.txt, documents separated by a blank line) — read locally,
                         so the ~1 GB the GitHub collector gathered is trained on instead of sitting unused
@@ -482,12 +483,18 @@ def src_crawl_corpus(rng, files=None):
     return [Item("text", d[:8000], "crawl_corpus", license="as published by the collector") for d in docs[:8]]
 
 
+def _src_verified_tests(rng):
+    """GitHub Python projects whose own tests passed when run here, as (tests -> code) documents (sham_source_tests.py; runs only inside the `nobody` sandbox)."""
+    from sham_source_tests import src_verified_tests
+    return src_verified_tests(rng)
+
+
 def gh_sources(text_only: bool = False):
     s = [SourceState("gutenberg", "text", src_gutenberg), SourceState("ia_books", "text", src_ia_books),
          SourceState("arxiv", "text", src_arxiv), SourceState("europepmc", "text", src_europepmc),
          SourceState("crossref", "text", src_crossref), SourceState("hackernews", "text", src_hackernews),
          SourceState("stackexchange", "text", src_stackexchange), SourceState("github", "text", src_github),
-         SourceState("crawl_corpus", "text", src_crawl_corpus)]
+         SourceState("crawl_corpus", "text", src_crawl_corpus), SourceState("verified_tests", "text", _src_verified_tests)]
     if not text_only:
         s += [SourceState("loc", "image", src_loc), SourceState("cleveland", "image", src_cleveland),
               SourceState("ia_images", "image", src_ia_images), SourceState("librivox", "audio", src_librivox),
@@ -505,7 +512,7 @@ if __name__ == "__main__":
     seg = passage(long, rng, 3000)
     assert 1500 < len(seg) <= 3000, len(seg)
     names = [s.name for s in gh_sources()]
-    assert len(names) == len(set(names)) == 15, names
+    assert len(names) == len(set(names)) == 16, names
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         fp = os.path.join(d, "gh_1.txt")
