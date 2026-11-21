@@ -17,7 +17,7 @@ describe("the graphical Linux desktop RPC contract", () => {
       expect(calls[0].url).toBe("https://computer.test/gradio_api/call/live");
       const encoded = JSON.parse(String(calls[0].init?.body)).data[0] as string;
       const args = JSON.parse(Buffer.from(encoded.slice(4), "base64").toString("utf8"));
-      expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.5 });
+      expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.4, quality: 68, scale: 1 });
       expect(calls[1].url).toBe("https://computer.test/gradio_api/call/live/live-1");
     } finally {
       if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
@@ -160,6 +160,8 @@ describe("the graphical Linux desktop RPC contract", () => {
   test("clamps mouse coordinates and validates buttons", () => {
     expect(cleanDesktopArgs({ action: "click", x: 99999, y: -12, button: "right" }))
       .toEqual({ action: "click", x: 1599, y: 0, button: "right" });
+    expect(cleanDesktopArgs({ action: "click", x: 10, y: 5000, button: "left" }))
+      .toEqual({ action: "click", x: 10, y: 1499, button: "left" });
     expect(cleanDesktopArgs({ action: "move", x: 20.8, y: 40.2 }))
       .toEqual({ action: "move", x: 20, y: 40 });
     expect(cleanDesktopArgs({ action: "click", x: 1, y: 1, button: "shell" })).toBeNull();

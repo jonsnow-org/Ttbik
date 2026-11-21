@@ -42,4 +42,114 @@
   .media-mini-app-sheet {
     scroll-behavior: auto;
   }
+  .media-reels { scroll-behavior: auto; }
+}
+
+/* Portrait reels for the video tab only. The clip stays inside its own article. */
+.media-reels-open { overflow: hidden; height: 100dvh; }
+.media-reels-hide { display: none !important; }
+.media-reels {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  height: 100dvh;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  background: #000;
+  -webkit-overflow-scrolling: touch;
+}
+.media-reels > article {
+  position: relative;
+  height: 100dvh;
+  min-height: 100dvh;
+  margin: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+.media-reels .media-reel-stage {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+}
+.media-reels > .overflow-hidden,
+.media-reels > .media-reel-more {
+  height: 100dvh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: grid;
+  place-items: center;
+  background: #0b1220;
+}
+.media-reel-actions {
+  position: absolute;
+  z-index: 3;
+  left: 12px;
+  bottom: calc(78px + var(--media-safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.media-reel-actions a,
+.media-reel-actions button {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 18px;
+  backdrop-filter: blur(8px);
+}
+.media-reel-meta {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: calc(78px + var(--media-safe-bottom));
+  left: 72px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.media-reel-chrome {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  pointer-events: none;
+}
+.media-reel-top, .media-reel-tabs { pointer-events: auto; }
+.media-reel-top {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.media-reel-tabs {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(10px + var(--media-safe-bottom));
+  display: flex;
+  justify-content: space-around;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  backdrop-filter: blur(10px);
+}
+.media-reel-sheet {
+  position: fixed;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  max-height: 75dvh;
 }

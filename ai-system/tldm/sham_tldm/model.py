@@ -51,9 +51,10 @@ class _Core(nn.Module):
         return self.writer.loss(z, target)
 
     @torch.no_grad()
-    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
+    def generate(self, h, pad_mask=None, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0):
+        h = h.to(self.compressor.q.dtype)                               # a bf16 head (sham_tldm/fast.py) reads fp32 body features
         z, used = self.latents(h, pad_mask, early_exit)
-        out = self.writer.generate(z, steps, temperature, confident)
+        out = self.writer.generate(z, steps, temperature, confident, end_exit, parallel)
         return out, {"latent_steps_used": used, "latents": z.shape[1], "writer_passes": self.writer.last_passes}
 
 
@@ -77,8 +78,14 @@ class Sham1_TLDM(nn.Module):
         return self.core.loss(self.read(ids), ids == PAD, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0):
-        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit, temperature, confident)
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0,
+                 trim: bool = True):
+        """trim (on by default, lossless): the trailing PAD columns every row shares are cut before the reader. The Mamba reader is causal (a PAD at the end never
+        changes an earlier state) and the Compressor masks PAD keys, so the latents are the same; the reader just stops reading 64 positions for a 23-byte command."""
+        if trim and ids.shape[1] > 1:
+            used = (ids != PAD).any(0).nonzero()
+            ids = ids[:, : max(1, int(used[-1]) + 1 if used.numel() else 1)]
+        return self.core.generate(self.read(ids), ids == PAD, steps, early_exit, temperature, confident, end_exit, parallel)
 
     def count_params(self):
         return sum(p.numel() for p in self.parameters())
@@ -112,9 +119,9 @@ class ShamBodyTLDM(nn.Module):
         return self.core.loss(self.read(ids), pad_mask, target)
 
     @torch.no_grad()
-    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None, temperature: float = 0.0, confident: float = 0.0):
+    def generate(self, ids, steps: int = 10, early_exit: bool = False, pad_mask=None, temperature: float = 0.0, confident: float = 0.0, end_exit: bool = True, parallel: float = 0.0):
         """confident > 0: the writer stops early once every position is that sure (the same option as Sham1_TLDM and DonorTLDM)."""
-        return self.core.generate(self.read(ids), pad_mask, steps, early_exit, temperature, confident)
+        return self.core.generate(self.read(ids), pad_mask, steps, early_exit, temperature, confident, end_exit, parallel)
 
     def trainable_report(self) -> dict:
         tot = sum(p.numel() for p in self.parameters())

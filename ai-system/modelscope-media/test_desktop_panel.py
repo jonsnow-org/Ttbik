@@ -63,6 +63,28 @@ class AssetsTests(unittest.TestCase):
             self.assertIn("single_click=1", libfm)
 
 
+
+    def test_home_screen_sites_open_fixed_https_pages(self):
+        script = d._launcher_script("s", "browser", "https://www.youtube.com/")
+        self.assertIn("https://www.youtube.com/", script)
+        self.assertNotIn(";", script.split("https://www.youtube.com/")[-1])
+        with self.assertRaises(ValueError):
+            d._launcher_script("s", "browser", "https://evil.example/$(touch /tmp/x)")
+
+    def test_site_icons_join_the_home_screen_only_when_their_script_exists(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            scripts = {"browser": "/h/browser.sh", "terminal": "/h/terminal.sh", "files": "/h/files.sh", "youtube": "/h/youtube.sh"}
+            desktop = d.write_desktop_assets(home, scripts)
+            names = sorted(p.name for p in desktop.iterdir())
+            self.assertIn("YouTube.desktop", names)
+            self.assertIn("Browser.desktop", names)
+            self.assertNotIn("Search.desktop", names)
+            self.assertIn("Exec=/h/youtube.sh", (desktop / "YouTube.desktop").read_text())
+            self.assertTrue((home / ".desktop" / "icons" / "youtube.png").exists())
+
 class SizeTests(unittest.TestCase):
     def test_start_size_is_clamped_and_only_applies_to_a_stopped_desktop(self):
         old = (d.WIDTH, d.HEIGHT, d._PHASE)

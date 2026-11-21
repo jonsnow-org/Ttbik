@@ -59,11 +59,11 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   if (["click", "move", "dblclick", "drag", "mousedown", "mouseup"].includes(action)) {
     if (!Number.isFinite(Number(input.x)) || !Number.isFinite(Number(input.y))) return null;
     out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
-    out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+    out.y = Math.max(0, Math.min(1499, Math.trunc(Number(input.y))));
     if (action === "drag") {
       if (!Number.isFinite(Number(input.x2)) || !Number.isFinite(Number(input.y2))) return null;
       out.x2 = Math.max(0, Math.min(1599, Math.trunc(Number(input.x2))));
-      out.y2 = Math.max(0, Math.min(999, Math.trunc(Number(input.y2))));
+      out.y2 = Math.max(0, Math.min(1499, Math.trunc(Number(input.y2))));
     }
     if (action === "click" || action === "mousedown" || action === "mouseup") {
       const button = String(input.button || "left");
@@ -87,7 +87,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
     out.direction = direction;
     if (Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y))) {
       out.x = Math.max(0, Math.min(1599, Math.trunc(Number(input.x))));
-      out.y = Math.max(0, Math.min(999, Math.trunc(Number(input.y))));
+      out.y = Math.max(0, Math.min(1499, Math.trunc(Number(input.y))));
     }
     out.amount = Math.max(1, Math.min(8, Math.trunc(Number(input.amount) || 3)));
   }
@@ -117,8 +117,8 @@ export async function desktopLive(
   return studioStream(base, "live", {
     session,
     seconds: duration,
-    interval: 0.5,
-    quality: 55,
+    interval: 0.4,
+    quality: 68,
     scale: 1,
   }, fetchImpl, (duration + 15) * 1000);
 }
