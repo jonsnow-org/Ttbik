@@ -131,6 +131,19 @@ describe("Mini App settings op", () => {
     // A run that captured Sham v1 must keep v1's settings even if the UI has switched to v2.
     expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db, "sham")).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
   });
+
+  it("T-LDM is built into Sham Pro (no switch, no audience gate) and is never part of Sham 1", async () => {
+    const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
+    await appOp(o, "settings", { model: "sham_v2" }, d);
+    // a plain user's chat and the owner's chat: both go through Sham Pro's own T-LDM, with nothing set
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v2", tldm: true, mode: { tldm: true } });
+    expect(await shamContextFor({ message: { chat: { id: USER } } }, db, "sham_v2")).toMatchObject({ variant: "v2", tldm: true, mode: { tldm: true } });
+    // turning it "off" from the app changes nothing
+    await appOp(o, "settings", { tldm: false, for: "sham_v2" }, d);
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ tldm: true });
+    // Sham 1 never gets it
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db, "sham")).toMatchObject({ variant: "v1", tldm: false, mode: { tldm: false } });
+  });
 });
 
 function modelsDb(): any {
