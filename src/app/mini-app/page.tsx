@@ -943,7 +943,8 @@ export default function MiniAppPage() {
     const video = card?.querySelector("video");
     if (!card || !video) return;
     const obs = new IntersectionObserver((entries) => {
-      if (entries.some((e) => !e.isIntersecting)) setPlayingId(null);
+      // only stop THIS card: in the reel the next card may already have taken over playingId
+      if (entries.some((e) => !e.isIntersecting)) setPlayingId((cur) => (cur === playingId ? null : cur));
     }, { threshold: 0.05 });
     obs.observe(card);
     return () => obs.disconnect();
@@ -1827,9 +1828,10 @@ function SheetButton({ icon, label, hint, color, onClick }: { icon: string; labe
 // when it scrolls near the screen so ads don't slow the first load.
 function FeedAdBefore({ index, createdAt, onOpenAthar, plain, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; plain?: boolean; children: React.ReactNode }) {
   // every 5th post is preceded by a card: an ad, and in between (5th, 15th, 25th ...) Athar's card for the post's own day;
-  // when Athar does not answer that slot shows the usual ad. Reels skip these so a swipe never lands on an empty card.
+  // when Athar does not answer that slot shows the usual ad. Reels use their own full-screen ad card (ReelAd) every 6th reel.
   return (
     <>
+      {plain && index > 0 && index % 6 === 0 && <ReelAd />}
       {!plain && index > 0 && index % 10 === 0 && <LazyFeedAd />}
       {!plain && index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
       {children}
@@ -1850,6 +1852,19 @@ function TopBannerAd({ reloadKey }: { reloadKey: number }) {
         onEmpty={() => setEmpty(true)}
       />
     </div>
+  );
+}
+/** One full-screen ad between reels (every 6th); vanishes when the network has nothing to show, so a swipe never lands on an empty card. */
+function ReelAd() {
+  const [empty, setEmpty] = useState(false);
+  if (empty) return null;
+  return (
+    <section className="media-reel-ad" aria-label="إعلان">
+      <p className="mb-2 text-[11px] font-bold text-white/60">إعلان · اسحب للمتابعة ↑</p>
+      <div className="overflow-hidden rounded-2xl bg-white/5 p-2">
+        <AdsterraBanner adKey="3ee970813986977775e962f26938d143" width={300} height={250} onEmpty={() => setEmpty(true)} />
+      </div>
+    </section>
   );
 }
 function LazyFeedAd() {
