@@ -100,6 +100,24 @@ def _wait_health(seconds: int = 240) -> bool:
     return False
 
 
+def loop_key(heads: dict) -> str:
+    keys = sorted(k for k in heads if str(k).startswith("loop_seed") and isinstance(heads[k], dict))
+    return keys[0] if keys else ""
+
+
+def _text_ids(encode, text: str, n: int) -> list:
+    return [i for i in encode(text, n) if i][:n] or [0]
+
+
+def loop_ids(encode, task: str, hist, n: int) -> list:
+    """= train_sham2.loop_ids: the task (first 64 chars -> 32 ids), a newline, then the TAIL of the terminal history."""
+    t = _text_ids(encode, task[:64], 32)
+    h_text = "".join(f"$ {c}\n> {r}\n" for c, r in hist)
+    h = _text_ids(encode, h_text, 4096) if h_text else []
+    room = n - len(t) - 1
+    return t + _text_ids(encode, "\n", 1) + (h[-room:] if room > 0 else [])
+
+
 def _load_writer(model_path: str = ""):
     """-> writer(task, hist) built from the published head and the embedding reader, or raises with an honest reason."""
     path = _find_head()
@@ -113,38 +131,62 @@ def _load_writer(model_path: str = ""):
     from sham_tldm.llama_reader import LlamaReader
     from sham_tldm.model import decode_bytes
     from tokenizers import Tokenizer
+    sys.path.insert(0, str(HERE / "tldm" / "data"))
+    import augment as AUG
     payload = torch.load(str(path), map_location="cpu")
     made_for = str((payload.get("meta") or {}).get("gguf") or "")
     served = Path(model_path).name if model_path else ""
     if made_for and served and made_for.lower() != served.lower():             # review note #1198 §5.4: a head made for another body is refused, never served
         raise RuntimeError(f"the head was made for {made_for} but this Studio serves {served}")
     cfg = payload["cfg"]
-    state = payload["heads"]["writer"]
+    heads = payload["heads"]
     d_in = int(payload["feature_width"])
     block, n = int(cfg["block"]), int(cfg["in_len"])
-    pw = state["proj.weight"]
-    head = FeatureTLDM(d_in=d_in, d=int(pw.shape[0]), latents=int(cfg.get("latents", 16)), think_steps=int(cfg.get("think_steps", 5)), block=block,
-                       writer_layers=int(cfg.get("writer_layers", 3)), heads=int(cfg.get("heads", 4)))
-    head.load_state_dict(state, strict=True)
-    head.eval()
+
+    def build(state, blk):
+        pw = state["proj.weight"]
+        if int(pw.shape[1]) != d_in:
+            raise RuntimeError(f"head reads width {int(pw.shape[1])}, the head file says {d_in}")
+        h = FeatureTLDM(d_in=d_in, d=int(pw.shape[0]), latents=int(cfg.get("latents", 16)), think_steps=int(cfg.get("think_steps", 5)), block=int(blk),
+                        writer_layers=int(cfg.get("writer_layers", 3)), heads=int(cfg.get("heads", 4)))
+        h.load_state_dict(state, strict=True)
+        h.eval()
+        return h
+
+    head = build(heads["writer"], block) if isinstance(heads.get("writer"), dict) else None
+    lk = loop_key(heads)
+    loop = build(heads[lk], int(cfg.get("loop_block", 64))) if lk else None            # the agent-loop head (Sham Pro's recipe, on Nova's own GGUF features)
+    if head is None and loop is None:
+        raise RuntimeError("the head file has neither a writer nor a loop head")
     tok_path = _download(TOKENIZER_REPO, "tokenizer.json", HERE / "tok")
     if tok_path is None:
         raise RuntimeError("no tokenizer")
     tk = Tokenizer.from_file(str(tok_path))
     reader = LlamaReader(f"http://127.0.0.1:{EMBED_PORT}")
     steps, confident = int(cfg.get("diffusion_steps", 10)), float(cfg.get("confident", 0.0))
+    encode = lambda text, k: (tk.encode(text).ids[:k] + [0] * k)[:k]               # noqa: E731  (the trainer's encode: ids padded with 0)
+
+    def write(hd, ids, k):
+        h, pad = reader.feats([ids], k)
+        with torch.no_grad():
+            out, _ = hd.generate(h, pad, steps=steps, confident=confident)
+        return decode_bytes(out[0].tolist())
 
     def writer(task: str, hist) -> str:
         pairs = [(str(x[0]), str(x[1])) for x in (hist or []) if isinstance(x, (list, tuple)) and len(x) >= 2]
-        if pairs:                                              # a command already ran: its result is the reply (the single-command writer head writes one command per task)
+        if loop is not None:
+            # the multi-step loop: task (argument slots) + the tail of the terminal history -> "$ command" or the final reply, exactly as the loop head was trained
+            dt, _, slots = AUG.delex(task or "")
+            dh = [(AUG.apply_slots(c, slots), AUG.apply_slots(r, slots)) for c, r in pairs]
+            ln = int(cfg.get("loop_in_len", 96))
+            return AUG.relex(write(loop, loop_ids(encode, dt, dh, ln), ln), slots)
+        if pairs:                                              # no loop head: a command already ran, its result is the reply (the single-command writer writes one command per task)
             return pairs[-1][1].strip() or "Done."
         ids = [i for i in tk.encode(task or "").ids[:n] if i][:n] or [0]
-        h, pad = reader.feats([ids], n)
-        with torch.no_grad():
-            out, _ = head.generate(h, pad, steps=steps, confident=confident)
-        cmd = decode_bytes(out[0].tolist()).strip()
+        cmd = write(head, ids, n).strip()
         return cmd if cmd.startswith("$ ") else ("$ " + cmd if cmd else "")
 
+    writer.mode = "loop" if loop is not None else "writer"
     return writer
 
 
@@ -280,6 +322,10 @@ if __name__ == "__main__":
     os.environ.pop("NOVA_TLDM", None)
     assert "نوفا" in missing_message() and json.loads(error_json("x"))["fallback"] == "none"
 
+    enc = lambda text, k: ([ord(c) % 250 + 1 for c in text][:k] + [0] * k)[:k]  # noqa: E731
+    v = loop_ids(enc, "list files in a" * 9, [("ls", "a.txt")], 96)                # the trained view: <=32 task ids, a newline id, then the TAIL of "$ cmd\n> result\n"
+    assert v[:32] == _text_ids(enc, ("list files in a" * 9)[:64], 32) and v[32] == _text_ids(enc, "\n", 1)[0] and v[33:] == _text_ids(enc, "$ ls\n> a.txt\n", 4096)[-63:], v
+    assert loop_key({"writer": {}, "loop_seed1": {"a": 1}, "loop_seed0": {"a": 1}}) == "loop_seed0" and loop_key({"writer": {}}) == ""
     seq = iter(["$ ls -la", "نتيجة", "", "$ @tool web_search {\"query\": \"x\"}", "$ @tool rm {}", "$ rm -rf /"])
     w = lambda t, h: next(seq)  # noqa: E731
     r = drive(w, "s", "list files", [], [], False)
