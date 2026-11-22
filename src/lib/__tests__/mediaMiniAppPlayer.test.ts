@@ -67,3 +67,16 @@ describe("Cloudflare media stream Worker origin routing", () => {
     expect(wrangler).not.toMatch(/"BOT_TOKEN"\s*:/);
   });
 });
+
+describe("media mini-app reels (full review follow-ups)", () => {
+  const s = () => app("page.tsx");
+  it("stopping a card that scrolled away never stops the reel that already took over", () => {
+    expect(s()).toContain("setPlayingId((cur) => (cur === playingId ? null : cur))");
+  });
+  it("keeps ads in the reel feed: a full-screen ad card every 6th reel that disappears when unfilled", () => {
+    const src = s();
+    expect(src).toContain("function ReelAd()");
+    expect(src).toContain("plain && index > 0 && index % 6 === 0 && <ReelAd />");
+    expect(app("mini-app.css")).toContain(".media-reels > .media-reel-ad");
+  });
+});
