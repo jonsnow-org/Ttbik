@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma list: coder (Nova), lfm25 (LFM2.5), sham (Sham v1), sham_v2 (Sham v2); each runs as its own job"
+        description: "comma list: coder (Nova), nova2 (Nova 2, international Studio), lfm25 (LFM2.5), sham (Sham v1), sham_v2 (Sham v2); each runs as its own job"
         required: false
         default: "coder,lfm25,sham,sham_v2"
       tasks:
@@ -26,7 +26,7 @@ jobs:
       - id: m
         env:
           MODELS: ${{ inputs.models }}
-        run: python3 -c "import json,os,re; ms=[m for m in re.split(r'[,\s]+', os.environ['MODELS']) if m in ('coder','lfm25','sham','sham_v2')]; print('models='+json.dumps(ms or ['coder']))" >> "$GITHUB_OUTPUT"
+        run: python3 -c "import json,os,re; ms=[m for m in re.split(r'[,\s]+', os.environ['MODELS']) if m in ('coder','nova2','lfm25','sham','sham_v2')]; print('models='+json.dumps(ms or ['coder']))" >> "$GITHUB_OUTPUT"
   suite:
     needs: plan
     runs-on: ubuntu-latest
@@ -48,6 +48,7 @@ jobs:
         env:
           MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           SUITE_MODELS: ${{ matrix.model }}
+          NOVA2_STUDIO_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           SUITE_TASKS: ${{ inputs.tasks }}
           OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
           PROBE_OUT: ${{ runner.temp }}
