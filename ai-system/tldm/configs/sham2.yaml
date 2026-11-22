@@ -22,5 +22,6 @@ confident: 0.9
 loop_in_len: 96
 loop_block: 64
 loop_episodes: 500
+open_episodes: 600    # 2026-11-22: open-argument episodes (echo any token, file with any text, python over a range, GitHub read/list tool); live suite 1/6 before this
 loop_steps: 900
 loop_batch: 64
