@@ -80,3 +80,15 @@ export function execNudge(goal: string, toolNames: string[], text: string, nudge
   return "[harness] The user asked you to RUN this on the computer, but you answered without running anything: no computer_run call was made, so any output you wrote is not real. "
     + "Write the program with computer_write if you have not, then call computer_run on it now, and answer ONLY from its real printed output. Reply in the user's language.";
 }
+
+/**
+ * The harness' own nudges («[harness] … ACT on this request …», «… the task was stopped here») belong to the run that made them. Left in the history they were read by the NEXT
+ * message as if the user had said them: «كيف حالك من انت» was answered in English, seven minutes later, with «I couldn't complete the task because the harness stopped me … clone the
+ * repository» (live 2026-11-22). Every [harness] user message that comes BEFORE the last real user message is dropped from what the model sees; the current run's own stay.
+ */
+export function dropStaleHarness<T extends { role: string; content?: unknown }>(msgs: T[]): T[] {
+  const isHarness = (m: T) => m.role === "user" && String(m.content || "").startsWith("[harness]");
+  let lastReal = -1;
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "user" && !isHarness(msgs[i])) { lastReal = i; break; }
+  return lastReal < 0 ? msgs : msgs.filter((m, i) => !(i < lastReal && isHarness(m)));
+}

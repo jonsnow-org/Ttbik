@@ -96,7 +96,8 @@ def main() -> int:
     torch.set_num_threads(int(os.environ.get("SHAM_TOK_THREADS", "2")))
     WORK.mkdir(parents=True, exist_ok=True)
     tok, step = load_start()
-    image_tok = select_pretrained_tokenizer("image")
+    picked = select_pretrained_tokenizer("image")           # (tokenizer, step, path) or None: it is a tuple, not the tokenizer (the cycle crashed on .cfg)
+    image_tok = picked[0] if picked else None
     size = int(image_tok.cfg.image_size) if image_tok else 256
     block = tok.flow_block(size, None) if hasattr(tok, "flow_block") else size // tok.cfg.grid
     deadline = time.time() + HOURS * 3600
