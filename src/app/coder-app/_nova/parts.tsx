@@ -11,6 +11,7 @@ import {
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "./OwnerModelsPanel";
+import OwnerPricing from "./OwnerPricing";
 import { bindBack, bindMain, getLaunch, guard, haptic, openExternal, payInvoice, rawInitData } from "../_tma/sdk";
 
 export type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
@@ -537,106 +538,22 @@ export function PolicySection({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
   );
 }
 
-// ---------------------------------------------------------------- billing (sub-page)
-export function BillingPage({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
-  const [d, setD] = useState<{ usage: PubUsage; plans: PubPlan[]; owner?: { plans: OwnPlan[]; usage?: { metrics: { metric: string; used: number; limit: number }[] } } } | null>(null);
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState("");
-  const [note, setNote] = useState("");
-  const [assign, setAssign] = useState({ userId: "", planId: "plus", days: "30" });
-  const load = useCallback(() => api("billing").then(setD).catch((e) => setErr(e.message)), []);
-  useEffect(() => { void load(); }, [load]);
-  const buy = async (p: PubPlan) => {
-    if (!(await guard(t.upgrade))) return;
-    setBusy(p.id);
-    setNote("");
-    try {
-      const { url } = await api<{ url: string }>("buy", { planId: p.id });
-      const st = await payInvoice(url);
-      if (st === "paid") { haptic("success"); setNote(t.paid); setTimeout(() => void load(), 2500); }
-      else if (st === "cancelled") setNote(t.payCancelled);
-      else if (st === "failed") { haptic("error"); setNote(t.payFailed); }
-    } catch (e: any) {
-      haptic("error");
-      setNote(e.message);
-    } finally {
-      setBusy("");
-    }
-  };
-  if (err) return <Fail t={t} msg={err} retry={() => { setErr(""); void load(); }} />;
-  if (!d) return <Loading />;
-  const u = d.usage;
-  return (
-    <List>
-      <Section header={t.currentPlan} footer={t.billingHint}>
-        <Cell multiline before={<Avatar size={48} acronym="💎" />} subtitle={u.periodEnd ? `${t.planUntil}: ${fmtTime(u.periodEnd, me.settings.tz, lang)}` : undefined}>
-          <Title level="3" weight="2">{u.unlimited ? t.unlimited : u.plan.name[lang]}</Title>
-        </Cell>
-        {!u.unlimited && (
-          <>
-            <Cell after={<Caption><span dir="ltr">{u.percent}%</span></Caption>}>{t.usedThisWeek}</Cell>
-            <div style={{ padding: "0 16px 12px" }}><Progress value={Math.max(2, u.percent)} aria-label={t.usedThisWeek} /></div>
-            <Cell multiline><Caption>{u.level === "full" ? t.usageFull : u.level === "high" ? t.usageHigh : t.usageOk}{u.renewsAt ? ` · ${t.renewsAt}: ${fmtTime(u.renewsAt, me.settings.tz, lang)}` : ""}</Caption></Cell>
-          </>
-        )}
-        {d.owner?.usage && (() => {
-          const tk = d.owner.usage.metrics.find((m) => m.metric === "tokens");
-          return tk ? <Cell after={<Caption><span dir="ltr">{tk.used.toLocaleString("en-US")}</span></Caption>}>{t.tokensWeek}</Cell> : null;
-        })()}
-      </Section>
-      <Section header={t.plans}>
-        {d.plans.map((p) => (
-          <Cell key={p.id} multiline before={<Emoji c={p.tier === 0 ? "🌱" : p.tier === 1 ? "⚡" : "🚀"} />}
-            titleBadge={p.current ? <Badge type="number" mode="primary">{t.currentBadge}</Badge> : undefined}
-            subtitle={p.price_stars ? `⭐ ${p.price_stars} ${t.stars} · ${p.days} ${t.perDays}` : p.id === "free" ? "0" : t.notForSale}
-            after={p.price_stars && p.id !== "free" ? <Button size="s" loading={busy === p.id} disabled={!!busy && busy !== p.id} onClick={() => buy(p)}>{p.current ? "＋ ⭐" : `${t.upgrade} ⭐`}</Button> : undefined}>
-            {p.name[lang]}
-          </Cell>
-        ))}
-        {note && <Cell multiline before="ℹ️">{note}</Cell>}
-      </Section>
-      {d.owner && (
-        <>
-          <Section header={`🏷️ ${t.ownerPricing}`}>
-            {d.owner.plans.map((p) => (
-              <div key={p.id}>
-                <Cell Component="label" subtitle={<span dir="ltr">{p.id}</span>} after={<Switch checked={p.active} onChange={async (e) => { await api("plan_update", { id: p.id, active: e.currentTarget.checked }); haptic("success"); void load(); }} />}>{p.name[lang]}</Cell>
-                <Input header={`${t.starsPrice} ⭐`} dir="ltr" inputMode="numeric" defaultValue={p.price_stars ?? ""} onBlur={async (e) => { const v = e.currentTarget.value.trim(); if (String(p.price_stars ?? "") !== v) { await api("plan_update", { id: p.id, price_stars: v ? Number(v) : null }); haptic("success"); void load(); } }} />
-                <Input header={t.periodDays} dir="ltr" inputMode="numeric" defaultValue={p.days ?? 30} onBlur={async (e) => { const v = e.currentTarget.value; if (String(p.days ?? 30) !== v) { await api("plan_update", { id: p.id, days: Number(v) || 30 }); haptic("success"); void load(); } }} />
-                <Input header={t.priceLabel} defaultValue={p.price_label} onBlur={async (e) => { const v = e.currentTarget.value; if (v !== p.price_label) { await api("plan_update", { id: p.id, price_label: v }); haptic("success"); void load(); } }} />
-              </div>
-            ))}
-          </Section>
-          <Section header={t.assignPlan}>
-            <Input header={t.userId} dir="ltr" inputMode="numeric" value={assign.userId} onChange={(e) => setAssign({ ...assign, userId: e.target.value })} />
-            <Select header={t.currentPlan} value={assign.planId} onChange={(e) => setAssign({ ...assign, planId: e.target.value })}>{d.owner.plans.map((p) => <option key={p.id} value={p.id}>{p.name[lang]}</option>)}</Select>
-            <Input header={t.planDays} dir="ltr" inputMode="numeric" value={assign.days} onChange={(e) => setAssign({ ...assign, days: e.target.value })} />
-            <ButtonCell onClick={async () => { try { await api("plan_assign", assign); haptic("success"); setNote(t.saved); } catch (e: any) { haptic("error"); setNote(e.message); } }}>{t.assign}</ButtonCell>
-          </Section>
-        </>
-      )}
-    </List>
-  );
-}
-
 // ---------------------------------------------------------------- owner control panel (sub-page; the server answers 403 to anyone else)
 export function PanelPage({ lang }: { lang: Lang }) {
   const ar = lang === "ar";
   const [d, setD] = useState<any>(null);
   const [models, setModels] = useState<any[]>([]);
-  const [plans, setPlans] = useState<any[]>([]);
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
-  const [tab, setTab] = useState<"models" | "training" | "users" | "health">("models");
+  const [tab, setTab] = useState<"models" | "pricing" | "training" | "users" | "health">("models");
   const [fail, setFail] = useState("");
   const load = useCallback(async () => {
     setFail("");
     try {
-      const [p, m, b] = await Promise.all([api("panel"), api("models"), api("billing")]);
+      const [p, m] = await Promise.all([api("panel"), api("models")]);
       setD(p);
       setModels(m.owner?.models || m.owner || []);
-      setPlans(b.owner?.plans || []);
       void api<{ stalls: any[] }>("stalls").then((x) => setStalls(x.stalls)).catch(() => setStalls([]));
     } catch (e: any) {
       setFail(String(e?.message || e));
@@ -664,7 +581,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
     <List>
       <Section>
         <SegmentedControl>
-          {([["models", "🤖", ar ? "النماذج" : "Models"], ["training", "🏋️", ar ? "التدريب" : "Training"], ["users", "👥", ar ? "المستخدمون" : "Users"], ["health", "🩺", ar ? "الصحة" : "Health"]] as const).map(([id, ic, lb]) => (
+          {([["models", "🤖", ar ? "النماذج" : "Models"], ["pricing", "🏷️", ar ? "التسعير" : "Pricing"], ["training", "🏋️", ar ? "التدريب" : "Training"], ["users", "👥", ar ? "المستخدمون" : "Users"], ["health", "🩺", ar ? "الصحة" : "Health"]] as const).map(([id, ic, lb]) => (
             <SegmentedControl.Item key={id} selected={tab === id} onClick={() => { haptic("light"); setTab(id); }}>{ic} {lb}</SegmentedControl.Item>
           ))}
         </SegmentedControl>
@@ -675,6 +592,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
         </Section>
       )}
       {tab === "models" && <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />}
+      {tab === "pricing" && <OwnerPricing lang={lang} api={api} haptic={haptic} models={models} reload={load} />}
       {tab === "training" && (<>
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
         {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
@@ -688,12 +606,6 @@ export function PanelPage({ lang }: { lang: Lang }) {
       </Section>
       </>)}
       {tab === "users" && (<>
-      <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
-        {plans.map((p: any) => (
-          <Input key={p.id} header={`${name(p)} ⭐`} type="number" dir="ltr" defaultValue={p.price_stars ?? ""}
-            onBlur={async (e) => { await api("plan_update", { ...p, price_stars: e.currentTarget.value === "" ? null : Number(e.currentTarget.value) }); haptic("success"); }} />
-        ))}
-      </Section>
       <Section header={ar ? "المستخدمون والاشتراكات" : "Users & subscriptions"}>
         <Cell after={String(d.users?.chats ?? 0)}>{ar ? "المستخدمون" : "Users"}</Cell>
         <Cell after={String(d.users?.active7d ?? 0)}>{ar ? "نشطون خلال 7 أيام" : "Active in 7 days"}</Cell>

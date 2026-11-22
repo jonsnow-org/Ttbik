@@ -39,7 +39,7 @@ import { novaGenerateTldm, novaTldmSessionId, tldmTurnFrom, withNovaTldmModel } 
 const MODEL_LABEL_AR: Record<"sham_v2" | "coder" | "nova2", string> = { sham_v2: "شام برو", coder: "نوفا 1", nova2: "نوفا 2" };
 import { refreshTldmPolicy } from "@/lib/tldmPolicy";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
-import { historyChars } from "@/lib/coderContext";
+import { historyChars, noteStudioCtx } from "@/lib/coderContext";
 import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
@@ -2404,6 +2404,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           // e.g. the context overflowed: same step again with a smaller history, the task goes on
           run.retries = (run.retries || 0) + 1;
           run.histChars = Math.max(12000, Math.floor((run.histChars || historyChars()) / 2));
+          const over = /request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)|exceed_context_size_error/i.test(String(r.error || ""));
+          if (over) {
+            // The Studio's real context is smaller than the bot assumed (16,384 here): learn it so every budget follows, cut the history much harder, and
+            // send this step WITHOUT the tool schemas (the 85 tool definitions are thousands of tokens that history trimming can never remove).
+            const nCtx = Number(/\((\d+) tokens\)[^(]*$/.exec(String(r.error || ""))?.[1]) || Number(/"n_ctx":(\d+)/.exec(String(r.error || ""))?.[1]) || 0;
+            if (nCtx >= 8192) noteStudioCtx("ctx-error", nCtx);
+            run.histChars = Math.max(6000, Math.floor((run.histChars || historyChars()) / 2));
+            run.softSteps = run.step + 1;
+          }
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
         run.logged = 0;
@@ -2629,7 +2638,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const gate = await import("@/lib/coderFinishGate");
         // the goal is the run's own request plus the owner's recent messages: a follow-up like «البوت هو @Slaselbot» carries no action verb of its own but continues the action request
         const recentOwner = st.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !String(m.content).startsWith("[harness]")).slice(-6).map((m) => String(m.content)).join("\n");
-        const nudge = gate.finishNudge([run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const nudge = gate.finishNudge(gate.isChitChat(run.goal || "") ? (run.goal || "") : [run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);

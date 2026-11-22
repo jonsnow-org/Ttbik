@@ -184,11 +184,16 @@ describe("Nova T-LDM: the switch is per model", () => {
   it("enabling T-LDM on one Nova never enables the other, and neither enables Sham", async () => {
     const { tldmEnabled, setTldmEnabled } = await import("@/lib/coderModels");
     const st: any = { perModel: {} };
-    setTldmEnabled(st, true, "coder");
-    expect(tldmEnabled(st, "coder")).toBe(true);
-    expect(tldmEnabled(st, "sham_v2")).toBe(false);
+    const keep = process.env.NOVA_TLDM;
+    delete process.env.NOVA_TLDM;
+    expect(tldmEnabled(st, "coder")).toBe(false);              // Nova's head is not served yet: plain chat, no extra Studio call
+    process.env.NOVA_TLDM = "1";
+    expect(tldmEnabled(st, "coder")).toBe(true);               // automatic once served
     setTldmEnabled(st, false, "coder");
     expect(tldmEnabled(st, "coder")).toBe(false);
+    if (keep === undefined) delete process.env.NOVA_TLDM; else process.env.NOVA_TLDM = keep;
+    expect(tldmEnabled(st, "sham_v2")).toBe(true);             // another model's setting is untouched
+    expect(tldmEnabled(st, "sham")).toBe(false);               // Sham 1 never has one
   });
 
   it("a model with no head never reports a T-LDM switch", async () => {
@@ -199,27 +204,10 @@ describe("Nova T-LDM: the switch is per model", () => {
     expect(st.perModel.sham).toBeUndefined();
   });
 
-  it("the audience gate is per model: opening Nova to everyone does not open Sham Pro (nova2 is only Nova's legacy alias)", async () => {
+  it("the audience gate is open on every T-LDM model and closed for anything else", async () => {
     const P = await import("@/lib/tldmPolicy");
-    P._setTldmPolicyForTests("coder", true, []);
-    expect(P.tldmAllowedFor("pro", "coder")).toBe(true);
-    expect(P.tldmAllowedFor("pro", "nova2")).toBe(true);
-    expect(P.tldmAllowedFor("pro", "sham_v2")).toBe(false);
-    expect(P.tldmAllowedFor("owner", "sham_v2")).toBe(true);                       // the owner is allowed on each model's own switch
-    P._setTldmPolicyForTests("coder", false, []);
-    expect(P.tldmAllowedFor("pro", "nova2")).toBe(false);
-  });
-
-  it("the env switch: Nova's NOVA_TLDM_OPEN (old NOVA1_/NOVA2_ names still work), Sham Pro's SHAM_TLDM_OPEN, never shared", async () => {
-    const P = await import("@/lib/tldmPolicy");
-    const keep = [process.env.NOVA_TLDM_OPEN, process.env.NOVA2_TLDM_OPEN];
-    delete process.env.NOVA_TLDM_OPEN; delete process.env.NOVA1_TLDM_OPEN; delete process.env.SHAM_TLDM_OPEN;
-    process.env.NOVA2_TLDM_OPEN = "1";
-    expect(P.envOpen("nova2")).toBe(true);
-    expect(P.envOpen("coder")).toBe(true);
-    expect(P.envOpen("sham_v2")).toBe(false);
-    if (keep[1] === undefined) delete process.env.NOVA2_TLDM_OPEN; else process.env.NOVA2_TLDM_OPEN = keep[1];
-    if (keep[0] !== undefined) process.env.NOVA_TLDM_OPEN = keep[0];
+    for (const m of ["coder", "nova2", "sham_v2"]) expect(P.tldmAllowedFor("pro", m)).toBe(true);
+    expect(P.tldmAllowedFor("pro", "sham")).toBe(false);
   });
 });
 

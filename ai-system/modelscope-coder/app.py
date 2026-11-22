@@ -898,7 +898,9 @@ def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float =
     except Exception as exc:  # noqa: BLE001
         return json.dumps({"type": "error", "text": f"مسار T-LDM لنوفا غير متاح ({type(exc).__name__}). لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
     if not nt.enabled() or not float(tldm_flag or 0):
-        return nt.error_json(nt.missing_message())
+        # T-LDM is automatic for every user (owner, 2026-11-22). While this Studio does not serve the head (NOVA_TLDM unset) the head has nothing to say, so
+        # Nova's OWN body answers (same model, same Studio) instead of an error that would block every chat.
+        return json.dumps({"type": "body", "tldm": True, "head": "off"}, ensure_ascii=False)
     if STATE.get("phase") != "ready" or not _PATHS["model"]:
         return json.dumps({"type": "error", "text": "نوفا يتهيأ بعد. لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
     try:

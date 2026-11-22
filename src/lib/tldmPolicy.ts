@@ -1,13 +1,11 @@
 /**
  * T-LDM audience and owner deny-list, PER MODEL.
  *
- * Every model that carries a T-LDM head (Sham Pro, Nova 1, Nova 2) keeps its own switch and its own deny-list:
- * opening Nova 1 never opens Nova 2, and none of them touches Sham Pro's. The stored keys are namespaced
- * (`tldm_open:<model>` / `tldm_deny:<model>`), so no model can read or write another model's policy.
- *
- * Default is owner-only for every model. `<PREFIX>_TLDM_OPEN=1` (SHAM for sham_v2, NOVA1 for Nova 1, NOVA2 for
- * Nova 2) or the stored switch opens that model's path to every user. Every audience gate goes through
- * `tldmAllowedFor(tier, model)`; an unknown model never inherits another model's switch.
+ * Owner's order (2026-11-22): T-LDM is automatic and ON for everybody on every model that carries a head
+ * (Sham Pro, Nova); there is no switch any more. What stays is the owner's per-model deny-list (stored key
+ * `tldm_deny:<model>`), which applies to every user and cannot be overridden. A model that is not a T-LDM model
+ * (Sham 1's old body) is never open and inherits nothing from another model.
+ * Every audience gate still goes through `tldmAllowedFor(tier, model)`.
  */
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
@@ -66,10 +64,9 @@ export function envOpen(model: string | undefined): boolean {
   return on(`${ENV_PREFIX[m]}_TLDM_OPEN`) || (m === "coder" && (on("NOVA1_TLDM_OPEN") || on("NOVA2_TLDM_OPEN")));
 }
 
-/** Sync: env or the last stored refresh for THAT model. Call refreshTldmPolicy(db, model) on the request first. */
+/** Always open for a T-LDM model (no switch); never open for anything else. */
 export function tldmOpenToAll(model: string | undefined): boolean {
-  if (!isKey(model)) return false;
-  return envOpen(model) || get(model).open;
+  return isKey(model);
 }
 
 export function tldmAllowedFor(tier: string | undefined, model: string | undefined): boolean {

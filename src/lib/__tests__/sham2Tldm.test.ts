@@ -23,15 +23,16 @@ function sseFetch(data: string) {
 }
 
 describe("Sham 2 T-LDM owner path", () => {
-  it("is off by default and only stored on Sham 2", () => {
+  it("is automatic (on) for T-LDM models, never for Sham 1, and an explicit off stays per model", () => {
     const st: any = {};
-    expect(tldmEnabled(st, "sham_v2")).toBe(false);
-    expect(tldmEnabled(st, "sham")).toBe(false);
-    setTldmEnabled(st, true);
     expect(tldmEnabled(st, "sham_v2")).toBe(true);
     expect(tldmEnabled(st, "sham")).toBe(false);
     setTldmEnabled(st, false);
     expect(tldmEnabled(st, "sham_v2")).toBe(false);
+    expect(tldmEnabled(st, "coder")).toBe(false);              // Nova follows its own head (NOVA_TLDM), not Sham Pro's setting
+    setTldmEnabled(st, true);
+    expect(tldmEnabled(st, "sham_v2")).toBe(true);
+    expect(tldmEnabled(st, "sham")).toBe(false);
   });
 
   it("is active only on the Sham 2 variant", () => {
@@ -117,26 +118,18 @@ describe("Sham 2 T-LDM owner path", () => {
     expect(String(reply?.text || "")).toContain("شام برو");
   });
 
-  it("is owner-only by default and opens to every user through one switch", () => {
-    const prev = process.env.SHAM_TLDM_OPEN;
-    delete process.env.SHAM_TLDM_OPEN;
-    expect(tldmOpenToAll("sham_v2")).toBe(false);
-    expect(tldmAllowedFor("owner", "sham_v2")).toBe(true);
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(false);
-    expect(tldmAllowedFor(undefined, "sham_v2")).toBe(false);
-    process.env.SHAM_TLDM_OPEN = "1";
+  it("is open to every user on Sham Pro (no switch) and never on Sham 1", () => {
     expect(tldmOpenToAll("sham_v2")).toBe(true);
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(true);
     expect(tldmAllowedFor("owner", "sham_v2")).toBe(true);
-    if (prev === undefined) delete process.env.SHAM_TLDM_OPEN;
-    else process.env.SHAM_TLDM_OPEN = prev;
+    expect(tldmAllowedFor("user", "sham_v2")).toBe(true);
+    expect(tldmAllowedFor("user", "sham")).toBe(false);
   });
 
-  it("does not let a non-owner reach the path just because state has the flag", () => {
+  it("a user reaches the path automatically; the flag only records an explicit off", () => {
     const st: any = {};
     setTldmEnabled(st, true, "sham_v2");
     expect(tldmEnabled(st, "sham_v2")).toBe(true);
-    expect(tldmAllowedFor("user", "sham_v2") && tldmEnabled(st, "sham_v2")).toBe(false);
+    expect(tldmAllowedFor("user", "sham_v2") && tldmEnabled(st, "sham_v2")).toBe(true);
     expect(tldmAllowedFor("owner", "sham_v2") && tldmEnabled(st, "sham_v2")).toBe(true);
   });
 

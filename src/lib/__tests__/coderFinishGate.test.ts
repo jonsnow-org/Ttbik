@@ -53,3 +53,14 @@ describe("execution gate (Nova code-run, live suite 2026-11-21)", () => {
     expect(execNudge("ما هي عاصمة مصر؟", [], shown, 0)).toBe("");
   });
 });
+
+describe("greetings are never action requests", () => {
+  const { isChitChat, finishNudge } = require("@/lib/coderFinishGate");
+  it("recognises a greeting / identity question and nothing that asks for work", () => {
+    for (const t of ["كيف حالك من انت", "مرحبا", "من أنت؟", "who are you", "hello there"]) expect(isChitChat(t)).toBe(true);
+    for (const t of ["أصلح الخطأ في المستودع", "كيف حالك؟ ثم أصلح ملف README وانشره", "حسّن الكود"]) expect(isChitChat(t)).toBe(false);
+  });
+  it("an earlier action request in the chat cannot reject a greeting's reply", () => {
+    expect(finishNudge("كيف حالك من انت", [], "أنا نوفا، مساعد ذكي. كيف يمكنني مساعدتك اليوم؟", 0)).toBe("");
+  });
+});
