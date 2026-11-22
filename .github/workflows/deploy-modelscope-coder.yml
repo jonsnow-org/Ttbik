@@ -75,6 +75,7 @@ jobs:
                   diff = []
               app_files = {
                   "ai-system/modelscope-coder/app.py",
+                  "ai-system/modelscope-coder/nova_tldm_serve.py",
                   "ai-system/modelscope-coder/requirements.txt",
                   "ai-system/modelscope-coder/VISION_STUDIOS",
                   "ai-system/modelscope-coder/STUDIOS",
@@ -164,7 +165,9 @@ jobs:
           git config --global user.name "coder CI"
           git config --global user.email "ci@coder.local"
           git clone "https://oauth2:${T}@${MS#https://}/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
+          cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ai-system/modelscope-coder/nova_tldm_serve.py ms-studio/
+          # Nova's own T-LDM (nova_tldm_serve.py): the head's library is copied next to it; the head file (nova2_heads.pt) comes from the head repo at first use. Off unless NOVA_TLDM=1.
+          rm -rf ms-studio/tldm && mkdir -p ms-studio/tldm && cp -r ai-system/tldm/sham_tldm ms-studio/tldm/ && find ms-studio/tldm -name __pycache__ -prune -exec rm -rf {} +
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
           # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
@@ -179,7 +182,7 @@ jobs:
           rm -f llama-${LLAMA_BUILD}.part*
           cp ../llama-${LLAMA_BUILD}.part* .
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
-          git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
+          git add app.py requirements.txt nova_tldm_serve.py tldm .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"

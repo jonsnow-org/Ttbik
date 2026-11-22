@@ -63,6 +63,45 @@ describe("Nova T-LDM: independence", () => {
     }
   });
 
+  it("a head answer {type:text} becomes a finished model turn the agent loop accepts (it has a job); a step it cannot serve yet is an honest error", async () => {
+    const real = global.fetch;
+    try {
+      const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      global.fetch = studioFetch({ type: "text", text: "مرحبا، أنا نوفا." });
+      const ok = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(ok.type).toBe("done");
+      expect(ok.job).toBeTruthy();
+      expect(ok.text).toBe("مرحبا، أنا نوفا.");
+      global.fetch = studioFetch({ type: "tool_request", tool_name: "computer_run", tool_arguments: { command: "ls" }, tool_request_id: "abc123" });
+      const tr = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(tr.type).toBe("done");
+      expect(tr.tool_calls?.[0].id).toBe("tldm:abc123");
+      expect(tr.tool_calls?.[0].function.name).toBe("computer_run");
+      expect(JSON.parse(tr.tool_calls![0].function.arguments)).toEqual({ command: "ls" });
+      global.fetch = studioFetch({ type: "body" });
+      const body = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect((body as any).error).toBe("body");
+    } finally {
+      global.fetch = real;
+    }
+  });
+
+  it("tldmTurnFrom: the head gets the task only, and the result of a tool it asked for is handed back as resumeTool", async () => {
+    const { tldmTurnFrom } = await import("@/lib/novaTldm");
+    const plain = tldmTurnFrom([{ role: "system", content: "SYSTEM" }, { role: "user", content: "اعرض الملفات" }]);
+    expect(plain.messages).toEqual([{ role: "user", content: "اعرض الملفات" }]);
+    expect(plain.resumeTool).toBeUndefined();
+    const resumed = tldmTurnFrom([
+      { role: "system", content: "SYSTEM" }, { role: "user", content: "اعرض الملفات" },
+      { role: "assistant", content: "", tool_calls: [{ id: "tldm:r1", type: "function", function: { name: "computer_run", arguments: "{\"command\":\"ls\"}" } }] },
+      { role: "tool", tool_call_id: "tldm:r1", content: "a.txt b.txt" },
+    ]);
+    expect(resumed.resumeTool).toEqual({ requestId: "r1", name: "computer_run", arguments: { command: "ls" }, result: "a.txt b.txt", error: false });
+    const other = tldmTurnFrom([{ role: "user", content: "x" }, { role: "assistant", content: "", tool_calls: [{ id: "call_9", function: { name: "web_search", arguments: "{}" } }] }, { role: "tool", tool_call_id: "call_9", content: "r" }]);
+    expect(other.resumeTool).toBeUndefined();          // a tool the body asked for is never handed to the head
+  });
+
   it("refuses when no Nova model is in scope (never guesses, never falls back to Sham)", async () => {
     const real = global.fetch;
     const bodies: any[] = [];
@@ -198,7 +237,9 @@ describe("Nova T-LDM: the loop stops on the model's own error", () => {
     expect(src).toMatch(/if \(tldmModel && r\?\.type === "error"\) \{/);
     expect(src).toMatch(/await endRun\(st, "failed", db, why, modelSessionChatKey\(chatId\)\);/);
     // and the error reply carries no `failure`, so the outage loop cannot swallow it
-    expect(src).toMatch(/\.then\(\(r\): CoderOutcome => \(\{ reply: r \}\)\)/);
+    expect(src).toMatch(/return \{ reply: r \} as CoderOutcome;/);
+    // only the head's own "nothing for this task" signal reaches the SAME model's plain chat
+    expect(src).toMatch(/\.error === "body"\) return plainChat\(\)/);
   });
 
   it("the /tldm command and its button follow the chat's model, not Sham's", async () => {
