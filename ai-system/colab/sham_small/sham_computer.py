@@ -67,6 +67,46 @@ def _hide_server_environment() -> None:
         pass
 
 
+_EGRESS = {"state": "not checked"}
+_EGRESS_LOCK = __import__("threading").Lock()
+
+
+def install_egress_rules() -> str:
+    """Review note #1198 (P0), Sham's own copy: the commands of this model's computer run as uid 65534; with a root server and iptables the private, link-local and metadata
+    ranges are REJECTED for that uid, so a command cannot reach the Studio's internal network. Best effort; the state is always readable and SHAM_COMPUTER_EGRESS_STRICT=1
+    makes commands REFUSE while it is not secure (off by default: a host without iptables must not lose its computer by a deploy)."""
+    with _EGRESS_LOCK:
+        if _EGRESS["state"] != "not checked":
+            return _EGRESS["state"]
+        if os.geteuid() != 0 or not shutil.which("iptables"):
+            _EGRESS["state"] = "not available (not root or no iptables): commands can reach the host's private network"
+            return _EGRESS["state"]
+        failed = 0
+        ranges = {"iptables": ("100.100.100.200", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"), "ip6tables": ("::1/128", "fc00::/7", "fe80::/10")}
+        for binary, dests in ranges.items():
+            if not shutil.which(binary):
+                failed += len(dests) if binary == "iptables" else 0
+                continue
+            for dest in dests:
+                rule = ["-m", "owner", "--uid-owner", "65534", "-d", dest, "-j", "REJECT"]
+                try:
+                    if subprocess.run([binary, "-w", "-C", "OUTPUT", *rule], capture_output=True, timeout=15).returncode != 0:
+                        failed += 1 if subprocess.run([binary, "-w", "-A", "OUTPUT", *rule], capture_output=True, timeout=15).returncode else 0
+                except Exception:
+                    failed += 1
+        _EGRESS["state"] = ("private IPv4/IPv6 ranges and metadata addresses blocked for computer commands" if not failed
+                            else f"partly blocked ({failed} firewall rules refused by the host)")
+        return _EGRESS["state"]
+
+
+def egress_gate() -> str:
+    """"" when a command may run; otherwise the refusal text (strict mode only)."""
+    state = install_egress_rules()
+    if os.environ.get("SHAM_COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not state.startswith("private IPv4/IPv6"):
+        return "error: egress_not_secure: this computer cannot block the host's private network here, so it refuses to run commands. " + state
+    return ""
+
+
 def _limits(cpu_s: int, mem_mb: int, drop: bool = False):
     def apply():
         if drop:                                         # root server, no namespaces: the command runs as "nobody", which cannot read the server's /proc/<pid>/environ
@@ -116,6 +156,9 @@ class Computer:
         return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(self.home), "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
 
     def run(self, command: str, cwd: str | None = None, timeout: float = 30) -> str:
+        refused = egress_gate()
+        if refused:
+            return refused
         argv = self._argv(command)
         try:
             wd = self._path(cwd)
@@ -325,6 +368,9 @@ class Computer:
         if action == "list":
             return "\n".join(f"{j}: {v['name']} ({'running' if v['p'].poll() is None else 'exit ' + str(v['p'].returncode)})" for j, v in self.jobs.items()) or "no jobs"
         if action == "start":
+            refused = egress_gate()
+            if refused:
+                return refused
             argv = self._argv(command)
             if sum(1 for v in self.jobs.values() if v["p"].poll() is None) >= 3:
                 return "error: at most 3 jobs run at once"

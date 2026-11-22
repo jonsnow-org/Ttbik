@@ -46,27 +46,30 @@ describe("T-LDM audience and owner deny-list (per model)", () => {
   it("one model's switch never opens another model", () => {
     _setTldmPolicyForTests("coder", true, []);
     expect(tldmAllowedFor("user", "coder")).toBe(true);
-    expect(tldmAllowedFor("user", "nova2")).toBe(false);
+    expect(tldmAllowedFor("user", "nova2")).toBe(true);                // nova2 is only a legacy alias of Nova's ONE policy key
     expect(tldmAllowedFor("user", "sham_v2")).toBe(false);
     _setTldmPolicyForTests("coder", false, []);
   });
 
   it("one model's deny-list never applies to another model", () => {
-    _setTldmPolicyForTests("nova2", true, ["rm -rf"]);
-    expect(tldmOwnerDenyList("nova2")).toEqual(["rm -rf"]);
-    expect(tldmOwnerDenyList("coder")).toEqual([]);
-    expect(tldmOwnerDenyList("sham_v2")).toEqual([]);
-    _setTldmPolicyForTests("nova2", false, []);
+    _setTldmPolicyForTests("coder", true, ["rm -rf"]);
+    expect(tldmOwnerDenyList("coder")).toEqual(["rm -rf"]);
+    expect(tldmOwnerDenyList("nova2")).toEqual(["rm -rf"]);            // the same list under the legacy id
+    expect(tldmOwnerDenyList("sham_v2")).toEqual([]);                  // Sham Pro never inherits Nova's list
+    _setTldmPolicyForTests("coder", false, []);
   });
 
   it("an env switch is read per model, not shared", () => {
-    for (const k of ["SHAM_TLDM_OPEN", "NOVA1_TLDM_OPEN", "NOVA2_TLDM_OPEN"] as const) delete process.env[k];
+    for (const k of ["SHAM_TLDM_OPEN", "NOVA_TLDM_OPEN", "NOVA1_TLDM_OPEN", "NOVA2_TLDM_OPEN"] as const) delete process.env[k];
     _setTldmPolicyForTests("sham_v2", false, []);
     _setTldmPolicyForTests("coder", false, []);
-    _setTldmPolicyForTests("nova2", false, []);
-    process.env.NOVA2_TLDM_OPEN = "1";
+    process.env.NOVA_TLDM_OPEN = "1";
+    expect(tldmOpenToAll("coder")).toBe(true);
     expect(tldmOpenToAll("nova2")).toBe(true);
-    expect(tldmOpenToAll("coder")).toBe(false);
+    expect(tldmOpenToAll("sham_v2")).toBe(false);
+    delete process.env.NOVA_TLDM_OPEN;
+    process.env.NOVA2_TLDM_OPEN = "1";                                 // the old env names keep working: a deploy never silently closes what the owner opened
+    expect(tldmOpenToAll("coder")).toBe(true);
     expect(tldmOpenToAll("sham_v2")).toBe(false);
     delete process.env.NOVA2_TLDM_OPEN;
   });

@@ -26,6 +26,9 @@ on:
       seeds:
         description: "seeds"
         default: "3"
+      strict_wilson:
+        description: "publish only when the 95% Wilson verdict is PASS on both held-out sets (review note #1198 §5.3); off = the same 0.6-mean gate Sham Pro used"
+        default: "false"
       publish:
         description: "publish the best head to the international ModelScope site (Jonjithup/nova2-tldm-head), where Nova's Studio reads it (needs the gate: heldout and heldout2 mean >= 0.6)"
         default: "false"
@@ -105,11 +108,15 @@ jobs:
           MS_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           MODELSCOPE_ENDPOINT: https://www.modelscope.ai      # the token is the international account's: the SDK logs in on .cn unless told otherwise (run 45044580509 failed on exactly that)
           MODELSCOPE_DOMAIN: www.modelscope.ai
+          STRICT_WILSON: ${{ inputs.strict_wilson }}
         run: |
           python - <<'PY'
           import json, os, sys
           r = json.load(open("/tmp/gguf_head.json"))
           ok = r["heldout"]["mean"] >= 0.6 and r["heldout2"]["mean"] >= 0.6
+          if os.environ.get("STRICT_WILSON") == "true":
+              ok = ok and r["heldout"]["verdict_mean"] == "pass" and r["heldout2"]["verdict_mean"] == "pass"
+              print("strict Wilson:", r["heldout"]["verdict_mean"], r["heldout2"]["verdict_mean"])
           print("heldout", r["heldout"]["mean"], "heldout2", r["heldout2"]["mean"], "gate 0.6 ->", "PASS" if ok else "BLOCKED")
           if not ok:
               sys.exit("head below the gate: not published")

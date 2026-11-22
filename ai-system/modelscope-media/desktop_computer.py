@@ -282,6 +282,17 @@ SITES = (
 )
 
 
+def _proxy_flags() -> list[str]:
+    """Review note #1198 (P0): every request of the desktop browser (redirects, iframes, XHR, websockets, subresources) goes through the egress filter (egress_proxy.py), which
+    refuses private / link-local / metadata addresses after resolving the name once. No proxy (disabled or could not start) = the browser starts as before."""
+    try:
+        import egress_proxy
+        port = egress_proxy.ensure()
+    except Exception:  # noqa: BLE001
+        port = 0
+    return [f"--proxy-server=http://127.0.0.1:{port}"] if port else []
+
+
 def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | None:
     """The shell script a taskbar button runs: the same command the Mini App's launch action uses (the browser is looked up when clicked, because Chromium may be installed after the desktop started)."""
     if app == "browser":
@@ -293,8 +304,8 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
             "--disable-background-networking",
             # owner 2026-11-22: the screen was heavy on 2 vCPU. Site isolation runs one renderer per site (CPU + RAM the box does not have), autoplay decodes a video nobody asked for,
             # and LCD text / sound add work the picture never needs. The model and the user still start any video by tapping it.
-            "--disable-features=Translate,MediaRouter,site-per-process,IsolateOrigins,OptimizationHints,InterestFeedContentSuggestions", "--autoplay-policy=document-user-activation-required", "--mute-audio",
-            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", f"--user-data-dir={profile}",
+            "--disable-features=Translate,MediaRouter,OptimizationHints,InterestFeedContentSuggestions" + ("" if os.environ.get("DESKTOP_SITE_ISOLATION", "off").strip().lower() == "on" else ",site-per-process,IsolateOrigins"), "--autoplay-policy=document-user-activation-required", "--mute-audio",
+            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", *_proxy_flags(), f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
         # `nice`: the browser yields the two cores to the desktop's own input (xdotool) and picture capture, so typing and taps are answered while a page is still loading
         # Review note #1198 (P0), done without breaking the browser: Chromium's own sandbox is tried FIRST (the session runs as an unprivileged user); if the host forbids it
