@@ -70,6 +70,7 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--json", default="")
+    ap.add_argument("--meta", default="", help="JSON object stored in the head payload (the GGUF file, tokenizer repo, llama.cpp build...) so the Studio can refuse a head made for another body")
     ap.add_argument("--out", default="", help="write the best seed's head as a servable payload {cfg, heads:{writer: state}, feature_width, reader} (the Studio's nova_tldm_serve loads it)")
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
@@ -86,7 +87,8 @@ def main(argv=None):
         json.dump(res, open(a.json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if a.out and state is not None:
         torch.save({"cfg": dict(cfg), "heads": {"writer": state}, "feature_width": res["feature_width"], "reader": "llama-gguf", "best_seed": best_seed,
-                    "heldout": res["heldout"]["mean"], "heldout2": res["heldout2"]["mean"]}, a.out)
+                    "heldout": res["heldout"]["mean"], "heldout2": res["heldout2"]["mean"], "verdict": {"heldout": res["heldout"]["verdict_mean"], "heldout2": res["heldout2"]["verdict_mean"]},
+                    "meta": json.loads(a.meta) if a.meta else {}}, a.out)
         print(f"saved head -> {a.out}")
     return 0
 

@@ -589,6 +589,20 @@ def install_egress_rules() -> str:
         return STATE["egress"]
 
 
+def egress_secure() -> bool:
+    """True only when the private/metadata ranges are blocked for computer sessions (IPv4 and IPv6)."""
+    return str(STATE.get("egress", "")).startswith("private IPv4/IPv6 ranges")
+
+
+def egress_gate() -> dict | None:
+    """Review note #1198 (P0): with COMPUTER_EGRESS_STRICT=1 a command is REFUSED while the host's private network is reachable (fail closed). Off by default so an
+    existing computer on a host without iptables is not switched off by a deploy; the state is always visible in /status (`egress_secure`) so the owner flips it knowingly."""
+    install_egress_rules()
+    if os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not egress_secure():
+        return {"ok": False, "error": "egress_not_secure: the computer cannot block the host's private network here, so it refuses to run commands (COMPUTER_EGRESS_STRICT=1). " + str(STATE.get("egress", ""))}
+    return None
+
+
 # ---------------------------------------------------------------- memory watcher (rlimits cannot cap real memory)
 _WATCHED: dict[int, str] = {}                  # process-group id -> what it is, for the message
 _WATCH_THREAD: threading.Thread | None = None
@@ -790,7 +804,9 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if over_quota(session):
         return {"ok": False, "error": f"your computer's disk is full ({QUOTA_BYTES // 1024 ** 3} GB); delete files first"}
     t2 = time.monotonic()
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     t3 = time.monotonic()
     try:
         workdir = safe_path(session, cwd)
@@ -1166,7 +1182,9 @@ def job_start(session: str, command: str, name: str = "") -> dict:
     home = ensure_home(session)
     if over_quota(session):
         return {"ok": False, "error": "your computer's disk is full; delete files first"}
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     with _LOCK:
         jobs = _jobs(session)
         for job in jobs.values():
@@ -1504,7 +1522,9 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
+             "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1",
+             "storage_mode": "persistent" if str(ROOT).startswith("/mnt/workspace") else "ephemeral",
+             "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(session_size(home) / 1024 ** 2, 1) if home.exists() else 0

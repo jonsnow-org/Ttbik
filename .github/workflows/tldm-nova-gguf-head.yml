@@ -12,17 +12,17 @@ on:
         description: "ModelScope repo with the GGUF"
         default: "unsloth/Qwen3.5-4B-GGUF"
       gguf_url:
-        description: "direct URL of the GGUF (HuggingFace); when set it is used instead of the ModelScope repo above (Nova 2: https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf)"
-        default: ""
+        description: "direct URL of the GGUF (HuggingFace); when set it is used instead of the ModelScope repo above. Default = the file the live Nova Studio serves (review note #1198 §5.4)"
+        default: "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
       gguf_pattern:
         description: "file pattern"
         default: "*Qwen3.5-4B-Q4_K_M.gguf"
       tokenizer_repo:
-        description: "repo with the donor tokenizer.json (the GGUF's vocabulary)"
-        default: "Qwen/Qwen3.5-4B"
+        description: "repo with the donor tokenizer.json (the GGUF's vocabulary): the live Nova's"
+        default: "Qwen/Qwen3.6-35B-A3B"
       config:
-        description: "config under ai-system/tldm/configs/"
-        default: "nova1.yaml"
+        description: "config under ai-system/tldm/configs/ (Nova is one model now: nova2.yaml is its recipe)"
+        default: "nova2.yaml"
       seeds:
         description: "seeds"
         default: "3"
@@ -54,8 +54,8 @@ jobs:
         env:
           GGUF_REPO: ${{ inputs.gguf_repo || 'unsloth/Qwen3.5-4B-GGUF' }}
           GGUF_PATTERN: ${{ inputs.gguf_pattern || '*Qwen3.5-4B-Q4_K_M.gguf' }}
-          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.5-4B' }}
-          GGUF_URL: ${{ inputs.gguf_url }}
+          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.6-35B-A3B' }}
+          GGUF_URL: ${{ inputs.gguf_url || 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf' }}
         run: |
           mkdir -p /tmp/gguf
           if [ -n "${GGUF_URL}" ]; then
@@ -82,10 +82,13 @@ jobs:
           curl -s http://127.0.0.1:8099/health; echo
           curl -s -X POST http://127.0.0.1:8099/embeddings -H 'Content-Type: application/json' -d '{"input":[1,2,3]}' | python -c "import json,sys; r=json.load(sys.stdin); e=r[0]['embedding']; print('probe: tokens', len(e), 'width', len(e[0]) if isinstance(e[0], list) else 'POOLED')"
       - name: Train and score the head on the GGUF features
+        env:
+          GGUF_URL: ${{ inputs.gguf_url || 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf' }}
+          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.6-35B-A3B' }}
         run: |
           set -o pipefail
           cd ai-system/tldm
-          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova1.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
