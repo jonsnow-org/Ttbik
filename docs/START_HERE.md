@@ -49,7 +49,7 @@
 
 ## 5) شام (تفصيل الحالة في WORK_BOARD)
 - v1 من الصفر (12 طبقة، 768)، يُدرَّب على Kaggle وGitHub وعلى **مدرّبي ModelScope** (`sham-trainer-*`)، ويُخدَّم من `ai-system/modelscope-sham/app.py`. v2 نسخة طبق الأصل بأوزان مانح. حاسوبهما ووسائطهما **مدمجة في كودهما**؛ لا مولّد خارجي.
-- المدرّب يبدأ من **الرأس المنشور** ويقيس على مسطرة البوابة نفسها (#930/#935). **المدرّبون ينامون عند الخمول** (cn والدولي معًا، قُرئ 2026-11-17): الإصلاح نداء كل 10 دقائق في `keep-warm-chat-studios.yml` + إيقاظ `keep-trainer-studios-awake.yml`؛ مدرّبون ms4/ms5/ms6 على استوديوهات cn الفارغة. تحقّق من بقائهم Running.
+- المدرّب يبدأ من **الرأس المنشور** ويقيس على مسطرة البوابة نفسها (#930/#935). **المدرّبون ينامون عند الخمول** (cn والدولي معًا، قُرئ 2026-11-17): الإصلاح نداء كل 10 دقائق في `keep-warm-chat-studios.yml` (الحارس `keep-trainer-studios-awake` أُزيل 2026-11-22 بأمر المالك)؛ مدرّبون ms4/ms5/ms6 على استوديوهات cn الفارغة. تحقّق من بقائهم Running.
 - **الإشراف الدوري:** روتين كل 3 ساعات (`trig_01L5oWmwbwRucTNeUq7HJxLe`) يقرأ WORK_BOARD ويعمل البند التالي ويرفع للمالك سطورًا عربية قصيرة لما قُرئ فقط. لقطة الحالة الآلية: `raw.githubusercontent.com/jonsnow-org/Ttbik/sham-status/STATUS.md`.
 - مراجع: SHAM_GATE.md، SHAM_KNOWLEDGE.md، SHAM_V2_ANALYSIS.md، `ai-system/colab/sham_small/SHAM_MEMORY.md`.
 

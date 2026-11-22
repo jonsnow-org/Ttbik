@@ -97,7 +97,6 @@ jobs:
           cd /tmp/studio
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-runner/app.py" "$GITHUB_WORKSPACE/ai-system/modelscope-runner/requirements.txt" .
-          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/studio_guard.py" .     # 2026-11-18: this Studio also wakes every trainer Studio (cn + ai)
           git config user.name "Sham CI"; git config user.email "ci@sham.local"
           date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
           git add -A
