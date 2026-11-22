@@ -2,7 +2,7 @@ import { coderToolsFor } from "@/lib/coderAgent";
 import { agentsAllowedFor, coderChat, coderJobResult, coderStudioUrls, allEngineBases, nova2Urls, nova2TokenSet, nova2WarmStartReady, tokenFor, withEngineModel, isEngineModel, currentEngineModel } from "@/lib/openCoderStudio";
 import { DEFAULT_MODELS, modelReady } from "@/lib/coderModels";
 import { computerModelOf, COMPUTER_MODEL_IDS } from "@/lib/computerModels";
-import { browserStudioFor } from "@/lib/browserComputer";
+import { DEFAULT_NOVA2_COMPUTER_STUDIO_URL, browserStudioFor } from "@/lib/browserComputer";
 import { ownMediaBase, modelMediaConfigured } from "@/lib/modelMedia";
 import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
 
@@ -165,7 +165,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     try {
       delete process.env.NOVA2_COMPUTER_STUDIO_URL;
       delete process.env.NOVA2_MEDIA_STUDIO_URL;
-      expect(browserStudioFor("nova2")).toBeNull();
+      expect(browserStudioFor("nova2")).toBe(DEFAULT_NOVA2_COMPUTER_STUDIO_URL);
       expect(ownMediaBase("nova2")).toBe("");
       process.env.NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-nova2-computer.api-inference.modelscope.ai";
       process.env.COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
