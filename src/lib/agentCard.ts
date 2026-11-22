@@ -121,6 +121,9 @@ function rawLabel(name: string, args?: unknown): string {
     case "github_list_issues": return `عرض المشكلات في ${short(a.repo, 40)}`;
     case "github_commits": return `قراءة آخر الإيداعات في ${short(a.repo, 40)}`;
     case "github_ci_status": case "github_ci_logs": return `فحص CI في ${short(a.repo, 40)}`;
+    case "github_create_issue": return `فتح مشكلة: ${short(a.title, 40)}`;
+    case "github_comment": return `تعليق على #${a.number}`;
+    case "github_run_workflow": return `تشغيل سير عمل ${short(a.workflow, 30)}`;
     case "github_create_pr": return `فتح طلب دمج ${short(a.head, 30)} ← ${short(a.base, 30)}`;
     case "github_merge_pr": return `دمج طلب ${short(a.repo, 40)}#${short(a.number, 8)}`;
     case "github_create_branch": return `إنشاء فرع ${short(a.branch, 40)}`;
