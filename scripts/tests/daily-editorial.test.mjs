@@ -411,3 +411,26 @@ test("Riemann hypothesis Lean proof briefing is bilingual and preserves verifica
   assert.doesNotMatch(arabic.title, /جائزة معهد كلاي/);
   assert.doesNotMatch(english.title, /Clay Mathematics Institute/i);
 });
+
+test("22 November China margin-financing rule is bilingual, date-aligned and avoids market-return promises", () => {
+  const slug = "china-margin-financing-ratio-80-november-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic China margin-rule briefing is missing");
+  assert.ok(english, "English China margin-rule briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-22");
+  assert.equal(english.date, "22 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["sse.com.cn", "szse.cn", "bse.cn", "reuters.com"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /30 نوفمبر 2026/);
+  assert.match(english.body.join(" "), /30 November 2026/);
+  assert.match(arabic.paragraphs.join(" "), /لا يعني ذلك أن كل عقد سيُعدّل تلقائياً/);
+  assert.match(english.body.join(" "), /does not mean every existing contract will be adjusted automatically/i);
+  assert.match(arabic.paragraphs.join(" "), /لا يضمن خفض النسبة ارتفاع أسعار/);
+  assert.match(english.body.join(" "), /does not guarantee higher securities prices/i);
+  assert.match(arabic.paragraphs.join(" "), /لا يمثل توصية بالاقتراض أو الشراء/);
+  assert.match(english.body.join(" "), /not an investment recommendation/i);
+});

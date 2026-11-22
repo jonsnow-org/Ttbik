@@ -16,6 +16,27 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "china-margin-financing-ratio-80-november-2026",
+    "title": "Shanghai, Shenzhen and Beijing exchanges lower the minimum margin-financing ratio to 80%",
+    "date": "22 November 2026",
+    "contextDateLabel": "Official exchange notices: 22 November 2026 (the exchange pages show a date, not a publication time); Reuters report: 22 November 2026, 13:09 UTC (16:09 Istanbul); effective date: 30 November 2026; Sham AI publication: 22 November 2026, 23:06 Istanbul (20:06 UTC).",
+    "dek": "China's three stock exchanges will lower the minimum margin requirement for financed securities purchases from 100% to 80% on 30 November. The notices allow recalculation for some existing contracts and strengthen controls on unusual trading; the change does not guarantee higher prices or a market recovery.",
+    "body": [
+      "On 22 November 2026, the Shanghai, Shenzhen and Beijing stock exchanges announced, with approval from the China Securities Regulatory Commission, that the minimum margin ratio for securities purchases financed through margin trading will fall from 100% to 80%. The revised rule takes effect on 30 November 2026, not on the announcement date.",
+      "The notices allow member firms, including brokerages, to recalculate the available margin balance for financing contracts that remain unsettled before the effective date. This gives firms permission to apply the revised calculation; it does not mean every existing contract will be adjusted automatically or that every customer will receive additional credit.",
+      "The rules also require firms to strengthen supervision of unusual trading, apply differentiated margin ratios and collateral-conversion rates, and exercise caution over credit limits and fees. In serious cases, firms may restrict, suspend or terminate margin-financing services or refuse to extend a contract.",
+      "The exchanges said the change follows weaker margin-financing activity and lower overall leverage, and is intended to release financing capacity and improve liquidity. Reuters also reported separate fee reductions by Shanghai and Shenzhen and a proposed market-making mechanism for Shenzhen's ChiNext board.",
+      "The lower ratio does not guarantee higher securities prices or a market recovery, and this report is not an investment recommendation. Margin borrowing can magnify losses as well as gains; actual eligibility, collateral requirements and credit limits remain subject to broker assessments and regulatory controls.",
+      "Official announcement date: 22 November 2026; effective date: 30 November 2026. Reuters published its report on 22 November at 13:09 UTC (16:09 Istanbul). Sham AI publication date: 22 November 2026, 23:06 Istanbul."
+    ],
+    "sources": [
+      { "href": "https://www.sse.com.cn/lawandrules/sselawsrules2025/trade/specific/margin/c/c_20261122_10838633.shtml", "label": "Shanghai Stock Exchange — official Notice No. 108 of 2026, 22 November" },
+      { "href": "https://www.szse.cn/aboutus/trends/news/t20261122_623983.html", "label": "Shenzhen Stock Exchange — official explanation, 22 November 2026" },
+      { "href": "https://www.bse.cn/jygl_list/200029860.html", "label": "Beijing Stock Exchange — official Notice No. 46 of 2026, 22 November" },
+      { "href": "https://www.reuters.com/world/chinese-exchanges-ease-margin-trading-requirements-aid-stock-markets-2026-11-22/", "label": "Reuters — independent coverage of the changes, 22 November 2026, 13:09 UTC" }
+    ]
+  },
+  {
     "slug": "riemann-hypothesis-lean-verification-2026",
     "title": "Lean and Mathlib communities announce verification of a Riemann hypothesis proof developed with Claude",
     "date": "22 November 2026",
