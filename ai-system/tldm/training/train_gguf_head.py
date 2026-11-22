@@ -4,7 +4,7 @@ the same train / held-out / held-out-2 task sets as Sham 2) and, with --loop, th
 same loop data, recipe and full-task benchmark as Sham Pro's loop_seed heads). Prints the same numbers plus a 95% Wilson verdict per held-out set.
 
   llama-server -m model.gguf --embeddings --pooling none -c 512 --port 8099 -t 2 &
-  python training/train_gguf_head.py --config configs/nova1.yaml --server http://127.0.0.1:8099 --tokenizer tokenizer.json --seeds 3 --json out.json
+  python training/train_gguf_head.py --config configs/nova2.yaml --server http://127.0.0.1:8099 --tokenizer tokenizer.json --seeds 3 --json out.json
 """
 import argparse
 import importlib.util
@@ -84,7 +84,7 @@ def run_loop(cfg, reader, encode, seeds, log=print):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default=os.path.join(HERE, "..", "configs", "nova1.yaml"))
+    ap.add_argument("--config", default=os.path.join(HERE, "..", "configs", "nova2.yaml"))
     ap.add_argument("--server", required=True)
     ap.add_argument("--tokenizer", required=True, help="the donor's tokenizer.json (the GGUF's vocabulary)")
     ap.add_argument("--seeds", type=int, default=3)

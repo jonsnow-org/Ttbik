@@ -33,7 +33,7 @@ Checked in `ai-system/colab/sham_small/sham_v2_train.py` and `ai-system/modelsco
 
 ## 6. Measured (GitHub Actions CPU runner, `modes-bench.yml`; the Studio CPU is slower in absolute terms, the ratios are what matters)
 
-Nova (Qwen3.5-4B Q4_K_M, 2 threads):
+Nova (the OLD Qwen3.5-4B Q4_K_M, deleted 2026-11-22; historical numbers, 2 threads):
 
 | Case | Time | Quality |
 |---|---|---|

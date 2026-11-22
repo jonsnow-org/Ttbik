@@ -35,7 +35,7 @@
 ## 3) النماذج والاستوديوهات (الحالة 2026-11-17)
 | المعرّف | ما هو | الحالة |
 |---|---|---|
-| **Nova AI** (`coder`) | Qwen3.5-4B، llama.cpp b11757 (`--jinja --alias nova-ai --cache-ram 1024 --ctx-checkpoints 8 --spec-type ngram-mod`)، سياق 65536، 2 نواة، 5 استوديوهات cn `coder-inference-server` و`-2`…`-5` (الخامس يقرأ الصور) | يعمل. القراءة الباردة محلولة بـ«البداية المشتركة»: **18 رمزًا في 4 ث** لمحادثة جديدة. التطبيق: `ai-system/modelscope-coder/app.py`؛ أي نشر عبر `deploy-modelscope-coder.yml`. **ik_llama.cpp رُفض بعد اختبار حي ورُجع (الاستوديو 4 على mainline).** |
+| **Nova AI** (`coder`) | Qwen3.6-35B-A3B (IQ3_XXS)، llama.cpp b11757 (`--jinja --alias nova-ai --cache-ram 1024 --ctx-checkpoints 8 --spec-type ngram-mod`)، سياق 16384، استوديو واحد دولي `coder-inference-server-16`؛ **نسخة 4B حُذفت نهائيًا (أمر المالك 2026-11-22)** واستوديوهات cn حرة للتدريب | يعمل. القراءة الباردة محلولة بـ«البداية المشتركة»: **18 رمزًا في 4 ث** لمحادثة جديدة. التطبيق: `ai-system/modelscope-coder/app.py`؛ أي نشر عبر `deploy-modelscope-coder.yml`. **ik_llama.cpp رُفض بعد اختبار حي ورُجع (الاستوديو 4 على mainline).** |
 | **شام v1** | نموذج من الصفر، استوديو `sham-v1-server` | ضعيف الردود؛ يُعالَج بالتدريب (انظر WORK_BOARD) |
 | **شام v2** | استوديو `sham-v2-server` (+overflow، +video) | أفضل نسبيًا؛ هويته/تاريخه يتحسنان بالتدريب |
 | **free i** | وكيل OpenRouter/Groq المجاني عبر GitHub | ليس نموذجًا من التطبيق (§4) |

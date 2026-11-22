@@ -51,17 +51,6 @@
       "note": "no live access: the owner exports his data, uploads conversations.json to the notebook inbox, scripts/notebook-node/distill_publish.sh imports it"
     },
     {
-      "id": "nova-qwen35-4b",
-      "class": "open",
-      "license": "Apache-2.0",
-      "enabled": true,
-      "host": "notebook",
-      "endpoint": "http://127.0.0.1:8081/v1/chat/completions",
-      "model": "nova-ai",
-      "key_env": "",
-      "note": "Nova's own model (Qwen3.5-4B), served on the notebook GPU: fast and it does not touch the live Nova Studios"
-    },
-    {
       "id": "sham-v2",
       "class": "own",
       "license": "ours",

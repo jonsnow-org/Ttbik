@@ -10,7 +10,7 @@
 //   plan  = the first model step of a task (reads the request, chooses the tools): adaptive thinks here for code and agent work (measured: without it Nova called make_media for "write a Python function")
 //   act   = the later tool-execution steps: adaptive does not think (the plan already exists; each thought costs ~25-60 s on a CPU), "always" does
 //   Greetings and media requests never think. A loop recovery (stall level 2) always thinks, whatever the policy.
-// Only Nova's body (Qwen3.5-4B, thinking native and used as shipped) thinks by default. Sham v2 was fine-tuned only on answers with an EMPTY thought (<think></think>): thinking there is the donor's
+// Only Nova's body (Qwen3.6-35B-A3B, thinking native and used as shipped) thinks by default. Sham v2 was fine-tuned only on answers with an EMPTY thought (<think></think>): thinking there is the donor's
 // untrained ability, so it is never automatic and is labelled experimental; Sham (old) cannot think at all.
 // Nothing here talks to a Studio: callers (coderSections for Nova, shamAgent / shamStudio for Sham) read the Profile.
 import { detectMediaIntent } from "@/lib/coderMediaFast";

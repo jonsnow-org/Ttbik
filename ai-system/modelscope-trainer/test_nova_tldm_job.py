@@ -32,16 +32,13 @@ REPORT = {
 
 
 class NovaMode(unittest.TestCase):
-    def test_each_prefix_names_its_own_nova_and_others_are_not_nova(self):
-        self.assertEqual(A.nova_mode("nova1-live"), "nova1")
+    def test_only_nova2_names_the_nova_and_nova1_is_gone(self):
         self.assertEqual(A.nova_mode("Nova2-ms1"), "nova2")
-        self.assertEqual(A.nova_mode("nova12"), "nova1")          # a Nova 1 job, never Nova 2
         self.assertEqual(A.nova_mode("nova2"), "nova2")
-        for other in ("sham2", "sham2-x", "nova", "nova3", "tldm", "", None):
+        for other in ("nova1-live", "nova12", "sham2", "sham2-x", "nova", "nova3", "tldm", "", None):
             self.assertEqual(A.nova_mode(other), "", other)
 
     def test_nova_is_not_sham2_mode(self):
-        self.assertFalse(A.sham2_mode("nova1-live"))
         self.assertFalse(A.sham2_mode("nova2-ms1"))
 
 
@@ -75,28 +72,27 @@ class NovaCycle(unittest.TestCase):
         self.published.append((name, sorted(p.name for p in Path(folder).iterdir())))
         return "modelscope:novaai2026/" + name
 
-    def test_each_nova_has_its_own_donor_config_head_folder_and_repo(self):
-        n1 = A.run_nova(name="nova1-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
+    def test_the_nova_has_its_own_donor_config_head_folder_and_repo(self):
         n2 = A.run_nova(name="nova2-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
-        self.assertEqual(self.fetched, ["Qwen/Qwen3.5-4B", "Qwen/Qwen3.6-35B-A3B"])
-        self.assertTrue(self.cmds[0][self.cmds[0].index("--config") + 1].endswith("nova1.yaml"))
-        self.assertTrue(self.cmds[1][self.cmds[1].index("--config") + 1].endswith("nova2.yaml"))
-        self.assertEqual([p[0] for p in self.published], ["nova1-tldm-head", "nova2-tldm-head"])
-        self.assertEqual(self.published[0][1], ["nova1_heads.pt", "nova1_results.json"])
-        self.assertEqual(self.published[1][1], ["nova2_heads.pt", "nova2_results.json"])
-        self.assertEqual((n1["model"], n2["model"]), ("nova1", "nova2"))
-        self.assertTrue(n1["published"] and n2["published"])
-
-    def test_the_two_novas_never_write_into_each_others_folder(self):
-        A.run_nova(name="nova1-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
-        A.run_nova(name="nova2-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
-        self.assertTrue((self.tmp / "nova1" / "nova1_heads.pt").is_file())
+        self.assertEqual(self.fetched, ["Qwen/Qwen3.6-35B-A3B"])                     # the only body ever fetched
+        self.assertTrue(self.cmds[0][self.cmds[0].index("--config") + 1].endswith("nova2.yaml"))
+        self.assertEqual([p[0] for p in self.published], ["nova2-tldm-head"])
+        self.assertEqual(self.published[0][1], ["nova2_heads.pt", "nova2_results.json"])
+        self.assertEqual(n2["model"], "nova2")
+        self.assertTrue(n2["published"])
         self.assertTrue((self.tmp / "nova2" / "nova2_heads.pt").is_file())
-        self.assertFalse((self.tmp / "nova1" / "nova2_heads.pt").exists())
-        self.assertFalse((self.tmp / "nova2" / "nova1_heads.pt").exists())
+
+    def test_there_is_no_smaller_nova(self):
+        self.assertEqual(set(A.NOVA_DONOR_REPO), {"nova2"})
+        self.assertEqual(set(A.NOVA_HEAD_REPO), {"nova2"})
+        self.assertEqual(set(A.NOVA_CONFIG), {"nova2"})
+        self.assertNotIn("4B", json.dumps([A.NOVA_DONOR_REPO, A.NOVA_HEAD_REPO, A.NOVA_CONFIG]))
+        with self.assertRaises(RuntimeError):
+            A.run_nova(name="nova1-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
+        self.assertEqual(self.fetched, [])
 
     def test_nova_benchmark_does_not_use_shams_embedded_computer(self):
-        A.run_nova(name="nova1-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
+        A.run_nova(name="nova2-x", runner=self.runner, fetch=self.fetch, publish=self.publish)
         cmd = self.cmds[0]
         self.assertEqual(cmd[cmd.index("--terminal") + 1], "sandbox")
         self.assertIn("--cached", cmd)
@@ -108,9 +104,6 @@ class NovaCycle(unittest.TestCase):
             A.run_nova(name="nova", runner=self.runner, fetch=self.fetch, publish=self.publish)
         self.assertIn("refusing to guess", str(ctx.exception))
         self.assertEqual(self.fetched, [])
-
-    def test_recipe_keys_differ_per_nova(self):
-        self.assertNotEqual(A.nova_run_key("nova1"), A.nova_run_key("nova2"))
 
     def test_a_floor_heldout_head_is_not_published(self):
         def floor(cmd, report, heads):
@@ -124,9 +117,9 @@ class NovaCycle(unittest.TestCase):
         self.assertEqual(self.published, [])
         self.assertFalse((self.tmp / "nova2" / ".published").exists())
 
-    def test_the_configs_exist_and_are_separate_files(self):
+    def test_the_config_exists_and_is_separate_from_shams(self):
         root = A.tldm_root()
-        for which in ("nova1", "nova2"):
+        for which in ("nova2",):
             cfg = root / A.NOVA_CONFIG[which]
             self.assertTrue(cfg.is_file(), cfg)
             text = cfg.read_text(encoding="utf-8")
@@ -135,12 +128,9 @@ class NovaCycle(unittest.TestCase):
 
 
 class DonorIsolation(unittest.TestCase):
-    def test_donor_repos_are_distinct_and_never_shams(self):
-        self.assertNotEqual(A.NOVA_DONOR_REPO["nova1"], A.NOVA_DONOR_REPO["nova2"])
-        self.assertNotEqual(A.NOVA_HEAD_REPO["nova1"], A.NOVA_HEAD_REPO["nova2"])
-        for which in ("nova1", "nova2"):
-            self.assertNotIn("sham", A.NOVA_DONOR_REPO[which].lower())
-            self.assertNotIn("sham", A.NOVA_HEAD_REPO[which].lower())
+    def test_donor_and_head_repos_are_never_shams(self):
+        self.assertNotIn("sham", A.NOVA_DONOR_REPO["nova2"].lower())
+        self.assertNotIn("sham", A.NOVA_HEAD_REPO["nova2"].lower())
 
     def test_a_donor_without_weights_is_an_error_not_a_random_body(self):
         tmp = Path(tempfile.mkdtemp())
@@ -149,7 +139,7 @@ class DonorIsolation(unittest.TestCase):
             dest.mkdir(parents=True, exist_ok=True)          # an empty download
 
         with self.assertRaises(RuntimeError) as ctx:
-            A.nova_donor("nova1", tmp, fetch)
+            A.nova_donor("nova2", tmp, fetch)
         self.assertIn("never train on a random body", str(ctx.exception))
 
 
