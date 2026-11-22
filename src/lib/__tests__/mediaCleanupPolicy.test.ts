@@ -19,3 +19,12 @@ describe("media cleanup sweep policy", () => {
     expect(src).toContain("maxDuration = 60");
   });
 });
+
+describe("media feed: swapping a file does not re-notify followers", () => {
+  it("skips the follower notification when the bot sends silent:true", () => {
+    const feed = fs.readFileSync(path.join(__dirname, "..", "..", "app", "api", "media-feed", "route.ts"), "utf8");
+    expect(feed).toContain("body.silent !== true");
+    const py = fs.readFileSync(path.join(__dirname, "..", "..", "..", "media-bot", "services", "feed.py"), "utf8");
+    expect(py).toContain('"silent": True');
+  });
+});
