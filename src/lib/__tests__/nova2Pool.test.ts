@@ -20,7 +20,6 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     process.env.OPEN_CODER_STUDIO_URL = OLD[0];
     process.env.OPEN_CODER_STUDIO_URLS = OLD[1];
     process.env.OPEN_CODER_STUDIO_TOKEN = "cn-token";
-    process.env.LFM_STUDIO_URLS = "off";
     process.env.NOVA2_STUDIO_URLS = N2;
     delete process.env.NOVA2_STUDIO_TOKEN;
   });
@@ -54,7 +53,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(isEngineModel("nova2")).toBe(true);
   });
 
-  test("the job-index space only grows at the end: no job of Nova or LFM2.5 changes its number", () => {
+  test("the job-index space only grows at the end: no job of Nova changes its number", () => {
     const all = allEngineBases();
     expect(all[0]).toBe(N2);
     expect(all.filter((x) => x === N2).length).toBe(1);
@@ -62,7 +61,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     expect(allEngineBases()).toEqual(OLD);                          // only without the 35B pool (tests): the OPEN_CODER_STUDIO_URL(S) fallback
   });
 
-  test("only https addresses of non-Sham, non-hub, non-LFM Studios are accepted", () => {
+  test("only https addresses of non-Sham, non-hub Studios are accepted", () => {
     process.env.NOVA2_STUDIO_URLS = `${N2},http://x.example,https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net,https://studio-x-sham-v2-server.api-inference.modelscope.ai`;
     expect(nova2Urls()).toEqual([N2]);
   });
@@ -121,7 +120,6 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
   test("Nova 2 is independent: own computer identity and no shared computer/media route", () => {
     expect(computerModelOf("nova2")).toBe("nova2");
     expect(computerModelOf("coder")).toBe("coder");
-    expect(computerModelOf("lfm25")).toBe("lfm25");
     expect(computerModelOf(undefined)).toBe("coder");
     expect(COMPUTER_MODEL_IDS).toContain("nova2");
     const priorComputer = process.env.NOVA2_COMPUTER_STUDIO_URL;

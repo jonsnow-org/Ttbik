@@ -2,9 +2,9 @@
 
 ## Architecture
 
-The Mini App exposes one authenticated computer surface, but the selected model determines its backend. Nova 1/LFM use the reserved private 16 GB ModelScope computer hub (nova-inference-server); Nova 2 is routed only to a separate NOVA2_COMPUTER_STUDIO_URL when provisioned; Sham/Sham Pro use the computer embedded in their serving Studios. These are execution hosts, not language models or media generators.
+The Mini App exposes one authenticated computer surface, but the selected model determines its backend. Nova 1 use the reserved private 16 GB ModelScope computer hub (nova-inference-server); Nova 2 is routed only to a separate NOVA2_COMPUTER_STUDIO_URL when provisioned; Sham/Sham Pro use the computer embedded in their serving Studios. These are execution hosts, not language models or media generators.
 
-1. **Model-specific computer endpoints.** Nova 1/LFM use the shared 16 GB hub; Nova 2 requires its own NOVA2_COMPUTER_STUDIO_URL; Sham/Sham Pro run inside their serving Studios. Every endpoint uses a verified user+model session; no model borrows another model's URL, workspace or weights.
+1. **Model-specific computer endpoints.** Nova 1 use the shared 16 GB hub; Nova 2 requires its own NOVA2_COMPUTER_STUDIO_URL; Sham/Sham Pro run inside their serving Studios. Every endpoint uses a verified user+model session; no model borrows another model's URL, workspace or weights.
 2. **Model-specific inference and media Studios.** Nova, Nova 2, Sham v2 and candidates retain their own inference and media weights. Image, speech and video generation execute on each model's media Studio, never on a computer endpoint.
 3. **Oracle Linux runner and GitHub Actions.** Oracle handles eligible task-scoped Linux work; GitHub Actions handles discrete CI/build/test/export jobs. Neither is presented as a persistent interactive desktop.
 
@@ -12,7 +12,7 @@ The application may move a task between workers only after saving its files, log
 
 ## Dedicated ModelScope computer
 
-Nova 1/LFM share the private computer-only hub URL but not a workspace. Nova 2 is excluded from that hub and must use a separately provisioned computer-only Studio; until then its computer is unavailable. Sham/Sham Pro remain inside their own serving Studios. Session IDs are derived server-side from the verified user ID and selected model; arbitrary client locators are not trusted.
+Nova 1 share the private computer-only hub URL but not a workspace. Nova 2 is excluded from that hub and must use a separately provisioned computer-only Studio; until then its computer is unavailable. Sham/Sham Pro remain inside their own serving Studios. Session IDs are derived server-side from the verified user ID and selected model; arbitrary client locators are not trusted.
 
 ### Three interfaces backed by isolated sessions
 

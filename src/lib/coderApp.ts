@@ -85,7 +85,7 @@ async function pendings(chatId: number, db: Db, requestedModel?: unknown) {
   const slots = new Set<string>(["", ...waiting.map((t) => t.slot)]);
   const { withEngineModel } = await import("@/lib/openCoderStudio");
   for (const slot of slots) {
-    const st = model === "nova2" || model === "lfm25" ? await withEngineModel(model, () => loadState(chatId, db, slot)) : await loadState(chatId, db, slot);
+    const st = model === "nova2" ? await withEngineModel(model, () => loadState(chatId, db, slot)) : await loadState(chatId, db, slot);
     const ask = st.run?.asking;
     if (st.run && ask?.kind === "handoff") {                   // the model handed its computer to the user: the screen with the control bar
       out.push({ runId: st.run.id, nonce: `handoff:${ask.id}`, reason: "handoff", summary: ask.question, tool: "computer_handoff", categories: [], title: st.run.title || "", slot, at: ask.at || null, handoff: { ...(ask.handoff || { kind: "other", reason: ask.question }), model: ask.model || "coder" } });
@@ -117,7 +117,7 @@ async function tidyBeforeList(chatId: number, st: { threadId?: string | null }, 
 }
 
 /** Whose long-term memory the Mini App reads / edits: the named (else the selected) Nova-family model's own store.
- *  Nova 2 and LFM2.5 keep their memories under their own chat id; Sham models have their own memory (op sham_memory), never this one. */
+ *  Nova 2 keeps its memories under their own chat id; Sham models have their own memory (op sham_memory), never this one. */
 async function memoryOwnerOf(chatId: number, body: Json, db: Db): Promise<number | string> {
   const { canonModelId } = await import("@/lib/coderModels");
   const C = await import("@/lib/coderChats");
@@ -159,12 +159,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   switch (op) {
     case "me": {
       const { withEngineModel } = await import("@/lib/openCoderStudio");
-      if (selectedModel === "nova2" || selectedModel === "lfm25") {
+      if (selectedModel === "nova2") {
         const { ensureModelSessionState } = await sections();
-        await withEngineModel("coder", () => ensureModelSessionState(chatId, selectedModel as "nova2" | "lfm25", db));
+        await withEngineModel("coder", () => ensureModelSessionState(chatId, selectedModel as "nova2", db));
       }
       const readState = () => loadState(chatId, db);
-      const st = selectedModel === "nova2" || selectedModel === "lfm25"
+      const st = selectedModel === "nova2"
         ? await withEngineModel(selectedModel, readState)
         : await readState();
       void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
@@ -343,7 +343,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const { answerHandoffAsk } = await import("@/lib/coderSections");
         await answerHandoffAsk(deps.bot, deps.botRow, chatId, st, { note, cancelled }, db, slot);
       };
-      if (selectedModel === "nova2" || selectedModel === "lfm25") await withEngineModel(selectedModel, finish);
+      if (selectedModel === "nova2") await withEngineModel(selectedModel, finish);
       else await finish();
       return { ok: true, resumed: true };
     }
@@ -389,7 +389,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!active.some((t) => t.run_id === String(body.runId || ""))) throw new AppError(404, "pending task not found in this model");
       const { withEngineModel } = await import("@/lib/openCoderStudio");
       const resolve = () => resolvePending(deps.bot, deps.botRow, chatId, String(body.runId || ""), String(body.nonce || ""), answer, db);
-      const ok = selectedModel === "nova2" || selectedModel === "lfm25" ? await withEngineModel(selectedModel, resolve) : await resolve();
+      const ok = selectedModel === "nova2" ? await withEngineModel(selectedModel, resolve) : await resolve();
       return { ok };
     }
     case "stop": {
@@ -412,7 +412,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (!state.run || state.run.id !== runId) return false;
         return stopRun(chatId, requestedSlot, runId, db);
       };
-      const ok = selectedModel === "nova2" || selectedModel === "lfm25" ? await withEngineModel(selectedModel, stop) : await stop();
+      const ok = selectedModel === "nova2" ? await withEngineModel(selectedModel, stop) : await stop();
       return { ok };
     }
     case "task_stop":
@@ -431,7 +431,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         if (!/^[\w-]{4,60}$/.test(t.run_id)) continue;
         if (!t.run_id.startsWith("sham-") && !String(t.slot || "").startsWith("model:")) {
           const stop = () => stopRun(chatId, t.slot || "", t.run_id, db);
-          await (selectedModel === "nova2" || selectedModel === "lfm25" ? withEngineModel(selectedModel, stop) : stop()).catch(() => false);
+          await (selectedModel === "nova2" ? withEngineModel(selectedModel, stop) : stop()).catch(() => false);
         }
         if (await stopTaskRow(chatId, t.run_id, db)) stopped++;
       }

@@ -148,7 +148,7 @@ class Studio:
         end = self.now() + timeout
         post_payload = {} if api == "status" else {"body": json.dumps(payload)}
         # The ModelScope gateway answers 429 to a burst and 500/502/503/504 while an instance is under memory pressure,
-        # restarting, or fronted by a flaky edge (the LFM2.5/Nova video probe of 2026-11-05 got a bare 502 on the
+        # restarting, or fronted by a flaky edge (the Nova video probe of 2026-11-05 got a bare 502 on the
         # `job` submit). A rejected submit created no job, so asking again is safe. Keep the retry inside the one deadline.
         waits = (2, 5, 10, 20, 30, 45)
         retryable = {0, 429, 500, 502, 503, 504}   # 0 = the connection itself was dropped (the gateway closed it); no job was created

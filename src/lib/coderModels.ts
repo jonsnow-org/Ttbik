@@ -26,9 +26,6 @@ export const DEFAULT_MODELS: CoderModel[] = [
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
   { id: "sham_v2", name: { ar: "شام برو", en: "Sham Pro" }, desc: { ar: "شام برو، نسخة من شام 1 بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham Pro, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
-  // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
-  // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
-  { id: "lfm25", name: { ar: "LFM2.5 (السريع)", en: "LFM2.5 (fast)" }, desc: { ar: "LFM2.5-8B-A1B: أسرع نموذج على المعالج، بأدوات GitHub والحاسوب الخاص، ويصنع الصور والصوت والفيديو من استوديوهاته الخاصة.", en: "LFM2.5-8B-A1B: the fastest model on CPU, with GitHub tools and its own computer; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "LFM_STUDIO_URLS", sort: 6 },
   // "free i" (owner 2026-11-08): the AI Agent path as a picker entry. Picking it sends the owner's messages to the GitHub AI Agent (a free OpenRouter model) instead of any model of this app; owner-only.
   { id: "freei", name: { ar: "free i", en: "free i" }, desc: { ar: "وكيل مجاني عبر GitHub (OpenRouter): يجيب ويقترح، وقد يفتح طلب دمج. للمالك فقط.", en: "Free GitHub agent (OpenRouter): answers and proposes, may open a pull request. Owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 50 },
 ];
@@ -116,7 +113,6 @@ export function modelReady(m: CoderModel): boolean {
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   if (m.id === "freei") return Boolean(secretCached("AI_GITHUB_TOKEN"));   // env or the secret stored from the Athar bot (src/lib/hostedSecrets.ts)
   if (m.id === "nova2") return nova2TokenSet() && nova2Urls().length > 0;
-  if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => !m.lockedOwnerOnly && m.visible && modelReady(m);

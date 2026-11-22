@@ -27,13 +27,12 @@ export function browserStudioFor(modelId: string | undefined): string | null {
     const separateMediaStudios = [
       process.env.NOVA2_MEDIA_STUDIO_URL || "",
       process.env.NOVA_MEDIA_STUDIO_URL || "",
-      process.env.LFM_MEDIA_STUDIO_URL || "",
       process.env.NOVA_IMAGE_STUDIO_URL || "",
       process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "",
       process.env.SHAM_MEDIA_STUDIO_URL || "",
       process.env.SHAM_V2_MEDIA_STUDIO_URL || "",
     ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-    if (nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
+    if (nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
     return base;
   }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();

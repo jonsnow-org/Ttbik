@@ -57,11 +57,11 @@ describe("the model's own browser", () => {
       if (url.endsWith("/gradio_api/call/browser_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, url: "https://a.test/", title: "A", text: "Hi", elements: "" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await browserDo("lfm25", "42:lfm25", { action: "open", url: "a.test" }, fetchImpl);
+    const out = await browserDo("coder", "42:coder", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
     expect(calls[0].url).toContain("sham-trainer-2");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
-    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:lfm25" });
+    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:coder" });
     // Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (owner 2026-11-08), so nothing is sent
     const before = calls.length;
     expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);

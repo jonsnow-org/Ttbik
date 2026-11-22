@@ -1,5 +1,5 @@
 // LIVE task-level evaluation + latency suite (run only by .github/workflows/task-suite-live.yml). It MEASURES, it produces no training data.
-// For each model SEPARATELY (coder = Nova, lfm25 = LFM2.5, sham = Sham v1, sham_v2 = Sham v2) it sends a fixed list of everyday tasks through the bot's own production entry
+// For each model SEPARATELY (coder = Nova, sham = Sham v1, sham_v2 = Sham v2) it sends a fixed list of everyday tasks through the bot's own production entry
 // points against the REAL Studios of that model (nothing is sent to Telegram) and prints one table row per task: pass/fail, seconds to the first visible message, total seconds, why.
 // A task passes only when a real final answer exists: not empty, no error notice, no raw tool-call markup shown as the answer, and the expected fact when there is one.
 import fs from "fs";
@@ -100,7 +100,7 @@ async function runTask(model: string, task: SuiteTask, db: any): Promise<{ first
 test("task suite: every model separately", async () => {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
   process.env.CODER_TOKEN_KEY = "live-test";
-  const models = (process.env.SUITE_MODELS || "coder,lfm25,sham,sham_v2").split(",").map((x) => x.trim()).filter(Boolean);
+  const models = (process.env.SUITE_MODELS || "coder,sham,sham_v2").split(",").map((x) => x.trim()).filter(Boolean);
   const only = (process.env.SUITE_TASKS || "").split(",").map((x) => x.trim()).filter(Boolean);
   const tasks = TASKS.filter((t) => !only.length || only.includes(t.id));
   const rows: Record<string, unknown>[] = [];

@@ -360,7 +360,7 @@ class Waiting(unittest.TestCase):
         def flaky(method, url, payload=None):
             if method == "POST" and "/call/v2/job" in url and state["cut"] > 0:
                 state["cut"] -= 1
-                return 502, "bad gateway"                       # the gateway edge blip that failed the LFM2.5/Nova video probe
+                return 502, "bad gateway"                       # the gateway edge blip that failed the Nova video probe
             return inner(method, url, payload)
         out = self.studio(flaky).call("job", {"job": "j1", "wait": 5}, timeout=60)
         self.assertEqual(out["type"], "job")

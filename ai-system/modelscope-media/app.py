@@ -865,7 +865,7 @@ def _free_parent_ram() -> None:
     """Before a clip, everything heavy leaves the parent: the picture worker process is stopped (it restarts on the next picture) and any
     in-process pipeline is dropped. Live 2026-11-04 (8 GB Studio): the clip process was killed -9 after a picture had been made in the parent,
     whose heap never shrank back; the deploy probe's clip passed (29 frames, 315 s) when the parent had made no picture.
-    Live 2026-11-05 (LFM2.5 8 GB Studio): the probe makes an image and Arabic speech first, and Piper was still resident when the clip
+    Live 2026-11-05 (an 8 GB Studio): the probe makes an image and Arabic speech first, and Piper was still resident when the clip
     started, so the `job` submit 502'd for minutes while the Studio ran out of memory. The voice reloads lazily, so drop it too."""
     _stop_image_worker()
     _MODELS["pipe"] = None
@@ -943,7 +943,7 @@ def _make_video(prompt: str, seconds: float, seed: int = 0) -> bytes:
     if mode == "0" or (mode == "auto" and low_memory):
         # The Studio itself owns the only heavy process; cv_generate_long unloads AnimateDiff and trims libc after EACH pass.
         # On a low-memory Studio use only 2 s (16-frame) passes: a 4 s/32-frame pass died mid-sampling with no traceback (cgroup OOM)
-        # while image and speech passed (LFM2.5/Nova video 2026-11-05); 16 frames is the size the 8 GB Studio proved it can finish.
+        # while image and speech passed (Nova video 2026-11-05); 16 frames is the size the 8 GB Studio proved it can finish.
         previous = os.environ.get("CPU_VIDEO_MAX_PASS_S")
         if low_memory:
             os.environ["CPU_VIDEO_MAX_PASS_S"] = "2"

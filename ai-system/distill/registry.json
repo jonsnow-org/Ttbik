@@ -62,17 +62,6 @@
       "note": "Nova's own model (Qwen3.5-4B), served on the notebook GPU: fast and it does not touch the live Nova Studios"
     },
     {
-      "id": "lfm25-8b-a1b",
-      "class": "open",
-      "license": "LFM Open License v1.0",
-      "enabled": true,
-      "host": "notebook",
-      "endpoint": "http://127.0.0.1:8082/v1/chat/completions",
-      "model": "lfm",
-      "key_env": "",
-      "note": "LFM2.5-8B-A1B on the notebook CPU (1B active parameters: fast on CPU); check the licence terms before trusting it for style data"
-    },
-    {
       "id": "sham-v2",
       "class": "own",
       "license": "ours",
