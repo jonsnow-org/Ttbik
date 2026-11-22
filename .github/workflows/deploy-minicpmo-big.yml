@@ -1,6 +1,6 @@
 name: Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio
 
-# This is the production computer host. Keep it on the private 16 GB nova-inference-server Studio; inference and media have their own separate Studios.
+# This is the production computer host. Since 2026-11-22 it lives on the international 16 GB Studio Jonjithup/sham-trainer-2 (open internet; the cn hub could not reach GitHub); the cn nova-inference-server is left empty on the owner order; inference and media have their own separate Studios.
 # MiniCPM-o 4.5 remains in its separate candidate Studio; no model/media weights are used here.
 on:
   push:
@@ -21,14 +21,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: computer-hub-16gb
+  group: computer-hub-16gb-ai
   cancel-in-progress: true
 
 env:
-  MS: https://www.modelscope.cn
-  OWNER: novaai2026
-  REPO: nova-inference-server
-  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+  MS: https://www.modelscope.ai
+  OWNER: Jonjithup
+  REPO: sham-trainer-2
+  API: https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai
 
 jobs:
   deploy:
@@ -63,7 +63,7 @@ jobs:
 
       - name: Verify the target is the private 16 GB Studio
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$T"
@@ -93,7 +93,7 @@ jobs:
 
       - name: Stop the old MiniCPM runtime before replacing it
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           # The ModelScope API intermittently answers 200 with an EMPTY body (2026-11-05: this step died on
@@ -137,12 +137,12 @@ jobs:
 
       - name: Replace MiniCPM app with the computer-only runtime
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           git config --global user.name "computer hub deployment"
           git config --global user.email "computer-hub@users.noreply.github.com"
-          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
+          git clone "https://oauth2:$T@www.modelscope.ai/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
           cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
           cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
           cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
@@ -166,7 +166,7 @@ jobs:
 
       - name: Deploy and wait for computer-only readiness
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           show_logs() {
@@ -216,7 +216,7 @@ jobs:
 
       - name: Wait for terminal and graphical desktop prerequisites
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           ready=0
@@ -264,7 +264,7 @@ jobs:
 
       - name: Wait for every programmer tool tier to finish (require zero skipped packages)
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           ready=0
@@ -304,7 +304,7 @@ jobs:
 
       - name: Start Chromium bootstrap
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           curl -sS --connect-timeout 8 --max-time 30 -X POST \
@@ -314,7 +314,7 @@ jobs:
 
       - name: Wait for Chromium or mark its separate status
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -uo pipefail
           browser_ready=0
@@ -342,7 +342,7 @@ jobs:
 
       - name: Live persistent terminal, files, jobs, X11 desktop and browser tests
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           API: ${{ env.API }}
           BROWSER_READY: ${{ env.BROWSER_READY }}
         timeout-minutes: 25

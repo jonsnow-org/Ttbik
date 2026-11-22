@@ -439,6 +439,29 @@ def patch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     return f"في المستودع {repo} الدالة total تطرح بدل أن تجمع. أصلحها وتأكد بالاختبارات.", steps, "أصلحت الدالة (صارت تجمع) بتعديل واحد، وشغّلت الاختبارات فنجحت كلها (3). أخبرني إن أردت نشر التعديل في فرع."
 
 
+def bank_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """The private bank of the model's own computer (owner 2026-11-22): keep a file in a topic bank, find it again by its text, restore it."""
+    topic, name, text = rng.choice([
+        ("وثائق", "ملخص_الاجتماع.txt", "اجتماع الخميس: تأجيل الإطلاق أسبوعًا"),
+        ("research", "notes.md", "the encoder keeps collapsing when the learning rate is above 3e-4"),
+        ("مشاريع", "خطة.txt", "المرحلة الأولى: جمع البيانات ثم التدريب"),
+    ])
+    word = text.split()[1] if rng.random() < 0.5 else text.split()[-1]
+    steps = [
+        ("computer_bank", {"bank_action": "create", "bank": topic}, f"bank {topic} created"),
+        ("computer_bank", {"bank_action": "put", "bank": topic, "name": name, "content": text}, f"stored {name} (item i1, {len(text)} chars)"),
+        ("computer_bank", {"bank_action": "search", "bank": topic, "query": word}, f"[1] {name} (item i1): {text}"),
+        ("computer_bank", {"bank_action": "get", "bank": topic, "item_id": "i1"}, text),
+    ]
+    return f"احفظ هذه الملاحظة في بنك «{topic}» باسم {name} ثم تأكد أنك تجدها بالبحث: {text}", steps, f"حفظتها في بنك {topic} باسم {name}، ووجدتها بالبحث عن «{word}»، وهذا نصها: {text}"
+
+
+def apps_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """Look at what the computer really has before promising an office / OCR task."""
+    steps = [("computer_apps", {}, "libreoffice: installed; ocrmypdf: installed; duckdb: installed; gimp: not installed")]
+    return rng.choice(["هل يمكنني فتح ملف docx وتعديله على حاسوبك؟", "ما التطبيقات المثبتة عندك للمستندات والبيانات؟", "can you OCR a scanned Arabic PDF here?"]), steps, "المثبّت عندي: LibreOffice وocrmypdf وDuckDB، أما GIMP فغير مثبّت."
+
+
 def forget_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     topic = rng.choice(["اللون الأزرق", "الكتابة بالإنجليزية", "الردود الطويلة"])
     steps = [
@@ -483,9 +506,13 @@ def any_spec(rng: random.Random) -> tuple[str, list, str]:
         return plan_flow_spec(rng)
     if r < 0.64:
         return patch_flow_spec(rng)
-    if r < 0.69:
+    if r < 0.66:
         return forget_flow_spec(rng)
-    if r < 0.75:
+    if r < 0.70:
+        return bank_flow_spec(rng)
+    if r < 0.73:
+        return apps_flow_spec(rng)
+    if r < 0.78:
         return knowledge_flow_spec(rng)
     return catalog_spec(rng)
 
@@ -550,6 +577,8 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
     "computer_patch": ("diff, cwd?", "Apply a unified diff on this model's private computer, all or nothing"),
     "computer_test": ("cwd?, command?", "Run the project's tests on this model's computer as a background job"),
+    "computer_apps": ("", "List the office, PDF/OCR, data and visual apps actually installed on this model's private computer"),
+    "computer_bank": ("bank_action, bank?, source_path?, content?, name?, query?, item_id?, output_path?", "Private file banks of this model's computer: create, put, get, search, delete, drop, link, stats, gc"),
     "plan": ("items", "Write or update the task's TODO list (step + status)"),
     "memory_forget": ("id?, query?", "Forget a memory that is wrong or that the user asked to forget"),
     "skill": ("name", "Load a short how-to: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data"),

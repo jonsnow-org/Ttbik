@@ -673,7 +673,7 @@ def main() -> int:
         print("ERROR: MODELSCOPE_TOKEN is not configured", file=sys.stderr)
         return 2
     api = args.api.rstrip("/")
-    if not api.startswith("https://studio-") or not api.endswith(".api-inference.modelscope.net"):
+    if not api.startswith("https://studio-") or not api.endswith((".api-inference.modelscope.net", ".api-inference.modelscope.ai")):
         print("ERROR: refusing an unexpected Studio API host", file=sys.stderr)
         return 2
     run_id = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))
