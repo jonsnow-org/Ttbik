@@ -17,7 +17,7 @@ import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor,
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
-import { resolveProfile, requiresProgressCard, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
+import { resolveProfile, requiresProgressCard, isTaskContinuation, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
 import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -2827,8 +2827,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }), novaModelOf(st.model)) }, ...histOf().map(wireOf)];
     // greetings / thanks (class "trivial"): the short system text, no tool list and only the plain conversation, so the reply comes in seconds instead of reading ~9k tokens of tools.
     // Only on the first step of a task, never while a question is pending, and never when the last assistant turn was a tool call or a question.
-    const lastAsst = [...st.messages].reverse().find((m) => m.role === "assistant");
-    const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
+    const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !isTaskContinuation(st.messages as never);
     if (lite) {
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
       // one fixed example pair (same text every time, so the Studio caches it): a small model answered «من انت» by repeating the question (live, 2026-11-04)

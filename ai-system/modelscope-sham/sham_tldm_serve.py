@@ -250,6 +250,8 @@ def apply_identity(body, path=None, payload: dict | None = None) -> dict:
             return _set_identity(status)
         if _IDENTITY.get("identity_lora") and _IDENTITY.get("identity_lora_path") == str(path or "") and _IDENTITY.get("body") == id(body):
             return dict(_IDENTITY)
+        if getattr(body, "_identity_merged", False):
+            raise RuntimeError("the identity LoRA was merged into the weights at start; restart the Studio to change it")
         downs = [v for k, v in lora.items() if k.endswith(".adapter_down")]
         if not downs:
             raise RuntimeError("identity_lora has no adapter_down tensors")
@@ -274,6 +276,31 @@ def apply_identity(body, path=None, payload: dict | None = None) -> dict:
     except Exception as exc:
         status["identity_lora_why"] = f"{type(exc).__name__}: {str(exc)[:160]}"
     return _set_identity(status)
+
+
+def merge_identity(body) -> int:
+    """Fold every adapter (AdapterLinear: base + scale * up @ down) into its base weight and put the plain Linear back: the SAME function (the delta is computed in fp32 and added
+    to an fp32 base, so only float rounding differs), with two fewer matmuls per projection on EVERY token of EVERY chat. The unmerged LoRA made Sham Pro slower than before it
+    carried an identity (2026-11-22). Only for an fp32 base (a bf16 base would round the small delta away); returns the projections merged, 0 when nothing was done."""
+    import torch
+    if getattr(body, "_identity_merged", False):
+        return 0
+    n = 0
+    with torch.no_grad():
+        for _, parent in list(body.named_modules()):
+            for cname, child in list(parent.named_children()):
+                if not (hasattr(child, "adapter_down") and hasattr(child, "adapter_up") and hasattr(child, "base")):
+                    continue
+                base = child.base
+                if base.weight.dtype != torch.float32:
+                    continue
+                base.weight.add_(((child.adapter_up.float() @ child.adapter_down.float()) * float(child.scale)).to(base.weight.device))
+                setattr(parent, cname, base)
+                n += 1
+    if n:
+        body._identity_merged = True
+        _IDENTITY["merged"] = n
+    return n
 
 
 def _set_identity(status: dict) -> dict:

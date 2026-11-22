@@ -207,6 +207,9 @@ def _load(model_dir: Path) -> None:
                     ident = {"identity_lora": False, "identity_lora_why": "off (SHAM_IDENTITY_LORA=0)"}
                 else:
                     ident = _tldm.apply_identity(serve._state["model"], head)
+                    if ident.get("identity_lora") and os.environ.get("SHAM_MERGE_IDENTITY", "1").strip().lower() not in ("0", "off", "false", "no"):
+                        merged = _tldm.merge_identity(serve._state["model"])      # same answers, two fewer matmuls per projection per token
+                        _say(f"identity LoRA merged into {merged} projections (faster, same function)" if merged else "identity LoRA kept unmerged (not an fp32 body)")
             except Exception as exc:
                 ident = {"identity_lora": False, "identity_lora_why": f"{type(exc).__name__}: {str(exc)[:120]}"}
             STATE["identity_lora"] = bool(ident.get("identity_lora"))
