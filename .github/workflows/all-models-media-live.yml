@@ -1,14 +1,14 @@
 name: "All models: picture and video requests through the bot's production code (real Studios, nothing sent to Telegram)"
 
-# For every model (Nova, LFM2.5, Sham v2) sends «قم بتوليد صورة …» and «قم بتوليد فديو …» through the same entry points the bot uses, against the REAL
+# For every model (Nova, Sham v2) sends «قم بتوليد صورة …» and «قم بتوليد فديو …» through the same entry points the bot uses, against the REAL
 # Studios, and prints what each one would have sent (bytes, seconds) or the exact text the user would have seen. Pictures / clips are uploaded as an artifact.
 on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma list: coder,lfm25,sham_v2"
+        description: "comma list: coder,sham_v2"
         required: false
-        default: "coder,lfm25,sham_v2"
+        default: "coder,sham_v2"
       kinds:
         description: "chat,image,video,audio (chat sends «مرحبا»: a greeting must get a normal reply, never a media note)"
         required: false
