@@ -2597,6 +2597,17 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         continue;
       }
+      if (!run.agent) {                                        // execution gate (coderFinishGate.ts): «…ونفّذه على حاسوبك» must not end with code shown and nothing run (any user)
+        const xg = await import("@/lib/coderFinishGate");
+        const xn = xg.execNudge(run.goal || "", xg.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        if (xn) {
+          run.nudges = (run.nudges || 0) + 1;
+          await taskEvent(run.id, "info", `↩️ طُلب التنفيذ على الحاسوب لكن الرد انتهى بلا أي أمر منفَّذ فأُعيد إلى التنفيذ — المحاولة ${run.nudges}.`, db);
+          st.messages.push({ role: "user", content: xn });
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+      }
       if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
         const gate = await import("@/lib/coderFinishGate");
         // the goal is the run's own request plus the owner's recent messages: a follow-up like «البوت هو @Slaselbot» carries no action verb of its own but continues the action request
