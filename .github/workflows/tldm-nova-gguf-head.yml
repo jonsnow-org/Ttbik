@@ -100,6 +100,8 @@ jobs:
         if: ${{ inputs.publish == 'true' }}
         env:
           MS_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          MODELSCOPE_ENDPOINT: https://www.modelscope.ai      # the token is the international account's: the SDK logs in on .cn unless told otherwise (run 45044580509 failed on exactly that)
+          MODELSCOPE_DOMAIN: www.modelscope.ai
         run: |
           python - <<'PY'
           import json, os, sys
