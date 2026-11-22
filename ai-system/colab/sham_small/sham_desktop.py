@@ -142,9 +142,32 @@ class Desktop:
         for wm in ("openbox",):
             if self._which(wm):
                 self.procs.append(self._popen([wm], env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        self._welcome()
         self.running = True
         self.last_used = time.time()
         return self.status()
+
+    def _welcome(self) -> None:
+        """A bare window manager over a bare X display is a BLACK screen (owner 2026-11-22: "Sham Pro's computer starts with a black screen, no desktop"). So the desktop always opens
+        with something on it: a terminal filling the screen, in the desktop's colours, saying what this computer is and how to open the browser. xterm is part of PACKAGES, so no
+        new package is needed; if it is missing the screen stays as it was. It asks for a fontconfig font (-fa): with LANG=C.UTF-8 the default X core font "-misc-fixed ... iso10646-1"
+        may not exist on the host (live check here: "xterm: cannot load font" and the window stayed black)."""
+        if not self._which("xterm"):
+            return
+        # a window mapped while the window manager is still starting can come up unpainted (a black rectangle): wait until the manager answers, at most ~3 s
+        if self._which("wmctrl"):
+            for _ in range(20):
+                if self._run(["wmctrl", "-m"], env=self._env(), capture_output=True, timeout=3, check=False).returncode == 0:
+                    break
+                time.sleep(0.15)
+        else:
+            time.sleep(0.8)
+        cols, rows = max(40, (self.width - 14) // 8), max(12, (self.height - 50) // 17)       # a 10 pt Xft monospace cell is about 8 x 17 px (never over-large: a bigger window would be cut)
+        banner = ("printf '\\033[1;36m  Sham Pro desktop\\033[0m  -  the model\\047s own computer\\n\\n"
+                  "  type:  chromium https://example.com   (or tell the model what to open)\\n"
+                  "  files: pcmanfm     terminal: xterm\\n\\n'; exec sh")
+        argv = ["xterm", "-fa", "Monospace", "-fs", "10", "-geometry", f"{cols}x{rows}+0+0", "-bg", "#0f1b2d", "-fg", "#d8e6ff", "-T", "Sham Pro", "-e", "sh", "-c", banner]
+        self.procs.append(self._popen(argv, env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
 
     def stop(self) -> dict:
         for p in reversed(self.procs):
