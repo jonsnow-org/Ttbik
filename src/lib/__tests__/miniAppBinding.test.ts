@@ -259,11 +259,13 @@ describe("Mini App screens are bound to the selected model (source guard)", () =
   });
 });
 
-test("the T-LDM switch lives in Settings, only while Sham Pro is selected; the owner panel keeps only the policy (no duplicate personal switch)", () => {
+test("the Mini App has no thinking / speed / forced-mode / T-LDM controls: the models are automatic (owner 2026-11-22); the owner panel keeps only the policy", () => {
   const fs = require("fs") as typeof import("fs");
   const app = fs.readFileSync(require.resolve("../../app/coder-app/_nova/NovaApp.tsx"), "utf8");
   const panel = fs.readFileSync(require.resolve("../../app/coder-app/_nova/OwnerModelsPanel.tsx"), "utf8");
-  expect(app).toMatch(/me\.features\?\.tldm && c\.bind\.tldm &&/);
+  expect(app).not.toMatch(/setSheet\("(acc|policy|force)"\)/);
+  expect(app).not.toMatch(/aria-label="T-LDM"/);
+  expect(app).not.toMatch(/m_remember|m_recall|m_save/);            // the three memory switches are gone from the screen
   expect(panel).not.toMatch(/api\("settings", \{ for: "sham_v2", tldm/);
   expect(panel).toMatch(/tldm_policy/);
 });
