@@ -57,7 +57,7 @@ jobs:
           - { id: iq4_xs, file: Qwen3.5-4B-IQ4_XS.gguf }
           - { id: ud-iq3_xxs, file: Qwen3.5-4B-UD-IQ3_XXS.gguf }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: 60
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -192,7 +192,7 @@ jobs:
           - { id: qwen3-8b-q4km, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf" }
           - { id: qwen3-8b-q3ks, url: "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q3_K_S.gguf" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -229,7 +229,7 @@ jobs:
           - { id: qwen3.5-2b-q4_k_m, url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" }
           - { id: qwen3.5-2b-q8_0, url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q8_0.gguf" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -275,7 +275,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -329,7 +329,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -377,7 +377,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
@@ -401,7 +401,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false

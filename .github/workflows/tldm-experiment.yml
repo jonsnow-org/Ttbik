@@ -55,7 +55,7 @@ jobs:
           cd ai-system/tldm
           python training/train_loop.py --config configs/loop.yaml 2>&1 | tee /tmp/loop.log
           python training/evolve.py 2>&1 | tee /tmp/evolve.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: tldm-logs
