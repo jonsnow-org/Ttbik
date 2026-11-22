@@ -3,7 +3,7 @@
 /** Nova 2's own computer: the hub on the international Studio (open internet; the cn hub cannot reach GitHub, live 2026-11-22). NOVA2_COMPUTER_STUDIO_URL overrides it; "off" disables it. */
 export const DEFAULT_NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai";
 export const nova2ComputerUrl = (): string => (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim() || DEFAULT_NOVA2_COMPUTER_STUDIO_URL;
-export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+export const DEFAULT_COMPUTER_STUDIO_URL = DEFAULT_NOVA2_COMPUTER_STUDIO_URL;      // Nova 1 was removed (2026-11-22): the one Nova works on the international hub (the cn hub could not reach GitHub)
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { secretCached } from "@/lib/hostedSecrets";
 import { nova2Urls } from "@/lib/openCoderStudio";
@@ -24,7 +24,6 @@ export function browserStudioFor(modelId: string | undefined): string | null {
     const configured = nova2ComputerUrl();
     if (!configured || /^(off|none|0)$/i.test(configured) || !/^https:\/\//i.test(configured)) return null;
     const base = configured.replace(/\/+$/, "");
-    const novaHub = (process.env.COMPUTER_STUDIO_URL || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
     const separateMediaStudios = [
       process.env.NOVA2_MEDIA_STUDIO_URL || "",
       process.env.NOVA_MEDIA_STUDIO_URL || "",
@@ -34,7 +33,7 @@ export function browserStudioFor(modelId: string | undefined): string | null {
       process.env.SHAM_MEDIA_STUDIO_URL || "",
       process.env.SHAM_V2_MEDIA_STUDIO_URL || "",
     ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-    if (base === novaHub || nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
+    if (nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
     return base;
   }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
@@ -45,8 +44,9 @@ export function browserStudioFor(modelId: string | undefined): string | null {
 export function studioToken(base?: string): string {
   const n2 = nova2ComputerUrl().replace(/\/+$/, "");
   if (base && n2 && base.replace(/\/+$/, "") === n2) {
-    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
+    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
   }
+  if (base && /\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim();   // an international Studio takes the international account's token
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
 

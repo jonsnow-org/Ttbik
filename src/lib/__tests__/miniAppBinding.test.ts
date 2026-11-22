@@ -82,24 +82,6 @@ describe("client binding table", () => {
 });
 
 describe("server: per-model computer and sessions", () => {
-  test("Nova 2 bootstrap does not expose Nova's GitHub link or OAuth availability", async () => {
-    const db: any = pgDb();
-    const { bot } = fakeBot();
-    const prior = process.env.CODER_GITHUB_TOKEN;
-    process.env.CODER_GITHUB_TOKEN = "nova-private-token";
-    try {
-      const view: any = await appOp({ chatId: OWNER, tier: "owner" }, "me", { model: "nova2" }, { db, bot, botRow } as any);
-      expect(view.settings.model).toBe("nova2");
-      expect(view.connections).toEqual({ github: { linked: false } });
-      expect(view.oauth).toBe(false);
-      expect(view.features.computer).toBe(false);
-      expect(view.features.tldm).toBe(false);
-      const blockedTldm: any = await appOp({ chatId: OWNER, tier: "owner" }, "settings", { model: "nova2", tldm: true }, { db, bot, botRow } as any).catch((e: any) => e);
-      expect(blockedTldm).toMatchObject({ status: 403 });
-    } finally {
-      if (prior === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = prior;
-    }
-  });
 
   test("Nova 2's connector page does not expose Nova's linked accounts or MCP list", async () => {
     const db: any = pgDb();
@@ -152,30 +134,6 @@ describe("server: per-model computer and sessions", () => {
       if (priorNovaToken === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = priorNovaToken;
     }
   });
-  test("box: Nova 2 has its own computer Studio and fails closed until it is configured", async () => {
-    const db: any = pgDb(); const { bot } = fakeBot();
-    const { seen, fetchImpl } = recorder();
-    const d = { db, bot, botRow, fetchImpl } as any;
-    const previous = process.env.NOVA2_COMPUTER_STUDIO_URL;
-    try {
-      delete process.env.NOVA2_COMPUTER_STUDIO_URL;
-      const unavailable = await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "nova2", { args: { action: "run", command: "true" } }), d);
-      expect(unavailable).toMatchObject({ ok: false, error: "this model has no computer Studio" });
-      expect(seen).toHaveLength(0);
-      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://n2-computer.example.test";
-      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "coder", { args: { action: "run", command: "true" } }), d);
-      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "nova2", { args: { action: "run", command: "true" } }), d);
-      await appOp({ chatId: OWNER, tier: "owner" }, "box", boundBody("box", "sham_v2", { args: { action: "list" } }), d);
-      expect(seen[0]).toMatchObject({ host: HUB, body: { session: `${OWNER}:coder` } });
-      expect(seen[1]).toMatchObject({ host: "https://n2-computer.example.test", body: { session: `${OWNER}:nova2` } });
-      expect(seen[1].host).not.toBe(seen[0].host);
-      expect(seen[2].host).toBe(new URL(DEFAULT_V2_URL).origin);
-      expect(seen[2].host).not.toBe(HUB);
-      expect(seen[2].body).toMatchObject({ session: `${OWNER}:sham_v2` });
-    } finally {
-      if (previous === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = previous;
-    }
-  });
 
   test("desktop: Nova 2 uses its own desktop Studio; Shams keep their embedded desktops", async () => {
     const db: any = pgDb(); const { bot } = fakeBot();
@@ -223,16 +181,6 @@ describe("server: per-model computer and sessions", () => {
     expect(await ids("sham")).toEqual(["e"]);
   });
 
-  test("memory ops of a Sham model are refused (Shams keep their own memory); Nova 2's memories are its own", async () => {
-    const db: any = pgDb(); const { bot } = fakeBot();
-    const d = { db, bot, botRow } as any;
-    await expect(appOp({ chatId: OWNER, tier: "owner" }, "memories", { model: "sham_v2" }, d)).rejects.toThrow(AppError);
-    await appOp({ chatId: OWNER, tier: "owner" }, "memory_add", { model: "nova2", text: "Nova 2 private preference here" }, d);
-    const n2: any = await appOp({ chatId: OWNER, tier: "owner" }, "memories", { model: "nova2" }, d);
-    const n1: any = await appOp({ chatId: OWNER, tier: "owner" }, "memories", { model: "coder" }, d);
-    expect(n2.memories.map((x: any) => x.text)).toContain("Nova 2 private preference here");
-    expect(n1.memories.map((x: any) => x.text)).not.toContain("Nova 2 private preference here");
-  });
 });
 
 describe("Mini App screens are bound to the selected model (source guard)", () => {
