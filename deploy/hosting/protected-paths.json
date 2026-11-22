@@ -1,5 +1,5 @@
 {
-  "_": "Paths that autonomous agents (supervisor bots, Grok, any scheduled session) must not change without the owner's explicit approval. Checked by scripts/agent-guard.mjs (CI on pull requests; label `owner-approved` on the PR lets a reviewed change through). 'block' = modified/deleted/renamed file fails the check; added files only warn. See docs/agents/COMMON.md §1. Owner's order 2026-11-06: the only hands-off project is Athar; the Sham AI model and the general notices are NOT protected and were removed from this list. What remains below are live-money guards (on-chain coins, contracts, Athar, the servers that serve them) — a change there can move real money and is irreversible.",
+  "_": "Owner's order 2026-11-22: the guard protects ONLY Athar, the coin platform (Palmyra Launch), the coins and the contracts. Everything else in the repository (servers, the gate, workflows, framework pins, database files, bots, site, tools, promotion, the Sham AI model) is open to every engineer and is not checked. 'block' = a modified/deleted/renamed file fails the PR check unless the owner puts the label `owner-approved` on it; added files only warn. Checked by scripts/agent-guard.mjs (CI: .github/workflows/agent-guard.yml). See docs/agents/COMMON.md §1.",
   "rules": [
     {
       "id": "coin-frozen",
@@ -46,16 +46,6 @@
       ]
     },
     {
-      "id": "infrastructure",
-      "level": "block",
-      "why": "Servers and the gate that every webhook, link and the coin image pass through; Oracle must keep following main.",
-      "paths": [
-        "deploy/oracle/",
-        "cloudflare/",
-        "deploy/hosting/site.json"
-      ]
-    },
-    {
       "id": "athar",
       "level": "block",
       "why": "Athar is live on mainnet with real money. Hands-off for every supervisor and outside AI; the main Claude session has the owner's full authority (order 2026-10-20) and proceeds with the label owner-approved.",
@@ -73,44 +63,37 @@
       ]
     },
     {
+      "id": "platform",
+      "level": "block",
+      "why": "The Palmyra Launch coin platform (curve contracts' web app, trade/create/launch pages, payout and chain code, its APIs): it moves users' real money.",
+      "paths": [
+        "public/zenobia/znbt/",
+        "public/zenobia/coins.html",
+        "public/zenobia/create.html",
+        "public/zenobia/earnings.html",
+        "public/zenobia/launch.html",
+        "public/zenobia/portfolio.html",
+        "public/zenobia/swap.html",
+        "public/zenobia/trade.html",
+        "public/zenobia/terms.html",
+        "src/app/api/zenobia/",
+        "src/lib/platformBotLogic.ts",
+        "src/lib/platformPoints.ts",
+        "src/lib/znbtConfig.ts",
+        "src/lib/znbtIndex.ts",
+        "src/lib/zenobiaChain.ts",
+        "src/lib/zenobiaPay.ts",
+        "src/lib/zenobiaTonProof.ts",
+        "src/lib/vendor/znbtIndexer.cjs"
+      ]
+    },
+    {
       "id": "money-switches",
       "level": "block",
       "why": "Payout hot wallet and sale switches belong to the owner.",
       "paths": [
         "src/lib/znbtPayout.ts",
         "deploy/hosting/CRONS_ON"
-      ]
-    },
-    {
-      "id": "framework-pins",
-      "level": "warn",
-      "why": "Next 16.3.8, --webpack, deepmerge-ts override and isOwnerServer() async are pinned by the owner.",
-      "paths": [
-        "package.json",
-        "next.config.mjs",
-        "package-lock.json",
-        "athar/web/package.json",
-        "athar/web/next.config.mjs"
-      ]
-    },
-    {
-      "id": "workflows",
-      "level": "warn",
-      "why": "Schedules and secrets wiring; a wrong edit silently stops a whole system or floods Vercel with builds.",
-      "paths": [
-        ".github/workflows/",
-        "vercel.json",
-        "scripts/vercel-ignore.sh"
-      ]
-    },
-    {
-      "id": "database",
-      "level": "warn",
-      "why": "Schema changes need a SQL file flagged to the owner by filename (docs/AGENT_BUS.md).",
-      "paths": [
-        "prisma/schema.prisma",
-        "prisma/migration_",
-        "supabase/"
       ]
     }
   ]
