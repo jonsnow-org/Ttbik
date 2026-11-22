@@ -4,7 +4,8 @@
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
-import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
+import { SHAM_SKILL_NAMES, shamSkillText } from "@/lib/skillsSham";
+import { SHAMPRO_SKILL_NAMES, shamproSkillText } from "@/lib/skillsShamPro";
 import { prismaDb, type Db } from "@/lib/shamDb";
 import { knowledgeSave, knowledgeSearch } from "@/lib/shamKnowledge";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
@@ -82,7 +83,7 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("computer_test", "Run the project's tests on your private computer as a background job (the runner is detected: npm test, pytest, go test, cargo test, make test). Read the result with computer_job action=log; the last line is TESTS_EXIT=<code>.", obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
   tool("plan", "Write or update the task's TODO list: call it first for any task with more than three steps and again when a step is done or the plan changes. Each item is a short step with a status.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from memory_search, or by a query).", obj({ id: n("memory id"), query: s("text to match when no id") })),
-  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: SHAM_SKILL_NAMES } }, ["name"])),
   tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
   tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action read the returned window list before assuming it worked; action=show offers the screen to the user.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "dblclick", "move", "type", "key", "scroll", "show"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
@@ -120,7 +121,8 @@ const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_r
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
-  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
+  const proSkill = shamVariant.getStore() === "v2";
+  return SHAM_TOOLS.map((t) => (proSkill && t.function.name === "skill" ? { ...t, function: { ...t.function, parameters: { ...(t.function.parameters as object), properties: { name: { type: "string", enum: SHAMPRO_SKILL_NAMES } } } as typeof t.function.parameters } } : t)).filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
@@ -407,7 +409,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
         return `sent ${f.path} (${f.bytes.length} bytes) to the user`;
       } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
-    if (name === "skill") return agentSkillText(String(a.name || ""));
+    if (name === "skill") return shamVariant.getStore() === "v2" ? shamproSkillText(String(a.name || "")) : shamSkillText(String(a.name || ""));   // each Sham has its OWN skill file
     if (name === "plan") {
       const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
       const rows = (Array.isArray(a.items) ? a.items : []).slice(0, 12).map((x: any) => (x && typeof x === "object" ? x : null)).filter((x: any) => x && String(x.step || "").trim());
