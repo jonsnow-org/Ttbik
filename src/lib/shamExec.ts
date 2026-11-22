@@ -100,6 +100,9 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("sandbox_push", "Publish changes from this temporary task workspace only. For changes made in your persistent computer_repo checkout, use computer_publish. The user must confirm before this runs.", obj({ repo: REPO, branch: s("branch to push to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
   tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Name `base` (the branch the user said); head must already hold the changes. The user is asked first.", obj({ repo: REPO, head: s("source branch"), base: s("target branch (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request. The user is asked first.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
+  tool("github_create_issue", "Open an issue in a repository. The user is asked first.", obj({ repo: REPO, title: s("title"), body: s("description") }, ["repo", "title"])),
+  tool("github_comment", "Comment on an issue or pull request. The user is asked first.", obj({ repo: REPO, number: n("issue / PR number"), body: s("comment text") }, ["repo", "number", "body"])),
+  tool("github_run_workflow", "Start a workflow_dispatch workflow (for example the tests) on a branch. The user is asked first.", obj({ repo: REPO, workflow: s("file name, e.g. ci.yml"), ref: s("branch"), inputs: { type: "object" } }, ["repo", "workflow", "ref"])),
   tool("http_request", "Call a public HTTP API (GET / HEAD run at once; POST / PUT / PATCH / DELETE wait for the user's tap) and read the answer. For a plain page use fetch_page; for the user's linked services use connector_api. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers" }, body: s("request body text (JSON as a string)") }, ["url"])),
   tool("knowledge_search", "Search your library of EVERYTHING you have read before in earlier tasks and chats (pages, search results, research reports, each with its source and date) AND the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions). Use it BEFORE searching the web again, and say where the answer came from.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
@@ -112,7 +115,7 @@ export const SHAM_TOOLS: CoderTool[] = [
 ];
 
 /** Calls that change the user's repositories: they wait for the user's tap. */
-export const SHAM_NEEDS_OK = new Set(["computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"]);
+export const SHAM_NEEDS_OK = new Set(["computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "mcp_call"]);
 /** Does this call change something outside the chat? Those wait for the user's tap: the fixed write tools, an MCP call, and a connector call that is not a plain read. */
 export function shamNeedsOk(call: CoderToolCall): boolean {
   if (SHAM_NEEDS_OK.has(call.function.name)) return true;
@@ -121,7 +124,7 @@ export function shamNeedsOk(call: CoderToolCall): boolean {
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
 const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
-const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "computer_publish", "sandbox_push"]);
+const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "computer_publish", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
@@ -304,6 +307,18 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
       if (String(a.head || "").trim() === base) return "error: head and base are the same branch; push your changes to a new branch first (sandbox_push).";
       const r = await gh(ctx, "POST", `${R}/pulls`, { head: a.head, base, title: a.title, body: a.body || "" });
       return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url} (${a.head} → ${base})` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
+    }
+    case "github_create_issue": {
+      const r = await gh(ctx, "POST", `${R}/issues`, { title: a.title, body: a.body || "" });
+      return r.status < 300 ? `issue #${r.data.number} ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message}`);
+    }
+    case "github_comment": {
+      const r = await gh(ctx, "POST", `${R}/issues/${Number(a.number)}/comments`, { body: a.body });
+      return r.status < 300 ? `comment ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message}`);
+    }
+    case "github_run_workflow": {
+      const r = await gh(ctx, "POST", `${R}/actions/workflows/${encodeURIComponent(String(a.workflow))}/dispatches`, { ref: a.ref, inputs: a.inputs || {} });
+      return r.status < 300 ? `started ${a.workflow} on ${a.ref}` : clip(`error ${r.status}: ${r.data?.message}`);
     }
     case "github_merge_pr": {
       const pr = await gh(ctx, "GET", `${R}/pulls/${Number(a.number)}`);
@@ -527,6 +542,9 @@ export function shamConfirmText(call: CoderToolCall): string {
     : call.function.name === "sandbox_push" ? `رفع التعديلات من مساحة العمل المؤقتة إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
     : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
     : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
+    : call.function.name === "github_create_issue" ? `فتح مشكلة في ${a.repo}: ${String(a.title || "").slice(0, 200)}`
+    : call.function.name === "github_comment" ? `تعليق على #${a.number} في ${a.repo}:\n${String(a.body || "").slice(0, 300)}`
+    : call.function.name === "github_run_workflow" ? `تشغيل سير العمل ${a.workflow} في ${a.repo} على ${a.ref}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
     : call.function.name === "tldm_confirm" ? `أمر على حاسوب شام برو الداخلي يحتاج موافقتك:\n${String(a.command || a.question || "").slice(0, 400)}`
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;

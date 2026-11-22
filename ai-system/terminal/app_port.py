@@ -25,11 +25,11 @@ sys.path.insert(0, os.path.join(HERE, "..", "colab", "sham_small"))
 from sham_toolcall import CLOSE_TAG, OPEN_TAG  # noqa: E402
 
 # The web app's rule (src/lib/shamExec.ts, SHAM_NEEDS_OK and shamNeedsOk). test_app_port.py fails if the TypeScript set changes and this one does not.
-NEEDS_OK = frozenset({"computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"})
+NEEDS_OK = frozenset({"computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "mcp_call"})
 METHOD_TOOLS = frozenset({"http_request", "connector_api"})          # need the user's yes unless the method is GET / HEAD
 
 # Embedded in Sham's own code (sham_embedded_tools.EMBEDDED); read from the module when it imports, this list otherwise.
-_EMBEDDED_FALLBACK = frozenset({"computer_run", "computer_read", "computer_write", "computer_edit", "computer_search", "computer_repo", "computer_job", "computer_patch", "computer_test",
+_EMBEDDED_FALLBACK = frozenset({"computer_run", "computer_read", "computer_write", "computer_edit", "computer_search", "computer_repo", "computer_job", "computer_patch", "computer_test", "computer_bank", "computer_apps", "computer_batch",
                                 "browser", "desktop", "sandbox_clone", "sandbox_exec", "sandbox_wait", "sandbox_write_file", "sandbox_edit_file", "sandbox_search", "sandbox_read_file"})
 
 PLACEHOLDER = re.compile(r"\{\{secret:[A-Za-z0-9_-]{1,64}\}\}")
