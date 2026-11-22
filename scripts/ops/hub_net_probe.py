@@ -9,6 +9,6 @@ HOSTS = ["example.com", "www.google.com", "www.youtube.com", "github.com", "api.
          "duckduckgo.com", "en.wikipedia.org", "pypi.org", "registry.npmjs.org", "huggingface.co", "hf-mirror.com", "modelscope.cn", "modelscope.ai", "api.telegram.org",
          "workers.dev", "vercel.app", "cloudflare.com", "1.1.1.1", "mirrors.aliyun.com", "pypi.tuna.tsinghua.edu.cn"]
 tok = (os.environ.get("MODELSCOPE_TOKEN") or "").strip()
-cmd = "for h in " + " ".join(HOSTS) + "; do r=$(curl -sS -o /dev/null -m 8 -w '%{http_code} %{time_total}' https://$h/ 2>&1 | tail -1); echo \"$h => $r\"; done; echo ---; env | grep -i proxy | sed 's/=.*/=<set>/'; echo ---; cat /etc/resolv.conf | head -3; curl -sS -m 6 https://ifconfig.me 2>&1 | tail -1"
+cmd = ("for h in " + " ".join(HOSTS) + "; do (r=$(curl -sS -o /dev/null -m 7 -w '%{http_code} %{time_total}' https://$h/ 2>&1 | tail -1); echo \"$h => $r\") & done; wait; echo ---; env | grep -i proxy | sed 's/=.*/=<set>/'; echo ---; head -3 /etc/resolv.conf")
 r = smoke.box_call(API, tok, {"session": "check:netprobe", "action": "run", "command": cmd}, timeout=180)
 print(str(r.get("output") or json.dumps(r, ensure_ascii=False))[:6000])
