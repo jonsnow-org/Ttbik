@@ -90,15 +90,15 @@ export async function nova2WarmStartReady(): Promise<boolean> {
 function novaStudioUrls(): string[] {
   return oldNovaStudioUrls();
 }
-/** Owner 2026-11-22: Nova 1 (Qwen3.5-4B) is retired and Nova 2 (Qwen3.6-35B-A3B on the international Studio) takes its place. NOVA_ENGINE=nova2 makes the product named Nova
- *  (model id "coder", with all its plumbing: GitHub, connectors, schedules, secrets, media, its computer hub) run on Nova 2's Studio pool; Nova 1's Studios are no longer used
- *  (they are stopped, not deleted). Off by default, so nothing changes until the owner's environment sets it. */
-export const novaRunsOnNova2 = (): boolean => /^(nova2|on|1|true)$/i.test((process.env.NOVA_ENGINE || "").trim()) && nova2Urls().length > 0;
+/** Owner 2026-11-22: Nova 1 (Qwen3.5-4B) is removed for good. The product named Nova (model id "coder", with all its plumbing: GitHub, connectors, schedules, secrets, media,
+ *  its computer hub) runs on Nova 2's Studio pool (Qwen3.6-35B-A3B on the international Studio). The old cn Studios are never used for inference any more. */
+export const novaRunsOnNova2 = (): boolean => nova2Urls().length > 0;
+/** True when this engine model runs on the 35B Studio (Nova 2 itself, or the one Nova since Nova 1 was removed): slow reader, so small tool list, one serial child, long job stall. */
+export const runsOnBigModel = (model: string = currentEngineModel()): boolean => model === "nova2" || (model === "coder" && novaRunsOnNova2());
 function oldNovaStudioUrls(): string[] {
   if (novaRunsOnNova2()) return nova2Urls();
-  // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
-  const lfm = new Set(lfmStudioUrls());
-  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
+  // Only when Nova 2's own pool is empty (tests; Nova 2 switched off with NOVA2_STUDIO_URLS=off): the Studio set in OPEN_CODER_STUDIO_URL(S). In production the pool is never empty, so the old cn Studios are never used.
+  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x);
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
