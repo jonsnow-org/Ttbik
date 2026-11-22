@@ -88,6 +88,53 @@ describe("Sham's own agent loop", () => {
     } finally { spy.mockRestore(); }
   });
 
+  it("a plain conversation (the head ran nothing and called nothing) is spoken by Sham Pro's body, not by the head's short command-writer", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "مرحبا! أنا شام برو...مرحبا! أنا شام برو...والبحثبحث", tldm: true } as any);
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "أنا بخير، شكرًا! أنا شام برو. كيف أساعدك؟" } as any);
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "مرحبا كيف حالك من انت", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
+      expect(r).toMatchObject({ kind: "text", text: "أنا بخير، شكرًا! أنا شام برو. كيف أساعدك؟" });
+      expect((chat.mock.calls[0] as any[])[3]).toMatchObject({ direct: true });
+    } finally { tldm.mockRestore(); chat.mockRestore(); }
+  });
+
+  it("when the head ran a command on its computer, its own short reply stands (the body is not asked)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: ZX7Q-4821", tldm: true, computer_steps: [{ command: "echo ZX7Q-4821", ok: true, result: "ZX7Q-4821" }] } as any);
+    const chat = jest.spyOn(studio, "shamGenerateChat");
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "شغّل echo ZX7Q-4821", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
+      expect(r).toMatchObject({ kind: "text", text: "الخرج: ZX7Q-4821", used: ["computer_run"] });
+      expect(chat).not.toHaveBeenCalled();
+    } finally { tldm.mockRestore(); chat.mockRestore(); }
+  });
+
+  it("after a GitHub read tool, Sham Pro's own body writes the answer from the FULL result (the head only decided to ask for the tool)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const question = "اقرأ الملف package.json من المستودع acme/webapp على GitHub واذكر قيمة الحقل name فيه.";
+    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({
+      type: "tool_request", tool_name: "github_read_file", tool_arguments: { repo: "acme/webapp", path: "package.json" },
+      tool_request_id: "gh-1", tldmBase: DEFAULT_V2_URL, tldm: true,
+    } as any);
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "قيمة الحقل name هي acme-web." } as any);
+    const bigFile = '{\n  "name": "acme-web",\n  "version": "1.2.3",\n  "dependencies": {' + '"x": "1",'.repeat(300) + '}\n}';
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({
+        text: question, ctx, tools: shamToolDefs(true), budgetMs: 60000,
+        exec: async (call) => { expect(call.function.name).toBe("github_read_file"); return bigFile; },
+      })));
+      expect(r).toMatchObject({ kind: "text", text: "قيمة الحقل name هي acme-web.", used: ["github_read_file"] });
+      expect(tldm).toHaveBeenCalledTimes(1);                                   // the head was not asked to summarise the file
+      const [msgs, , , opts] = chat.mock.calls[0] as any[];
+      expect(opts).toMatchObject({ direct: true });                              // Sham Pro's body, not the head
+      const last = msgs[msgs.length - 1];
+      expect(last.role).toBe("user");
+      expect(last.content).toContain(question);
+      expect(last.content).toContain('"name": "acme-web"');                      // the full result reached the body
+    } finally { tldm.mockRestore(); chat.mockRestore(); }
+  });
+
   it("refuses to execute T-LDM requests for write or unlisted application tools", async () => {
     const studio = await import("@/lib/shamStudio");
     const question = "افحص المستودع وعدّل الملفات ثم ارفع التغييرات";

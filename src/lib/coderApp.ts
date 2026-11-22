@@ -243,10 +243,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         const { setTldmEnabled, canonModelId } = await import("@/lib/coderModels");
         const target = canonModelId(typeof body.for === "string" ? body.for : selectedModel) || "coder";
         if (target !== "sham_v2") throw new AppError(403, "T-LDM belongs to Sham Pro (sham_v2) only.");
-        const P = await import("@/lib/tldmPolicy");
-        await P.refreshTldmPolicy(db, st.model || "coder").catch(() => null);
-        if (!P.tldmAllowedFor(user.tier, st.model || "coder")) throw new AppError(403, "T-LDM for this model is owner only");
-        setTldmEnabled(st, body.tldm);
+        setTldmEnabled(st, true);          // built into Sham Pro (owner 2026-11-22): the stored value is always on, whatever the app sends
       }
       // memory / save switches also belong to ONE model (body.for, else the selected one): remember, recall, save
       if (body.memory && typeof body.memory === "object") {

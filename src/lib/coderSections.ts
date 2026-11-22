@@ -477,6 +477,10 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
         await bot.api.answerCallbackQuery(cq.id, { text: "هذا النموذج لا يملك مسار T-LDM.", show_alert: true }).catch(() => null);
         return true;
       }
+      if (wantT === "sham_v2") {
+        await bot.api.answerCallbackQuery(cq.id, { text: "T-LDM جزء من شام برو ويعمل دائمًا.", show_alert: true }).catch(() => null);
+        return true;
+      }
       const gate = wantT;
       await refreshTldmPolicy(db, gate).catch(() => null);
       if (!tldmAllowedFor(tierFor(chatId), gate)) {
@@ -589,6 +593,10 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     if (!isTldmModel(want)) {
       // LFM2.5 and any other model without a head: say so, rather than showing another model's switch
       await send(bot, chatId, "هذا النموذج لا يملك مسار T-LDM. اختر شام برو أو نوفا 1 أو نوفا 2 من /model.");
+      return true;
+    }
+    if (want === "sham_v2") {
+      await send(bot, chatId, "T-LDM جزء من بنية شام برو نفسه وليس إعدادًا: يعمل دائمًا مع كل رسالة، ولا حاجة لتفعيله.");
       return true;
     }
     const gate = want;
@@ -3090,6 +3098,7 @@ export async function shamContextFor(update: any, db: Db = prismaDb, modelOverri
   if (!selected) return null;
   const set = modelSettings(st, selected);
   await refreshTldmPolicy(db, selected).catch(() => null);
-  const tldm = selected === "sham_v2" && tldmAllowedFor(tierFor(chatId), "sham_v2") && tldmEnabled(st, "sham_v2");
+  // T-LDM is Sham Pro's own architecture (owner 2026-11-22): no switch, no audience gate. Every Sham Pro request goes through it; Nova 1 / Nova 2 keep their own per-model switches.
+  const tldm = selected === "sham_v2";
   return { variant: selected === "sham_v2" ? "v2" : "v1", tldm, mode: { accuracy: set.accuracy, auto: set.auto, policy: set.policy, think: set.think, thinkCap: thinkCapFor(set.accuracy), media: set.media, memory: memorySettings(st, selected), tldm } };
 }

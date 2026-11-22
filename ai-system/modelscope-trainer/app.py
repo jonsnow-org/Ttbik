@@ -584,7 +584,7 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/rewordings.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/rewordings.py", "data/augment.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]

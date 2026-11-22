@@ -897,9 +897,8 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
       </Card>
       {me.features?.tldm && c.bind.tldm && (                                             /* T-LDM belongs to Sham Pro: shown only while it is the selected model */
         <Card title={lang === "ar" ? "T-LDM لشام برو" : "T-LDM for Sham Pro"}>
-          <Row icon="⚡" title={lang === "ar" ? "تفعيل T-LDM" : "Enable T-LDM"}
-            sub={lang === "ar" ? "على حاسوب شام برو الداخلي، في مساحتك المعزولة. الأوامر الحساسة تنتظر موافقتك. قائمة منع المالك تنطبق ولا يمكن تجاوزها." : "On Sham Pro's internal computer, in your isolated workspace. Sensitive commands wait for your approval. The owner's deny list applies and cannot be overridden."}
-            after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={Boolean(s.tldm)} aria-label="T-LDM" onChange={(e) => set({ tldm: e.currentTarget.checked, for: "sham_v2" } as Partial<Me["settings"]> & { tldm?: boolean; for?: string })} /></span>} />
+          <Row icon="⚡" title={lang === "ar" ? "T-LDM جزء من شام برو" : "T-LDM is part of Sham Pro"}
+            sub={lang === "ar" ? "يعمل دائمًا مع كل رسالة: يقرر النموذج نفسه متى يجيب ومتى ينفّذ أوامر على حاسوبه الداخلي في مساحتك المعزولة. الأوامر الحساسة تنتظر موافقتك." : "Always on for every message: the model itself decides when to answer and when to run commands on its internal computer in your isolated workspace. Sensitive commands wait for your approval."} />
         </Card>
       )}
       <Card title={n.g_profile}>

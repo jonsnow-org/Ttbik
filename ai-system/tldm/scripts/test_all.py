@@ -724,6 +724,43 @@ def fast_int8_layers_have_the_same_math_and_cache_the_latent_keys_values():
     lin = F_._int8(nn.Linear(8, 8))
     assert type(lin) is not nn.Linear and hasattr(lin, "_packed_params"), type(lin)     # the root Linear itself is swapped to dynamic INT8
 
+@test
+def open_slots_copy_repos_and_code_tokens_and_leave_every_old_row_unchanged():
+    import augment as A
+    import rewordings as RW
+    out, _, sl = A.delex("اقرأ الملف package.json من المستودع jonsnow-org/Ttbik واذكر echo ZX7Q-4821")
+    assert sl == {"@R1": "jonsnow-org/Ttbik", "@T1": "ZX7Q-4821", "@F1": "package.json"}, sl
+    assert A.relex('$ @tool github_read_file {"path": "@F1", "repo": "@R1"}', sl) == '$ @tool github_read_file {"path": "package.json", "repo": "jonsnow-org/Ttbik"}'
+    old = [t for t, _ in T.TRAIN + T.HELDOUT + RW.HELDOUT2] + [t for t, _ in RW.generate(per_command=48)]
+    gained = [t for t in old if any(k.startswith(("@R", "@T")) for k in A.delex(t)[2])]
+    assert not gained, "the new slot kinds must not change how the old training / held-out rows are read: " + repr(gained[:3])
+
+
+@test
+def open_episodes_run_for_real_fit_the_block_and_never_look_like_a_live_suite_task():
+    import random
+    import trajectories as J
+    import rewordings as RW
+    rng, kinds, tasks = random.Random(11), set(), []
+    for _ in range(300):
+        task, plan, reply_t = J.make_open_episode(rng)
+        steps, reply, _ = J.run_open_episode(task, plan, reply_t)
+        tasks.append(task)
+        kinds.add((plan[0][0] if plan else "chat") + str(len(plan)))
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            assert len(J.AUG.apply_slots(tgt, slots).encode("utf-8")) <= 64, "target longer than the loop block: " + tgt
+            if tgt.startswith("$ ") and not tgt.startswith("$ @tool"):
+                assert "FAIL" not in tgt
+        if plan and plan[-1][0] == "cmd" and "echo" in plan[0][1] and len(plan) == 1:
+            assert reply.endswith(plan[0][1].split()[-1] + ".") or plan[0][1].split()[-1] in reply, (task, reply)
+    assert {"cmd1", "cmd2", "tool1", "chat0"} <= kinds, kinds
+    for live in J.LIVE_TASKS:
+        near = [t for t in tasks if RW._words(t) and len(RW._words(t) & RW._words(live)) / len(RW._words(t) | RW._words(live)) >= 0.5]
+        assert not near, ("a training task is too close to a live-suite task", live, near[:2])
+        assert live not in tasks
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:

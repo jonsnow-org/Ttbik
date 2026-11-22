@@ -343,6 +343,15 @@ def loop_data(tk_encode, cfg, episodes, seed=1, term_factory=None):
             dt, dh, slots = J.delex_view(task, hist, True)
             xs.append(loop_ids(tk_encode, dt, dh, n))
             ys.append(encode_bytes(AUG.apply_slots(tgt, slots), block))
+    # open-argument episodes (data/trajectories.make_open_episode): the head learns to copy tokens/files/numbers/repos from the task and to ask the read-only GitHub tool
+    orng = random.Random(seed + 101)
+    for _ in range(int(cfg.get("open_episodes", 0))):
+        task, plan, reply_t = J.make_open_episode(orng)
+        steps, _, _ = J.run_open_episode(task, plan, reply_t, term_factory)
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            xs.append(loop_ids(tk_encode, dt, dh, n))
+            ys.append(encode_bytes(AUG.apply_slots(tgt, slots), block))
     return xs, ys
 
 
