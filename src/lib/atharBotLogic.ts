@@ -282,6 +282,12 @@ async function adminHome(botRow: BotRow): Promise<string> {
 }
 
 export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
+  // 📅 Bot API 10.4 widget tap (◀ ▶ inside the day card): read-only, dynamic import (the widget module imports this file's helpers)
+  if (body.widget_query) {
+    const { handleAtharWidgetQuery } = await import("@/lib/atharWidget");
+    await handleAtharWidgetQuery(bot, body.widget_query);
+    return;
+  }
   // buttons of older messages (inline) still work
   const cb = body.callback_query;
   if (cb?.id) {
@@ -443,6 +449,16 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   if (cmd === "start") {
     await bot.api.sendMessage(chatId, owner ? await adminHome(botRow) : T[lang].welcome, { reply_markup: menu(lang, owner), ...(owner ? { link_preview_options: { is_disabled: true } } : {}) });
     await ensureMenu(bot, chatId, lang, owner);
+    return;
+  }
+  if (cmd === "day" || cmd === "widget") {
+    // the day card as a widget (private chats only); when Telegram refuses it the user still gets the day as text with its link
+    const { sendAtharWidget, dayFallbackText } = await import("@/lib/atharWidget");
+    const refused = await sendAtharWidget(bot, chatId);
+    if (refused) {
+      const fb = await dayFallbackText();
+      await bot.api.sendMessage(chatId, fb.text, fb.link ? { reply_markup: new InlineKeyboard().webApp(T[lang].today, fb.link) } : {});
+    }
     return;
   }
   if (cmd === "language") {
