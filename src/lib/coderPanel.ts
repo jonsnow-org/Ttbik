@@ -10,6 +10,7 @@
 //   health   — the model Studios, sandbox backends and search engines (same checks as the "status" op).
 //   steps    — what only the owner can do by hand (e.g. deploying the Nova 1 Studio on ModelScope after the GGUF upload).
 import { prismaDb, type Db } from "@/lib/coderAuth";
+import { nova2Urls } from "@/lib/openCoderStudio";
 
 const REPO = "jonsnow-org/Ttbik";
 const NOVA_BRANCH = "training/nova1";
@@ -125,7 +126,7 @@ export async function health() {
     studio: { ok: studios.some((x) => x.ok), count: coderStudioUrls().length, ready: studios.filter((x) => x.ok).length },
     studios,
     live: { ctx: ctxTokens(), historyChars: historyChars(), quickLane: process.env.CODER_FRONT_ACK !== "0" && studios.length > 1 },
-    nova1Studio: Boolean((process.env.NOVA1_STUDIO_URL || "").trim()),
+    nova1Studio: nova2Urls().length > 0,       // the one Nova's 35B Studio (key kept for older panels)
     oracle: Boolean((process.env.CODER_SANDBOX_ORACLE_URL || "").trim()),
     sandbox,
     search: searchHealth().map((s) => ({ name: s.name, ok: s.ok })),
