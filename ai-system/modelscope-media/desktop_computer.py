@@ -290,9 +290,14 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
         flags = " ".join(shlex.quote(f) for f in [
             "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
-            "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
+            "--disable-background-networking",
+            # owner 2026-11-22: the screen was heavy on 2 vCPU. Site isolation runs one renderer per site (CPU + RAM the box does not have), autoplay decodes a video nobody asked for,
+            # and LCD text / sound add work the picture never needs. The model and the user still start any video by tapping it.
+            "--disable-features=Translate,MediaRouter,site-per-process,IsolateOrigins,OptimizationHints,InterestFeedContentSuggestions", "--autoplay-policy=document-user-activation-required", "--mute-audio",
+            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
-        return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
+        # `nice`: the browser yields the two cores to the desktop's own input (xdotool) and picture capture, so typing and taps are answered while a page is still loading
+        return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec nice -n 8 "$C" {flags}\n'
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):

@@ -62,8 +62,12 @@ jobs:
           names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
           ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?)$")
           bad = [n for n in names if not ok.match(n)]
-          if bad or not names:
-              raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server, coder-inference-server-<n>; never Sham's)")
+          if bad:
+              raise SystemExit(f"refusing studio names {bad} (only coder-inference-server, coder-inference-server-<n>; never Sham's)")
+          if not names:             # owner 2026-11-22: the cn Studios are free for training; Nova no longer runs on cn, so an empty cn pool deploys nothing
+              open(os.environ["GITHUB_OUTPUT"], "a").write("list=[]\n")
+              print("STUDIOS is empty: nothing to deploy")
+              raise SystemExit(0)
           # A push must not restart the cn Nova 4B pool unless the files they actually run changed.
           # site=ai is dispatch-only (needs an explicit studio) and is never in the STUDIOS list.
           before = (os.environ.get("BEFORE") or "").strip()
