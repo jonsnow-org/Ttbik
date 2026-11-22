@@ -58,42 +58,33 @@ describe("independent routing while Nova's coder Studio is offline", () => {
   });
 });
 
-describe("modelSettings (pure)", () => {
-  it("defaults; a change touches only that model", () => {
+const AUTO = { think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" };
+describe("modelSettings (pure): every model is automatic (owner 2026-11-22: no thinking / speed / media controls)", () => {
+  it("defaults; a change changes nothing, for any model", () => {
     const st: any = {};
-    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
-    setModelSettings(st, "sham_v2", { think: true, accuracy: "precise", media: false });
-    expect(modelSettings(st, "sham_v2")).toEqual({ think: true, accuracy: "precise", media: true, auto: true, policy: "always" });   // a `media: false` patch is ignored: media is always on
-    expect(modelSettings(st, "sham")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
-    expect(modelSettings(st, "coder")).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
+    expect(modelSettings(st, "coder")).toEqual(AUTO);
+    expect(setModelSettings(st, "sham_v2", { think: true, accuracy: "precise", media: false })).toEqual(AUTO);
+    for (const m of ["sham_v2", "sham", "coder"]) expect(modelSettings(st, m)).toEqual(AUTO);
+    expect(st.perModel).toBeUndefined();                          // nothing is stored
   });
-  it("stale legacy values are ignored: every model starts at thinking adaptive + accuracy balanced", () => {
-    const st: any = { think: true, accuracy: "fast", perModel: { coder: { think: true, auto: false, media: false } } };
-    for (const m of ["coder", "sham_v2"]) expect(modelSettings(st, m)).toEqual({ think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" });
-  });
-  it("a choice made in the settings screen is kept (policy / accuracy)", () => {
-    const st: any = {}; setModelSettings(st, "sham_v2", { policy: "always", accuracy: "precise" });
-    expect(modelSettings(st, "sham_v2")).toMatchObject({ policy: "always", think: true, accuracy: "precise", auto: true });
-    expect(modelSettings(st, "coder")).toMatchObject({ policy: "adaptive", accuracy: "balanced" });
+  it("stale stored values (old settings screens) are ignored: every model is thinking adaptive + accuracy balanced", () => {
+    const st: any = { think: true, accuracy: "fast", perModel: { coder: { think: true, auto: false, media: false, policy: "always", accuracy: "precise" } } };
+    for (const m of ["coder", "sham_v2"]) expect(modelSettings(st, m)).toEqual(AUTO);
   });
 });
 
 describe("Mini App settings op", () => {
-  it("each model keeps its own switches; me returns the selected model's and a map of all visible ones", async () => {
+  it("the settings requests of older clients are accepted and change nothing: me returns the automatic values for every model", async () => {
     const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
     await appOp(o, "settings", { model: "coder" }, d);
-    await appOp(o, "settings", { think: true, accuracy: "fast", media: false }, d);                       // Nova's
+    await appOp(o, "settings", { think: true, accuracy: "fast", media: false }, d);
     await appOp(o, "settings", { model: "sham_v2" }, d);
     let me = await appOp(o, "me", {}, d);
-    expect(me.settings).toMatchObject({ model: "sham_v2", think: false, accuracy: "balanced", media: true });   // Sham v2 is untouched by Nova's changes
-    await appOp(o, "settings", { think: true, accuracy: "precise" }, d);                                   // Sham v2's
-    await appOp(o, "settings", { model: "sham" }, d);
-    me = await appOp(o, "me", {}, d);
-    expect(me.settings).toMatchObject({ model: "sham", think: false, accuracy: "balanced", media: true });     // old Sham: its own
-    expect(me.settings.perModel).toMatchObject({ coder: { think: true, accuracy: "fast", media: true }, sham_v2: { think: true, accuracy: "precise", media: true }, sham: { think: false, accuracy: "balanced", media: true } });
+    expect(me.settings).toMatchObject({ model: "sham_v2", think: false, accuracy: "balanced", media: true });
+    await appOp(o, "settings", { think: true, accuracy: "precise" }, d);
     await appOp(o, "settings", { model: "coder" }, d);
     me = await appOp(o, "me", {}, d);
-    expect(me.settings).toMatchObject({ model: "coder", think: true, accuracy: "fast", media: true });        // back on Nova: exactly what was set there
+    expect(me.settings).toMatchObject({ model: "coder", think: false, accuracy: "balanced", media: true });
   });
 
   it("`for` edits another model's settings without switching to it", async () => {
@@ -111,25 +102,21 @@ describe("Mini App settings op", () => {
       const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
       await expect(appOp(u, "settings", { for: "sham_v2", think: true }, d)).rejects.toBeInstanceOf(AppError);
       await expect(appOp(u, "settings", { think: true }, d)).resolves.toMatchObject({ ok: true });
-      expect(modelSettings(await loadState(USER, db), "coder").think).toBe(true);
+      expect(modelSettings(await loadState(USER, db), "coder").think).toBe(false);      // automatic: the request changes nothing
     } finally {
       if (previous === undefined) delete process.env.MODELSCOPE_API_TOKEN;
       else process.env.MODELSCOPE_API_TOKEN = previous;
     }
   });
 
-  it("the settings reach the runtime: Sham's context carries the chosen Sham's own think / accuracy / media", async () => {
+  it("the runtime context carries the automatic values whatever an old client stored", async () => {
     const db = fakeDb(); const { bot } = fakeBot(); const d = { db, bot, botRow };
-    await appOp(o, "settings", { model: "coder" }, d);
-    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toBeNull();
     await appOp(o, "settings", { for: "sham", think: false, accuracy: "fast", media: false }, d);
     await appOp(o, "settings", { for: "sham_v2", think: true, accuracy: "precise", media: true }, d);
     await appOp(o, "settings", { model: "sham" }, d);
-    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "balanced", media: true } });
     await appOp(o, "settings", { model: "sham_v2" }, d);
-    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v2", mode: { think: true, accuracy: "precise", media: true } });
-    // A run that captured Sham v1 must keep v1's settings even if the UI has switched to v2.
-    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db, "sham")).toMatchObject({ variant: "v1", mode: { think: false, accuracy: "fast", media: true } });
+    expect(await shamContextFor({ message: { chat: { id: OWNER } } }, db)).toMatchObject({ variant: "v2", mode: { think: false, accuracy: "balanced", media: true } });
   });
 
   it("T-LDM is built into Sham Pro (no switch, no audience gate) and is never part of Sham 1", async () => {

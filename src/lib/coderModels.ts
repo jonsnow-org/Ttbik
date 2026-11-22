@@ -187,28 +187,14 @@ export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "p
 export type PerModelState = { model?: string; think?: boolean; accuracy?: string; perModel?: Record<string, Partial<ModelSettings>> };
 const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x === "balanced" || x === "precise";   // "accurate" is accepted as "precise" by the API (modes.ts normalizePref)
 /** The effective settings of one model. Nova (id "coder") also honours the old single global switches until it has its own entry; every other model starts from the defaults. */
-export function modelSettings(st: PerModelState, id: string | undefined): ModelSettings {
-  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
-  const pm = st.perModel?.[mid] || {};
-  // Defaults for EVERY model and user: thinking "adaptive" (recommended), accuracy "balanced" (recommended), media always on, auto always on.
-  // Only a choice made in the per-model settings screen counts; the old single global switches (st.think / st.accuracy) and the old per-model `think` boolean are stale and ignored (2026-10-28).
-  const policy: ModelSettings["policy"] = pm.policy === "adaptive" || pm.policy === "always" || pm.policy === "never" ? pm.policy : "adaptive";
-  return {
-    think: policy === "always",
-    accuracy: isAcc(pm.accuracy) ? pm.accuracy : "balanced",
-    media: true,                 // media generation is ALWAYS on for every model: a stored `false` (the old per-model switch, removed 2026-10-28) is ignored
-    auto: true,                  // the request class decides within the chosen accuracy (modes.ts); there is no separate switch any more
-    policy,
-  };
+export function modelSettings(_st: PerModelState, _id: string | undefined): ModelSettings {
+  // Owner 2026-11-22: the models are AUTOMATIC in every function, so the Mini App has no thinking / speed / media / memory controls. The request class decides within "balanced"
+  // (src/lib/modes.ts): thinking adaptive, accuracy balanced, media always on. A value stored by the old settings screens is ignored, so a hidden setting can never surprise a user.
+  return { think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" };
 }
-/** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
-export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
-  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
-  const cur = modelSettings(st, mid);
-  const polNext = patch.policy || (typeof patch.think === "boolean" ? (patch.think ? "always" : "adaptive") : cur.policy);
-  const next: ModelSettings = { think: polNext === "always", accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: true, auto: true, policy: polNext };
-  st.perModel = { ...(st.perModel || {}), [mid]: next };
-  return next;
+/** Kept for older clients: the settings are automatic now, so a request to change them changes nothing and returns the automatic values. */
+export function setModelSettings(st: PerModelState, id: string, _patch: Partial<ModelSettings> = {}): ModelSettings {
+  return modelSettings(st, id);
 }
 
 // ---------------------------------------------------------------- memory / save settings, per model
