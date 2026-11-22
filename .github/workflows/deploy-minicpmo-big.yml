@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: computer-hub-16gb-ai
+  group: computer-hub-16gb
   cancel-in-progress: true
 
 env:
