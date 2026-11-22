@@ -1,6 +1,5 @@
 import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { handleAiAgentUpdate } from "@/lib/aiAgentBridge";
-import { refreshPressure, pressureOn } from "@/lib/pressureMode";
 import type { ShamStepEvent } from "@/lib/shamAgent";
 import { openCard as openMsgCard, cardPhase, cardTool, cardStepDone, cardFinish, cardSay, cardDrop, cardRestore, cardRender, cardSnapshot, type Card } from "@/lib/singleMessage";
 import { stepLabel, understandingPrompt } from "@/lib/agentCard";
@@ -913,9 +912,8 @@ export function shamProgressCardSteps(bot: TelegramBot, chatId: number, request:
   };
   return { open, onStep, flush: () => events, getCard: () => card };
 }
-/** The model's own one-line understanding for the card: Sham's Studio, a tiny text-only call (28 tokens, 3.5 s cap). Skipped while the owner's pressure mode is on (that call would take a slot from real work). */
+/** The model's own one-line understanding for the card: Sham's Studio, a tiny text-only call (28 tokens, 3.5 s cap). */
 export function shamUnderstand(text: string): (() => Promise<string | null>) | undefined {
-  if (pressureOn()) return undefined;
   return () => shamGenerate(understandingPrompt(text), 28, 3500);
 }
 
@@ -1095,7 +1093,6 @@ export async function shamMediaFastLane(bot: TelegramBot, chatId: number, text: 
     if (previous) intent = mf.detectMediaIntent(text, { previousUser: previous.q, previousAssistant: previous.a });
   }
   if (!intent) return false;
-  await refreshPressure().catch(() => false);
   const variant = shamVariant.getStore() || "v1";
   const runId = `sham-${chatId}-${Date.now().toString(36)}`;
   const card = await openMsgCard(bot, chatId, text, { understand: shamUnderstand(text) });      // one message: the model's understanding + real progress; a failure is written into it, a picture / video is sent separately
@@ -1221,7 +1218,6 @@ async function shamQueueNote(runId: string, attempt: number): Promise<string> {
 }
 
 async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>, botId?: string, opts: { runId?: string; typist?: ShamTypist | null; card?: Card | null; resume?: unknown[]; leg?: number; appOnly?: boolean } = {}): Promise<boolean> {
-  await refreshPressure().catch(() => false);
   const progress = opts.card ? null : shamProgressCardSteps(bot, chatId, text);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   const ctx = await shamToolCtx(chatId, botId);
