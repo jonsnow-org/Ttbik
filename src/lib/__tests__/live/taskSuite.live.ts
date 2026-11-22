@@ -33,7 +33,7 @@ async function runTask(model: string, task: SuiteTask, db: any): Promise<{ first
   const sham = model === "sham" || model === "sham_v2";
   if (!task.keep) {
     await db.exec("DELETE FROM coder_tasks").catch(() => null);
-    await saveState(chat, { mode: sham ? "sham" : "coder", think: false, messages: [], notes: "", inbox: [], run: null, model } as any, db);
+    await saveState(chat, { mode: sham ? "sham" : "coder", think: false, messages: [], notes: "", inbox: [], run: null, model, ...(process.env.SUITE_TLDM === "1" ? { perModel: { [model]: { tldm: true } } } : {}) } as any, db);   // SUITE_TLDM=1: measure the model with its own T-LDM head on (the user setting; off by default in the app)
   }
   const { bot, sent } = fakeBot();
   const realFetch = global.fetch;
