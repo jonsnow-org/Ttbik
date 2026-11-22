@@ -120,11 +120,12 @@ describe("the one Telegram message (Sham / shared card)", () => {
   it("opens at once, takes the model's line, shows real tool steps, and the answer replaces it; never a second message", async () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "اقرأ README", { understand: async () => "تريد قراءة ملف README؛ سأفتحه أولاً." });
-    expect(sent).toHaveLength(1);
-    expect(sent[0].text).not.toContain(NEUTRAL_ACK);                  // first paint: no wait for the model
+    expect(sent).toHaveLength(0);                                      // no "received" card: the message appears with the first real step
     await new Promise((r) => setTimeout(r, 20));
-    expect(sent[0].text).toContain("💬 تريد قراءة ملف README؛ سأفتحه أولاً.");   // the model's own line, edited in
-    await cardPhase(bot, 5, card, "think", "جاري التفكير");
+    await cardPhase(bot, 5, card, "think", "جاري التفكير", true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("💬 تريد قراءة ملف README؛ سأفتحه أولاً.");   // the model's own line shows with the first step
+    expect(sent[0].text).not.toContain(NEUTRAL_ACK);
     await cardTool(bot, 5, card, "قراءة ملف o/r:README.md");
     await cardStepDone(bot, 5, card, true);
     await cardFinish(bot, 5, card, "هذا هو الملخص.", async (p) => { await bot.api.sendMessage(5, p); });
@@ -138,6 +139,7 @@ describe("the one Telegram message (Sham / shared card)", () => {
   it("the last event is never lost to the edit throttle (a timer flushes it)", async () => {
     const { bot, sent } = fakeBot();
     const card = await openCard(bot, 5, "x");
+    await cardPhase(bot, 5, card, "think", "جاري التفكير", true);
     await cardTool(bot, 5, card, "تشغيل أمر: npm test");
     expect(sent[0].text).not.toContain("npm test");                       // within the 2 s window: not edited yet
     await new Promise((r) => setTimeout(r, 2200));
@@ -147,7 +149,7 @@ describe("the one Telegram message (Sham / shared card)", () => {
     const { bot, sent } = fakeBot();
     const card = await openCard(bot, 5, "x", { understand: async () => "سأنفذ المهمة على مراحل." });
     await new Promise((r) => setTimeout(r, 20));
-    await cardTool(bot, 5, card, "قراءة ملف a.ts");
+    await cardTool(bot, 5, card, "قراءة ملف a.ts", true);
     const snap = JSON.parse(JSON.stringify(cardSnapshot(card!)));
     const again = cardRestore(snap);
     expect(again.ack).toBe("سأنفذ المهمة على مراحل.");
@@ -265,7 +267,6 @@ describe("Nova: the card is written from the loop's real events", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toBe("الملف يعرّف دالة واحدة.");
     const seen = edits.map((e) => e.text);
-    expect(seen.some((t) => /▶️ \d{1,2}:\d\d:\d\d [صم] {2}جاري التنفيذ · قراءة ملف a\/b:src\/x\.ts/.test(t))).toBe(true);   // while it ran
     expect(seen.some((t) => /✅ \d{1,2}:\d\d:\d\d [صم] {2}قراءة ملف a\/b:src\/x\.ts · [\d.]+ث/.test(t))).toBe(true);        // when it ended, with its duration
     expect(seen.every((t) => !/فهمت طلبك/.test(t))).toBe(true);
   });

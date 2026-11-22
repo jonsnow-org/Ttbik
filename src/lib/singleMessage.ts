@@ -33,7 +33,17 @@ async function flush(bot: Bot, chatId: number, card: Card): Promise<void> {
 }
 /** An event happened: edit at most every EDIT_EVERY_MS (Telegram's rate limits); an edit that has to wait is sent by a timer, so the last event always shows. */
 async function touch(bot: Bot, chatId: number, card: Card, force = false): Promise<void> {
-  if (!card.msgId || card.done) return;
+  if (card.done) return;
+  if (!card.msgId) {                                   // lazy creation: only once there is a real step to show
+    if (!card.steps.length) return;
+    card.chain = card.chain.then(async () => {
+      if (card.msgId || card.done) return;
+      const m = await bot.api.sendMessage(chatId, renderCard(card)).catch(() => null);
+      card.msgId = m?.message_id; card.at = Date.now();
+    });
+    await card.chain;
+    return;
+  }
   const wait = EDIT_EVERY_MS - (Date.now() - card.at);
   if (force || wait <= 0) return flush(bot, chatId, card);
   card.dirty = true;
@@ -48,12 +58,10 @@ async function touch(bot: Bot, chatId: number, card: Card, force = false): Promi
 export async function openCard(bot: Bot, chatId: number, request: string, opts: { understand?: () => Promise<string | null | undefined> } = {}): Promise<Card | null> {
   if ((process.env.CODER_SINGLE_MESSAGE || "").toLowerCase() === "off" || chatId <= 0 || typeof bot.api.editMessageText !== "function") return null;
   const card: Card = { ...newTimeline(), at: Date.now(), chain: Promise.resolve() };
-  beginStep(card, "phase", "received", "استلام الطلب", card.startedAt);
-  const m = await bot.api.sendMessage(chatId, renderCard(card)).catch(() => null);
-  card.msgId = m?.message_id;
-  if (!card.msgId) return null;
+  // owner 2026-11-22: no "received" card. Nothing is sent now (just the typing indicator); the message is created by the first REAL step (touch) and then edited into the answer.
+  void (bot.api as any).sendChatAction?.(chatId, "typing")?.catch?.(() => null);
   if (opts.understand) {
-    const put = (line: string) => { if (card.done || !card.msgId) return; card.ack = line; void touch(bot, chatId, card, true); };
+    const put = (line: string) => { if (card.done) return; card.ack = line; void touch(bot, chatId, card, true); };
     void understandRequest(opts.understand, request, { onLate: put }).then((line) => { if (line) put(line); });
   }
   return card;
@@ -77,26 +85,26 @@ export function cardRender(card: Card | null | undefined, tail: string[] = []): 
 
 /** A phase of the model (thinking, writing, sending, queued…): a real state it is in now. Same key again only refreshes the label. `force` edits at once (a fresh card). */
 export async function cardPhase(bot: Bot, chatId: number, card: Card | null | undefined, key: string, label: string, force = false): Promise<void> {
-  if (!card?.msgId) return;
+  if (!card) return;
   const changed = beginStep(card, "phase", key, label);
   void changed;
   await touch(bot, chatId, card, force);
 }
 /** A tool the agent really called (قراءة ملف …); it stays "running" until cardToolDone. `force` edits at once (a fresh card). */
 export async function cardTool(bot: Bot, chatId: number, card: Card | null | undefined, label: string, force = false): Promise<void> {
-  if (!card?.msgId) return;
+  if (!card) return;
   beginStep(card, "tool", "tool", label);
   await touch(bot, chatId, card, force);
 }
 /** The running step ended (ok / failed). The next event starts the next step; nothing is invented in between. `force` edits at once. */
 export async function cardStepDone(bot: Bot, chatId: number, card: Card | null | undefined, ok = true, force = false): Promise<void> {
-  if (!card?.msgId) return;
+  if (!card) return;
   endStep(card, ok);
   await touch(bot, chatId, card, force);
 }
 /** Legacy single line (an info event): a phase step with that text. */
 export async function cardNote(bot: Bot, chatId: number, card: Card | null | undefined, line: string, force = false): Promise<void> {
-  if (!card?.msgId) return;
+  if (!card) return;
   const l = String(line || "").replace(/\s+/g, " ").trim().slice(0, 160);
   if (!l) return;
   beginStep(card, "phase", `note:${l}`, l);
@@ -138,7 +146,7 @@ export async function cardSay(bot: Bot, chatId: number, card: Card | null | unde
 
 /** Media is sent separately: the card has nothing to say any more. */
 export async function cardDrop(bot: Bot, chatId: number, card: Card | null | undefined): Promise<void> {
-  if (!card?.msgId) return;
+  if (!card) return;
   if (card.timer) { clearTimeout(card.timer); card.timer = undefined; }
   await card.chain.catch(() => null);
   card.done = true;

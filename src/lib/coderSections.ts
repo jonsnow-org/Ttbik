@@ -1681,9 +1681,8 @@ export async function openCard(bot: TelegramBot, chatId: number, run: Run, reque
   const p = (run.progress ||= { lines: [] });
   if (p.msgId) return;
   p.startedAt = Date.now(); p.steps = [];
-  beginStep({ startedAt: p.startedAt, steps: p.steps }, "phase", "received", "استلام الطلب", p.startedAt);
-  const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
-  p.msgId = (m as any)?.message_id || undefined;
+  // owner 2026-11-22: no "received" card; only the typing indicator now. The card is created by refreshCard when the first real step exists.
+  void (bot.api as any).sendChatAction?.(chatId, "typing")?.catch?.(() => null);
   p.cardAt = Date.now();
   const ask = p.msgId ? understandAsk(request) : null;
   if (!ask) return;
