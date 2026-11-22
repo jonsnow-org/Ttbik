@@ -422,7 +422,7 @@ test("22 November China margin-financing rule is bilingual, date-aligned and avo
   assert.equal(english.date, "22 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
-  for (const domain of ["sse.com.cn", "szse.cn", "bse.cn", "reuters.com"]) {
+  for (const domain of ["sse.com.cn", "szse.cn", "reuters.com"]) {
     assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
   }
   assert.match(arabic.paragraphs.join(" "), /30 نوفمبر 2026/);

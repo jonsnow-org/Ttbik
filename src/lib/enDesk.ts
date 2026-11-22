@@ -52,7 +52,6 @@ export const EN_NEWS: DeskItem[] = [
     "sources": [
       { "href": "https://www.sse.com.cn/lawandrules/sselawsrules2025/trade/specific/margin/c/c_20261122_10838633.shtml", "label": "Shanghai Stock Exchange — official Notice No. 108 of 2026, 22 November" },
       { "href": "https://www.szse.cn/aboutus/trends/news/t20261122_623983.html", "label": "Shenzhen Stock Exchange — official explanation, 22 November 2026" },
-      { "href": "https://www.bse.cn/jygl_list/200029860.html", "label": "Beijing Stock Exchange — official Notice No. 46 of 2026, 22 November" },
       { "href": "https://www.reuters.com/world/chinese-exchanges-ease-margin-trading-requirements-aid-stock-markets-2026-11-22/", "label": "Reuters — independent coverage of the changes, 22 November 2026, 13:09 UTC" }
     ]
   },
