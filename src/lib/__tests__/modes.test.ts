@@ -352,3 +352,15 @@ describe("media intent: every spelling the owner types, and no invented 'owners 
     expect(stripOwnersExcuse("تم إنشاء الفيديو.")).toBe("تم إنشاء الفيديو.");
   });
 });
+
+describe("run-on-the-computer requests are agentic (live Nova suite 2026-11-22)", () => {
+  it("«اكتب برنامج بايثون … ونفّذه على حاسوبك» is not plain chat", () => {
+    expect(classifyRequest("اكتب برنامج بايثون يطبع مربعات الأعداد من 1 إلى 5 ونفّذه على حاسوبك وأخبرني بالناتج.")).toBe("agentic");
+    expect(classifyRequest("شغّل الأمر echo ZX7Q-4821 على حاسوبك واذكر ناتجه حرفياً.")).toBe("agentic");
+    expect(classifyRequest("اكتب برنامج بايثون يطبع مربعات الأعداد")).toBe("code");
+  });
+  it("ordinary chat stays chat", () => {
+    expect(classifyRequest("ما هي عاصمة مصر؟")).toBe("chat");
+    expect(classifyRequest("حدثني عن حاسوب الجيب القديم")).toBe("chat");
+  });
+});
