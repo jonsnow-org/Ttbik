@@ -7,14 +7,21 @@
 const HOSTS = { cn: "www.modelscope.cn", ai: "www.modelscope.ai" };
 export const STUDIOS = [
   ["cn", "novaai2026", "sham-trainer-1", "train"],
+  ["cn", "novaai2026", "sham-trainer-nb1", "train"],
   ["cn", "novaai2026", "sham2-tldm", "train"],
-  ["cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"],
-  ["cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"],
-  ["cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"],
+  // 2026-11-22 (owner: Studios are never deleted, they are reused): the old Nova 4B pool, the LFM Studios and the donor tests now train Sham 1
+  ["cn", "novaai2026", "sham-donor-qwen35-9b-test", "train"],
+  ["cn", "novaai2026", "sham-donor-gemma4-e4b-test", "train"],
+  ["cn", "novaai2026", "sham-donor-minicpmo45-test", "train"],
+  ["cn", "novaai2026", "coder-inference-server-2", "train"],
+  ["cn", "novaai2026", "coder-inference-server-3", "train"],
+  ["cn", "novaai2026", "coder-inference-server-4", "train"],
+  ["cn", "novaai2026", "coder-inference-server-5", "train"],
+  ["cn", "novaai2026", "lfm25-inference-server", "train"],
+  ["cn", "novaai2026", "lfm25-media-server", "train"],
   ["cn", "novaai2026", "sham-v2-server", "warm"],            // chat Studios that keep-warm-chat-studios.yml covers (GitHub drops most of its cron runs)
-  ["cn", "novaai2026", "lfm25-inference-server", "warm"],
   ["ai", "Jonjithup", "sham-trainer-1", "train"],
-  ["ai", "Jonjithup", "sham-trainer-2", "train"],
+  ["ai", "Jonjithup", "sham-trainer-2", "warm"],             // now the computer hub of Nova: never redeployed as a trainer
   ["ai", "Jonjithup", "sham-trainer-tools", "train"],
   ["ai", "Jonjithup", "sham-runner-1", "runner"],
   ["ai", "Jonjithup", "coder-inference-server-16", "warm"],

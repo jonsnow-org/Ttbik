@@ -32,16 +32,24 @@ APP_DOMAIN = {"cn": "api-inference.modelscope.net", "ai": "api-inference.modelsc
 #         warm   = only woken when Sleeping (what keep-awake did before; the donor test Studios and Nova 2)
 STUDIOS = [
     ("cn", "novaai2026", "sham-trainer-1", "train"),
+    ("cn", "novaai2026", "sham-trainer-nb1", "train"),
     ("cn", "novaai2026", "sham2-tldm", "train"),                     # 2026-11-18: Sham 2's T-LDM training on the cn account
-    ("cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"),
-    ("cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"),
-    ("cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"),
+    # 2026-11-22 (owner: Studios are never deleted, they are reused): the old Nova 4B pool, the LFM Studios and the three donor tests now train Sham 1
+    ("cn", "novaai2026", "sham-donor-qwen35-9b-test", "train"),
+    ("cn", "novaai2026", "sham-donor-gemma4-e4b-test", "train"),
+    ("cn", "novaai2026", "sham-donor-minicpmo45-test", "train"),
+    ("cn", "novaai2026", "coder-inference-server-2", "train"),
+    ("cn", "novaai2026", "coder-inference-server-3", "train"),
+    ("cn", "novaai2026", "coder-inference-server-4", "train"),
+    ("cn", "novaai2026", "coder-inference-server-5", "train"),
+    ("cn", "novaai2026", "lfm25-inference-server", "train"),
+    ("cn", "novaai2026", "lfm25-media-server", "train"),
     ("cn", "novaai2026", "sham-v2-server", "warm"),                  # chat Studios of keep-warm-chat-studios.yml: woken when Sleeping only
     ("ai", "Jonjithup", "sham-trainer-1", "train"),
-    ("ai", "Jonjithup", "sham-trainer-2", "train"),
+    ("ai", "Jonjithup", "sham-trainer-2", "warm"),                   # 2026-11-22: now the computer hub of Nova (never redeployed as a trainer by this guard)
     ("ai", "Jonjithup", "sham-trainer-tools", "train"),
     ("ai", "Jonjithup", "sham-runner-1", "runner"),
-    ("ai", "Jonjithup", "coder-inference-server-16", "warm"),     # Nova 2: keep-warm only, never redeployed for anything else
+    ("ai", "Jonjithup", "coder-inference-server-16", "warm"),     # Nova (35B): keep-warm only, never redeployed for anything else
 ]
 NEVER = ("nova-inference-server", "athar")                          # refused even if someone lists them
 
@@ -272,7 +280,7 @@ def _selftest() -> int:
     assert decide("Running", "runner", hb={"phase": "training", "progress_age_min": 999})[0] == ""
     env = {"MS_GUARD_TOKEN_CN": "c", "MODELSCOPE_API_TOKEN": "own", "MODELSCOPE_DOMAIN": "www.modelscope.ai"}
     assert token_for("cn", env) == "c" and token_for("ai", env) == "own" and token_for("ai", {"MODELSCOPE_API_TOKEN": "x"}) == ""
-    statuses = {"cn/novaai2026/sham-trainer-1": "Sleeping", "ai/Jonjithup/sham-trainer-2": "Running", "ai/Jonjithup/sham-runner-1": "Running",
+    statuses = {"cn/novaai2026/sham-trainer-1": "Sleeping", "cn/novaai2026/sham-donor-gemma4-e4b-test": "Running", "ai/Jonjithup/sham-runner-1": "Running",
                 "ai/Jonjithup/coder-inference-server-16": "Stopped", "ai/Jonjithup/sham-trainer-tools": "Building"}
     calls = []
 
@@ -292,7 +300,7 @@ def _selftest() -> int:
         if url.endswith("/gradio_api/call/heartbeat"):
             return 200, json.dumps({"event_id": "e1"})
         if "/gradio_api/call/heartbeat/" in url:
-            age = 400 if "sham-trainer-2" in url else 5
+            age = 400 if "sham-donor-gemma4-e4b-test" in url else 5
             return 200, "event: complete\ndata: " + json.dumps([json.dumps({"phase": "training", "progress_age_min": age})]) + "\n"
         return 200, "<html>"
     env = {"MS_GUARD_TOKEN_CN": "c", "MS_GUARD_TOKEN_AI": "a", "SHAM_GUARD_SELF": "ai/Jonjithup/sham-trainer-1"}
@@ -300,7 +308,7 @@ def _selftest() -> int:
     logs: list = []
     r = {k: (a, h) for k, _, a, _, h in guard_once(env, fake, now=1e6, state=st, log=logs.append)}
     assert "ai/Jonjithup/sham-trainer-1" not in r, r                   # never itself
-    assert r["cn/novaai2026/sham-trainer-1"] == ("wake", 200) and r["ai/Jonjithup/sham-trainer-2"] == ("redeploy", 200), r
+    assert r["cn/novaai2026/sham-trainer-1"] == ("wake", 200) and r["cn/novaai2026/sham-donor-gemma4-e4b-test"] == ("redeploy", 200), r
     assert r["ai/Jonjithup/coder-inference-server-16"] == ("", 0) and r["ai/Jonjithup/sham-trainer-tools"] == ("", 0), r
     assert r["ai/Jonjithup/sham-runner-1"] == ("", 0) and st["ai/Jonjithup/sham-runner-1"]["dead"] == 1
     for i in range(2):
