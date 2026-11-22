@@ -142,9 +142,26 @@ class Desktop:
         for wm in ("openbox",):
             if self._which(wm):
                 self.procs.append(self._popen([wm], env=self._env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        self._desktop_surface()
         self.running = True
         self.last_used = time.time()
         return self.status()
+
+    def _desktop_surface(self) -> None:
+        """The screen used to be plain black until the model opened an app (owner 2026-11-22: "Sham Pro's computer starts with a black screen, no desktop"). The desktop's own file
+        manager (pcmanfm, already in PACKAGES) can also be the desktop SURFACE: `pcmanfm --desktop` paints the background and shows the home folder's icons. Nothing else changes:
+        no window is opened, the window manager, the apps and the tools are exactly as before; if pcmanfm is missing or fails, the screen stays as it was."""
+        if not self._which("pcmanfm"):
+            return
+        try:
+            cfg = os.path.join(self.home, ".config", "pcmanfm", "sham")
+            os.makedirs(cfg, mode=0o700, exist_ok=True)
+            with open(os.path.join(cfg, "desktop-items-0.conf"), "w", encoding="utf-8") as f:
+                f.write("[*]\nwallpaper_mode=color\ndesktop_bg=#16243b\ndesktop_fg=#e6efff\ndesktop_shadow=#000000\nshow_documents=0\nshow_trash=0\nshow_mounts=0\n")
+            env = {**self._env(), "XDG_CONFIG_HOME": os.path.join(self.home, ".config")}
+            self.procs.append(self._popen(["pcmanfm", "--desktop", "--profile", "sham"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.home))
+        except OSError:
+            pass
 
     def stop(self) -> dict:
         for p in reversed(self.procs):
