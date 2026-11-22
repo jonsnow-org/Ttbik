@@ -346,6 +346,13 @@ def _supervisor() -> None:
                         continue
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
+                try:                                  # review note #1198 §5.6: with NOVA_TLDM=1 the head's dependencies, the second reader server and the head load NOW, not on the first user request
+                    import nova_tldm_serve as _nt
+                    if _nt.enabled() and not _nt._STATE.get("warming"):
+                        _nt._STATE["warming"] = True
+                        threading.Thread(target=lambda: _log("nova tldm warm:", _nt.load(str(Path(_PATHS["bindir"]) / "llama-server"), _PATHS["model"])[1] or "ready"), daemon=True).start()
+                except Exception as _exc:  # noqa: BLE001
+                    _log("nova tldm warm skipped:", type(_exc).__name__)
         except Exception as exc:
             if _VIS["on"]:
                 _VIS["bad"] = True

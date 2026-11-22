@@ -100,7 +100,7 @@ def _wait_health(seconds: int = 240) -> bool:
     return False
 
 
-def _load_writer():
+def _load_writer(model_path: str = ""):
     """-> writer(task, hist) built from the published head and the embedding reader, or raises with an honest reason."""
     path = _find_head()
     if path is None:
@@ -114,6 +114,10 @@ def _load_writer():
     from sham_tldm.model import decode_bytes
     from tokenizers import Tokenizer
     payload = torch.load(str(path), map_location="cpu")
+    made_for = str((payload.get("meta") or {}).get("gguf") or "")
+    served = Path(model_path).name if model_path else ""
+    if made_for and served and made_for.lower() != served.lower():             # review note #1198 §5.4: a head made for another body is refused, never served
+        raise RuntimeError(f"the head was made for {made_for} but this Studio serves {served}")
     cfg = payload["cfg"]
     state = payload["heads"]["writer"]
     d_in = int(payload["feature_width"])
@@ -174,7 +178,7 @@ def load(llama_exe: str, model_path: str):
         try:
             if not ensure_embed_server(llama_exe, model_path):
                 return None, "خادم القراءة الثاني لنوفا لم يبدأ. لم يُستخدم نموذج آخر."
-            _STATE["writer"] = _load_writer()
+            _STATE["writer"] = _load_writer(model_path)
             return _STATE["writer"], ""
         except Exception as exc:  # noqa: BLE001
             return None, f"مسار T-LDM لنوفا لم يُحمَّل ({type(exc).__name__}: {str(exc)[:160]}). لم يُستخدم نموذج آخر."
@@ -240,8 +244,12 @@ def respond(llama_exe: str, model_path: str, session: str, message: str, deny_li
             return error_json("انتهت صلاحية طلب الأداة أو استُكمل من قبل أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
         try:
             if json.loads(resume_tool_arguments_json or "{}") != pending["arguments"]:
+                with _LOCK:
+                    _PENDING[resume_tool_request_id] = pending                  # a wrong answer must not destroy the real request
                 return error_json("معاملات الاستكمال لا تطابق الطلب الأصلي.")
         except Exception:  # noqa: BLE001
+            with _LOCK:
+                _PENDING[resume_tool_request_id] = pending
             return error_json("تعذّر التحقق من معاملات الأداة.")
         hist = list(pending["hist"])
         message = pending["message"] or message
