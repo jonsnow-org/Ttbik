@@ -1,6 +1,9 @@
 # Protected-paths guard for pull requests (deploy/hosting/protected-paths.json, scripts/agent-guard.mjs).
 # Autonomous agents (supervisor bots, Grok, scheduled sessions) must not change coin images, contracts, frozen coin facts, Athar, Oracle, the gate
 # or the owner's switches. A reviewed change goes through when the owner adds the label `owner-approved` to the PR. Read-only: needs no secrets.
+#
+# OWNER'S ORDER 2026-11-22: the guard no longer blocks merges (it obstructed the other engineers). It stays as an ADVISORY check: it still lists protected paths
+# a PR touches in the log, but its job always passes. The job keeps the name `guard` so a branch rule that still lists it as required does not wait forever.
 name: agent-guard
 on:
   pull_request:
@@ -19,9 +22,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: self-test
+      - name: self-test (advisory)
+        continue-on-error: true
         run: node --test scripts/agent-guard.test.mjs
-      - name: protected paths touched by this PR
+      - name: protected paths touched by this PR (advisory: lists them, never fails the PR)
+        continue-on-error: true
         env:
           AGENT_GUARD_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'owner-approved') && '1' || '0' }}
           BASE: origin/${{ github.event.pull_request.base.ref }}
