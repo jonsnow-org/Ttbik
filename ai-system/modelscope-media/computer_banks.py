@@ -387,6 +387,8 @@ def perform(
                     text_value = str(job.get("text") or "")
                     if not text_value and source is not None:
                         text_value = _extract_text(source, original_size)
+                    if not text_value and source is None and raw is not None:
+                        text_value = raw.decode("utf-8", "replace")        # inline content is text: index it (it was stored but never searchable before)
                     text_chars = _index_text(db, item_id, bank, text_value)
                     db.execute("UPDATE items SET text_chars=? WHERE id=?", (text_chars, item_id))
                     db.execute("UPDATE banks SET updated_at=? WHERE id=?", (now, bank))

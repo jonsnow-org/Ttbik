@@ -425,6 +425,19 @@ def plan_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     return req, steps, "أنجزت الخطوات الثلاث: كتبت الدالة والاختبار، وشغّلت الاختبار فنجح (1 passed)."
 
 
+def bank_batch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """Remember something durably in a bank, find it again, and chain known steps in one batch."""
+    note = rng.choice(["اجتماع الخميس: تأجيل الإطلاق أسبوعًا", "كلمة السر الجديدة للمشروع تُحفظ عند المالك فقط", "موعد التسليم نهاية الشهر"])
+    word = note.split()[1] if len(note.split()) > 1 else note
+    steps = [
+        ("computer_apps", {}, "python3, git, node, rg"),
+        ("computer_bank", {"action": "put", "bank": "workspace", "name": "note.txt", "content": note}, '{"ok": true, "item_id": "i1", "text_indexed_chars": 30}'),
+        ("computer_bank", {"action": "search", "bank": "workspace", "query": word}, '{"ok": true, "results": [{"item_id": "i1", "name": "note.txt"}]}'),
+        ("computer_batch", {"steps": [{"tool": "computer_write", "args": {"path": "a.py", "content": "print(1)\n"}}, {"tool": "computer_run", "args": {"command": "python3 a.py"}}]}, "1. ok wrote a.py\n2. ok 1"),
+    ]
+    return "احفظ هذه الملاحظة في ذاكرتك الدائمة وتأكد أنك تجدها بالبحث، ثم شغّل ملف بايثون صغيرًا في خطوة واحدة: " + note, steps, "حفظت الملاحظة في مصرف workspace ووجدتها بالبحث، ثم كتبت الملف وشغّلته في دفعة واحدة وكان الناتج 1."
+
+
 def patch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     """Change a repository the careful way: clone, patch (all or nothing), run the tests, read the result, then offer to publish."""
     repo = rng.choice(REPOS)
@@ -481,11 +494,13 @@ def any_spec(rng: random.Random) -> tuple[str, list, str]:
         return skill_flow_spec(rng)
     if r < 0.57:
         return plan_flow_spec(rng)
-    if r < 0.64:
+    if r < 0.62:
         return patch_flow_spec(rng)
-    if r < 0.69:
+    if r < 0.67:
+        return bank_batch_flow_spec(rng)
+    if r < 0.72:
         return forget_flow_spec(rng)
-    if r < 0.75:
+    if r < 0.78:
         return knowledge_flow_spec(rng)
     return catalog_spec(rng)
 
@@ -550,6 +565,9 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
     "computer_patch": ("diff, cwd?", "Apply a unified diff on this model's private computer, all or nothing"),
     "computer_test": ("cwd?, command?", "Run the project's tests on this model's computer as a background job"),
+    "computer_apps": ("", "List the optional programs installed on this model's computer"),
+    "computer_bank": ("action, bank?, name?, content?, source_path?, query?, item_id?", "Persistent banks on this model's computer: put/get/search/list/delete items (Arabic search works)"),
+    "computer_batch": ("steps, continue_on_error?", "Run up to 8 computer steps in one call, in order"),
     "plan": ("items", "Write or update the task's TODO list (step + status)"),
     "memory_forget": ("id?, query?", "Forget a memory that is wrong or that the user asked to forget"),
     "skill": ("name", "Load a short how-to: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data"),

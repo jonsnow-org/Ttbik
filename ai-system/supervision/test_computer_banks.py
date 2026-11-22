@@ -43,6 +43,14 @@ class ComputerBanksTests(unittest.TestCase):
         restored = self.run_bank(bank_action="get", bank="docs", item_id=stored["item_id"])
         self.assertIn("إعداد الحاسوب", restored["text"])
 
+    def test_inline_content_is_indexed_searchable_and_comes_back_as_text(self):
+        stored = self.run_bank(bank_action="put", bank="workspace", name="note.txt", content="اجتماع الخميس: تأجيل الإطلاق أسبوعًا")
+        self.assertTrue(stored["ok"], stored)
+        self.assertGreater(stored["text_indexed_chars"], 0)
+        found = self.run_bank(bank_action="search", bank="workspace", query="الإطلاق")
+        self.assertTrue(found["results"], found)
+        self.assertIn("تأجيل", self.run_bank(bank_action="get", bank="workspace", item_id=stored["item_id"])["text"])
+
     def test_binary_objects_can_be_restored_and_identical_bytes_are_deduplicated(self):
         source = self.home / "payload.bin"
         source.write_bytes(os.urandom(8192))
