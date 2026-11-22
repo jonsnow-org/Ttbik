@@ -41,8 +41,10 @@ const GREETING_WITH_CHECKIN = /^(?:مرحب[اًا]?|مرحبتين|أهلا|ا�
 /** Short "who are you / what is your name" questions: answered on the lite path (identity only, no tools). */
 const IDENTITY_Q = /^(?:(?:و\s*)?(?:من|مين|شو|ما)\s+(?:انت|أنت|إنت|انتي|أنتِ|اسمك|هو اسمك)|عرّ?ف(?:نا)?\s+(?:ب|عن\s+)?نفسك|who\s+are\s+you|what(?:'s|\s+is)\s+your\s+name)(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,]*$/iu;
 const RUN_CUES = /شغّ?ل|شغل|نفّ?ذ|نفذ|جرّ?ب|جرب|اختبرها|اختبره|ثبّ?ت|ثبت|run it|run the|execute|install|sandbox|terminal|clone/i;
+/** «…على حاسوبك / في الطرفية»: a request to RUN something on the model's own computer needs the tools, whatever it is about (live Nova suite 2026-11-22: «اكتب برنامج بايثون … ونفّذه على حاسوبك» was classed as plain chat and got no tools). */
+const ON_COMPUTER = /حاسوب|كمبيوتر|جهازك|الطرفية|ترمينال|\b(?:computer|terminal|shell|bash)\b/i;
 const FRESH_FACTS = /اليوم|الآن|حالياً|حاليا|آخر |اخر |أخبار|اخبار|سعر|أسعار|اسعار|طقس|مباراة|نتيجة|latest|today|current|price|weather|news|score|http/i;
-const CODE_CUES = /```|\b(?:def|class|function|const|import|return|npm|pip|git|docker|sql|api|json|regex|bug|error|exception|stack ?trace|compile|test|unit test|refactor|lint|typescript|javascript|python|java|rust|golang|css|html|react|next\.?js|node)\b|كود|برمج|دالة|دوال|سكربت|سكريبت|خطأ|اخطاء|أخطاء|اصلح|أصلح|صحح|صلح|اختبار|اختبارات|ترجم الكود|حلل الكود|اشرح الكود|خوارزمية|قاعدة بيانات|استعلام/i;
+const CODE_CUES = /```|\b(?:def|class|function|const|import|return|npm|pip|git|docker|sql|api|json|regex|bug|error|exception|stack ?trace|compile|test|unit test|refactor|lint|typescript|javascript|python|java|rust|golang|css|html|react|next\.?js|node)\b|كود|برمج|دالة|دوال|سكربت|سكريبت|خطأ|اخطاء|أخطاء|اصلح|أصلح|صحح|صلح|اختبار|اختبارات|ترجم الكود|حلل الكود|اشرح الكود|خوارزمية|قاعدة بيانات|استعلام|بايثون|بايثن|بيثون|اكتب\s+(?:لي\s+)?(?:برنامج|برنامجا|برنامجاً)/i;
 const AGENT_CUES = /github\.com|\b[\w.-]+\/[\w.-]+\b.*\b(?:repo|repository|pr|pull|branch|commit)\b|\b(?:repo|repository|pull request|pr|merge|branch|commit|push|deploy|workflow|ci|issue|issues|readme|refactor the)\b|مستودع|ريبو|دمج|فرع|كوميت|ارفع|رفع|انشر|نشر|طلب دمج|مشكلة في المستودع|اقرأ (?:الملف|الملفات|ملف)|كل الملفات|المشروع كله|ثم |وبعد ذلك|خطوة بخطوة|حلل المشروع|راجع المشروع|اجدول|جدول|ذكرني|كل يوم|كل اسبوع|ابحث|بحث عميق|research/i;
 
 // planning / design / analysis requests: they need a real thought before the answer, like code does
@@ -63,7 +65,7 @@ export function classifyRequest(text: string): ReqClass {
   if (detectMediaIntent(t)) return "media";
   if (t.length <= 100 && !t.includes("\n") && (GREETING.test(t) || GREETING_WITH_CHECKIN.test(t))) return "trivial";
   if (t.length <= 40 && !t.includes("\n") && IDENTITY_Q.test(t)) return "trivial";   // «من انت» took minutes on the full tool path
-  if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && CODE_CUES.test(t)) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
+  if (AGENT_CUES.test(t) || (RUN_CUES.test(t) && (CODE_CUES.test(t) || ON_COMPUTER.test(t))) || t.length > 700 || /github\.com\/|\b[\w.-]+\/[\w.-]+\.(?:ts|tsx|js|py|md|json)\b/.test(t)) return "agentic";
   if (SHORT_TASK_CUES.test(t) || PLAN_CUES.test(t) || CODE_CUES.test(t) || /[{};]\s*\n|=>|\bdef\s+\w+\(|\)\s*\{/.test(t)) return "code";
   return "chat";
 }
