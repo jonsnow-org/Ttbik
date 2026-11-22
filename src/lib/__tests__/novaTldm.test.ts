@@ -160,9 +160,9 @@ describe("Nova T-LDM: the switch is per model", () => {
   it("a model with no head never reports a T-LDM switch", async () => {
     const { tldmEnabled, setTldmEnabled } = await import("@/lib/coderModels");
     const st: any = { perModel: {} };
-    expect(setTldmEnabled(st, true, "lfm25")).toBe(false);
-    expect(tldmEnabled(st, "lfm25")).toBe(false);
-    expect(st.perModel.lfm25).toBeUndefined();
+    expect(setTldmEnabled(st, true, "sham")).toBe(false);
+    expect(tldmEnabled(st, "sham")).toBe(false);
+    expect(st.perModel.sham).toBeUndefined();
   });
 
   it("the audience gate is per model: opening Nova 2 to everyone does not open Nova 1 or Sham to anyone else", async () => {

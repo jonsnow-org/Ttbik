@@ -11,13 +11,13 @@ describe("the graphical Linux desktop RPC contract", () => {
         if (init?.method === "POST") return new Response(JSON.stringify({ event_id: "live-1" }), { status: 200 });
         return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
       }) as typeof fetch;
-      const response = await desktopLive("lfm25", "77:lfm25", 40, fetchMock);
+      const response = await desktopLive("coder", "77:coder", 40, fetchMock);
       expect(response.ok).toBe(true);
       expect(calls).toHaveLength(2);
       expect(calls[0].url).toBe("https://computer.test/gradio_api/call/live");
       const encoded = JSON.parse(String(calls[0].init?.body)).data[0] as string;
       const args = JSON.parse(Buffer.from(encoded.slice(4), "base64").toString("utf8"));
-      expect(args).toMatchObject({ session: "77:lfm25", seconds: 25, interval: 0.4, quality: 68, scale: 1 });
+      expect(args).toMatchObject({ session: "77:coder", seconds: 25, interval: 0.4, quality: 68, scale: 1 });
       expect(calls[1].url).toBe("https://computer.test/gradio_api/call/live/live-1");
     } finally {
       if (previousUrl === undefined) delete process.env.COMPUTER_STUDIO_URL;
@@ -40,7 +40,7 @@ describe("the graphical Linux desktop RPC contract", () => {
         if (reads === 1) return new Response("upstream gateway", { status: 502 });
         return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
       }) as typeof fetch;
-      const response = await desktopLive("lfm25", "77:lfm25", 20, fetchMock);
+      const response = await desktopLive("coder", "77:coder", 20, fetchMock);
       expect(response.ok).toBe(true);
       expect(calls.map((item) => item.method)).toEqual(["POST", "GET", "GET"]);
       expect(calls[1].url).toBe(calls[2].url);
@@ -64,7 +64,7 @@ describe("the graphical Linux desktop RPC contract", () => {
         if (method === "POST") return new Response(JSON.stringify({ event_id: "live-after-retry" }), { status: 200 });
         return new Response("event: generating\ndata: []\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
       }) as typeof fetch;
-      const response = await desktopLive("lfm25", "77:lfm25", 20, fetchMock);
+      const response = await desktopLive("coder", "77:coder", 20, fetchMock);
       expect(response.ok).toBe(true);
       expect(calls).toEqual(["POST", "POST", "GET"]);
     } finally {
@@ -196,7 +196,7 @@ describe("richer desktop input actions", () => {
 });
 
 describe("the shared hub's desktop is Nova's only", () => {
-  test("Sham and Sham v2 reach THEIR OWN Studio (desktop_do / desktop_live), never the hub; Nova and LFM reach the hub", async () => {
+  test("Sham and Sham v2 reach THEIR OWN Studio (desktop_do / desktop_live), never the hub; Nova reaches the hub", async () => {
     const saved = { hub: process.env.COMPUTER_STUDIO_URL, v1: process.env.SHAM_MODELSCOPE_URL, v2: process.env.SHAM_V2_URL };
     process.env.COMPUTER_STUDIO_URL = "https://hub.test";
     process.env.SHAM_MODELSCOPE_URL = "https://sham1.test";
@@ -206,7 +206,6 @@ describe("the shared hub's desktop is Nova's only", () => {
       expect(desktopTargetFor("sham")).toEqual({ base: "https://sham1.test", own: true });
       expect(desktopTargetFor("sham_v2")).toEqual({ base: "https://sham2.test", own: true });
       expect(desktopTargetFor("coder")).toEqual({ base: "https://hub.test", own: false });
-      expect(desktopTargetFor("lfm25")).toEqual({ base: "https://hub.test", own: false });
       expect(desktopTargetFor("nope")).toBeNull();
       const urls: string[] = [];
       const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -1,4 +1,4 @@
-// AI Agent from the Nova bot — its own path, apart from every model (Nova, Sham, Sham v2, LFM).
+// AI Agent from the Nova bot — its own path, apart from every model (Nova, Sham, Sham v2).
 // The owner writes /ai, /build, /fix or /full in the bot; this opens a GitHub issue in the repository whose workflow `AI Agent` answers it
 // (.github/workflows/ai-agent.yml, see ai-agent/README.md). The answer comes back to the same chat through ai-telegram-bridge.yml, which sends
 // with the bot's own token to the chat id written in the issue. No model of this app is involved and nothing here calls a model.

@@ -73,9 +73,9 @@ describe("T-LDM audience and owner deny-list (per model)", () => {
 
   it("an unknown model inherits nothing (no silent cross-model enable)", () => {
     _setTldmPolicyForTests("sham_v2", true, ["rm -rf"]);
-    expect(tldmOpenToAll("lfm25")).toBe(false);
-    expect(tldmAllowedFor("user", "lfm25")).toBe(false);
-    expect(tldmOwnerDenyList("lfm25")).toEqual([]);
+    expect(tldmOpenToAll("sham")).toBe(false);
+    expect(tldmAllowedFor("user", "sham")).toBe(false);
+    expect(tldmOwnerDenyList("sham")).toEqual([]);
     expect(tldmOpenToAll(undefined)).toBe(false);
     _setTldmPolicyForTests("sham_v2", false, []);
   });

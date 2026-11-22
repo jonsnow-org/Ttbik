@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live proof of each configured model's OWN computer: Nova 1/LFM use the shared hub,
+"""Live proof of each configured model's OWN computer: Nova 1 uses the shared hub,
 Nova 2 uses NOVA2_COMPUTER_STUDIO_URL, and Sham/Sham Pro use embedded model Studios.
 Each target is checked through its own endpoint and user+model session; tokens are never printed.
 Offline self-test: --selftest

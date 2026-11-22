@@ -42,34 +42,27 @@ export function coderStudioUrl(): string {
 /** Primary Studio + optional replicas (OPEN_CODER_STUDIO_URLS, comma list): a new completion goes to the first healthy one; a job
  *  stays on the Studio that took it (job ids from a replica carry its index: "s<i>~<id>"). */
 // ── Engine pools (owner 2026-11-04: every model is independent) ─────────────────────────────────────────────────────────────────────────
-// Nova and LFM2.5 run the same engine (this module + coderSections) but each on ITS OWN Studios. The model of the current request is carried
+// Nova and Nova 2 run the same engine (this module + coderSections) but each on ITS OWN Studios. The model of the current request is carried
 // by an AsyncLocalStorage set at every engine entry (the webhook handler, every worker leg); a new completion may only go to that model's pool.
 // A job id carries a GLOBAL index into allEngineBases(), so polling a job always reaches the Studio that took it, whatever the context.
 const engineModel = new AsyncLocalStorage<string>();
-export const ENGINE_MODELS = ["coder", "lfm25", "nova2"] as const;
+export const ENGINE_MODELS = ["coder", "nova2"] as const;
 export type EngineModel = (typeof ENGINE_MODELS)[number];
-export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "lfm25" || id === "nova2";
+export const isEngineModel = (id: string | undefined): id is EngineModel => id === "coder" || id === "nova2";
 /** Runs fn with `model`'s Studio pool for every new completion made inside it (any non-engine id = Nova's pool). */
 export function withEngineModel<T>(model: string | undefined, fn: () => T): T {
   return engineModel.run(isEngineModel(model) ? model : "coder", fn);
 }
 export const currentEngineModel = (): EngineModel => (engineModel.getStore() as EngineModel | undefined) || "coder";
-const LFM_DEFAULT = "https://studio-novaai2026-lfm25-inference-server.api-inference.modelscope.net";
-/** LFM2.5's own Studios (LFM_STUDIO_URLS, comma list). Outside tests the dedicated Studio is the default; LFM_STUDIO_URLS=off disables it. */
-export function lfmStudioUrls(): string[] {
-  const raw = (process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? (process.env.NODE_ENV === "test" ? "" : LFM_DEFAULT)).trim();
-  if (/^(off|none|0)$/i.test(raw)) return [];
-  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter((x) => !/nova-inference-server|sham/i.test(x));
-}
 // ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
-// Like LFM2.5 it has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
+// It has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
 // is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Nova 2 keeps its own thread and memory under
-// its private model chat key; it does not continue or overwrite Nova 1's thread. The Nova 2 Studios come last in the job-index space, so no job of Nova or LFM2.5 ever changes its number.
+// its private model chat key; it does not continue or overwrite Nova 1's thread. The Nova 2 Studios come last in the job-index space, so no job of Nova ever changes its number.
 export const NOVA2_DEFAULT = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai";
 export function nova2Urls(): string[] {
   const raw = (process.env.NOVA2_STUDIO_URLS || secretCached("AI_NOVA2_URLS") || (process.env.NODE_ENV === "test" ? "" : NOVA2_DEFAULT)).trim();
   if (/^(off|none|0)$/i.test(raw)) return [];
-  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham|lfm/i.test(x));
+  return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham/i.test(x));
 }
 export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim());
 /** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
@@ -97,8 +90,7 @@ export const novaRunsOnNova2 = (): boolean => /^(nova2|on|1|true)$/i.test((proce
 function oldNovaStudioUrls(): string[] {
   if (novaRunsOnNova2()) return nova2Urls();
   // Nova and Sham inference remain independent. nova-inference-server is a computer-only execution host and is never used for model inference.
-  const lfm = new Set(lfmStudioUrls());
-  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x) && !/lfm/i.test(x) && !lfm.has(x);
+  const mine = (x: string) => !/nova-inference-server|sham-v\d-|sham-v\d+-server|\/\/[^/]*sham/i.test(x);
   const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean).filter(mine);
   const first = coderStudioUrl();
   return first && mine(first) ? [first, ...extra.filter((x) => x !== first)] : extra.length ? extra : [];
@@ -107,15 +99,14 @@ function oldNovaStudioUrls(): string[] {
  *  dedicated Studio; no child is ever routed to Nova 1's cn Studios. */
 export const agentsAllowedFor = (model: EngineModel = currentEngineModel()): boolean =>
   model !== "nova2" || nova2Urls().length > 0;
-/** Every engine Studio, Nova's first then LFM's: the index space of job ids ("s<i>~<id>"). */
+/** Every engine Studio, Nova's first then Nova 2's: the index space of job ids ("s<i>~<id>"). */
 export function allEngineBases(): string[] {
   const nova = oldNovaStudioUrls();
-  const lfm = lfmStudioUrls().filter((x) => !nova.includes(x));
-  return [...nova, ...lfm, ...nova2Urls().filter((x) => !nova.includes(x) && !lfm.includes(x))];
+  return [...nova, ...nova2Urls().filter((x) => !nova.includes(x))];
 }
-/** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; LFM2.5: its own). Never the other model's. */
+/** The Studios a new completion of the CURRENT model may use (Nova: primary + replicas; Nova 2: its own). Never the other model's. */
 export function coderStudioUrls(model: EngineModel = currentEngineModel()): string[] {
-  return model === "lfm25" ? lfmStudioUrls() : model === "nova2" ? nova2Urls() : novaStudioUrls();
+  return model === "nova2" ? nova2Urls() : novaStudioUrls();
 }
 const studioCooling = new Map<string, number>();                       // base -> skip until (after a failure), per server instance
 const COOL_MS = 60000;
@@ -135,8 +126,8 @@ function apiName(api: string): string {
 }
 
 /** A model sometimes writes its tool call as DeepSeek-style markup (<｜DSML｜function_calls><｜DSML｜invoke name="web_search"><｜DSML｜parameter name="query">…) that the Studio's parser does not
- *  turn into tool_calls (live 2026-11-11, LFM2.5 task: the markup was shown as the answer and the task ended with no answer). Turn it into real tool calls and strip it from the text. */
-/** A small model sometimes answers with a whole JSON message object instead of prose (live 2026-11-12, LFM2.5: {"role":"system","content":"..."}). When the entire
+ *  turn into tool_calls (live 2026-11-11, a small-model task: the markup was shown as the answer and the task ended with no answer). Turn it into real tool calls and strip it from the text. */
+/** A small model sometimes answers with a whole JSON message object instead of prose (live 2026-11-12, a small model: {"role":"system","content":"..."}). When the entire
  *  answer is such an object (only message / answer keys, one string body), show the body. Anything else is left untouched. */
 export function unwrapJsonAnswer(text: string): string {
   const t = text.trim();
@@ -148,7 +139,7 @@ export function unwrapJsonAnswer(text: string): string {
   const keys = Object.keys(o);
   const allowed = new Set(["role", "content", "reflection", "answer", "response", "text", "message"]);
   if (!keys.length || keys.some((k) => !allowed.has(k))) return text;
-  // LFM2.5 (live 2026-11-12) also writes {"reflection": ["step one", "step two"]}: an array of strings is the body too (joined line by line)
+  // a small model (live 2026-11-12) also writes {"reflection": ["step one", "step two"]}: an array of strings is the body too (joined line by line)
   const asText = (v: unknown): string => (typeof v === "string" ? v.trim() : Array.isArray(v) && v.length && v.every((x) => typeof x === "string") ? (v as string[]).map((x) => x.trim()).filter(Boolean).join("\n") : "");
   const body = ["content", "answer", "response", "text", "message", "reflection"].map((k) => asText(o[k])).find((v) => v);
   return typeof body === "string" && body ? body : text;
@@ -238,7 +229,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     return idx ? tagJob(o, idx) : o;
   }
   const bases = pool;
-  if (!bases.length) return { reply: null, failure: "off", detail: currentEngineModel() === "lfm25" ? "LFM2.5's own Studio is not configured (no other model is used instead)" : undefined };
+  if (!bases.length) return { reply: null, failure: "off" };
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
   let order = bases.map((b) => ({ b, i: all.indexOf(b) })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));

@@ -39,7 +39,7 @@ test("a repository-reading task finishes, with a timeline", async () => {
     }
     return realFetch(input, init);
   }) as any;
-  // PROBE_MODEL picks the engine model (coder = Nova, lfm25 = LFM2.5); each runs only on its own Studios
+  // PROBE_MODEL picks the engine model (coder = Nova, nova2 = Nova 2); each runs only on its own Studios
   if (process.env.PROBE_MODEL) await saveState(4242, { mode: "coder", think: false, messages: [], notes: "", inbox: [], run: null, model: process.env.PROBE_MODEL } as any, db);
   // PROBE_GH_TOKEN: connect GitHub for this throw-away owner chat like the real owner has it (the repository secret CODER_GITHUB_TOKEN, else the workflow's read-only token); never printed
   if (process.env.PROBE_GH_TOKEN) await saveConnection(4242, "github", process.env.PROBE_GH_TOKEN, "probe", db);

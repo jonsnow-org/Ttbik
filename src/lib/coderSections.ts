@@ -178,10 +178,10 @@ function ensureTable(db: Db): Promise<void> {
 
 /** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
 /** Engine models with their OWN working state, threads, memory and computer session (owner 2026-11-18: every model is independent).
- *  Nova (coder) keeps its historical key; Nova 2 and LFM2.5 each get `<chat>#model:<id>`. */
-export const PRIVATE_SESSION_MODELS = ["lfm25", "nova2"] as const;
+ *  Nova (coder) keeps its historical key; Nova 2 gets `<chat>#model:<id>`. */
+export const PRIVATE_SESSION_MODELS = ["nova2"] as const;
 export type PrivateSessionModel = (typeof PRIVATE_SESSION_MODELS)[number];
-export const isPrivateSessionModel = (model: string | undefined): model is PrivateSessionModel => model === "lfm25" || model === "nova2";
+export const isPrivateSessionModel = (model: string | undefined): model is PrivateSessionModel => model === "nova2";
 export const modelSessionChatId = (chatId: number | string, model: string = currentEngineModel()): string =>
   isPrivateSessionModel(model) ? `${chatId}#model:${model}` : String(chatId);
 export const modelSessionChatKey = (chatId: number | string, model = currentEngineModel()): string =>
@@ -213,7 +213,7 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
   try { await saveStateStrict(chatId, st, db, slot); } catch { /* best-effort for non-critical state updates */ }
 }
 
-/** Create a private engine model's working state (LFM2.5, Nova 2) without importing Nova's transcript, thread, notes or active run. */
+/** Create a private engine model's working state (Nova 2) without importing Nova's transcript, thread, notes or active run. */
 export async function ensureModelSessionState(chatId: number, model: PrivateSessionModel, db: Db = prismaDb): Promise<ChatState> {
   const shared = await withEngineModel("coder", () => loadStateStrict(chatId, db));
   const current = await withEngineModel(model, () => loadStateStrict(chatId, db));
@@ -229,8 +229,6 @@ export async function ensureModelSessionState(chatId: number, model: PrivateSess
   await withEngineModel(model, () => saveStateStrict(chatId, privateState, db));
   return privateState;
 }
-/** LFM2.5's private state (kept for existing callers). */
-export const ensureLfmSessionState = (chatId: number, db: Db = prismaDb): Promise<ChatState> => ensureModelSessionState(chatId, "lfm25", db);
 /** Ensure the private state of `model` when it has one (no-op for Nova and the Sham models). */
 export async function ensurePrivateSession(chatId: number, model: string | undefined, db: Db = prismaDb): Promise<void> {
   if (isPrivateSessionModel(model)) await ensureModelSessionState(chatId, model, db);
@@ -384,7 +382,7 @@ async function canRouteSelectedSham(chatId: number, db: Db, owner: boolean, onSe
 }
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
-/** The engine model whose Studio pool serves this chat (Nova or LFM2.5); a sub-agent slot follows its own pick, else the chat's. */
+/** The engine model whose Studio pool serves this chat (Nova or Nova 2); a sub-agent slot follows its own pick, else the chat's. */
 async function engineModelOf(chatId: number | string | undefined, db: Db, slot = ""): Promise<string | undefined> {
   if (chatId === undefined || chatId === null || chatId === "") return undefined;
   try {
@@ -395,15 +393,15 @@ async function engineModelOf(chatId: number | string | undefined, db: Db, slot =
 }
 
 /** Find the engine that owns a persisted run, even when the account has since switched models. */
-export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "lfm25" | "nova2" | undefined> {
-  for (const model of ["coder", "lfm25", "nova2"] as const) {
+export async function engineModelForRun(chatId: number, runId: string, db: Db = prismaDb, slot = ""): Promise<"coder" | "nova2" | undefined> {
+  for (const model of ["coder", "nova2"] as const) {
     const st = await withEngineModel(model, () => loadStateStrict(chatId, db, slot)).catch(() => null);
     if (st?.run?.id === runId) return model;   // every engine model keeps its runs in its own state
   }
   return undefined;
 }
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
-  // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or LFM2.5's), never the other's
+  // every completion made while handling this update goes to the selected engine model's OWN Studios (Nova's or Nova 2's), never the other's
   const chat = update?.message?.chat?.id ?? update?.callback_query?.message?.chat?.id;
   const model = typeof chat === "number" ? await engineModelOf(chat, db) : undefined;
   return withEngineModel(model, async () => {
@@ -431,7 +429,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const { handleAiAgentUpdate } = await import("@/lib/aiAgentBridge");
     if (await handleAiAgentUpdate(bot as never, update, fetch, async () => (preloadedOwnerState?.freei ? "freei" : preloadedOwnerState?.model))) return true;
   }
-  if (!coderEnabled() && currentEngineModel() !== "lfm25" && !modelPickerAction) {
+  if (!coderEnabled() && !modelPickerAction) {
     if (fromId === undefined) return false;
     const chatId: number | undefined = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
     const text = typeof update.message?.text === "string" ? update.message.text.trim() : "";
@@ -500,7 +498,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     }
     if (data.startsWith("model_pick|")) {
       const id = data.slice("model_pick|".length);
-      // The selected model is account-level routing state; persist it in Nova's shared selector row even when this callback came from LFM2.5.
+      // The selected model is account-level routing state; persist it in Nova's shared selector row even when this callback came from Nova 2.
       const state = await withEngineModel("coder", () => loadStateStrict(chatId, db));
       const models = await listModels(db);
       if (!chooseModel(state, models, id, owner)) {
@@ -591,7 +589,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const stT = preloadedOwnerState || await loadStateStrict(chatId, db);
     const want = novaModelOf(stT.model);
     if (!isTldmModel(want)) {
-      // LFM2.5 and any other model without a head: say so, rather than showing another model's switch
+      // any model without a head: say so, rather than showing another model's switch
       await send(bot, chatId, "هذا النموذج لا يملك مسار T-LDM. اختر شام برو أو نوفا 1 أو نوفا 2 من /model.");
       return true;
     }
@@ -631,7 +629,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   }
   // Routing may not substitute Nova when the persisted model cannot be read.
   const st = preloadedOwnerState || await loadStateStrict(chatId, db);
-  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2", "lfm25"]);
+  const OWNER_FIRST = new Set(["sham", "sham_loop", "sham_v2"]);
   const requestedModel = st.model || "coder";
   console.info("[model-route] Telegram incoming", { chatKey: coderChatKey(chatId), selectedModel: requestedModel, mode: st.mode });
   if (tierFor(chatId) !== "owner" && (st.mode === "sham" || OWNER_FIRST.has(st.model || ""))) {
@@ -842,7 +840,7 @@ async function mediaFastLane(bot: TelegramBot, botRow: BotRow, chatId: number, s
   if (requiresProgressCard(content)) await openCard(bot, chatId, st.run!, content, db);
   await saveState(chatId, st, db);
   await typing(bot, chatId);
-  const engine = selectedModel === "lfm25" ? "lfm25" : selectedModel === "nova2" ? "nova2" : "coder";
+  const engine = selectedModel === "nova2" ? "nova2" : "coder";
   const legMs = Number(process.env.CODER_MEDIA_LEG_MS || 0) || MEDIA_LEG_MS;   // CODER_MEDIA_LEG_MS: how long one media leg may run before handing off (tests, tuning)
   later(() => withEngineModel(engine, () => drive(bot, botRow, chatId, st.run!.chain, db, legMs)));
   return true;
@@ -1045,7 +1043,7 @@ async function mediaJobStep(bot: TelegramBot, botRow: BotRow, chatId: number, st
 
 
 async function frontAck(bot: TelegramBot, chatId: number, runId: string, content: string, surface: "telegram" | "app", db: Db, modelId = "coder"): Promise<void> {
-  if (surface !== "app" || modelId === "lfm25") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
+  if (surface !== "app") return;                                      // a chat reply to the same message would be a second reply; the chat gets exactly one
   if ((process.env.NODE_ENV === "test" && process.env.CODER_FRONT_ACK !== "1") || process.env.CODER_FRONT_ACK === "0") return;
   if (coderStudioUrls().length < 2) return;
   await new Promise((res) => setTimeout(res, 700));                  // the main call picks its Studio first
@@ -1082,7 +1080,7 @@ export async function prewarmChat(chatId: number, db: Db = prismaDb): Promise<vo
   });
 }
 async function prewarmChatInner(chatId: number, db: Db = prismaDb): Promise<void> {
-  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || (!coderEnabled() && currentEngineModel() !== "lfm25")) return;
+  if ((process.env.NODE_ENV === "test" && process.env.CODER_PREWARM !== "1") || process.env.CODER_PREWARM === "0" || !coderEnabled()) return;
   const warmKey = modelSessionChatKey(chatId);
   if (Date.now() - (warmedAt.get(warmKey) || 0) < 8 * 60000) return;
   warmedAt.set(warmKey, Date.now());
@@ -1194,7 +1192,7 @@ async function startAppTaskInner(bot: TelegramBot, botRow: BotRow, chatId: numbe
     return { runId, queued: false };
   }
 
-  if (!coderEnabled() && currentEngineModel() !== "lfm25") throw new Error("coder service is not configured");
+  if (!coderEnabled()) throw new Error("coder service is not configured");
   if (st.run?.asking?.kind === "secret") throw new Error("a secret is awaited: fill the secure box (or cancel it); nothing typed here is taken as a secret");
   if (st.run?.asking) {                                     // a terminal command answers the agent's question
     await answerAsk(bot, botRow, chatId, st, content, db);
@@ -1896,13 +1894,13 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
   }
 }
 
-/** The name a model introduces itself with (owner 2026-11-04: LFM2.5 answered «من انت» with the repository name). Nova keeps "Nova AI". */
+/** The name a model introduces itself with (owner 2026-11-04: a small model answered «من انت» with the repository name). Nova keeps "Nova AI". */
 export function modelDisplayName(modelId?: string): string {
   const m = DEFAULT_MODELS.find((x) => x.id === (modelId || "coder"));
   return (m?.name.en || "Nova AI").replace(/\s*\([^)]*\)\s*$/, "").trim() || "Nova AI";
 }
 
-/** The system text with this model's own identity, plus what it can do (it makes pictures, videos and speech; live 2026-11-04 LFM2.5 said "I can't
+/** The system text with this model's own identity, plus what it can do (it makes pictures, videos and speech; live 2026-11-04 a small model said "I can't
  *  generate images, use the dedicated tool") and that a repository in the context is the user's project, never its name. Same text every time per model. */
 export function withModelIdentity(system: string, modelId?: string): string {
   const name = modelDisplayName(modelId);
@@ -1915,7 +1913,7 @@ export function withModelIdentity(system: string, modelId?: string): string {
 }
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean, db: Db = prismaDb) {
-  // a model's thought block is never shown (live 2026-11-04: LFM2.5 answered «مرحبا» with "<think></think>" twice before the greeting); an unclosed one at the tail is held back until it closes
+  // a model's thought block is never shown (live 2026-11-04: a small model answered «مرحبا» with "<think></think>" twice before the greeting); an unclosed one at the tail is held back until it closes
   text = stripThinkTags(text);
   if (final && !run.mediaSent && !(run.botSent || 0) && !(run.sent || 0)) {
     // never claim a file was sent when none was delivered in this run (owner 2026-11-04: "أرسلت الصورة" with no picture). Only the false sentence goes:
@@ -2097,7 +2095,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await taskEvent(run.id, "confirm", `${H.handoffIcon(h.kind)} تسليم الحاسوب للمستخدم: ${h.reason}`, db);
         await taskStatus(run.id, "waiting", run.step, db);
         await saveState(chatId, st, db, slot);
-        await send(bot, chatId, H.handoffChatText(h, modelId === "lfm25" ? "LFM" : modelId === "nova2" ? "نوفا 2" : "نوفا"));
+        await send(bot, chatId, H.handoffChatText(h, modelId === "nova2" ? "نوفا 2" : "نوفا"));
         return;
       }
       if (call.function.name === "ask_user") {
@@ -2813,16 +2811,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const lite = prof.lite && run.step === 0 && !run.agent && !run.asking && !run.pending && !(lastAsst && (((lastAsst as { tool_calls?: unknown[] }).tool_calls || []).length > 0 || /[?؟]\s*$/.test(String(lastAsst.content || "").trim())));
     if (lite) {
       const plain = messages.slice(1).filter((m) => (m.role === "user" || m.role === "assistant") && !((m as { tool_calls?: unknown[] }).tool_calls || []).length && String(m.content || "").trim()).slice(-6);
-      // one fixed example pair (same text every time, so the Studio caches it): a small model answered «من انت» by repeating the question (live LFM2.5, 2026-11-04)
+      // one fixed example pair (same text every time, so the Studio caches it): a small model answered «من انت» by repeating the question (live, 2026-11-04)
       const who = modelDisplayName(novaModelOf(st.model));
-      // the one-shot example is ONLY for a greeting / "who are you": a small model (LFM2.5) copied its identity answer to "capital of Egypt" and "capital of Syria" (live task suite 2026-11-12)
+      // the one-shot example is ONLY for a greeting / "who are you": a small model copied its identity answer to "capital of Egypt" and "capital of Syria" (live task suite 2026-11-12)
       const askedWho = /(?:من\s+(?:أنت|انت)|مرحب|أهلا|اهلا|السلام|who are you|^\s*(?:hi|hello|hey)\b)/i.test(String([...plain].reverse().find((m) => m.role === "user")?.content || ""));
       const example: CoderMessage[] = prof.klass === "trivial" && askedWho ? [{ role: "user", content: "من أنت؟" }, { role: "assistant", content: `أنا ${who}${who === "Nova AI" ? "" : " على منصة Sham AI"}. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟` }] : [];
-      // the language rule is explicit: LFM2.5 answered the Arabic «من انت» in English (live 2026-11-04). Two fixed texts (Arabic / other), so the cache still holds.
+      // the language rule is explicit: a small model answered the Arabic «من انت» in English (live 2026-11-04). Two fixed texts (Arabic / other), so the cache still holds.
       const lastUserText = String([...plain].reverse().find((m) => m.role === "user")?.content || "");
       const arabic = /[\u0600-\u06FF]/.test(lastUserText);
       const langRule = arabic ? "\nThe user writes Arabic: reply in Arabic only (Arabic letters), never in English." : "";
-      // the rule in the system text alone was not enough: live LFM2.5 still greeted «مرحبا» in English (2026-11-11). The same short note on the user's own turn
+      // the rule in the system text alone was not enough: a live small model still greeted «مرحبا» in English (2026-11-11). The same short note on the user's own turn
       // (a copy for this call only; the saved conversation is not changed) is the last thing the model reads.
       const lastUserIdx = plain.map((m) => m.role).lastIndexOf("user");
       const turns = arabic && lastUserIdx >= 0 ? plain.map((m, i) => (i === lastUserIdx ? { ...m, content: `${m.content}\n\n${LITE_ARABIC_NOTE}` } : m)) : plain;
@@ -2980,7 +2978,7 @@ async function driveInner(bot: TelegramBot, botRow: BotRow, chatId: number, chai
   }
 }
 
-export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "lfm25" | "nova2" = "coder"): Promise<void> {
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = "", engineModel: "coder" | "nova2" = "coder"): Promise<void> {
   return withEngineModel(engineModel, async () => {
     await ensurePrivateSession(chatId, engineModel, db);
     const { Bot } = await import("grammy");
@@ -3014,7 +3012,7 @@ async function startScheduledRunInner(
   bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db,
   selectedModel: string,
 ): Promise<"started" | "busy" | "off" | "limited"> {
-  if (!coderEnabled() && currentEngineModel() !== "lfm25") return "off";
+  if (!coderEnabled()) return "off";
   const slot = `s:${t.scheduleId}`;
   const prev = await loadState(chatId, db, slot);
   if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
@@ -3053,7 +3051,7 @@ export async function resumeOrphan(chatId: number, runId: string, slot: string, 
     }
     await saveState(chatId, st, db, slot);
     await taskEvent(runId, "info", "🔁 انقطع العامل الخلفي (غالباً بسبب تحديث الخادم)؛ أكمل المهمة من حيث توقفت.", db);
-    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "lfm25" || selectedModel === "nova2" ? selectedModel : "coder"));
+    later(() => continueRun(botRow, chatId, run.chain, db, slot, selectedModel === "nova2" ? selectedModel : "coder"));
     return true;
   });
 }

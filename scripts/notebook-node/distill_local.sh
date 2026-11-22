@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sham teachers that WE host on the notebook (fast, and the live Nova / LFM Studios are not touched): Qwen3.6-35B-A3B and Nova's Qwen3.5-4B on the GPU (ports 8080 / 8081),
-# LFM2.5-8B-A1B on the CPU (8082). Generates records with the distillation generator (agreement between the teachers for facts, the lab's verifiers where a prompt has one),
+# Sham teachers that WE host on the notebook (fast, and the live Nova Studios are not touched): Qwen3.6-35B-A3B and Nova's Qwen3.5-4B on the GPU (ports 8080 / 8081),
+# Generates records with the distillation generator (agreement between the teachers for facts, the lab's verifiers where a prompt has one),
 # then appends the accepted ones to the private Kaggle pool every Sham trainer reads. Run by the notebook runner (notebook-task.yml, script distill_local.sh).
 # Needs the notebook GPU environment for the two GPU teachers (without a GPU the 35B and the 4B are skipped). Status: written 2026-11-17, not run yet.
 set -u
@@ -26,7 +26,6 @@ if nvidia-smi >/dev/null 2>&1; then
   up qwen36 8080 99 "$F" 4096 && TEACHERS="$TEACHERS,qwen36-35b-a3b"
   F=$(fetch unsloth/Qwen3.5-4B-GGUF Q4_K_M); up nova4b 8081 99 "$F" 4096 && TEACHERS="$TEACHERS,nova-qwen35-4b"
 fi
-F=$(fetch LiquidAI/LFM2.5-8B-A1B-GGUF Q4_K_M); up lfm 8082 0 "$F" 4096 && TEACHERS="$TEACHERS,lfm25-8b-a1b"
 TEACHERS=${TEACHERS#,}
 [ -n "$TEACHERS" ] || { echo "no teacher came up"; exit 1; }
 echo "teachers: $TEACHERS"

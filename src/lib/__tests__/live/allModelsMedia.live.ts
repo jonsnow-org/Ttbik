@@ -27,7 +27,7 @@ jest.mock("@/lib/shamExec", () => {
 jest.setTimeout(20_400_000);   // a run of several long clips (up to 2 min each) on a CPU Studio; the job itself stops at 350 min
 (process.env as any).NODE_ENV = "production";
 const OUT = process.env.PROBE_OUT || "/tmp";
-const MODELS = (process.env.PROBE_MODELS || "coder,lfm25,sham_v2").split(",");
+const MODELS = (process.env.PROBE_MODELS || "coder,sham_v2").split(",");
 const IMAGE = process.env.PROBE_IMAGE || "قم بتوليد صورة فتاة حسناء";
 const VIDEO = process.env.PROBE_VIDEO || "قم بتوليد فديو فتاة ترقص 10 ثوان";
 const AUDIO = process.env.PROBE_AUDIO || "حوّل هذا النص إلى صوت: مرحباً، هذا اختبار الصوت";
@@ -36,7 +36,7 @@ const KINDS = (process.env.PROBE_KINDS || "image,video").split(",");
 const LIMIT = { image: 420_000, video: Number(process.env.PROBE_VIDEO_LIMIT_MS || 600_000), audio: 300_000, chat: 300_000 } as const;
 // owner 2026-11-04 3:44 AM: «مرحبا» was answered with the media-failure note. A greeting must get a normal reply: no file, no "not sent" note, no claim.
 const MEDIA_NOTE = /لم يُرسل|لم أُرسل|تعذّر إنشاء|ها هي الصورة|أرسلت (?:لك )?(?:الصورة|المقطع|الفيديو)/;     // a 1-2 min clip on CPU needs far longer than 10 min
-// an error notice is not an answer (2026-11-11: LFM2.5's «مرحبا» showed "توقّف تنفيذ المهمة بسبب خطأ داخلي" and the probe printed OK)
+// an error notice is not an answer (2026-11-11: a small model's «مرحبا» showed "توقّف تنفيذ المهمة بسبب خطأ داخلي" and the probe printed OK)
 const ERROR_NOTE = /خطأ داخلي|معلّمة كفاشلة|أعد إرسال طلبك/;
 
 async function once(model: string, kind: "image" | "video" | "audio" | "chat", text: string, tag = ""): Promise<string> {
@@ -82,7 +82,7 @@ async function once(model: string, kind: "image" | "video" | "audio" | "chat", t
     if ((model === "sham" || model === "sham_v2") && kind === "chat") {
       // a greeting is not a media request: it goes through the bot's real Sham chat entry, not the media fast lane (which sends nothing for it)
       await shamVariant.run(model === "sham" ? "v1" : "v2", () => handleNovaBotUpdate(bot, botRow, { update_id: Date.now(), message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }));
-    } else if (model === "coder" || model === "lfm25") await handleCoderSections(bot, botRow, { message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }, db);
+    } else if (model === "coder") await handleCoderSections(bot, botRow, { message: { chat: { id: chat }, from: { id: chat, first_name: "Owner" }, text } }, db);
     else if (model === "sham" || model === "sham_v2") await shamVariant.run(model === "sham" ? "v1" : "v2", () => shamMediaFastLane(bot, chat, text, "bot1"));
     else { global.fetch = realFetch; return `${model} ${kind}: UNKNOWN MODEL (the donor candidates were removed on 2026-11-08)`; }
   } catch (e) { global.fetch = realFetch; return `${model} ${kind}: EXCEPTION ${String((e as Error)?.message || e).slice(0, 200)}`; }

@@ -8,7 +8,7 @@ describe("studioKeepAwake", () => {
 
   it("covers every model's own Studios once (defaults + env lists)", () => {
     const names = studiosToKeepAwake({ OPEN_CODER_STUDIO_URLS: "https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net,https://studio-novaai2026-coder-inference-server-2.api-inference.modelscope.net" }).map((s) => s.name);
-    for (const n of ["coder-inference-server", "coder-inference-server-2", "lfm25-inference-server", "lfm25-media-server", "sham-v2-server", "nova-media-server", "epicrealism-image-test"]) expect(names).toContain(n);
+    for (const n of ["coder-inference-server", "coder-inference-server-2", "sham-v2-server", "nova-media-server", "epicrealism-image-test"]) expect(names).toContain(n);
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -25,8 +25,8 @@ describe("studioKeepAwake", () => {
     const out = await keepAwakeOnce(fetchFn, { MODELSCOPE_API_TOKEN: "t" });
     expect(out["sham-v2-server"]).toMatch(/woken/);
     expect(calls).toContain("POST https://www.modelscope.cn/openapi/v1/studios/novaai2026/sham-v2-server/deploy");
-    expect(calls.some((c) => c === "POST https://www.modelscope.cn/openapi/v1/studios/novaai2026/lfm25-inference-server/deploy")).toBe(false);
-    expect(calls).toContain("GET https://studio-novaai2026-lfm25-inference-server.api-inference.modelscope.net/");
+    expect(calls.some((c) => c === "POST https://www.modelscope.cn/openapi/v1/studios/novaai2026/coder-inference-server/deploy")).toBe(false);
+    expect(calls).toContain("GET https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net/");
     expect(await keepAwakeOnce(fetchFn, {})).toEqual({});
   });
 
