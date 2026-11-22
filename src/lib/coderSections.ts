@@ -1857,6 +1857,7 @@ export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Pr
 
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
+  if (/<tool_call>|<function=|<[a-z_/=]{1,11}$/.test(text)) { const { hideToolMarkup } = await import("@/lib/coderXmlToolCalls"); text = hideToolMarkup(text); if (!text.trim()) return; }
   if (await deliverSingle(bot, chatId, text, run, final)) return;
   const from = Math.max(0, Math.min(text.length, run.botSent || 0));
   const unsent = text.length - from;
