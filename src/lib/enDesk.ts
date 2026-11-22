@@ -632,6 +632,27 @@ export const EN_NEWS: DeskItem[] = [
 
 export const EN_EVENTS: DeskItem[] = [
   {
+    "slug": "iffi-goa-2026",
+    "title": "57th International Film Festival of India in Goa",
+    "date": "2026-11-20",
+    "endDate": "2026-11-28",
+    "dateLabel": "20–28 November 2026",
+    "category": "International film festival",
+    "dek": "The 57th International Film Festival of India runs in Goa from 20 to 28 November 2026, with screenings and events across several venues; the festival is currently underway.",
+    "body": [
+      "The official festival schedule confirms that the 57th International Film Festival of India takes place in Goa from 20 to 28 November 2026. The opening ceremony is scheduled for 20 November at 17:00 at the Dr. Shyama Prasad Mukherjee Indoor Stadium in Panjim; the closing ceremony is scheduled at the same venue on 28 November at 17:00.",
+      "On 21 November, the schedule listed the opening of the Indian Panorama section at INOX Panjim Audi 2 at 11:30. Screenings began at 12:15, with Becoming as the section's non-feature opening film and Dhurandhar as its feature opening film.",
+      "The Indian Panorama opening should not be confused with the opening of the festival as a whole: the main festival opening film on 20 November was Fatherland. The official schedule also says timings may change, so visitors should check the latest version before attending a specific screening.",
+      "Location: Goa, India. Dates: 20–28 November 2026. Local time: India Standard Time (IST, UTC+5:30). Status on 22 November: ongoing."
+    ],
+    "sources": [
+      {
+        "href": "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2026/nov/doc_10537_20261119_19391801.pdf",
+        "label": "Government of India / Press Information Bureau — official schedule for the 57th edition, 20–28 November 2026"
+      }
+    ]
+  },
+  {
     "slug": "cop31-antalya-2026",
     "title": "UN Climate Change Conference COP31 in Antalya",
     "date": "2026-11-09",
@@ -657,6 +678,14 @@ export const EN_EVENTS: DeskItem[] = [
       {
         "href": "https://unfccc.int/sites/default/files/resource/updated_resumed_hls_2026.pdf",
         "label": "UNFCCC — resumed high-level segment schedule"
+      },
+      {
+        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
+        "label": "Reuters — negotiations continued beyond the official end, 21 November 2026"
+      },
+      {
+        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
+        "label": "The Guardian — live coverage, latest update reviewed at 14:54 EST (19:54 UTC), 21 November 2026"
       }
     ]
   },
