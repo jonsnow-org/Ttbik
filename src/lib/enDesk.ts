@@ -16,6 +16,26 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "poland-airspace-kh101-preliminary-identification-2026",
+    "title": "Polish preliminary inquiry identifies Russian Kh-101 missile fragments at all three crash sites",
+    "date": "22 November 2026",
+    "contextDateLabel": "Incident: Friday 20 November 2026 at sites in eastern Poland; Lublin prosecutor's initial update on ongoing examinations: 21 November 2026; prosecutor update reported by Reuters: 22 November 2026, 17:18 UTC (18:18 Warsaw, 20:18 Istanbul); Sham AI publication: 22 November 2026, 23:06 Istanbul (20:06 UTC).",
+    "dek": "Lublin prosecutors said preliminary inspections found fragments of Russian Kh-101 cruise missiles at all three sites where objects fell after entering Polish airspace on 20 November. The investigation and specialist examinations continue, so the findings are not a final forensic or judicial determination.",
+    "body": [
+      "Three objects fell at sites in eastern Poland on Friday, 20 November 2026, after entering Polish airspace during a Russian overnight attack on Ukraine. In its official statement dated 21 November, the Lublin District Prosecutor's Office said the objects were still being examined and that their precise nature and origin could be established only after further inspections and specialist laboratory tests.",
+      "In an update reported on Sunday, 22 November, prosecutors said preliminary examinations had found fragments of Russian Kh-101 cruise missiles at all three sites: Nowy Lipowiec in Lublin Voivodeship, and Rudnik and Mołodycz in Podkarpackie Voivodeship. Reuters reported the prosecutor's statement that the missiles were manufactured in the fourth quarter of 2026 at a facility in Dubna, in the Moscow region.",
+      "The preliminary identification differs from the first public account, which described two missiles and a jet-powered drone. Prosecutors said all recovered fragments and forensic traces would undergo further expert examination and that additional findings would be announced when available. The weapon identification and manufacturing details should therefore be treated as preliminary investigative findings.",
+      "The available statements do not establish that the incident was a deliberate attack on NATO territory. Poland's prime minister previously described it as a possible provocation, but that was a political characterization, not a final finding from the forensic investigation. The fact that objects entered Poland should not be conflated with proof of intent to target it.",
+      "Incident date: 20 November 2026; initial prosecutor statement: 21 November; preliminary identification update: 22 November. Reuters published its report on 22 November at 17:18 UTC (18:18 Warsaw, 20:18 Istanbul). Sham AI publication date: 22 November 2026, 23:06 Istanbul."
+    ],
+    "sources": [
+      { "href": "https://www.gov.pl/web/po-lublin/aktualny-stan-czynnosci-procesowych-w-sprawie-ujawnienia-obiektow-latajacych-na-terenie-wojewodztwa-lubelskiego-i-podkarpackiego", "label": "Lublin District Prosecutor's Office — official initial investigation update, 21 November 2026" },
+      { "href": "https://www.reuters.com/world/three-russian-missiles-flew-into-poland-friday-prosecutors-say-2026-11-22/", "label": "Reuters — preliminary examination update, 22 November 2026, 17:18 UTC" },
+      { "href": "https://sharjah24.ae/en/Articles/2026/11/22/Poland-says-three-Russian-cruise-missiles-hit-on-Friday", "label": "Agence France-Presse via Sharjah24 — independent confirmation, 22 November 2026" },
+      { "href": "https://www.pb.pl/prokuratura-w-nowym-lipowcu-rudniku-i-molodyczu-znaleziono-szczatki-rosyjskich-pociskow-ch-101-krotka-1270808", "label": "Polish Press Agency via Puls Biznesu — report quoting prosecutors, 22 November 2026, 17:47 Warsaw time" }
+    ]
+  },
+  {
     "slug": "china-margin-financing-ratio-80-november-2026",
     "title": "Shanghai, Shenzhen and Beijing exchanges lower the minimum margin-financing ratio to 80%",
     "date": "22 November 2026",

@@ -434,3 +434,26 @@ test("22 November China margin-financing rule is bilingual, date-aligned and avo
   assert.match(arabic.paragraphs.join(" "), /لا يمثل توصية بالاقتراض أو الشراء/);
   assert.match(english.body.join(" "), /not an investment recommendation/i);
 });
+
+test("22 November Poland Kh-101 update preserves the preliminary status and event/publication dates", () => {
+  const slug = "poland-airspace-kh101-preliminary-identification-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Poland update is missing");
+  assert.ok(english, "English Poland update is missing");
+  assert.equal(arabic.dateIso, "2026-11-22");
+  assert.equal(english.date, "22 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["gov.pl", "reuters.com", "sharjah24.ae", "pb.pl"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /20 نوفمبر 2026/);
+  assert.match(english.body.join(" "), /20 November 2026/);
+  assert.match(arabic.paragraphs.join(" "), /النتائج الأولية/);
+  assert.match(english.body.join(" "), /preliminary investigative findings/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تمثل نتيجة نهائية/);
+  assert.match(english.body.join(" "), /not a final forensic or judicial determination/i);
+  assert.match(arabic.paragraphs.join(" "), /لم يثبت في هذه البيانات أن الحادث كان استهدافاً مقصوداً/);
+  assert.match(english.body.join(" "), /do not establish that the incident was a deliberate attack/i);
+});
