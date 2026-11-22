@@ -50,6 +50,7 @@ jobs:
           SUITE_MODELS: ${{ matrix.model }}
           NOVA2_STUDIO_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           NOVA_ENGINE: ${{ matrix.model == 'coder' && 'nova2' || '' }}
+          SUITE_TLDM: ${{ matrix.model == 'sham_v2' && '1' || '' }}
           SUITE_TASKS: ${{ inputs.tasks }}
           OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
           PROBE_OUT: ${{ runner.temp }}
