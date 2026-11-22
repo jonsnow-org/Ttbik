@@ -166,3 +166,12 @@ test("owner panel layout: T-LDM has no switch, pricing lives only inside the pan
   expect(pricing).toMatch(/model_update/);
   expect(panel).toMatch(/mesh_devices/);                              // the mesh switch is still there
 });
+
+test("the owner panel has a Telegram tab with a real switch for every new Telegram feature (rich messages, topics, guest mode) and the invite link", () => {
+  const fs = require("fs") as typeof import("fs");
+  const read = (f: string) => fs.readFileSync(require.resolve(`../../app/coder-app/_nova/${f}`), "utf8");
+  const parts = read("parts.tsx"), tg = read("OwnerTelegram.tsx");
+  expect(parts).toMatch(/\["telegram", "✈️"/);
+  for (const k of ['set("rich"', 'set("guest"', "has_topics_enabled", "allows_users_to_create_topics", "has_topic_sidebar"]) expect(tg).toContain(k);
+  expect(tg).toContain("invite");
+});

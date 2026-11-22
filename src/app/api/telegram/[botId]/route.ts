@@ -95,6 +95,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     const bot = new TelegramBot(botRow.token);
+    if (botRow.template === "NOVA_BOT") {
+      // owner's switches for the new Telegram features (panel, Telegram tab): read on every update (20 s cache) — rich messages, guest mode, topics
+      const { threadTransformer } = await import("@/lib/tgThread");
+      bot.api.config.use(threadTransformer as never);                       // an answer goes back into the topic it was asked in (a no-op while topic mode is off)
+      const { refreshTgFeatures } = await import("@/lib/tgFeatures");
+      await refreshTgFeatures().catch(() => null);
+    }
     if (OWNER_PANEL_TEMPLATES.has(botRow.template) || (botRow.template === "AD_BOT" && !!ownerId() && botRow.ownerId === ownerId())) bot.api.config.use(ownerPanelTransformer(botRow.id));
     const body = await req.json().catch(() => null);
     rawBody = body;
@@ -157,6 +164,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           return NextResponse.json({ status: "ok" });
         }
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
+      if (botRow.template === "NOVA_BOT") { const { rememberThread } = await import("@/lib/tgThread"); rememberThread(body); }
+      // Guest mode (Bot API 10.0, panel switch, off by default): someone mentioned the bot in a chat it is not in; one short, tool-less answer (src/lib/tgGuest.ts).
+      if (body.guest_message && botRow.template === "NOVA_BOT") {
+        const { handleGuestMessage } = await import("@/lib/tgGuest");
+        await handleGuestMessage(bot.api as never, body.guest_message, String((botRow as { username?: string }).username || "")).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
       // The Stop button on a live draft (Bot API sendMessageDraft, can_stop). It arrives as its own update, before any
