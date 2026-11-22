@@ -1,5 +1,8 @@
 // The free headless browser and all computer tools run only on the reserved private 16 GB computer Studio.
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
+/** Nova 2's own computer: the hub on the international Studio (open internet; the cn hub cannot reach GitHub, live 2026-11-22). NOVA2_COMPUTER_STUDIO_URL overrides it; "off" disables it. */
+export const DEFAULT_NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai";
+export const nova2ComputerUrl = (): string => (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim() || DEFAULT_NOVA2_COMPUTER_STUDIO_URL;
 export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { secretCached } from "@/lib/hostedSecrets";
@@ -18,7 +21,7 @@ export function browserStudioFor(modelId: string | undefined): string | null {
   if (!modelId || !COMPUTER_MODELS.has(modelId)) return null;
   if (modelId === "sham" || modelId === "sham_v2") return null;
   if (modelId === "nova2") {
-    const configured = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim();
+    const configured = nova2ComputerUrl();
     if (!configured || /^(off|none|0)$/i.test(configured) || !/^https:\/\//i.test(configured)) return null;
     const base = configured.replace(/\/+$/, "");
     const novaHub = (process.env.COMPUTER_STUDIO_URL || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
@@ -40,7 +43,7 @@ export function browserStudioFor(modelId: string | undefined): string | null {
 }
 
 export function studioToken(base?: string): string {
-  const n2 = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  const n2 = nova2ComputerUrl().replace(/\/+$/, "");
   if (base && n2 && base.replace(/\/+$/, "") === n2) {
     return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
   }

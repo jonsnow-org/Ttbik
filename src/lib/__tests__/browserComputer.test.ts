@@ -1,4 +1,4 @@
-import { browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply, studioToken } from "@/lib/browserComputer";
+import { DEFAULT_NOVA2_COMPUTER_STUDIO_URL, browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply, studioToken } from "@/lib/browserComputer";
 import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
 describe("the model's own browser", () => {
@@ -15,6 +15,8 @@ describe("the model's own browser", () => {
       expect(new Set(ids).size).toBe(ids.length);
       expect(browserStudioFor("coder")).toBe("https://computer-hub.example.test");
       expect(browserStudioFor("lfm25")).toBe("https://computer-hub.example.test");
+      expect(browserStudioFor("nova2")).toBe(DEFAULT_NOVA2_COMPUTER_STUDIO_URL);      // its own default hub (international), never Nova's
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "off";
       expect(browserStudioFor("nova2")).toBeNull();
       process.env.NOVA2_COMPUTER_STUDIO_URL = "https://computer-nova2.example.test";
       process.env.NOVA2_COMPUTER_STUDIO_TOKEN = "nova2-token";
