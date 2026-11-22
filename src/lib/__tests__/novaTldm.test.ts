@@ -132,14 +132,14 @@ describe("Nova T-LDM: independence", () => {
       const P = await import("@/lib/tldmPolicy");
       const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
       const { withEngineModel } = await import("@/lib/openCoderStudio");
-      P._setTldmPolicyForTests("nova2", true, ["rm -rf /"]);
+      P._setTldmPolicyForTests("coder", true, ["rm -rf /"]);                      // Nova is one model: its deny-list is sent under the legacy id too, and never to Sham Pro
       await withEngineModel("nova2", () => withNovaTldmModel("nova2", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
-      const n2 = payloads.find((p) => String(p.deny_list || "").includes("rm -rf /"));
-      expect(n2).toBeTruthy();
+      expect(payloads.find((p) => String(p.deny_list || "").includes("rm -rf /"))).toBeTruthy();
       payloads.length = 0;
       await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
-      expect(payloads.some((p) => String(p.deny_list || "").includes("rm -rf /"))).toBe(false);
-      P._setTldmPolicyForTests("nova2", false, []);
+      expect(payloads.some((p) => String(p.deny_list || "").includes("rm -rf /"))).toBe(true);
+      expect(P.tldmOwnerDenyList("sham_v2")).toEqual([]);
+      P._setTldmPolicyForTests("coder", false, []);
     } finally {
       global.fetch = real;
     }
@@ -199,30 +199,27 @@ describe("Nova T-LDM: the switch is per model", () => {
     expect(st.perModel.sham).toBeUndefined();
   });
 
-  it("the audience gate is per model: opening Nova 2 to everyone does not open Nova 1 or Sham to anyone else", async () => {
+  it("the audience gate is per model: opening Nova to everyone does not open Sham Pro (nova2 is only Nova's legacy alias)", async () => {
     const P = await import("@/lib/tldmPolicy");
-    // the default for every T-LDM model is owner-only; the owner may open one of them to all users
-    P._setTldmPolicyForTests("nova2", true, []);
+    P._setTldmPolicyForTests("coder", true, []);
+    expect(P.tldmAllowedFor("pro", "coder")).toBe(true);
     expect(P.tldmAllowedFor("pro", "nova2")).toBe(true);
-    expect(P.tldmAllowedFor("pro", "coder")).toBe(false);
     expect(P.tldmAllowedFor("pro", "sham_v2")).toBe(false);
-    // the owner is allowed on each model's own switch (the default state is "owner only", not "off")
-    expect(P.tldmAllowedFor("owner", "coder")).toBe(true);
-    expect(P.tldmAllowedFor("owner", "sham_v2")).toBe(true);
-    P._setTldmPolicyForTests("nova2", false, []);
+    expect(P.tldmAllowedFor("owner", "sham_v2")).toBe(true);                       // the owner is allowed on each model's own switch
+    P._setTldmPolicyForTests("coder", false, []);
     expect(P.tldmAllowedFor("pro", "nova2")).toBe(false);
   });
 
-  it("the env switch names each model separately", async () => {
+  it("the env switch: Nova's NOVA_TLDM_OPEN (old NOVA1_/NOVA2_ names still work), Sham Pro's SHAM_TLDM_OPEN, never shared", async () => {
     const P = await import("@/lib/tldmPolicy");
-    const keep = process.env.NOVA2_TLDM_OPEN;
+    const keep = [process.env.NOVA_TLDM_OPEN, process.env.NOVA2_TLDM_OPEN];
+    delete process.env.NOVA_TLDM_OPEN; delete process.env.NOVA1_TLDM_OPEN; delete process.env.SHAM_TLDM_OPEN;
     process.env.NOVA2_TLDM_OPEN = "1";
-    delete process.env.NOVA1_TLDM_OPEN;
-    delete process.env.SHAM_TLDM_OPEN;
     expect(P.envOpen("nova2")).toBe(true);
-    expect(P.envOpen("coder")).toBe(false);
+    expect(P.envOpen("coder")).toBe(true);
     expect(P.envOpen("sham_v2")).toBe(false);
-    if (keep === undefined) delete process.env.NOVA2_TLDM_OPEN; else process.env.NOVA2_TLDM_OPEN = keep;
+    if (keep[1] === undefined) delete process.env.NOVA2_TLDM_OPEN; else process.env.NOVA2_TLDM_OPEN = keep[1];
+    if (keep[0] !== undefined) process.env.NOVA_TLDM_OPEN = keep[0];
   });
 });
 

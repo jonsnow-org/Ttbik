@@ -86,3 +86,9 @@ What is still true and not measured:
 - The Studio pool is chosen by the engine model in scope (`withEngineModel`), so a Nova 1 call cannot reach Nova 2's
   Studio and vice versa (`studioIsolation.test.ts`).
 - Work folders, head files and head repos are separate per model, and the trainer refuses to guess (`app.py --selftest`).
+
+## ملحق 2026-11-22: ما تغيّر عن الأعلى
+- نوفا نموذج واحد (`coder`، جسمه Qwen3.6-35B)؛ `nova2` اسم قديم فقط.
+- **توجد الآن** نقطة `generate_tldm` في `modelscope-coder/app.py` و`nova_tldm_serve.py` (خادم قراءة ثانٍ على الملف نفسه عبر mmap + رأس كاتب)، مطفأة ما لم يُضبط `NOVA_TLDM=1`. الرأس يعود بـ`text` أو `tool_request` (يُنفَّذ في التطبيق بتأكيدات نوفا) أو `body` (يجيب جسم نوفا نفسه).
+- رأس نوفا على جسمها (35B، عرض الميزات 2048): heldout 0.861 وheldout2 0.738 (بوابة 0.6)، حكم Wilson «غير حاسم» لصغر المجموعتين. Writer فقط، لا حلقة متعددة الخطوات.
+- التفصيل والبنود المؤجلة: [`REVIEW_1198_RESPONSE.md`](./REVIEW_1198_RESPONSE.md).

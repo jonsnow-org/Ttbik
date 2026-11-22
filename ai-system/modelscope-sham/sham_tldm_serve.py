@@ -497,6 +497,26 @@ WEB_TOOL_GUIDE = (
 
 # Per-Studio-process pending approvals and tool requests, keyed by the T-LDM session.
 _PENDING: dict = {}
+_PENDING_TTL_S, _PENDING_MAX = 3600, 200
+import threading as _threading
+_PENDING_LOCK = _threading.Lock()
+
+
+def _pending_put(sid: str, kind: str, key: str, rec: dict) -> None:
+    """Several approvals / tool requests of ONE session can wait at the same time (review note #1198 §5.7): the table is keyed by session + kind + request, bounded, and expires."""
+    now = time.time()
+    with _PENDING_LOCK:
+        for k in [k for k, v in _PENDING.items() if now - v.get("at", 0) > _PENDING_TTL_S]:
+            _PENDING.pop(k, None)
+        while len(_PENDING) >= _PENDING_MAX:
+            _PENDING.pop(min(_PENDING, key=lambda k: _PENDING[k].get("at", 0)), None)
+        _PENDING[f"{sid}\x00{kind}\x00{key}"] = dict(rec, at=now, kind=kind)
+
+
+def _pending_take(sid: str, kind: str, key: str):
+    """The waiting record, removed (used exactly once), or None. Another session can never take it."""
+    with _PENDING_LOCK:
+        return _PENDING.pop(f"{sid}\x00{kind}\x00{key}", None)
 
 
 def _approval_question(cmd: str, reason: str) -> str:
@@ -653,32 +673,31 @@ def respond(
     deny = [] if owner else _parse_deny(deny_list)
     t0 = time.time()
     if resume_tool_name:
-        pending = _PENDING.get(sid)
-        if not pending or pending.get("kind") != "tool" or pending.get("id") != resume_tool_request_id or pending.get("tool") != resume_tool_name:
-            return error_json("انتهت صلاحية طلب أداة البحث أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
+        pending = _pending_take(sid, "tool", resume_tool_request_id)
+        if not pending or pending.get("tool") != resume_tool_name:
+            return error_json("انتهت صلاحية طلب أداة البحث أو استُكمل من قبل أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
         try:
             received_args = json.loads(resume_tool_arguments_json or "{}")
         except Exception:
             return error_json("تعذّر التحقق من معاملات أداة البحث.")
         if received_args != (pending.get("arguments") or {}):
+            _pending_put(sid, "tool", resume_tool_request_id, pending)          # a wrong answer must not destroy the real request
             return error_json("معاملات استكمال أداة البحث لا تطابق الطلب الأصلي.")
         hist = list(pending.get("hist") or [])
         message = pending.get("message") or message
         pending_tool = (resume_tool_name, received_args, str(resume_tool_result or ""), bool(resume_tool_error))
-        _PENDING.pop(sid, None)
     if confirm_cmd:
-        pending = _PENDING.get(sid)
-        if not pending or pending.get("kind", "confirm") != "confirm" or pending.get("cmd") != confirm_cmd:
-            return error_json("انتهت صلاحية طلب الموافقة أو لا يطابق الأمر المنتظر. لم يُنفَّذ الأمر، ولم يُستخدم صندوق معزول.")
+        pending = _pending_take(sid, "confirm", confirm_cmd)
+        if not pending:
+            return error_json("انتهت صلاحية طلب الموافقة أو لا يطابق الأمر المنتظر. لم يُنفَّذ الأمر، ولم يُستخدم صندوق معزول.")
         hist = list(pending.get("hist") or [])
         message = pending.get("message") or message
         pending_cmd = confirm_cmd
         approved = bool(confirm_ok)
-        _PENDING.pop(sid, None)
     try:
         reply, done_hist = drive(chat, sid, message, hist=hist, pending_cmd=pending_cmd, approved=approved, deny_list=deny, owner=owner, pending_tool=pending_tool)
     except ApprovalNeeded as exc:
-        _PENDING[sid] = {"kind": "confirm", "message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question}
+        _pending_put(sid, "confirm", exc.cmd, {"message": message, "hist": exc.hist, "cmd": exc.cmd, "question": exc.question})
         return json.dumps({
             "type": "confirm",
             "text": exc.question,
@@ -689,10 +708,7 @@ def respond(
         }, ensure_ascii=False)
     except ToolRequested as exc:
         request_id = secrets.token_hex(12)
-        _PENDING[sid] = {
-            "kind": "tool", "id": request_id, "message": message, "hist": exc.hist,
-            "tool": exc.name, "arguments": exc.arguments,
-        }
+        _pending_put(sid, "tool", request_id, {"id": request_id, "message": message, "hist": exc.hist, "tool": exc.name, "arguments": exc.arguments})
         return json.dumps({
             "type": "tool_request",
             "tool_name": exc.name,

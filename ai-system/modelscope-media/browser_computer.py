@@ -436,6 +436,16 @@ class _Worker(threading.Thread):
         channel = STATE.get("channel")
         if channel == "chromium":
             launch_options["channel"] = "chromium"
+        # Review note #1198 (P0): try Chromium's own sandbox first and remember the answer; a host that forbids it (or a root worker, which Chromium refuses) falls back to --no-sandbox
+        # exactly as before. BROWSER_CHROME_SANDBOX=off skips the attempt.
+        if os.environ.get("BROWSER_CHROME_SANDBOX", "auto").strip().lower() != "off" and STATE.get("sandbox") in (None, True):
+            try:
+                self.browser = p.chromium.launch(**{**launch_options, "chromium_sandbox": True, "args": ["--disable-gpu", "--disable-dev-shm-usage"]})
+                STATE["sandbox"] = True
+                return self.browser
+            except Exception as exc:
+                STATE["sandbox"] = False
+                _note("chromium sandbox unavailable here, using --no-sandbox: " + str(exc)[-300:])
         try:
             self.browser = p.chromium.launch(**launch_options)
         except Exception as exc:

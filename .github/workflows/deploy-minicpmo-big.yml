@@ -10,6 +10,7 @@ on:
       - ai-system/modelscope-media/computer_studio_app.py
       - ai-system/modelscope-media/computer_box.py
       - ai-system/modelscope-media/computer_banks.py
+      - ai-system/modelscope-media/egress_proxy.py
       - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/browser_computer.py
       - ai-system/modelscope-media/requirements-computer.txt
@@ -47,6 +48,7 @@ jobs:
             ai-system/modelscope-media/computer_studio_app.py \
             ai-system/modelscope-media/computer_box.py \
             ai-system/modelscope-media/computer_banks.py \
+            ai-system/modelscope-media/egress_proxy.py \
             ai-system/modelscope-media/desktop_computer.py \
             ai-system/modelscope-media/browser_computer.py \
             scripts/ops/modelscope_computer_smoke.py
@@ -146,6 +148,7 @@ jobs:
           cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
           cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
           cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
+          cp ai-system/modelscope-media/egress_proxy.py ms/egress_proxy.py
           cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
           cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
           cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt

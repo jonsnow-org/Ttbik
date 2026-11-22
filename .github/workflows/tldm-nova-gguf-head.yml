@@ -11,18 +11,24 @@ on:
       gguf_repo:
         description: "ModelScope repo with the GGUF"
         default: "unsloth/Qwen3.5-4B-GGUF"
+      gguf_url:
+        description: "direct URL of the GGUF (HuggingFace); when set it is used instead of the ModelScope repo above. Default = the file the live Nova Studio serves (review note #1198 §5.4)"
+        default: "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
       gguf_pattern:
         description: "file pattern"
         default: "*Qwen3.5-4B-Q4_K_M.gguf"
       tokenizer_repo:
-        description: "repo with the donor tokenizer.json (the GGUF's vocabulary)"
-        default: "Qwen/Qwen3.5-4B"
+        description: "repo with the donor tokenizer.json (the GGUF's vocabulary): the live Nova's"
+        default: "Qwen/Qwen3.6-35B-A3B"
       config:
-        description: "config under ai-system/tldm/configs/"
-        default: "nova1.yaml"
+        description: "config under ai-system/tldm/configs/ (Nova is one model now: nova2.yaml is its recipe)"
+        default: "nova2.yaml"
       seeds:
         description: "seeds"
         default: "3"
+      strict_wilson:
+        description: "publish only when the 95% Wilson verdict is PASS on both held-out sets (review note #1198 §5.3); off = the same 0.6-mean gate Sham Pro used"
+        default: "false"
       publish:
         description: "publish the best head to the international ModelScope site (Jonjithup/nova2-tldm-head), where Nova's Studio reads it (needs the gate: heldout and heldout2 mean >= 0.6)"
         default: "false"
@@ -51,14 +57,25 @@ jobs:
         env:
           GGUF_REPO: ${{ inputs.gguf_repo || 'unsloth/Qwen3.5-4B-GGUF' }}
           GGUF_PATTERN: ${{ inputs.gguf_pattern || '*Qwen3.5-4B-Q4_K_M.gguf' }}
-          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.5-4B' }}
+          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.6-35B-A3B' }}
+          GGUF_URL: ${{ inputs.gguf_url || 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf' }}
         run: |
+          mkdir -p /tmp/gguf
+          if [ -n "${GGUF_URL}" ]; then
+            curl -fL --retry 5 --retry-delay 5 --connect-timeout 30 -o "/tmp/gguf/model.gguf" "${GGUF_URL}"
+            python - <<'PY'
+          import os
+          from modelscope import snapshot_download as s
+          print("tokenizer", s(os.environ["TOK_REPO"], allow_patterns=["tokenizer.json"], local_dir="/tmp/tok"))
+          PY
+          else
           python - <<'PY'
           import os
           from modelscope import snapshot_download as s
           print("gguf", s(os.environ["GGUF_REPO"], allow_patterns=[os.environ["GGUF_PATTERN"]], local_dir="/tmp/gguf"))
           print("tokenizer", s(os.environ["TOK_REPO"], allow_patterns=["tokenizer.json"], local_dir="/tmp/tok"))
           PY
+          fi
           ls -la /tmp/gguf /tmp/tok
       - name: Serve the GGUF in embedding mode
         run: |
@@ -68,10 +85,13 @@ jobs:
           curl -s http://127.0.0.1:8099/health; echo
           curl -s -X POST http://127.0.0.1:8099/embeddings -H 'Content-Type: application/json' -d '{"input":[1,2,3]}' | python -c "import json,sys; r=json.load(sys.stdin); e=r[0]['embedding']; print('probe: tokens', len(e), 'width', len(e[0]) if isinstance(e[0], list) else 'POOLED')"
       - name: Train and score the head on the GGUF features
+        env:
+          GGUF_URL: ${{ inputs.gguf_url || 'https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf' }}
+          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.6-35B-A3B' }}
         run: |
           set -o pipefail
           cd ai-system/tldm
-          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova1.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -86,11 +106,17 @@ jobs:
         if: ${{ inputs.publish == 'true' }}
         env:
           MS_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          MODELSCOPE_ENDPOINT: https://www.modelscope.ai      # the token is the international account's: the SDK logs in on .cn unless told otherwise (run 45044580509 failed on exactly that)
+          MODELSCOPE_DOMAIN: www.modelscope.ai
+          STRICT_WILSON: ${{ inputs.strict_wilson }}
         run: |
           python - <<'PY'
           import json, os, sys
           r = json.load(open("/tmp/gguf_head.json"))
           ok = r["heldout"]["mean"] >= 0.6 and r["heldout2"]["mean"] >= 0.6
+          if os.environ.get("STRICT_WILSON") == "true":
+              ok = ok and r["heldout"]["verdict_mean"] == "pass" and r["heldout2"]["verdict_mean"] == "pass"
+              print("strict Wilson:", r["heldout"]["verdict_mean"], r["heldout2"]["verdict_mean"])
           print("heldout", r["heldout"]["mean"], "heldout2", r["heldout2"]["mean"], "gate 0.6 ->", "PASS" if ok else "BLOCKED")
           if not ok:
               sys.exit("head below the gate: not published")

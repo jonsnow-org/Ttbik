@@ -43,6 +43,7 @@ MAX_JOBS = 4                       # per-session ceiling
 MAX_DESKTOPS = max(1, int(os.environ.get("COMPUTER_MAX_DESKTOPS", "3")))   # graphical desktops at the same time, one per user+model session (the free-memory gate still applies to each)
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
+TASK_HEADROOM_MB = max(0, int(os.environ.get("COMPUTER_TASK_HEADROOM_MB", "512")))   # memory an already-admitted task is still expected to grow by (review note #1198 §4.5: MemAvailable alone over-admits)
 QUOTA_BYTES = max(1, min(64, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
@@ -589,6 +590,20 @@ def install_egress_rules() -> str:
         return STATE["egress"]
 
 
+def egress_secure() -> bool:
+    """True only when the private/metadata ranges are blocked for computer sessions (IPv4 and IPv6)."""
+    return str(STATE.get("egress", "")).startswith("private IPv4/IPv6 ranges")
+
+
+def egress_gate() -> dict | None:
+    """Review note #1198 (P0): with COMPUTER_EGRESS_STRICT=1 a command is REFUSED while the host's private network is reachable (fail closed). Off by default so an
+    existing computer on a host without iptables is not switched off by a deploy; the state is always visible in /status (`egress_secure`) so the owner flips it knowingly."""
+    install_egress_rules()
+    if os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not egress_secure():
+        return {"ok": False, "error": "egress_not_secure: the computer cannot block the host's private network here, so it refuses to run commands (COMPUTER_EGRESS_STRICT=1). " + str(STATE.get("egress", ""))}
+    return None
+
+
 # ---------------------------------------------------------------- memory watcher (rlimits cannot cap real memory)
 _WATCHED: dict[int, str] = {}                  # process-group id -> what it is, for the message
 _WATCH_THREAD: threading.Thread | None = None
@@ -719,8 +734,9 @@ def _capacity_reason_locked(session: str) -> str:
     available = _mem_available_mb()
     if available is None:
         return "the Studio could not report available memory; refusing a new task rather than risk the model process"
-    if available < MIN_AVAILABLE_MB:
-        return f"the Studio has only {available} MB available; a new task requires at least {MIN_AVAILABLE_MB} MB"
+    committed = TASK_HEADROOM_MB * active
+    if available - committed < MIN_AVAILABLE_MB:
+        return f"the Studio has {available} MB available but {active} running task(s) may still grow by {committed} MB; a new task requires {MIN_AVAILABLE_MB} MB left over"
     return ""
 
 
@@ -790,7 +806,9 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if over_quota(session):
         return {"ok": False, "error": f"your computer's disk is full ({QUOTA_BYTES // 1024 ** 3} GB); delete files first"}
     t2 = time.monotonic()
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     t3 = time.monotonic()
     try:
         workdir = safe_path(session, cwd)
@@ -1151,12 +1169,30 @@ def _jobs(session: str) -> dict:
     return _JOBS.setdefault(session, {})
 
 
+def _write_manifest(job: dict) -> None:
+    """Review note #1198 §4.6: a job's state lives on disk next to its log, so a Studio restart yields a truthful answer (finished with its exit code / interrupted) instead of "no such job"."""
+    try:
+        path = Path(job["log"]).with_suffix(".json")
+        path.write_text(json.dumps({"command": job.get("command", ""), "name": job.get("name", ""), "started": job.get("started"), "exit_code": job.get("exit_code"),
+                                    "ended": job.get("ended")}), encoding="utf-8")
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+
+
+def _read_manifest(session: str, job_id: str) -> dict | None:
+    try:
+        return json.loads((session_home(session) / ".jobs" / f"{job_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def _refresh(job: dict) -> None:
     if job.get("exit_code") is None:
         code = job["proc"].poll()
         if code is not None:
             job["exit_code"] = code
             job["ended"] = time.time()
+            _write_manifest(job)
 
 
 def job_start(session: str, command: str, name: str = "") -> dict:
@@ -1166,7 +1202,9 @@ def job_start(session: str, command: str, name: str = "") -> dict:
     home = ensure_home(session)
     if over_quota(session):
         return {"ok": False, "error": "your computer's disk is full; delete files first"}
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     with _LOCK:
         jobs = _jobs(session)
         for job in jobs.values():
@@ -1190,6 +1228,7 @@ def job_start(session: str, command: str, name: str = "") -> dict:
             handle.close()
         watch(proc.pid, "job")
         jobs[job_id] = {"proc": proc, "log": log, "command": command[:300], "name": str(name or "")[:60], "started": time.time(), "exit_code": None}
+        _write_manifest(jobs[job_id])
     return {"ok": True, "id": job_id, "message": "running in the background; read it with computer_job action=log"}
 
 
@@ -1210,6 +1249,14 @@ def job_log(session: str, job_id: str, tail: int = 60) -> dict:
     with _LOCK:
         job = _jobs(session).get(job_id)
         if not job:
+            saved = _read_manifest(session, job_id)
+            if saved:
+                code = saved.get("exit_code")
+                text = clip(_tail(session_home(session) / ".jobs" / f"{job_id}.log", tail))
+                if code is not None:
+                    return {"ok": True, "id": job_id, "running": False, "exit_code": code, "seconds": round((saved.get("ended") or saved.get("started") or 0) - (saved.get("started") or 0), 1), "output": text}
+                return {"ok": True, "id": job_id, "running": False, "exit_code": None, "interrupted": True, "output": text,
+                        "note": "the Studio restarted before this job finished: it was interrupted (its output so far is above); start it again if you still need it"}
             return {"ok": False, "error": "no such job (a restart of the Studio ends running jobs)"}
         _refresh(job)
     if job.get("done") is not None and job["exit_code"] is not None:
@@ -1238,6 +1285,16 @@ def job_list(session: str) -> dict:
         for job_id, job in _jobs(session).items():
             _refresh(job)
             rows.append({"id": job_id, "name": job["name"], "command": job["command"][:80], "running": job["exit_code"] is None, "exit_code": job["exit_code"]})
+        known = {r["id"] for r in rows}
+        try:                                                    # jobs of an earlier Studio run, from their manifests
+            for path in sorted((session_home(session) / ".jobs").glob("*.json"))[-20:]:
+                if path.stem in known:
+                    continue
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                rows.append({"id": path.stem, "name": saved.get("name", ""), "command": str(saved.get("command", ""))[:80], "running": False, "exit_code": saved.get("exit_code"),
+                             **({} if saved.get("exit_code") is not None else {"interrupted": True})})
+        except (OSError, ValueError):
+            pass
     return {"ok": True, "jobs": rows}
 
 
@@ -1496,7 +1553,7 @@ def status(session: str = "") -> dict:
         desktop_available = not active_desktops or desktop_owned
         can_accept = (desktop_available
                       and active_jobs + active_commands < MAX_GLOBAL_JOBS
-                      and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
+                      and available_mb is not None and available_mb - TASK_HEADROOM_MB * (active_jobs + active_commands) >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
              "limits": {"command_seconds": MAX_TIMEOUT, "foreground_seconds": FG_SECONDS, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
@@ -1504,7 +1561,9 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
+             "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1",
+             "storage_mode": "persistent" if str(ROOT).startswith("/mnt/workspace") else "ephemeral",
+             "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(session_size(home) / 1024 ** 2, 1) if home.exists() else 0
