@@ -37,12 +37,13 @@ if "BOX_STORE" not in os.environ or "BROWSER_STORE" not in os.environ:
 os.environ.setdefault("COMPUTER_MAX_GLOBAL_JOBS", "6")  # several users at once, each private; the free-memory gate protects the Studio
 os.environ.setdefault("COMPUTER_MIN_AVAILABLE_MB", "2048")
 os.environ.setdefault("COMPUTER_MEMORY_KILL_MB", "8192")
-os.environ.setdefault("COMPUTER_QUOTA_GB", "8")
+os.environ.setdefault("COMPUTER_QUOTA_GB", "32")
+os.environ.setdefault("COMPUTER_BANK_FREE_RESERVE_GB", "2")
 os.environ.setdefault("DESKTOP_MIN_AVAILABLE_MB", "3072")
 os.environ.setdefault("DESKTOP_WIDTH", "1344")
 os.environ.setdefault("DESKTOP_HEIGHT", "840")
 
-APP_REVISION = "computer-hub-16gb-2026-11-11-r9-mount-probe"
+APP_REVISION = "computer-hub-16gb-2026-11-22-r10-banks"
 LEGACY_MINICPM_CACHE_RELATIVE = "donor-bakeoff/minicpmo45-big/model_cache"
 BOOTSTRAP = {"phase":"queued","toolchain":"not checked","desktop":"not checked","error":""}
 _BOOTSTRAP_LOCK = threading.Lock()

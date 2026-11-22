@@ -13,6 +13,7 @@ import { prismaDb as shamDb } from "@/lib/shamDb";
 import type { ShamHost } from "@/lib/shamExec";
 import { boxActionFor, boxDo } from "@/lib/computerBox";
 import { browserDo, type BrowserArgs } from "@/lib/browserComputer";
+import { desktopDo, type DesktopArgs } from "@/lib/desktopComputer";
 
 /** Sham's own db handle stands for the platform's real one, so the platform creates its tables as usual; a test double passes through. */
 const d = (db: unknown): PlatformDb => (db === shamDb ? platformDb : (db as PlatformDb));
