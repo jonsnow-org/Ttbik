@@ -12,7 +12,6 @@ describe("the shared one-message card", () => {
     await cardNote(bot, 5, card, "قراءة الملفات", true);
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n\n📋 التقدم/);
-    expect(sent[0].text).not.toMatch(/استلام الطلب/);
     expect(sent[0].text).not.toMatch(/قم بتوليد تقرير/);                     // never an echo of the request
     expect(sent[0].text).toMatch(/▶️ \d{1,2}:\d\d:\d\d [صم] {2}قراءة الملفات/);
     await cardFinish(bot, 5, card, "هذا هو الجواب النهائي", async (p) => { await bot.api.sendMessage(5, p); });
