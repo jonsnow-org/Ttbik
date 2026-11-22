@@ -67,6 +67,7 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
     "@type": "NewsArticle",
     headline: item.title,
     datePublished: item.dateIso,
+    dateModified: item.updatedDateIso || item.dateIso,
     inLanguage: "ar",
     url,
     image,
@@ -102,6 +103,7 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
           </div>
           <div className="p-5">
             <p className="mb-1 text-xs font-bold text-indigo-700">تاريخ النشر · {item.dateLabel}</p>
+            {item.updatedDateLabel ? <p className="mb-1 text-xs font-bold text-slate-600">آخر تحديث · {item.updatedDateLabel}</p> : null}
             {item.contextDateLabel ? (
               <p className="mb-3 text-xs leading-6 text-slate-500">تاريخ الحدث أو الوثيقة · {item.contextDateLabel}</p>
             ) : null}
