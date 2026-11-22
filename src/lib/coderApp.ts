@@ -144,7 +144,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   // Older Mini App clients may omit model for task-control operations. Resolve the persisted
   // selection instead of silently treating such requests as Nova 1.
   const requestedModel = typeof body.model === "string" && body.model ? body.model : "";
-  const selectedModel = requestedModel || String((await loadState(chatId, db)).model || "coder");
+  // Nova 1 and the separate Nova 2 entry are gone (2026-11-22): an old client or chat that still says "nova2" means the one Nova.
+  const selectedModel = canonModelId(requestedModel || String((await loadState(chatId, db)).model || "coder")) || "coder";
   // Nova 2 has a separate connector namespace; never expose or mutate Nova's linked OAuth/MCP connections.
   if (selectedModel === "nova2" && ["connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "github_start", "github_token"].includes(op)) {
     throw new AppError(403, "Nova 2's connectors are independent; Nova's linked accounts cannot be used from Nova 2.");

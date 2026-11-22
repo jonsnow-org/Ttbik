@@ -83,77 +83,10 @@ describe("client binding table", () => {
 
 describe("server: per-model computer and sessions", () => {
 
-  test("Nova 2's connector page does not expose Nova's linked accounts or MCP list", async () => {
-    const db: any = pgDb();
-    const { bot } = fakeBot();
-    const deps = { db, bot, botRow } as any;
-    const view: any = await appOp({ chatId: OWNER, tier: "owner" }, "connectors", { model: "nova2" }, deps);
-    expect(view).toMatchObject({ connectors: [], mcp: [], presets: [], isolated: true });
-    await expect(appOp({ chatId: OWNER, tier: "owner" }, "mcp_add", { model: "nova2", url: "https://mcp.example.test" }, deps))
-      .rejects.toMatchObject({ status: 403 });
-  });
 
-  test("Nova 2 cannot write into Nova's linked GitHub account or shared secret vault", async () => {
-    const db: any = pgDb();
-    const { bot } = fakeBot();
-    const deps = { db, bot, botRow } as any;
-    for (const op of ["github_start", "github_token", "secret_list", "secret_delete", "secret_answer"]) {
-      const result: any = await appOp({ chatId: OWNER, tier: "owner" }, op, { model: "nova2", token: "ghp_" + "x".repeat(24), name: "token" }, deps).catch((e: any) => e);
-      expect(result).toMatchObject({ status: 403 });
-    }
-  });
 
-  test("Nova 2 cannot read or mutate Nova's schedule store", async () => {
-    const db: any = pgDb();
-    const { bot } = fakeBot();
-    const deps = { db, bot, botRow } as any;
-    for (const op of ["schedules", "schedule_create", "schedule_run"]) {
-      const result: any = await appOp({ chatId: OWNER, tier: "owner" }, op, { model: "nova2", title: "not shared", prompt: "test" }, deps).catch((e: any) => e);
-      expect(result).toMatchObject({ status: 403 });
-    }
-  });
 
-  test("Nova 2 repository picker uses its own GitHub credential, not Nova's", async () => {
-    const db: any = pgDb();
-    const { bot } = fakeBot();
-    const priorNovaToken = process.env.CODER_GITHUB_TOKEN;
-    const priorNova2Token = process.env.NOVA2_GITHUB_TOKEN;
-    process.env.CODER_GITHUB_TOKEN = "nova-private-token";
-    process.env.NOVA2_GITHUB_TOKEN = "nova2-private-token";
-    let authorization = "";
-    const fetchImpl = (async (_url: string, init?: any) => {
-      authorization = String(init?.headers?.Authorization || "");
-      return new Response(JSON.stringify([{ id: 1, full_name: "owner/nova2-only", name: "nova2-only", private: true }]), { status: 200 });
-    }) as any;
-    try {
-      const result: any = await appOp({ chatId: OWNER, tier: "owner" }, "repos", { model: "nova2" }, { db, bot, botRow, fetchImpl });
-      expect(authorization).toBe("Bearer nova2-private-token");
-      expect(result.repos.map((r: any) => r.full_name)).toContain("owner/nova2-only");
-    } finally {
-      if (priorNova2Token === undefined) delete process.env.NOVA2_GITHUB_TOKEN; else process.env.NOVA2_GITHUB_TOKEN = priorNova2Token;
-      if (priorNovaToken === undefined) delete process.env.CODER_GITHUB_TOKEN; else process.env.CODER_GITHUB_TOKEN = priorNovaToken;
-    }
-  });
 
-  test("desktop: Nova 2 uses its own desktop Studio; Shams keep their embedded desktops", async () => {
-    const db: any = pgDb(); const { bot } = fakeBot();
-    const { seen, fetchImpl } = recorder();
-    const d = { db, bot, botRow, fetchImpl } as any;
-    const previous = process.env.NOVA2_COMPUTER_STUDIO_URL;
-    try {
-      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://n2-computer.example.test";
-      for (const m of MODELS) await appOp({ chatId: OWNER, tier: "owner" }, "desktop", boundBody("desktop", m, { args: { action: "status" } }), d).catch(() => null);
-      const byModel = Object.fromEntries(seen.map((x) => [String(x.body.session).split(":")[1], x]));
-      expect(byModel.coder.host).toBe(HUB);
-      expect(byModel.nova2.host).toBe("https://n2-computer.example.test");
-      expect(byModel.nova2.host).not.toBe(byModel.coder.host);
-      expect(byModel.sham_v2.host).not.toBe(HUB);
-      expect(byModel.sham.host).not.toBe(HUB);
-      expect(new Set(seen.map((x) => x.body.session)).size).toBe(seen.length);
-    } finally {
-      if (previous === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = previous;
-    }
-  });
 
   test("Nova 2 keeps its own working state, threads and memory id (not Nova's)", () => {
     expect(modelSessionChatId(OWNER, "coder")).toBe(String(OWNER));
