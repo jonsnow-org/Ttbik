@@ -243,18 +243,7 @@ function useBilling(on: boolean) {
 }
 function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
   const { n, lang, owner } = c;
-  if (owner) {
-    return (
-      <>
-        <Card className="n-raise">
-          <div className="n-token">
-            <div className="n-body"><div className="n-lbl">{n.yourPlan}</div><div className="n-big"><span aria-hidden="true">∞</span>{n.unlimitedOwner}</div></div>
-            <span className="n-chip n-on">{n.ownerChip}</span>
-          </div>
-        </Card>
-      </>
-    );
-  }
+  if (owner) return null;      // the owner has no plan to show: the hero already carries the owner chip
   const u = b?.usage;
   return (
     <Card className="n-raise">
@@ -362,7 +351,6 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
           {me.features?.computer && <Row icon="💻" title={`${lang === "ar" ? "حاسوب" : "Computer of"} ${modelName(models, lang)}`} sub={c.bind.computer.home === "embedded"
             ? (lang === "ar" ? "الحاسوب الداخلي المدمج في هذا النموذج: سطح مكتب وملفات ومهام خاصة به" : "This model's own embedded computer: its desktop, files and jobs")
             : (lang === "ar" ? "حاسوب التطبيق المصغّر، بجلسة خاصة بهذا النموذج وحده" : "The Mini App computer, in a session private to this model")} onClick={() => go("computer")} />}
-          <Row icon="💬" title={fill(n.h_ask, { m: modelName(models, lang) })} sub={n.h_askSub} onClick={() => closeApp()} />
           {gh.linked
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
             : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}
