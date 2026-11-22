@@ -2,7 +2,7 @@
 
 const ar = {
   navHome: "الرئيسية", navChats: "المحادثات", navSchedules: "الجدولة", navSettings: "الإعدادات",
-  hi: "أهلاً، {name}!", welcome: "أهلاً بك", getPro: "احصل على Pro", ownerChip: "المالك", pressureTitle: "وضع الضغط", pressureDesc: "عند التفعيل: وسائط أصغر، حدود أقل للخطة المجانية، وطابور ظاهر مع الترتيب، وخوادم التحويل أولاً.", pressureOn: "مفعّل", pressureOff: "متوقف", unlimitedOwner: "غير محدود",
+  hi: "أهلاً، {name}!", welcome: "أهلاً بك", getPro: "احصل على Pro", ownerChip: "المالك", unlimitedOwner: "غير محدود",
   yourPlan: "خطتك", usedPct: "{p}٪ مستخدم هذا الأسبوع", topUp: "شحن", 
   runningNow: "يعمل الآن", stopAll: "إيقاف الكل", highlights: "أبرز الميزات",
   h_ask: "اسأل {m}", h_askSub: "ارجع إلى الدردشة واكتب طلبك", h_gh: "اربط GitHub", h_ghSub: "ليعمل {m} على مستودعاتك", h_repo: "المستودع", h_repoSub: "المستودع الافتراضي لمهامك",
@@ -27,7 +27,7 @@ const ar = {
 };
 const en: typeof ar = {
   navHome: "Home", navChats: "Chats", navSchedules: "Schedules", navSettings: "Settings",
-  hi: "Hi, {name}!", welcome: "Welcome", getPro: "Get Pro", ownerChip: "Owner", pressureTitle: "Pressure mode", pressureDesc: "When on: smaller media, lower free-plan limits, a visible queue with position, overflow Studios first.", pressureOn: "On", pressureOff: "Off", unlimitedOwner: "Unlimited",
+  hi: "Hi, {name}!", welcome: "Welcome", getPro: "Get Pro", ownerChip: "Owner", unlimitedOwner: "Unlimited",
   yourPlan: "Your plan", usedPct: "{p}% used this week", topUp: "Top up", 
   runningNow: "Running now", stopAll: "Stop all", highlights: "Highlights",
   h_ask: "Ask {m}", h_askSub: "Back to the chat to write your request", h_gh: "Connect GitHub", h_ghSub: "So {m} can work on your repos", h_repo: "Repository", h_repoSub: "Default repo for your tasks",

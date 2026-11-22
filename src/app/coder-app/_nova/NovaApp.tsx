@@ -241,34 +241,9 @@ function useBilling(on: boolean) {
   useEffect(() => { if (on) void load(); }, [on, load]);
   return { b, load };
 }
-/** The owner's load switch: media smaller, free-plan limits lower, visible queue, overflow Studios first (server: src/lib/pressureMode.ts). */
-function PressureCard({ n }: { n: NStr }) {
-  const [on, setOn] = useState<boolean | null>(null);
-  useEffect(() => { api<{ on: boolean }>("pressure", {}).then((d) => setOn(d.on)).catch(() => null); }, []);
-  return (
-    <Card>
-      <div className="n-token">
-        <div className="n-body"><div className="n-lbl">{n.pressureTitle}</div><div className="n-sub">{n.pressureDesc}</div></div>
-        <button type="button" className={`n-btn${on ? " n-on" : ""}`} aria-pressed={Boolean(on)} disabled={on === null} onClick={async () => { haptic("medium"); try { const d = await api<{ on: boolean }>("pressure", { on: !on }); setOn(d.on); haptic("success"); } catch { haptic("error"); } }}>{on ? n.pressureOn : n.pressureOff}</button>
-      </div>
-    </Card>
-  );
-}
 function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
   const { n, lang, owner } = c;
-  if (owner) {
-    return (
-      <>
-        <Card className="n-raise">
-          <div className="n-token">
-            <div className="n-body"><div className="n-lbl">{n.yourPlan}</div><div className="n-big"><span aria-hidden="true">∞</span>{n.unlimitedOwner}</div></div>
-            <span className="n-chip n-on">{n.ownerChip}</span>
-          </div>
-        </Card>
-        <PressureCard n={n} />
-      </>
-    );
-  }
+  if (owner) return null;      // the owner has no plan to show: the hero already carries the owner chip
   const u = b?.usage;
   return (
     <Card className="n-raise">
@@ -376,7 +351,6 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
           {me.features?.computer && <Row icon="💻" title={`${lang === "ar" ? "حاسوب" : "Computer of"} ${modelName(models, lang)}`} sub={c.bind.computer.home === "embedded"
             ? (lang === "ar" ? "الحاسوب الداخلي المدمج في هذا النموذج: سطح مكتب وملفات ومهام خاصة به" : "This model's own embedded computer: its desktop, files and jobs")
             : (lang === "ar" ? "حاسوب التطبيق المصغّر، بجلسة خاصة بهذا النموذج وحده" : "The Mini App computer, in a session private to this model")} onClick={() => go("computer")} />}
-          <Row icon="💬" title={fill(n.h_ask, { m: modelName(models, lang) })} sub={n.h_askSub} onClick={() => closeApp()} />
           {gh.linked
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
             : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}

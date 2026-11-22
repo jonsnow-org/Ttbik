@@ -8,7 +8,6 @@
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
 import { publicBase } from "@/lib/siteUrl";
-import { refreshPressure } from "@/lib/pressureMode";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -410,7 +409,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   });
 }
 async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb, onShamRoute?: (model: "sham" | "sham_v2") => void): Promise<boolean> {
-  await refreshPressure(db).catch(() => false);                   // the owner's load switch (cached 20 s)
   // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
   if (update.message?.successful_payment) {
     const { handleCoderPaymentMessage } = await import("@/lib/coderStars");

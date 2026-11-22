@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { tldmOwnerDenyList } from "@/lib/tldmPolicy";
 import type { ShamTool } from "@/lib/shamTypes";
-import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { stripThinkTags } from "@/lib/thinkTags";
 import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
