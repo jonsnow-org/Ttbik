@@ -670,22 +670,17 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
 
 
 NOVA_DONOR_REPO = {
-    "nova1": "Qwen/Qwen3.5-4B",                  # Nova 1's donor body: READ only (an HF copy on disk); the live Studio is untouched
-    "nova2": "Qwen/Qwen3.6-35B-A3B",             # Nova 2's donor body: READ only; its own head and repo, never Nova 1's
+    "nova2": "Qwen/Qwen3.6-35B-A3B",             # THE Nova's donor body (the only Nova since 2026-11-22; the 4B was deleted): READ only; its own head and repo
 }
-NOVA_HEAD_REPO = {"nova1": "nova1-tldm-head", "nova2": "nova2-tldm-head"}     # heads + results per model; never mixed, never Sham's
-NOVA_CONFIG = {"nova1": "configs/nova1.yaml", "nova2": "configs/nova2.yaml"}
+NOVA_HEAD_REPO = {"nova2": "nova2-tldm-head"}     # head + results of the Nova; never mixed with Sham's
+NOVA_CONFIG = {"nova2": "configs/nova2.yaml"}
 
 
 def nova_mode(name: str) -> str:
-    """job=tldm with name nova1*/nova2* runs that Nova's T-LDM job instead of Sham's writer cycles. "" when it is not a Nova job.
-    The prefix decides WHICH Nova: `nova1` and `nova2` are separate heads, separate repos, separate work folders."""
+    """job=tldm with a name starting `nova2` runs the Nova's T-LDM job instead of Sham's writer cycles. "" when it is not a Nova job.
+    (`nova2` is only the historical name of the one Nova; there is no Nova 1 any more, and `nova1*` is refused.)"""
     n = str(name or "").strip().lower()
-    if n.startswith("nova1"):
-        return "nova1"
-    if n.startswith("nova2"):
-        return "nova2"
-    return ""
+    return "nova2" if n.startswith("nova2") else ""
 
 
 def nova_flatten(res: dict) -> dict:
@@ -723,16 +718,15 @@ def nova_run_key(which: str) -> str:
     return h.hexdigest()[:16]
 
 
-def run_nova(hours: float = 10.0, name: str = "nova1", runner=None, fetch=None, publish=None, **_ignored) -> dict:
+def run_nova(hours: float = 10.0, name: str = "nova2", runner=None, fetch=None, publish=None, **_ignored) -> dict:
     """One Nova's T-LDM cycle: freeze a COPY of that Nova's donor body, train only its head (Compressor + Thinker + Writer),
     measure the frozen held-out sets and the full-task benchmark on THIS body, publish to that Nova's own head repo.
 
-    Independence (owner's rule): Nova 1 and Nova 2 each have their own config, work folder, head file, run key and head repo;
-    nothing here reads or writes the other Nova's files, Sham 2's files, or any live Studio. `which` comes from the job name
-    (`nova1*` / `nova2*`), so a Nova 1 cycle can never train or publish Nova 2's head."""
+    Independence (owner's rule): the Nova has its own config, work folder, head file, run key and head repo;
+    nothing here reads or writes Sham 2's files or any live Studio. `which` comes from the job name (`nova2*`)."""
     which = nova_mode(name)
     if not which:
-        raise RuntimeError(f"run_nova: name {name!r} is not nova1*/nova2* (refusing to guess which Nova)")
+        raise RuntimeError(f"run_nova: name {name!r} is not nova2* (refusing to guess which model)")
     work = tldm_work() / which
     work.mkdir(parents=True, exist_ok=True)
     report, heads = work / f"{which}_results.json", work / f"{which}_heads.pt"
@@ -917,7 +911,7 @@ def _resolve_run_fn(cfg: dict):
         return run_motion
     if cfg["job"] == "tldm":
         if nova_mode(cfg["name"]):
-            return run_nova                                    # nova1* / nova2*: that Nova's own head, repo and work folder
+            return run_nova                                    # nova2*: the Nova's own head, repo and work folder
         return run_sham2 if sham2_mode(cfg["name"]) else run_tldm
     sys.path.insert(0, str(SHAM))
     import sham_live
@@ -1634,9 +1628,8 @@ if __name__ == "__main__":
             return 0
         r4 = run_sham2(runner=fake_sham2_floor, fetch=fake_fetch, publish=lambda d, n, m: (sent_floor.append(n), "modelscope:novaai2026/" + n)[1])
         assert r4["published"] is False and r4["heldout"] == 0.083 and sent_floor == [] and not (_w2 / ".published").exists(), (r4, sent_floor)
-        # ---- Nova 1 / Nova 2 on T-LDM: Sham 2's technique, but each with its OWN config, work folder, head file and head repo ----
-        assert nova_mode("nova1-live") == "nova1" and nova_mode("Nova2-ms1") == "nova2" and nova_mode("sham2") == "" and nova_mode("nova3") == ""
-        assert nova_mode("nova12") == "nova1", "nova12 is a Nova 1 job, not Nova 2"
+        # ---- the Nova on T-LDM (the only Nova): its OWN config, work folder, head file and head repo ----
+        assert nova_mode("nova2-ms1") == "nova2" and nova_mode("Nova2-ms1") == "nova2" and nova_mode("sham2") == "" and nova_mode("nova3") == "" and nova_mode("nova1-live") == ""
         nova_fetch, nova_cmds, nova_sent = [], [], []
 
         def fake_nova_fetch(repo, dest):
@@ -1649,7 +1642,7 @@ if __name__ == "__main__":
             nova_cmds.append(cmd)
             assert "--cached" in cmd and "--loop" in cmd and "--identity" in cmd
             assert cmd[cmd.index("--terminal") + 1] == "sandbox", "Nova must not use Sham's embedded computer"
-            assert cmd[cmd.index("--config") + 1].endswith(("nova1.yaml", "nova2.yaml"))
+            assert cmd[cmd.index("--config") + 1].endswith("nova2.yaml")
             heads.write_bytes(b"h")
             report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65},
                                           "donor_weights_unchanged": True,
@@ -1660,26 +1653,19 @@ if __name__ == "__main__":
         def pub(d, n, m):
             nova_sent.append((n, sorted(p.name for p in Path(d).iterdir())))
             return "modelscope:novaai2026/" + n
-        n1 = run_nova(name="nova1-x", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
         n2 = run_nova(name="nova2-x", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
-        # each Nova fetched ITS OWN donor, trained with ITS OWN config, and published to ITS OWN head repo
-        assert nova_fetch == ["Qwen/Qwen3.5-4B", "Qwen/Qwen3.6-35B-A3B"], nova_fetch
-        assert nova_cmds[0][nova_cmds[0].index("--config") + 1].endswith("nova1.yaml")
-        assert nova_cmds[1][nova_cmds[1].index("--config") + 1].endswith("nova2.yaml")
-        assert [x[0] for x in nova_sent] == ["nova1-tldm-head", "nova2-tldm-head"], nova_sent
-        assert nova_sent[0][1] == ["nova1_heads.pt", "nova1_results.json"] and nova_sent[1][1] == ["nova2_heads.pt", "nova2_results.json"]
-        assert n1["model"] == "nova1" and n2["model"] == "nova2" and n1["published"] and n2["published"]
-        # separate work folders: neither cycle can see the other's files
-        assert (tldm_work() / "nova1" / "nova1_heads.pt").is_file() and (tldm_work() / "nova2" / "nova2_heads.pt").is_file()
-        assert not (tldm_work() / "nova1" / "nova2_heads.pt").exists() and not (tldm_work() / "nova2" / "nova1_heads.pt").exists()
-        # a Nova cycle with an ambiguous name is refused (never guesses which head to train)
-        try:
-            run_nova(name="nova", runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
-            raise AssertionError("run_nova must refuse a name that is neither nova1* nor nova2*")
-        except RuntimeError as exc:
-            assert "refusing to guess" in str(exc), exc
-        # the recipe key differs per Nova (a change to one config never invalidates the other)
-        assert nova_run_key("nova1") != nova_run_key("nova2")
+        assert nova_fetch == ["Qwen/Qwen3.6-35B-A3B"], nova_fetch                      # no other body is ever fetched
+        assert [x[0] for x in nova_sent] == ["nova2-tldm-head"], nova_sent
+        assert nova_sent[0][1] == ["nova2_heads.pt", "nova2_results.json"]
+        assert n2["model"] == "nova2" and n2["published"]
+        assert (tldm_work() / "nova2" / "nova2_heads.pt").is_file()
+        # a name that is not nova2* (the deleted Nova 1 included) is refused
+        for bad in ("nova", "nova1-x"):
+            try:
+                run_nova(name=bad, runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
+                raise AssertionError("run_nova must refuse a name that is not nova2*")
+            except RuntimeError as exc:
+                assert "refusing to guess" in str(exc), exc
         os.environ.pop("TLDM_WORK", None)
         # ---- supervision: backoff, stuck kill (whole process group), kill request, clean end, resume ----
         assert [backoff_seconds(n) for n in (1, 2, 3, 9)] == [60, 120, 240, 1800]

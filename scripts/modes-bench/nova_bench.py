@@ -1,4 +1,4 @@
-"""Nova (Qwen3.5-4B on a coder Studio): latency / speed / tool-call quality for the SAME three prompts, with the bot's real system text and tool list.
+"""Nova (Qwen3.6-35B-A3B on its coder Studio): latency / speed / tool-call quality for the SAME three prompts, with the bot's real system text and tool list.
 Usage: T=<token> python nova_bench.py <studio number>"""
 import json, sys, time
 from common import call, nova_base

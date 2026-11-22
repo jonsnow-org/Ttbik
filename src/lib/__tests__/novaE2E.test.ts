@@ -1,4 +1,4 @@
-// OPT-IN end-to-end run of Nova's real agent loop against a REAL local Nova Studio (llama.cpp + Qwen3.5-4B GGUF on CPU, ai-system/modelscope-coder/app.py).
+// OPT-IN end-to-end run of Nova's real agent loop against a REAL local Nova Studio (llama.cpp + the Nova GGUF on CPU, ai-system/modelscope-coder/app.py).
 // Not part of the normal suite: set NOVA_E2E=1 NOVA_E2E_URL=http://127.0.0.1:7870 (optionally NOVA_E2E_TASK=coding|research|long). No mocks of the model, the tools or the network.
 import { drive, loadState, saveState } from "@/lib/coderSections";
 import { taskEvents, listTasks } from "@/lib/coderTasks";

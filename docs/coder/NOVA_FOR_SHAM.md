@@ -2,7 +2,7 @@
 
 Facts this rests on (read from the code and the logs, not assumed):
 - Sham is a from-scratch multimodal model trained on free CPU/GPU (Kaggle notebooks, GitHub CPU trainer, Lightning). Its merge gate scores text / chat / media by loss (last run: text 4.49, chat 2.56, media 7.70). It has no tool calling; its Studio exposes `chat_auto`, `generate_any`, `think` (the model itself decides reply / search / picture / sound / clip).
-- Nova is Qwen3.5-4B on llama.cpp (Studio, 2 vCPU). It runs agents (`delegate`), tools, long tasks, and it can be asked for a strong model (owner only).
+- Nova is Qwen3.6-35B-A3B on llama.cpp (the international Studio; the 4B is deleted). It runs agents (`delegate`), tools, long tasks, and it can be asked for a strong model (owner only).
 - Loss numbers say "is it learning"; nothing yet says "is it getting more useful". That is what Nova can supply.
 
 ## Ideas, in the order I would build them

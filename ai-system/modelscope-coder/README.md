@@ -4,7 +4,7 @@ The commercial daily-use coding model, **separate from Sham** (Sham's Studio, no
 
 | | |
 |---|---|
-| Model | `unsloth/Qwen3.5-4B-GGUF` → `Qwen3.5-4B-Q4_K_M.gguf` (2.74 GB, Apache-2.0); fallback `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` → `qwen2.5-coder-7b-instruct-q4_k_m.gguf` (4.68 GB, Apache-2.0). Both verified on modelscope.cn 2026-10-21. |
+| Model | `unsloth/Qwen3.6-35B-A3B-GGUF` → `Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf` (13.2 GB, Apache-2.0), context 16,384 on the 16 GB tier. The 4B and the 7B fallback are deleted (owner 2026-11-22): no smaller Nova, no fallback model. |
 | Runtime | llama.cpp `llama-server`, release **b11757** (CPU, ubuntu-x64; needs glibc ≥ 2.34 → fine on the Studio's Ubuntu 22.04), sha256 pinned in `app.py` and in the workflow. |
 | Context | `-c 32768` (env `CODER_CTX`, never below 8192). No answer-length cap (`max_tokens 0`, `-n -1`). |
 | API | Gradio call protocol, same as Sham's Studio: `chat`, `job_result`, `cancel`, `status` (see the docstring of `app.py`). |

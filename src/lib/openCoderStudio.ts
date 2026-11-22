@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-// The open coding model (Qwen3.5-4B GGUF on llama.cpp) on its OWN ModelScope Studio (ai-system/modelscope-coder/app.py) — a separate
+// The open coding model (Qwen3.6-35B-A3B GGUF on llama.cpp) on its OWN ModelScope Studio (ai-system/modelscope-coder/app.py) — a separate
 // service from Sham's Studio (src/lib/shamStudio.ts). Same Gradio call protocol:
 //   POST {base}/gradio_api/call/v2/<prefix>chat -> {event_id};  GET {base}/gradio_api/call/<prefix>chat/<event_id> -> `data: ["<json>"]`
 // Long answers: `chat` waits up to wait_s on the Studio, then answers {type:"pending", job}; the bot polls `job_result` with an offset
@@ -53,7 +53,7 @@ export function withEngineModel<T>(model: string | undefined, fn: () => T): T {
   return engineModel.run(isEngineModel(model) ? model : "coder", fn);
 }
 export const currentEngineModel = (): EngineModel => (engineModel.getStore() as EngineModel | undefined) || "coder";
-// ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, beside Nova (Qwen3.5-4B), which is untouched ──────────────────
+// ── Nova 2 (owner 2026-11-17): its own model in the picker, Qwen3.6-35B-A3B on the owner's INTERNATIONAL Studio, (the 4B Nova no longer exists) ──────────────────
 // It has its own Studio pool and a default address; AI_NOVA2_URLS / NOVA2_STUDIO_URLS replace it (more Studios later). The Studio is private, so the only key it needs
 // is the international account's token (AI_NOVA2_TOKEN: a stored secret of the Athar bot, or the env NOVA2_STUDIO_TOKEN). Nova 2 keeps its own thread and memory under
 // its private model chat key; it does not continue or overwrite Nova 1's thread. The Nova 2 Studios come last in the job-index space, so no job of Nova ever changes its number.
@@ -82,7 +82,7 @@ export async function nova2WarmStartReady(): Promise<boolean> {
 function novaStudioUrls(): string[] {
   return oldNovaStudioUrls();
 }
-/** Owner 2026-11-22: Nova 1 (Qwen3.5-4B) is removed for good. The product named Nova (model id "coder", with all its plumbing: GitHub, connectors, schedules, secrets, media,
+/** Owner 2026-11-22: Nova 1 (the 4B model) is deleted for good. The product named Nova (model id "coder", with all its plumbing: GitHub, connectors, schedules, secrets, media,
  *  its computer hub) runs on Nova 2's Studio pool (Qwen3.6-35B-A3B on the international Studio). The old cn Studios are never used for inference any more. */
 export const novaRunsOnNova2 = (): boolean => nova2Urls().length > 0;
 /** True when this engine model runs on the 35B Studio (Nova 2 itself, or the one Nova since Nova 1 was removed): slow reader, so small tool list, one serial child, long job stall. */

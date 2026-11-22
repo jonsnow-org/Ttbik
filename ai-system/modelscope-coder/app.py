@@ -3,9 +3,8 @@ Open coder on a ModelScope Studio (free CPU box) — the commercial daily coding
 
 What it serves
   * a pinned llama.cpp `llama-server` (release b11757, CPU build) running an open coding model in GGUF:
-      primary   unsloth/Qwen3.5-4B-GGUF          Qwen3.5-4B-Q4_K_M.gguf           (Apache-2.0)
-      fallback  Qwen/Qwen2.5-Coder-7B-Instruct-GGUF qwen2.5-coder-7b-instruct-q4_k_m.gguf (Apache-2.0)
-    both fetched from modelscope.cn with modelscope.snapshot_download (this Studio cannot reach github.com or huggingface.co)
+      the ONE Nova model  unsloth/Qwen3.6-35B-A3B-GGUF   Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf   (Apache-2.0), context 16,384 on the 16 GB tier
+    No smaller Nova and no fallback model exist (owner 2026-11-22: the 4B is deleted for good; a Studio serves this model or reports an error).
   * behind Gradio's own call protocol (the one the Studio proxy speaks), the same way the bot already talks to Sham:
       POST /gradio_api/call/v2/chat        {messages, tools, max_tokens, think, temperature, wait_s} -> {event_id}
       GET  /gradio_api/call/chat/<id>      data: ["<json>"]   (done | pending + job id | loading | error)
@@ -14,13 +13,13 @@ What it serves
       /gradio_api/call/v2/status           {}                 phase, model, context, queue length
   * one shared queue: one generation at a time on the CPU, every other request waits its turn (never refused). First come first served, except that a
     Pro / owner request (`priority` 1) goes ahead of free requests that arrived up to CODER_PRIORITY_BOOST_S (300 s) before it; nobody starves.
-  * NO answer-length cap: max_tokens 0 (default) = generate until the model stops or the context (-c, default 65536) is full.
+  * NO answer-length cap: max_tokens 0 (default) = generate until the model stops or the context (-c, default 16384) is full.
   * native tool calling (OpenAI `tools`, `--jinja` chat template): the bot's agent harness (src/lib/coderAgent.ts) runs the tools.
 
 Settings (Studio settings -> environment variables; all optional):
-  CODER_MODEL_REPO / CODER_MODEL_FILE   override the GGUF (default: the primary above, then the fallback)
+  CODER_MODEL_REPO / CODER_MODEL_FILE   override the GGUF (default: the Nova model above)
   CODER_MODEL_PATH a GGUF already on disk (skips the download)
-  CODER_CTX        context tokens for llama-server -c        (default 65536; never below 8192; 8 GB box: do not go above 65536)
+  CODER_CTX        context tokens for llama-server -c        (default 16384, the measured limit of the 16 GB tier with this model; never below 8192)
   CODER_THREADS    CPU threads                               (default: all cores)
   CODER_API_PREFIX prefix for the api names ("coder_" in the combined variant, combined_app.py)
   MODELSCOPE_API_TOKEN  only if a private model repo is used (the defaults are public)
@@ -54,8 +53,7 @@ LLAMA_TGZ = f"llama-{LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
 LLAMA_SHA256 = "87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e"
 LLAMA_URL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_BUILD}/{LLAMA_TGZ}"   # only tried when the tarball is not in the repo
 MODELS = [
-    ("unsloth/Qwen3.5-4B-GGUF", "Qwen3.5-4B-Q4_K_M.gguf"),
-    ("Qwen/Qwen2.5-Coder-7B-Instruct-GGUF", "qwen2.5-coder-7b-instruct-q4_k_m.gguf"),
+    ("unsloth/Qwen3.6-35B-A3B-GGUF", "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"),          # the one Nova; no smaller model and no fallback (the 4B was deleted, owner 2026-11-22)
 ]
 if os.environ.get("CODER_MODEL_REPO") and os.environ.get("CODER_MODEL_FILE"):
     MODELS.insert(0, (os.environ["CODER_MODEL_REPO"], os.environ["CODER_MODEL_FILE"]))
@@ -66,9 +64,8 @@ if _OVR.is_file():
         MODELS[:] = [(_parts[0], _parts[1])]
         if len(_parts) >= 3 and _parts[2].isdigit():
             os.environ.setdefault("CODER_CTX", _parts[2])
-# 65,536 since 2026-10-24: measured on this exact model + llama.cpp build with 2 cores (.github/workflows/nova-ctx-probe.yml), peak memory is
-# 5.07 GB at 32k, 6.07 GB at 64k, 7.06 GB at 96k, 8.06 GB at 128k. The Studio has 8 GB in total, so 64k is the highest safe value.
-CTX = max(8192, int(os.environ.get("CODER_CTX", "65536")))
+# 16,384: measured peak memory of the 35B IQ3_XXS file on the 16 GB tier is 13.8 GB at this context (ai-system/modelscope-coder/MODEL_OVERRIDES); 32k risks OOM.
+CTX = max(8192, int(os.environ.get("CODER_CTX", "16384")))
 THREADS = int(os.environ.get("CODER_THREADS", "0")) or (os.cpu_count() or 2)
 PREFIX = os.environ.get("CODER_API_PREFIX", "")
 LLAMA_PORT = int(os.environ.get("CODER_LLAMA_PORT", "8081"))
@@ -233,7 +230,7 @@ def _load_mode(model: Path) -> str:
 # Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
 # A Studio is a vision Studio when the deploy put a `vision.on` file next to app.py (deploy-modelscope-coder.yml, from ai-system/modelscope-coder/VISION_STUDIOS) or CODER_VISION=on.
 # If the server does not come up with it, or it dies while it is on (memory), the next start goes without it (_VIS["bad"]) so a picture never takes a Studio down for good.
-MMPROJ_REPO, MMPROJ_FILE = "unsloth/Qwen3.5-4B-GGUF", "mmproj-F16.gguf"
+MMPROJ_REPO, MMPROJ_FILE = "unsloth/Qwen3.6-35B-A3B-GGUF", "mmproj-F16.gguf"
 _VIS = {"on": False, "bad": False, "path": ""}
 
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Sham teachers that WE host on the notebook (fast, and the live Nova Studios are not touched): Qwen3.6-35B-A3B and Nova's Qwen3.5-4B on the GPU (ports 8080 / 8081),
+# Sham teachers that WE host on the notebook (fast, and the live Nova Studios are not touched): Qwen3.6-35B-A3B on the GPU (port 8080); the 4B is deleted for good (owner 2026-11-22),
 # Generates records with the distillation generator (agreement between the teachers for facts, the lab's verifiers where a prompt has one),
 # then appends the accepted ones to the private Kaggle pool every Sham trainer reads. Run by the notebook runner (notebook-task.yml, script distill_local.sh).
-# Needs the notebook GPU environment for the two GPU teachers (without a GPU the 35B and the 4B are skipped). Status: written 2026-11-17, not run yet.
+# Needs the notebook GPU environment for the GPU teacher (without a GPU the 35B is skipped). Status: written 2026-11-17, not run yet.
 set -u
 W=${W:-/mnt/workspace}; LL=$W/llama.cpp; M=$W/m; mkdir -p "$M"
 [ -x "$LL/build/bin/llama-server" ] || { echo "run gpu_node.sh setup first (llama.cpp with CUDA)"; exit 1; }
@@ -24,7 +24,6 @@ TEACHERS=""
 if nvidia-smi >/dev/null 2>&1; then
   F=$(ls "$M"/*/*IQ3_XXS*.gguf "$M"/*IQ3_XXS*.gguf 2>/dev/null | head -1); [ -n "$F" ] || F=$(fetch unsloth/Qwen3.6-35B-A3B-GGUF UD-IQ3_XXS)
   up qwen36 8080 99 "$F" 4096 && TEACHERS="$TEACHERS,qwen36-35b-a3b"
-  F=$(fetch unsloth/Qwen3.5-4B-GGUF Q4_K_M); up nova4b 8081 99 "$F" 4096 && TEACHERS="$TEACHERS,nova-qwen35-4b"
 fi
 TEACHERS=${TEACHERS#,}
 [ -n "$TEACHERS" ] || { echo "no teacher came up"; exit 1; }
