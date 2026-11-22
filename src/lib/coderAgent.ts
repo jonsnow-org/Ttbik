@@ -4,7 +4,7 @@
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
-import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
+import { NOVA_SKILL_NAMES, novaSkillText } from "@/lib/skillsNova";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { agentsAllowedFor, coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
@@ -166,7 +166,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("plan", "Write or UPDATE the TODO list, only for work that changes or builds something in 3+ steps (never for reading, explaining or answering). At most 5 items of at most 6 words; update only when the plan changes.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("knowledge_search", "Search the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions; each passage with its source). Use it BEFORE searching the web for a fact or an explanation, and cite the source.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
-  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: NOVA_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -702,7 +702,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       const out = await bankSection(String(a.query || ""), Number(a.count) || 4);
       return out ? `From the shared knowledge bank (cite the source):\n${out}` : "the shared knowledge bank has nothing on this (or is not reachable): use web_search / deep_research";
     }
-    if (name === "skill") return agentSkillText(String(a.name || ""));
+    if (name === "skill") return novaSkillText(String(a.name || ""));
     if (name === "plan") {
       const text = renderPlan(a.items);
       if (!text) return "error: items must be a non-empty list of { step, status }";
