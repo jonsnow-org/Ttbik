@@ -28,6 +28,13 @@ export function isActionGoal(goal: string): boolean {
   return ACTION_GOAL.test(String(goal || ""));
 }
 
+/** A greeting or a question about the model itself: never an action request, whatever the owner asked earlier in the chat. */
+const CHITCHAT = /^[\s\p{P}]*(?:(?:مرحبا|مرحباً|هلا|اهلا|أهلا|أهلاً|السلام عليكم|صباح الخير|مساء الخير|hi|hello|hey)(?!\p{L})[\s\S]{0,40}|[\s\S]{0,30}(?:كيف حالك|كيفك|شلونك|من انت|من أنت|ما اسمك|ما هو اسمك|who are you|how are you|what is your name)[\s\S]{0,30})[\s\p{P}]*$/iu;
+export function isChitChat(text: string): boolean {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 80 && CHITCHAT.test(t) && !isActionGoal(t);
+}
+
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
 export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
   if (nudges >= 3) return "";

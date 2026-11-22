@@ -703,8 +703,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "tldm_policy": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const P = await import("@/lib/tldmPolicy");
+      // T-LDM has no on/off switch (it is automatic for everybody); the owner's deny-list is the only policy. for:"all" keeps one list on every T-LDM model.
+      if (body.for === "all") {
+        if (body.deny !== undefined) for (const m of ["sham_v2", "coder"]) await P.setTldmOwnerDenyList(body.deny, db, m);
+        return { policy: await P.refreshTldmPolicy(db, "sham_v2", true) };
+      }
       const polModel = typeof body.for === "string" ? body.for : (body.model ?? "sham_v2");
-      if (typeof body.open === "boolean") await P.setTldmOpen(body.open, db, polModel);
       if (body.deny !== undefined) await P.setTldmOwnerDenyList(body.deny, db, polModel);
       return { policy: await P.refreshTldmPolicy(db, polModel, true) };
     }

@@ -1,5 +1,5 @@
 "use client";
-// Owner panel (Settings): (1) WHO can use each model — one clear switch per model, wired to the same access check the bot and the model picker use
+// Owner panel, Models tab: (1) WHO can use each model — one clear switch per model, wired to the same access check the bot and the model picker use
 // (src/lib/coderModels.ts modelUsableBy); (2) WHICH media engine makes image / speech / video for each model, with the live health of every Studio behind it
 // (src/lib/mediaEngines.ts). Shared by the Nova UI and the telegram-ui screens. Server decides; the owner is checked on every call.
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +14,7 @@ type ModelMedia = { id: string; engine: string; options: Opt[]; lines: Line[]; s
 type PhotoWeight = { modelId: string; displayName: string; sourceModel: string; modelRepo: string; endpoint: string; ready: boolean; phase: string; checkpointSha256: string | null; sourceRevision: string | null; memoryGb: number | null; detail: string };
 type OwnerModel = { id: string; name: { ar: string; en: string }; price_stars: number | null; visible: boolean; isDefault: boolean; ready: boolean; access?: "everyone" | "owner_only" | "on_but_not_ready" };
 
+const MESH_LABEL: Record<string, string> = { sham: "Sham 1", sham_v2: "Sham Pro", coder: "Nova" };
 const ICON = { image: "🖼", audio: "🔊", video: "🎬" } as const;
 
 export function accessText(m: OwnerModel, ar: boolean): string {
@@ -28,7 +29,6 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
-  const [tldmOpen, setTldmOpen] = useState(false);
   const [meshOn, setMeshOn] = useState<boolean | null>(null);
   const [meshNodes, setMeshNodes] = useState<Record<string, number>>({});
   const [denyText, setDenyText] = useState("");
@@ -42,16 +42,15 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
-  useEffect(() => { void api<{ settings?: { tldm?: boolean; tldmOpen?: boolean }; tldmPolicy?: { open?: boolean; deny?: string[] } }>("me").then((r) => {
-    setTldmOpen(Boolean(r.tldmPolicy?.open ?? r.settings?.tldmOpen));
-    const d = (r.tldmPolicy?.deny || []).join("\n");
+  useEffect(() => { void api<{ policy?: { deny?: string[] } }>("tldm_policy", { for: "all" }).then((r) => {
+    const d = (r.policy?.deny || []).join("\n");
     setDenyText(d); setDenySaved(d);
   }).catch(() => null); }, [api]);
   // the owner's ONE switch for users' devices in the terminal mesh (src/lib/meshPolicy.ts); users never see anything about it
   const loadMesh = useCallback(async () => {
     try { setMeshOn(Boolean((await api<{ on?: boolean }>("mesh_devices")).on)); } catch { setMeshOn(null); }
     const out: Record<string, number> = {};
-    await Promise.all(Object.entries(MODEL_MESH).map(async ([, mesh]) => {
+    await Promise.all(Object.values(MODEL_MESH).map(async (mesh) => {
       try { const r = await fetch(`${MESH_URL}/m/${mesh}/health`, { cache: "no-store" }); out[mesh] = Number((await r.json()).nodes_online) || 0; } catch { out[mesh] = -1; }
     }));
     setMeshNodes(out);
@@ -72,8 +71,8 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
       <Section
         header={ar ? "👁 من يستطيع استخدام كل نموذج؟" : "👁 Who can use each model?"}
         footer={ar
-          ? "المفتاح يتحكم في ظهور النموذج لجميع المستخدمين في البوت وفي قائمة النماذج بالتطبيق معًا. أنت المالك تستخدم كل النماذج دائمًا حتى المخفية. إخفاء نوفا يوقف ردها على غيرك. النموذج غير الجاهز لا يظهر لغيرك حتى لو فعّلته. سعر النجوم: اتركه فارغًا ليكون النموذج ضمن خطة المستخدم، أو اكتب عددًا ليُدفع إضافة إلى الخطة."
-          : "The switch shows or hides the model for all users in the bot and in the app's model list together. You, the owner, always see every model. A model that is not ready stays hidden from others even when switched on. Stars price: leave empty to include it in the user's plan, or enter an amount charged on top of the plan."}
+          ? "المفتاح يتحكم في ظهور النموذج لجميع المستخدمين في البوت وفي قائمة النماذج بالتطبيق معًا. أنت المالك تستخدم كل النماذج دائمًا حتى المخفية. إخفاء نوفا يوقف ردها على غيرك. النموذج غير الجاهز لا يظهر لغيرك حتى لو فعّلته. الأسعار في تبويب «التسعير»."
+          : "The switch shows or hides the model for all users in the bot and in the app's model list together. You, the owner, always see every model. A model that is not ready stays hidden from others even when switched on. Prices are in the Pricing tab."}
       >
         {models.map((m) => (
           <div key={m.id}>
@@ -81,8 +80,6 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
               after={<Switch checked={Boolean(m.visible)} disabled={busy === "vis-" + m.id} onChange={(e) => void setVisible(m, e.currentTarget.checked)} />}>
               {ar ? `${name(m)}: ${m.visible ? "متاح لجميع المستخدمين" : "مخفي"}` : `${name(m)}: ${m.visible ? "available to all users" : "hidden"}`}
             </Cell>
-            <Input header={ar ? `سعر النجوم الإضافي لـ ${name(m)} ⭐ (فارغ = ضمن الخطة)` : `Extra Stars price for ${name(m)} ⭐ (empty = in plan)`} type="number" dir="ltr" defaultValue={m.price_stars ?? ""}
-              onBlur={async (e) => { try { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); } catch { haptic("error"); } }} />
           </div>
         ))}
       </Section>
@@ -93,7 +90,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
           : "One switch for all users, off by default. When on, each user's device joins the mesh of the model they selected while the app is open, silently with no notice. A device never runs commands for anyone, offers only verifiable compute and verified lessons, shares no personal data, and the deny list applies. When off, devices leave within half a minute."}
       >
         <Cell Component="label" multiline
-          subtitle={Object.entries(meshNodes).map(([m, c]) => `${m}: ${c < 0 ? "?" : c}`).join(" · ") || "…"}
+          subtitle={Object.entries(MODEL_MESH).map(([model, mesh]) => `${MESH_LABEL[model]}: ${meshNodes[mesh] === undefined ? "…" : meshNodes[mesh] < 0 ? "?" : meshNodes[mesh]}`).join(" · ")}
           after={<Switch checked={Boolean(meshOn)} disabled={meshOn === null || busy === "mesh"} onChange={async (e) => {
             const on = e.currentTarget.checked; setBusy("mesh"); setErr("");
             try { const r = await api<{ on?: boolean }>("mesh_devices", { on }); setMeshOn(Boolean(r.on)); haptic("success"); }
@@ -104,26 +101,16 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
         </Cell>
       </Section>
       <Section
-        header={ar ? "⚡ T-LDM لشام برو" : "⚡ T-LDM for Sham Pro"}
+        header={ar ? "🛡 قائمة منع المالك (T-LDM)" : "🛡 Owner deny list (T-LDM)"}
         footer={ar
-          ? "المفتاح الأول يفتح المسار لكل المستخدمين (نفس معنى SHAM_TLDM_OPEN). في وقت العمل: بحث وتصفح وتنفيذ حر داخل مساحة كل مستخدم المعزولة على حاسوب شام برو الداخلي؛ المستخدم يوافق على أوامره الحساسة؛ الكتابة تبقى في مساحته؛ قائمة المنع أدناه تنطبق على الجميع ولا يمكن تجاوزها. تفعيله لحسابك أنت في الإعدادات عند اختيار شام برو. إن لم يكن رأس التدريب جاهزًا تظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
-          : "The first switch opens the path to every user (same meaning as SHAM_TLDM_OPEN). At work time: free search, browsing and execution inside each user's isolated workspace on Sham Pro's existing internal computer; that user approves their own sensitive commands; writes stay in their workspace; the deny list below applies to everyone and cannot be overridden. Turn it on for your own account in Settings while Sham Pro is selected. If the trained head is missing, a clear error is shown and Sham 1 is never used."}
+          ? "T-LDM يعمل تلقائيًا لجميع المستخدمين على شام برو ونوفا، كلٌّ برأسه المستقل، دون أي مفتاح. هذه القائمة هي الضمانة الوحيدة: كل أمر يطابق نمطًا فيها يُرفض عند الجميع ولا يمكن تجاوزه، وتنطبق كذلك على شبكة الأجهزة."
+          : "T-LDM runs automatically for every user on Sham Pro and Nova, each with its own head, with no switch. This list is the one guarantee: any command matching a pattern here is refused for everybody and cannot be overridden; it also applies to the device mesh."}
       >
-        <Cell Component="label" multiline
-          subtitle={ar ? (tldmOpen ? "مفتوح للجميع: كل مستخدم يستطيع تفعيل T-LDM لنفسه" : "مغلق: المسار للمالك فقط في هذه المرحلة") : (tldmOpen ? "Open to everyone: each user can enable T-LDM for themselves" : "Closed: owner-only during this testing phase")}
-          after={<Switch checked={tldmOpen} disabled={busy === "tldm-open"} onChange={async (e) => {
-            const on = e.currentTarget.checked; setBusy("tldm-open"); setErr("");
-            try { const r = await api<{ policy?: { open?: boolean } }>("tldm_policy", { open: on }); setTldmOpen(Boolean(r.policy?.open ?? on)); haptic("success"); }
-            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
-            setBusy("");
-          }} />}>
-          {ar ? "فتح T-LDM لجميع المستخدمين" : "Open T-LDM to all users"}
-        </Cell>
         <Input header={ar ? "قائمة منع المالك (سطر لكل نمط، أو re:تعبير). لا يمكن لأي مستخدم تجاوزها." : "Owner deny list (one pattern per line, or re:regex). Users cannot override it."}
           value={denyText} onChange={(e) => setDenyText(e.currentTarget.value)}
           after={<Button size="s" mode="bezeled" loading={busy === "tldm-deny"} disabled={denyText === denySaved} onClick={async () => {
             setBusy("tldm-deny"); setErr("");
-            try { const r = await api<{ policy?: { deny?: string[] } }>("tldm_policy", { deny: denyText }); const d = (r.policy?.deny || []).join("\n"); setDenyText(d); setDenySaved(d); haptic("success"); }
+            try { const r = await api<{ policy?: { deny?: string[] } }>("tldm_policy", { for: "all", deny: denyText }); const d = (r.policy?.deny || []).join("\n"); setDenyText(d); setDenySaved(d); haptic("success"); }
             catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
             setBusy("");
           }}>{ar ? "حفظ المنع" : "Save list"}</Button>} />

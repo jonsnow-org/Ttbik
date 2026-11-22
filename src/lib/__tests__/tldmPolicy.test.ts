@@ -19,19 +19,12 @@ describe("T-LDM audience and owner deny-list (per model)", () => {
     expect(parseDenyList([" git push ", "", "#x"])).toEqual(["git push"]);
   });
 
-  it("is owner-only until the stored or env switch opens it", () => {
-    delete process.env.SHAM_TLDM_OPEN;
-    _setTldmPolicyForTests("sham_v2", false, []);
-    expect(tldmOpenToAll("sham_v2")).toBe(false);
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(false);
-    expect(tldmAllowedFor("owner", "sham_v2")).toBe(true);
-    _setTldmPolicyForTests("sham_v2", true, []);
-    expect(tldmOpenToAll("sham_v2")).toBe(true);
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(true);
-    delete process.env.SHAM_TLDM_OPEN;
-    _setTldmPolicyForTests("sham_v2", false, []);
-    process.env.SHAM_TLDM_OPEN = "1";
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(true);
+  it("is open to every user on every T-LDM model, with no switch", () => {
+    for (const m of ["sham_v2", "coder", "nova2"]) {
+      expect(tldmOpenToAll(m)).toBe(true);
+      expect(tldmAllowedFor("user", m)).toBe(true);
+      expect(tldmAllowedFor("owner", m)).toBe(true);
+    }
   });
 
   it("matches the owner deny-list as a hard refuse", () => {
@@ -42,36 +35,12 @@ describe("T-LDM audience and owner deny-list (per model)", () => {
     expect(tldmOwnerDenyList("sham_v2")).toEqual(["rm -rf", "re:drop\\s+table"]);
   });
 
-  // Independence: the whole point of the per-model split.
-  it("one model's switch never opens another model", () => {
-    _setTldmPolicyForTests("coder", true, []);
-    expect(tldmAllowedFor("user", "coder")).toBe(true);
-    expect(tldmAllowedFor("user", "nova2")).toBe(true);                // nova2 is only a legacy alias of Nova's ONE policy key
-    expect(tldmAllowedFor("user", "sham_v2")).toBe(false);
-    _setTldmPolicyForTests("coder", false, []);
-  });
-
   it("one model's deny-list never applies to another model", () => {
     _setTldmPolicyForTests("coder", true, ["rm -rf"]);
     expect(tldmOwnerDenyList("coder")).toEqual(["rm -rf"]);
     expect(tldmOwnerDenyList("nova2")).toEqual(["rm -rf"]);            // the same list under the legacy id
     expect(tldmOwnerDenyList("sham_v2")).toEqual([]);                  // Sham Pro never inherits Nova's list
     _setTldmPolicyForTests("coder", false, []);
-  });
-
-  it("an env switch is read per model, not shared", () => {
-    for (const k of ["SHAM_TLDM_OPEN", "NOVA_TLDM_OPEN", "NOVA1_TLDM_OPEN", "NOVA2_TLDM_OPEN"] as const) delete process.env[k];
-    _setTldmPolicyForTests("sham_v2", false, []);
-    _setTldmPolicyForTests("coder", false, []);
-    process.env.NOVA_TLDM_OPEN = "1";
-    expect(tldmOpenToAll("coder")).toBe(true);
-    expect(tldmOpenToAll("nova2")).toBe(true);
-    expect(tldmOpenToAll("sham_v2")).toBe(false);
-    delete process.env.NOVA_TLDM_OPEN;
-    process.env.NOVA2_TLDM_OPEN = "1";                                 // the old env names keep working: a deploy never silently closes what the owner opened
-    expect(tldmOpenToAll("coder")).toBe(true);
-    expect(tldmOpenToAll("sham_v2")).toBe(false);
-    delete process.env.NOVA2_TLDM_OPEN;
   });
 
   it("an unknown model inherits nothing (no silent cross-model enable)", () => {

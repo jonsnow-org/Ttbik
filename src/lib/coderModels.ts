@@ -221,7 +221,13 @@ import { isTldmModel } from "@/lib/tldmPolicy";
 export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
 export function tldmEnabled(st: TldmState, id?: string): boolean {
   const m = canonModelId(id);
-  return isTldmModel(m) && st.perModel?.[m]?.tldm === true;
+  if (!isTldmModel(m)) return false;
+  // automatic (owner, 2026-11-22): no switch; an account's own explicit /tldm on|off in the bot still wins.
+  const own = st.perModel?.[m]?.tldm;
+  if (typeof own === "boolean") return own;
+  // Nova's head runs in its Studio only while that Studio serves it (NOVA_TLDM=1 there). Until the same flag is set on the app side, every Nova step would pay an
+  // extra Studio call that answers "body", so Nova stays on its own plain chat. Sham Pro is automatic.
+  return m === "sham_v2" ? true : (process.env.NOVA_TLDM || "").trim() === "1";
 }
 export function setTldmEnabled(st: TldmState, on: boolean, id?: string): boolean {
   const m = canonModelId(id) || "sham_v2";

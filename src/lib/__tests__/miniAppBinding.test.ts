@@ -150,3 +150,19 @@ test("the Mini App has no thinking / speed / forced-mode / T-LDM controls: the m
   expect(panel).not.toMatch(/api\("settings", \{ for: "sham_v2", tldm/);
   expect(panel).toMatch(/tldm_policy/);
 });
+
+test("owner panel layout: T-LDM has no switch, pricing lives only inside the panel, the device mesh keeps one switch and one mesh per model", () => {
+  const fs = require("fs") as typeof import("fs");
+  const read = (f: string) => fs.readFileSync(require.resolve(`../../app/coder-app/_nova/${f}`), "utf8");
+  const app = read("NovaApp.tsx"), panel = read("OwnerModelsPanel.tsx"), parts = read("parts.tsx"), pricing = read("OwnerPricing.tsx");
+  expect(panel).not.toMatch(/tldm_policy", \{ open/);                // no T-LDM open/close switch
+  expect(panel).toMatch(/tldm_policy", \{ for: "all", deny/);        // only the owner's deny list remains
+  expect(panel).not.toMatch(/price_stars: e\.currentTarget|model_update", \{ id: m\.id, price_stars/);   // no price input in the models tab
+  expect(app).not.toMatch(/s_pricing|k: "pricing"/);                  // no pricing row or page outside the panel
+  expect(parts).toMatch(/\["pricing", "🏷️"/);                         // the panel has a Pricing tab
+  expect(parts).not.toMatch(/export function BillingPage/);
+  expect(pricing).toMatch(/plan_update/);
+  expect(pricing).toMatch(/plan_assign/);
+  expect(pricing).toMatch(/model_update/);
+  expect(panel).toMatch(/mesh_devices/);                              // the mesh switch is still there
+});

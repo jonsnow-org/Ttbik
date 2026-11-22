@@ -24,7 +24,7 @@ import { NSTR, fill, type NStr } from "./strings";
 import { bindingFor, type MiniAppBinding } from "@/lib/miniAppBinding";
 import { THEME_MODES, leaveFullscreen, loadMode, paintTelegram, resolveMode, saveMode, themeVars, type Resolved, type ThemeMode } from "./theme";
 import {
-  BillingPage, BrandIcon, ConnectorsTab, Fail, Loading, MemoryTab, PanelPage, PendingBanner, PolicySection, ScheduleForm, Sheet,
+  BrandIcon, ConnectorsTab, Fail, Loading, MemoryTab, PanelPage, PendingBanner, PolicySection, ScheduleForm, Sheet,
   ago, api, fmtTime, srcIcon, tx,
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
@@ -32,7 +32,7 @@ import {
 const GraphicalDesktop = dynamic(() => import("./GraphicalDesktop"), { ssr: false, loading: () => <div className="n-card" style={{ minHeight: 220 }} aria-busy="true" /> });
 const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
 type Tab = "home" | "chats" | "computer" | "auto" | "settings";
-type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
+type Page = { k: "billing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
 type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
@@ -58,7 +58,7 @@ const NAV_ICON: Record<Tab, string> = {
 };
 /** Old links keep working: ?tab= / start param → Nova's tab + sub-page. */
 function routeFrom(want: string): { tab: Tab; page: Page } {
-  if (want === "panel") return { tab: "settings", page: { k: "panel" } };
+  if (want === "panel" || want === "pricing") return { tab: "settings", page: { k: "panel" } };
   if (want === "plans" || want === "billing") return { tab: "settings", page: { k: "billing" } };
   if (want === "connectors" || want === "connect") return { tab: "home", page: { k: "connect" } };
   if (want === "memory") return { tab: "settings", page: { k: "memory" } };
@@ -880,7 +880,6 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
       {owner && (
         <Card title={n.g_owner}>
           <Row icon="🛠️" title={n.s_panel} onClick={() => open({ k: "panel" })} />
-          <Row icon="🏷️" title={n.s_pricing} onClick={() => open({ k: "pricing" })} />
         </Card>
       )}
       <Options open={sheet === "theme"} title={n.s_theme} value={mode} onClose={closeSheet} onPick={setMode}
@@ -1052,7 +1051,7 @@ export default function NovaApp() {
   const open = (p: Page) => setPage(p);
   const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved, bind: bindingFor(me.settings.model) } : null;
   const bound = ctx?.bind.model || "coder";
-  const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "pricing" ? n.s_pricing : page.k === "panel" ? n.s_panel
+  const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "panel" ? n.s_panel
     : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : n.s_policy;
   return (
     <AppRoot appearance={appearance} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="nova"
@@ -1072,7 +1071,6 @@ export default function NovaApp() {
               {page.k === "thread" ? <ThreadPage key={page.id} c={ctx} id={page.id} onGone={closePage} />
                 : page.k === "chat" ? <ChatPage key={page.id} c={ctx} model={page.model} id={page.id} pinned={page.pinned} archived={page.archived} onGone={closePage} />
                 : page.k === "billing" ? <Billing c={ctx} />
-                : page.k === "pricing" ? (owner ? <div className="n-tg"><BillingPage t={t} lang={lang} me={ctx.me} /></div> : <Billing c={ctx} />)
                 : page.k === "panel" ? (owner ? <div className="n-tg"><PanelPage lang={lang} /></div> : <Fail t={t} msg="—" retry={closePage} />)
                 : page.k === "connect" ? <div className="n-tg"><ConnectorsTab t={t} me={ctx.me} lang={lang} reload={ctx.reload} /></div>
                 : page.k === "memory" ? <div className="n-tg"><MemoryTab t={t} lang={lang} me={ctx.me} /></div>

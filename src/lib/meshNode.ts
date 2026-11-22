@@ -16,8 +16,8 @@
 
 export const MESH_URL = "https://sham-mesh.jonsnowx1r.workers.dev";
 
-/** One mesh per model. A model that is not listed has no mesh. */
-export const MODEL_MESH: Record<string, string> = { sham_v2: "sham2", sham: "sham1", coder: "nova1", nova2: "nova2" };
+/** One mesh per model (Sham 1, Sham Pro, Nova). A model that is not listed has no mesh; Nova is one model, so the legacy `nova2` id has none of its own. */
+export const MODEL_MESH: Record<string, string> = { sham_v2: "sham2", sham: "sham1", coder: "nova1" };
 export function meshForModel(model: string): string | null {
   return MODEL_MESH[String(model || "")] || null;
 }

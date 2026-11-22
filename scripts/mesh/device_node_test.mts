@@ -49,7 +49,8 @@ ok("jobs match mesh_net.JOBS; unknown jobs refused");
 // 5 per-model meshes, one key each: no cross-model routing
 assert.equal(meshForModel("sham_v2"), "sham2");
 assert.equal(meshForModel("coder"), "nova1");
-assert.notEqual(meshForModel("nova2"), meshForModel("coder"));
+assert.equal(meshForModel("sham"), "sham1");
+assert.equal(meshForModel("nova2"), null);                        // Nova is one model: the legacy id has no mesh of its own
 assert.equal(meshForModel("unknown"), null);
 ok("one mesh per model");
 
