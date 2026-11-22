@@ -9,7 +9,7 @@ on:
         required: false
         default: "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة"
       model:
-        description: "engine model: coder (Nova) or lfm25 (LFM2.5)"
+        description: "engine model: coder (Nova)"
         required: false
         default: "coder"
       drop_continue:

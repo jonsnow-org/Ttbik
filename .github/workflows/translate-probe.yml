@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Translate with the new prompt on Nova (Qwen, studio 1) and on the LFM replica (studio 4)
+      - name: Translate with the new prompt on Nova (Qwen, studio 1)
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
           TEXT: ${{ inputs.text }}
