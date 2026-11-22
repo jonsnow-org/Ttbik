@@ -1635,7 +1635,7 @@ export default function MiniAppPage() {
               </div>
               <div className="media-reel-tabs">
                 {tabs.map((tb) => (
-                  <button key={tb.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab(tb.id); setPlayingId(null); setAutoId(null); }} className="px-2 text-center text-[10px] font-bold text-white">{tb.icon}<span className="mt-0.5 block">{tb.label}</span></button>
+                  <button key={tb.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab(tb.id); setPlayingId(null); setAutoId(null); }} className={`media-reel-tab${tab === tb.id ? " is-on" : ""}`}>{tb.icon}<span className="mt-0.5 block">{tb.label}</span></button>
                 ))}
               </div>
             </div>
@@ -1646,7 +1646,7 @@ export default function MiniAppPage() {
             const p = platformOf(item.url);
             const mine = !!userId && item.sharer_id === userId;
             return (
-              <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
+              <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar} plain={reelsMode}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className={reelsMode ? "overflow-hidden bg-black" : "fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200"}>
                 <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${reelsMode ? "media-reel-stage" : isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
@@ -1670,8 +1670,8 @@ export default function MiniAppPage() {
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video ref={autoplayVideoRef} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onAutoPreviewError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
-                      <span className={`absolute right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur ${reelsMode ? "bottom-28" : "bottom-2"}`}>🔇 اضغط للصوت</span>
+                      <video ref={autoplayVideoRef} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className={"h-full w-full bg-black " + (reelsMode && (ratios[item.id] || 0.6) > 1 ? "object-contain" : "object-cover")} onError={() => onAutoPreviewError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
+                      {!reelsMode && <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>}
                     </button>
                   ) : (
                     <button type="button" onClick={() => playItem(item)} className="group relative block h-full w-full">
@@ -1679,8 +1679,8 @@ export default function MiniAppPage() {
                       <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-transparent to-transparent"><span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-2xl text-slate-800 shadow-xl transition group-active:scale-90">▶</span></span>
                     </button>
                   )}
-                  <span className={`absolute left-2 ${reelsMode ? "top-16" : "top-2"} rounded-full ${isAudio ? "bg-indigo-500" : p.badge} px-2.5 py-0.5 text-[10px] font-black text-white shadow`}>{isAudio ? "صوت" : p.label}</span>
-                  <button type="button" aria-label="المزيد" onClick={(e) => { e.stopPropagation(); haptic(); setMenuItem(item); }} className={`absolute right-2 ${reelsMode ? "top-16" : "top-2"} z-[4] flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-lg font-black leading-none text-white backdrop-blur`}>⋮</button>
+                  {!reelsMode && <span className={`absolute left-2 top-2 rounded-full ${isAudio ? "bg-indigo-500" : p.badge} px-2.5 py-0.5 text-[10px] font-black text-white shadow`}>{isAudio ? "صوت" : p.label}</span>}
+                  {!reelsMode && <button type="button" aria-label="المزيد" onClick={(e) => { e.stopPropagation(); haptic(); setMenuItem(item); }} className="absolute right-2 top-2 z-[4] flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-lg font-black leading-none text-white backdrop-blur">⋮</button>}
                   {reelsMode && !isAudio && (
                     <>
                       <div className="media-reel-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
@@ -1689,10 +1689,13 @@ export default function MiniAppPage() {
                         <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} aria-label="تعليق">💬</button>
                         <a href={item.url || "#"} target="_blank" rel="noreferrer" aria-label="المصدر">🌐</a>
                         <button type="button" onClick={() => void forwardInTelegram(item)} aria-label="إرسال">↪️</button>
+                        <button type="button" onClick={() => { haptic(); setMenuItem(item); }} aria-label="المزيد">⋮</button>
                       </div>
                       <div className="media-reel-meta">
+                        {playingId !== item.id && <p className="mb-1 text-[11px] font-bold">اضغط للصوت</p>}
                         <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="text-sm font-black">{item.sharer_name || "مستخدم"}</button>
-                        <p className="mt-1 line-clamp-2 text-sm font-semibold">{displayTitle(item)}</p>
+                        {!!p.name && <p className="text-[11px] font-bold opacity-80">{p.name}</p>}
+                        <p className="mt-1 line-clamp-2 text-[13px] font-semibold">{displayTitle(item)}</p>
                       </div>
                     </>
                   )}
@@ -1822,13 +1825,13 @@ function SheetButton({ icon, label, hint, color, onClick }: { icon: string; labe
 
 // Every 5th post is preceded by one in-feed ad card (300×250), mounted only
 // when it scrolls near the screen so ads don't slow the first load.
-function FeedAdBefore({ index, createdAt, onOpenAthar, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; children: React.ReactNode }) {
+function FeedAdBefore({ index, createdAt, onOpenAthar, plain, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; plain?: boolean; children: React.ReactNode }) {
   // every 5th post is preceded by a card: an ad, and in between (5th, 15th, 25th ...) Athar's card for the post's own day;
-  // when Athar does not answer that slot shows the usual ad
+  // when Athar does not answer that slot shows the usual ad. Reels skip these so a swipe never lands on an empty card.
   return (
     <>
-      {index > 0 && index % 10 === 0 && <LazyFeedAd />}
-      {index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
+      {!plain && index > 0 && index % 10 === 0 && <LazyFeedAd />}
+      {!plain && index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
       {children}
     </>
   );
