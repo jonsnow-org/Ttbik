@@ -19,6 +19,7 @@ import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
 import { resolveProfile, requiresProgressCard, isTaskContinuation, NOVA_LITE_SYSTEM, type ReqClass } from "@/lib/modes";
 import { dropStaleHarness } from "@/lib/coderFinishGate";
+import { richOnFor, richSend, richDraft, wantsRich, RICH_MAX, RICH_LONG } from "@/lib/telegramRich";
 import { forcedMode, refreshForced } from "@/lib/modeForce";
 import { ACCURACY_TEMPERATURE, accuracyNote, windowFrom, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, githubQuery, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -59,7 +60,7 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
   prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
-  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -1808,6 +1809,9 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
 /** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
 async function sendRich(bot: TelegramBot, chatId: number, text: string) {
   text = stripThinkTags(text);
+  // Telegram Rich Message (src/lib/telegramRich.ts): the model's Markdown as it is, up to 30,000 characters in ONE message, tables and code drawn properly;
+  // any refusal falls through to the HTML path below.
+  if (wantsRich(text) && richOnFor(tierFor(chatId) === "owner") && await richSend(bot.api as never, chatId, text)) return;
   const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
   const html = markdownToTelegramHtml(text);
   if (html.length <= 4096) {
@@ -1861,13 +1865,31 @@ export async function deliverToChat(bot: TelegramBot, chatId: number, text: stri
   const unsent = text.length - from;
   if (unsent <= 0 || !text.slice(from).trim()) return;
   if (final) {
+    const rest = renderRange(text, from, text.length);
+    if (rest.length > RICH_LONG && rest.length <= RICH_MAX && richOnFor(tierFor(chatId) === "owner") && await richSend(bot.api as never, chatId, rest)) {
+      run.botSent = text.length;                                       // one rich message instead of fragments (what was already committed stays as sent)
+      run.draftId = undefined;
+      run.botProgressAt = Date.now();
+      return;
+    }
     await commitMessages(bot, chatId, text, run, chunkRanges(text, from, true, 3800));
     run.botProgressAt = Date.now();
     return;
   }
   const api = bot.api as any;
   const canDraft = liveDraftOn() && !run.noDraft && chatId > 0 && typeof api.sendMessageDraft === "function";
+  const richLive = canDraft && richOnFor(tierFor(chatId) === "owner") && !run.noRichDraft;
   if (canDraft) {
+    if (richLive && unsent <= RICH_MAX) {
+      // a rich draft holds up to 30,000 characters: a long answer streams in ONE place and is sent whole at the end (no mid-stream fragments)
+      const startR = Math.max(0, Math.min(text.length, run.botSent || 0));
+      const tailR = renderRange(text, startR, text.length);
+      if (tailR.trim() && tailR !== run.draftText && Date.now() - (run.draftAt || 0) >= DRAFT_EVERY_MS) {
+        run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
+        if (await richDraft(api, chatId, run.draftId, tailR, { canStop: true, keepOnStop: true })) { run.draftAt = Date.now(); run.draftText = tailR; return; }
+        run.noRichDraft = true;                                          // refused: the plain draft below, for the rest of this run
+      } else if (tailR.trim() && tailR === run.draftText) return;
+    }
     if (unsent > DRAFT_MAX) {                                           // too long for one draft: commit the finished part
       await commitMessages(bot, chatId, text, run, chunkRanges(text, from, false, 3000));
     }
