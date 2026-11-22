@@ -7,7 +7,7 @@ Code: `src/lib/coderModels.ts` (registry), `src/lib/openCoderStudio.ts` (engine 
 
 | id | Name | Who can use it | Inference (own) | Image (own) | Speech + video (own) |
 |---|---|---|---|---|---|
-| `coder` | Nova AI (Qwen3.5-4B Q4_K_M) | everyone (free tier: 3 images + 3 videos a day; owner unlimited) | `coder-inference-server`, `-2` … `-5` (`OPEN_CODER_STUDIO_URL(S)`) | `epicrealism-image-test` (`NOVA_IMAGE_STUDIO_URL`) | Nova media Studio (`NOVA_MEDIA_URL`) |
+| `coder` | Nova AI — since 2026-11-22 the ONLY Nova: Qwen3.6-35B-A3B on the international Studio (`NOVA2_STUDIO_URLS`, default `coder-inference-server-16`). Nova 1 (Qwen3.5-4B) and the separate «Nova 2» picker entry were removed at the owner's order; an old `nova2` pick means `coder`. | everyone (free tier: 3 images + 3 videos a day; owner unlimited) | the 35B Studio only (the cn `coder-inference-server*` Studios are no longer used; delete them in the ModelScope console) | `epicrealism-image-test` (`NOVA_IMAGE_STUDIO_URL`) | Nova media Studio (`NOVA_MEDIA_URL`); computer = the international hub (`sham-trainer-2`, `NOVA2_COMPUTER_STUDIO_URL` / `COMPUTER_STUDIO_URL` override) |
 | `sham_v2` | Sham 2 (copy of Sham 1 + donor weights; T-LDM via owner switch, openable later) | owner; visibility toggle; T-LDM owner switch | `sham-v2-server` (+ overflow) | (none: its own internal generator) | Sham v2 makes all media itself, like v1 (2026-11-08) |
 | `sham` | Sham v1 | owner | open (being retrained from scratch; work on it freely — owner's order 2026-11-06) | — | — |
 | `freei` | free i (OpenRouter agent through GitHub; a flag on the chat, not a model of this app: see docs/START_HERE.md §4) | owner only | none | none | none |

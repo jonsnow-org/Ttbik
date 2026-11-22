@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 <text x="90" y="810" font-family="sans-serif" font-size="56" font-weight="700" fill="#ffffff">${pct.toFixed(1)}%</text>
 <text x="970" y="810" text-anchor="end" font-family="sans-serif" font-size="46" fill="#c9ccd6">Market cap ${esc(mcText)}</text>
 <text x="90" y="960" font-family="sans-serif" font-size="38" fill="#4da3ff">Launch your own coin in a few taps</text>
-<text x="90" y="1010" font-family="sans-serif" font-size="26" fill="#8a8fa0">Experimental, unaudited contracts. Not financial advice.</text>
+<text x="90" y="1010" font-family="sans-serif" font-size="26" fill="#8a8fa0">Not financial advice.</text>
 </svg>`;
   const png = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer();
   return new Response(new Uint8Array(png), { headers: { "Content-Type": "image/png", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });

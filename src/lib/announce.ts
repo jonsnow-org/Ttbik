@@ -14,7 +14,7 @@ const BOT = "https://t.me/PalmyraLaunchBot";
 
 export const ANNOUNCEMENTS: Record<string, () => Announcement> = {
   "znbt-launch": () => {
-    const en = `🪙 Zenobia of Tadmor (ZNBt) is live on TON.\nA coin that remembers your journey: hold it and grow from Child to Queen to Warrior; sell everything and you become a Captive; burn it and you become a Legend.\nFees: 1.5% platform + 1.5% creator. Experimental, unaudited contracts: you can lose everything you put in. Not financial advice.`;
+    const en = `🪙 Zenobia of Tadmor (ZNBt) is live on TON.\nA coin that remembers your journey: hold it and grow from Child to Queen to Warrior; sell everything and you become a Captive; burn it and you become a Legend.\nFees: 1.5% platform + 1.5% creator. Not financial advice.`;
     const ar = `🪙 زنوبيا التدمرية (ZNBt) على شبكة TON.\nعملة تتذكّر رحلتك: احتفظ بها لتنمو من طفل إلى ملكة إلى محارب؛ بع كل شيء فتصير أسيراً؛ احرقها فتصير أسطورة.\nالرسوم 1.5% للمنصة + 1.5% للمُطلِق. العقود تجريبية وغير مدقَّقة وقد تخسر كل ما تضعه. ليست نصيحة مالية.`;
     const terms = `Terms and risks: ${G()}/zenobia/terms.html`;
     return {

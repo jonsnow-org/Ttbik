@@ -109,7 +109,7 @@ describe("the model's own persistent computer", () => {
     }) as any;
     const out = await boxDo("coder", "42:coder", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
-    expect(calls[0].url).toContain("nova-inference-server");
+    expect(calls[0].url).toContain("sham-trainer-2");
     expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:coder" });
     // Sham and Sham v2 have NO computer Studio: their computer is inside the model's own loop (owner 2026-11-08), so the app never sends them a command
     const before = calls.length;

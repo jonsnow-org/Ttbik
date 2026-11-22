@@ -1,50 +1,27 @@
-import { browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply, studioToken } from "@/lib/browserComputer";
+import { DEFAULT_NOVA2_COMPUTER_STUDIO_URL, browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply, studioToken } from "@/lib/browserComputer";
 import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
 describe("the model's own browser", () => {
-  test("Nova 2 never borrows Nova's hub; its computer endpoint uses its own credential", () => {
-    const prior = { hub: process.env.COMPUTER_STUDIO_URL, own: process.env.NOVA2_COMPUTER_STUDIO_URL,
-      ownToken: process.env.NOVA2_COMPUTER_STUDIO_TOKEN, novaToken: process.env.MODELSCOPE_API_TOKEN,
-      ownMedia: process.env.NOVA2_MEDIA_STUDIO_URL, novaImage: process.env.NOVA_IMAGE_STUDIO_URL,
-      shamMedia: process.env.SHAM_MEDIA_STUDIO_URL, sham2Media: process.env.SHAM_V2_MEDIA_STUDIO_URL };
-    process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
-    process.env.MODELSCOPE_API_TOKEN = "nova-token";
+  test("one Nova: its own hub default is the international hub; the international hub takes the international token; COMPUTER_STUDIO_URL / off override", () => {
+    const prior = { hub: process.env.COMPUTER_STUDIO_URL, own: process.env.NOVA2_COMPUTER_STUDIO_URL, tok: process.env.NOVA2_STUDIO_TOKEN };
     try {
-      const ids = COMPUTER_MODEL_OPTIONS.map(({ id }) => id);
-      expect(ids).toEqual(expect.arrayContaining(["coder", "sham", "nova2"]));
-      expect(new Set(ids).size).toBe(ids.length);
+      delete process.env.COMPUTER_STUDIO_URL; delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+      expect(browserStudioFor("coder")).toBe(DEFAULT_NOVA2_COMPUTER_STUDIO_URL);
+      process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+      expect(studioToken(DEFAULT_NOVA2_COMPUTER_STUDIO_URL)).toBe("ai-token");
+      process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
       expect(browserStudioFor("coder")).toBe("https://computer-hub.example.test");
-      expect(browserStudioFor("nova2")).toBeNull();
-      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://computer-nova2.example.test";
-      process.env.NOVA2_COMPUTER_STUDIO_TOKEN = "nova2-token";
-      expect(browserStudioFor("nova2")).toBe("https://computer-nova2.example.test");
-      expect(browserStudioFor("nova2")).not.toBe(browserStudioFor("coder"));
-      process.env.NOVA2_MEDIA_STUDIO_URL = "https://computer-nova2.example.test";
-      expect(browserStudioFor("nova2")).toBeNull();
-      process.env.NOVA_IMAGE_STUDIO_URL = "https://computer-nova2.example.test";
-      expect(browserStudioFor("nova2")).toBeNull();
-      process.env.SHAM_MEDIA_STUDIO_URL = "https://computer-nova2.example.test";
-      expect(browserStudioFor("nova2")).toBeNull();
-      delete process.env.NOVA2_MEDIA_STUDIO_URL;
-      delete process.env.NOVA_IMAGE_STUDIO_URL;
-      delete process.env.SHAM_MEDIA_STUDIO_URL;
-      expect(studioToken("https://computer-nova2.example.test")).toBe("nova2-token");
-      expect(studioToken("https://computer-hub.example.test")).toBe("nova-token");
-      process.env.NOVA2_COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
+      process.env.COMPUTER_STUDIO_URL = "off";
+      expect(browserStudioFor("coder")).toBeNull();
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "off";
       expect(browserStudioFor("nova2")).toBeNull();
       for (const other of ["", undefined, "../x", "nova"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
     } finally {
       if (prior.hub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = prior.hub;
       if (prior.own === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = prior.own;
-      if (prior.ownToken === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_TOKEN; else process.env.NOVA2_COMPUTER_STUDIO_TOKEN = prior.ownToken;
-      if (prior.novaToken === undefined) delete process.env.MODELSCOPE_API_TOKEN; else process.env.MODELSCOPE_API_TOKEN = prior.novaToken;
-      if (prior.ownMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = prior.ownMedia;
-      if (prior.novaImage === undefined) delete process.env.NOVA_IMAGE_STUDIO_URL; else process.env.NOVA_IMAGE_STUDIO_URL = prior.novaImage;
-      if (prior.shamMedia === undefined) delete process.env.SHAM_MEDIA_STUDIO_URL; else process.env.SHAM_MEDIA_STUDIO_URL = prior.shamMedia;
-      if (prior.sham2Media === undefined) delete process.env.SHAM_V2_MEDIA_STUDIO_URL; else process.env.SHAM_V2_MEDIA_STUDIO_URL = prior.sham2Media;
+      if (prior.tok === undefined) delete process.env.NOVA2_STUDIO_TOKEN; else process.env.NOVA2_STUDIO_TOKEN = prior.tok;
     }
   });
-
   test("only known actions and bounded fields reach the Studio", () => {
     expect(cleanBrowserArgs({ action: "open", url: "example.com" })).toEqual({ action: "open", url: "example.com" });
     expect(cleanBrowserArgs({ action: "rm -rf" })).toBeNull();
@@ -82,7 +59,7 @@ describe("the model's own browser", () => {
     }) as any;
     const out = await browserDo("coder", "42:coder", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
-    expect(calls[0].url).toContain("nova-inference-server");
+    expect(calls[0].url).toContain("sham-trainer-2");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
     expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:coder" });
     // Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (owner 2026-11-08), so nothing is sent

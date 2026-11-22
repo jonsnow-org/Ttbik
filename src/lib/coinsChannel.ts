@@ -68,7 +68,7 @@ export function coinsPool(flags: { znbt: boolean; platform: boolean }): Item[] {
     { id: "athar:days", title: "Athar · a living token for every day", text: "Every day of the calendar has one token: your birthday, your anniversary, a day you love. Its picture is alive and matures the longer you hold it. A keepsake on TON, not an investment.", url: ATHAR_BOT, cta: "🕰 Open Athar", tags: "#Athar #TON", repeatDays: 4 },
     { id: "athar:today", title: "Today's token in Athar", text: "A new date every day could become your token. Open Athar, see today's token and claim it if it is free. A keepsake only.", url: ATHAR_BOT, cta: "📅 Today's token", tags: "#Athar #TON", repeatDays: 7 },
   ];
-  if (flags.znbt) items.push({ id: "znbt", title: "ZNBt · Zenobia of Tadmor", text: "Zenobia's new coin on TON, launched on our own platform. Hold it and grow from Child to Queen to Warrior. Fees 1.5% platform + 1.5% creator. Experimental, unaudited contracts: you can lose everything you put in. Not financial advice.", url: `${G}/zenobia/trade.html`, cta: "🪙 Open ZNBt", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch" }, tags: "#ZNBt #TON", repeatDays: 3 });
+  if (flags.znbt) items.push({ id: "znbt", title: "ZNBt · Zenobia of Tadmor", text: "Zenobia's new coin on TON, launched on our own platform. Hold it and grow from Child to Queen to Warrior. Fees 1.5% platform + 1.5% creator. Not financial advice.", url: `${G}/zenobia/trade.html`, cta: "🪙 Open ZNBt", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch" }, tags: "#ZNBt #TON", repeatDays: 3 });
   if (flags.znbt) items.push(...featureItems());   // the platform pages work as soon as ZNBt exists, whether or not launching is open
   if (flags.platform) items.push({ id: "palmyra-launch", title: "Palmyra Launch", text: "Launch your own coin on TON in a few taps, or browse coins others launched. Fees are fixed and shown before you confirm. Not financial advice; crypto is risky.", url: `${G}/zenobia/coins.html?lang=en`, cta: "🪙 Open Palmyra Launch", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch bot" }, tags: "#PalmyraLaunch #TON", repeatDays: 3 });
   return items.filter(isEnglishOnlyCoinsItem);
@@ -127,7 +127,7 @@ export async function announceLaunch(opts: { dry?: boolean } = {}): Promise<Coin
   const url = `${HOSTING.gateUrl}/zenobia/trade.html?c=${encodeURIComponent(pick.curve)}`;
   const card = `${HOSTING.gateUrl}/api/zenobia/card?c=${encodeURIComponent(pick.curve)}`;
   const fee = (pick.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, "");
-  const text = `<b>New launch: ${esc(pick.name)} (${esc(pick.symbol)})</b>\n\nA new coin just launched on Palmyra Launch. Creator fee ${fee}% per trade, platform fee 1.5%. Check the Trust check on its page before you decide. Experimental unaudited contracts, not financial advice.\n\n#PalmyraLaunch #NewLaunch`;
+  const text = `<b>New launch: ${esc(pick.name)} (${esc(pick.symbol)})</b>\n\nA new coin just launched on Palmyra Launch. Creator fee ${fee}% per trade, platform fee 1.5%. Check the Trust check on its page before you decide. Not financial advice.\n\n#PalmyraLaunch #NewLaunch`;
   if (!isEnglishOnlyPublicText(text, url, card, "Open the coin")) return { ok: false, reason: "non-english-content-blocked" };
   if (opts.dry) return { ok: true, topic: pick.name, text, reason: "dry-run" };
   const token = await posterToken();

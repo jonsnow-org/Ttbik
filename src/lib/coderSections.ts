@@ -14,7 +14,7 @@ import { InlineKeyboard, InputFile, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, ownerIds, type Db, type Tier } from "@/lib/coderAuth";
 import { computerModelOf } from "@/lib/computerModels";
-import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply, type CoderOutcome } from "@/lib/openCoderStudio";
+import { coderWarmStart, nova2WarmStartReady, coderStudioUrls, agentsAllowedFor, withEngineModel, currentEngineModel, runsOnBigModel, coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, recentStudioCalls, anyIdleStudio, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply, type CoderOutcome } from "@/lib/openCoderStudio";
 import { claimTelegramUpdate } from "@/lib/telegramDedupe";
 import { toModelImage, dropShownImages } from "@/lib/coderVision";
 import { bankAdd } from "@/lib/coderBank";
@@ -65,7 +65,7 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
-  progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string; startedAt?: number; steps?: Step[]; cardAt?: number }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
+  progress?: { msgId?: number; lines: string[]; phase?: string; ack?: string; mode?: "answer"; at?: number; shown?: string; startedAt?: number; steps?: Step[]; cardAt?: number; agents?: string[] }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   klass?: ReqClass;                                                   // what kind of request this task is (src/lib/modes.ts), decided once at its first step
@@ -96,7 +96,7 @@ const outageMs = () => Math.max(0, Number(process.env.CODER_OUTAGE_MS ?? 2 * 600
 /** The CPU reads a prompt at ~25 tokens/s and says nothing meanwhile: until the first text, a long prompt is given the time it needs (capped), unless the Studio reports its reading progress (then any progress counts as life). */
 const readingMs = (run: { promptEst?: number }, r: { total?: number; prefill?: { processed?: number } | null }) =>
   r.total || r.prefill ? 0 : Math.min(20 * 60000, Math.round(((run.promptEst || 0) / 25) * 1000 * 1.3) + 60000);
-const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000), currentEngineModel() === "nova2" ? 1500000 : 0);   // Nova 2 (35B on 2 cores) reads ~9 tokens/s: a step may legitimately show no progress for many minutes
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000), runsOnBigModel() ? 1500000 : 0);   // Nova 2 (35B on 2 cores) reads ~9 tokens/s: a step may legitimately show no progress for many minutes
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
@@ -1594,7 +1594,7 @@ function cardText(run: Run): string {
   p.startedAt ||= Date.now();
   p.steps ||= [];
   if (!p.ack && lateAck.has(run.id)) p.ack = lateAck.get(run.id);
-  return renderTimeline({ startedAt: p.startedAt, ack: p.ack, steps: p.steps });
+  return renderTimeline({ startedAt: p.startedAt, ack: p.ack, steps: p.steps }, Date.now(), { tail: p.agents });
 }
 const cardGapMs = (): number => (process.env.CODER_CARD_GAP_MS !== undefined ? Number(process.env.CODER_CARD_GAP_MS) : 1200);
 /** Edits the card from the run's steps; at most every cardGapMs() (Telegram rate limits: the next event or the 5 s refresh carries whatever was skipped). */
@@ -1855,6 +1855,7 @@ export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Pr
 
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
+  if (/<tool_call>|<function=|<[a-z_/=]{1,11}$/.test(text)) { const { hideToolMarkup } = await import("@/lib/coderXmlToolCalls"); text = hideToolMarkup(text); if (!text.trim()) return; }
   if (await deliverSingle(bot, chatId, text, run, final)) return;
   const from = Math.max(0, Math.min(text.length, run.botSent || 0));
   const unsent = text.length - from;
@@ -2005,6 +2006,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         if (timedOut) await cancelAgents(chatId, d.slots, db);
         st.messages.push({ role: "tool", content: composeResults(await fitReports(d.titles.map((title, i) => ({ title, result: finished[i] })), async (t) => (await import("@/lib/coderMemory")).studioLlm(150000)([{ role: "user", content: `Condense this agent report to about half its length. Keep EVERY name, path, number, version, source and the whole NOT DONE and OUTPUT lines exactly; drop only repetition and filler. Keep the four labelled lines (JOB, DONE, NOT DONE, OUTPUT).\n\n${t}` }]))) + (d.omitted?.length ? `\n\nCapacity note: these requested tasks were not started to avoid overloading the available Nova Studios: ${d.omitted.join(", ")}.` : ""), tool_call_id: d.id, name: "delegate" });
         run.delegating = undefined;
+        if (run.progress) run.progress.agents = undefined;
         await taskEvent(run.id, "info", `🧩 وصلت تقارير الوكلاء (${finished.filter(Boolean).length}/${d.slots.length})${timedOut ? " — انتهت المهلة" : ""}.`, db);
         await progressDone(ioBot, chatId, run, finished.filter(Boolean).length ? [] : ["error: no agent report"]);
         await saveState(chatId, st, db, slot);
@@ -2014,6 +2016,16 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         d.noted = Date.now();
         await taskEvent(run.id, "info", `⏳ بانتظار الوكلاء: ${finished.filter(Boolean).length}/${d.slots.length} أنهوا.`, db);
         await saveState(chatId, st, db, slot);
+      }
+      // the card shows what each agent is really doing right now (its own last step), not a fixed "1 agent" line
+      if (run.progress && run.progress.mode !== "answer") {
+        const rows = kids.map((k, i) => {
+          const steps = k.run?.progress?.steps || [];
+          const last = steps[steps.length - 1];
+          const state = finished[i] ? "✅ أنهى" : last ? `${last.t1 === undefined ? "▶️" : "·"} ${last.label}` : "⏳ يبدأ";
+          return `🧩 ${d.titles[i].slice(0, 40)}: ${state}`.slice(0, 160);
+        });
+        if (rows.join("\n") !== (run.progress.agents || []).join("\n")) { run.progress.agents = rows; await pushCard(ioBot, chatId, run, true); }
       }
       await typing(ioBot, chatId);
       await draftPulse(ioBot, chatId, run);

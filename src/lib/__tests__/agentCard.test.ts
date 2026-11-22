@@ -75,7 +75,7 @@ describe("the timeline renders only what happened", () => {
   });
   it("without an ack the card says a neutral line, never the request", () => {
     const tl = newTimeline(1000);
-    expect(renderTimeline(tl, 2000)).toContain(`💬 ${NEUTRAL_ACK}`);
+    expect(renderTimeline(tl, 2000)).not.toContain(NEUTRAL_ACK);
   });
 });
 
@@ -121,7 +121,7 @@ describe("the one Telegram message (Sham / shared card)", () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "اقرأ README", { understand: async () => "تريد قراءة ملف README؛ سأفتحه أولاً." });
     expect(sent).toHaveLength(1);
-    expect(sent[0].text).toContain(`💬 ${NEUTRAL_ACK}`);                  // first paint: no wait for the model
+    expect(sent[0].text).not.toContain(NEUTRAL_ACK);                  // first paint: no wait for the model
     await new Promise((r) => setTimeout(r, 20));
     expect(sent[0].text).toContain("💬 تريد قراءة ملف README؛ سأفتحه أولاً.");   // the model's own line, edited in
     await cardPhase(bot, 5, card, "think", "جاري التفكير");

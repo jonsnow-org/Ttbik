@@ -23,8 +23,6 @@ export type CoderModel = {
 export const DEFAULT_MODELS: CoderModel[] = [
   // The order here is the order in the picker: Nova AI (one, with everything added to it), Sham (the old one, every fix and tool added to its own code) and Sham v2 (the new body, tried beside it).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي: يصلح مشاريع GitHub ويبحث ويجدول ويفهم الصور ويصنع الصور والصوت والفيديو.", en: "Practical coder and assistant: fixes GitHub projects, searches, schedules, reads pictures and makes pictures, speech and video." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
-  // Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studio, beside Nova (the 4B), which stays as it is. Stronger and slower; owner-only until the owner opens it.
-  { id: "nova2", name: { ar: "Nova 2", en: "Nova 2" }, desc: { ar: "Nova بنموذج أكبر وأقوى (Qwen3.6-35B-A3B) على استوديو الحساب الدولي: أبطأ وأعمق. نوفا الأصلي يبقى كما هو.", en: "Nova with a bigger, stronger model (Qwen3.6-35B-A3B) on the international Studio: slower and deeper. The original Nova stays as it is." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "", sort: 0.5 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
   { id: "sham_v2", name: { ar: "شام برو", en: "Sham Pro" }, desc: { ar: "شام برو، نسخة من شام 1 بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham Pro, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
@@ -103,7 +101,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 
 /** Can this model answer right now (its Studio / key is set)? A model that is switched on for everyone but is not ready is still hidden from users. */
 /** Older chats may hold the id of the former "Sham (advanced)" entry: it was merged into the old Sham (which now has everything it had). */
-export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
+export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id === "nova2" ? "coder" : id);   // Nova 1 was removed (2026-11-22): the one Nova is the 35B model; an old "nova2" pick means it
 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
 const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
