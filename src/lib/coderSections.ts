@@ -2639,11 +2639,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         const gate = await import("@/lib/coderFinishGate");
         // the goal is the run's own request plus the owner's recent messages: a follow-up like «البوت هو @Slaselbot» carries no action verb of its own but continues the action request
         const recentOwner = st.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !String(m.content).startsWith("[harness]")).slice(-6).map((m) => String(m.content)).join("\n");
-        const nudge = gate.finishNudge(gate.isChitChat(run.goal || "") ? (run.goal || "") : [run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const nudge = gate.finishNudge(gate.isChitChat(run.goal || "") || gate.isQuestionLike(run.goal || "") ? (run.goal || "") : [run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
-          await send(ioBot, chatId, `↩️ الرد السابق لا يُعتمد: لم يُسجَّل فيه أي تعديل فعلي. أعدتُ النموذج إلى العمل (المحاولة ${run.nudges} من 3).`);      // the draft was already on the owner's screen while it streamed: say plainly that it was rejected
           st.messages.push({ role: "user", content: nudge });
           await saveState(chatId, st, db, slot);
           continue;

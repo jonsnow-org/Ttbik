@@ -35,6 +35,13 @@ export function isChitChat(text: string): boolean {
   return t.length > 0 && t.length <= 80 && CHITCHAT.test(t) && !isActionGoal(t);
 }
 
+/** A question («لماذا؟», «كيف ذلك», «why», «هل …؟»): it asks for an answer, never for work, whatever was asked earlier in the chat. */
+const QUESTION = /^[\s\p{P}]*(?:لماذا|ليش|لِم|كيف|ماذا|ما\s|ما$|من\s|متى|أين|اين|هل\s|كم\s|أي\s|اي\s|why|how|what|who|when|where|which|is\s|are\s|do\s|does\s|can\s)/iu;
+export function isQuestionLike(text: string): boolean {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 160 && (/[?؟]\s*$/.test(t) || QUESTION.test(t)) && !isActionGoal(t);
+}
+
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
 export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
   if (nudges >= 3) return "";

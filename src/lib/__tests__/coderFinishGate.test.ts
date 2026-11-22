@@ -83,3 +83,18 @@ describe("stale harness nudges", () => {
     expect(dropStaleHarness(msgs)).toEqual(msgs);
   });
 });
+
+describe("questions are never action requests, and no rejection notice is ever sent to the chat", () => {
+  const { isQuestionLike, finishNudge } = require("@/lib/coderFinishGate");
+  it("recognises a question and nothing that asks for work", () => {
+    for (const t of ["لماذا", "لماذا؟", "كيف ذلك", "هل تستطيع؟", "why", "what happened"]) expect(isQuestionLike(t)).toBe(true);
+    for (const t of ["أصلح الخطأ في المستودع", "كيف حالك؟ ثم أصلح ملف README وانشره", "حسّن الكود", "البوت هو @Slaselbot"]) expect(isQuestionLike(t)).toBe(false);
+  });
+  it("a question's own reply is not rejected, even right after an action request", () => {
+    expect(finishNudge("لماذا", [], "لأني لم أتمكن من الوصول إلى الأدوات اللازمة لتنفيذ المهمة.", 0)).toBe("");
+  });
+  it("the chat never receives the «الرد السابق لا يُعتمد» notice", () => {
+    const src = require("fs").readFileSync(require.resolve("../coderSections.ts"), "utf8");
+    expect(src).not.toContain("الرد السابق لا يُعتمد");
+  });
+});
