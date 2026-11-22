@@ -122,7 +122,7 @@
 
 يجب الحفاظ على هذا الفصل.
 
-## 4.2 <badge>حرج</badge> قواعد الشبكة الخاصة وSSRF لا تعمل بطريقة fail-closed
+## 4.2 **حرج** قواعد الشبكة الخاصة وSSRF لا تعمل بطريقة fail-closed
 
 في `computer_box.py`، دالة `install_egress_rules()` تصف نفسها بأنها Best-effort. إذا لم يكن التطبيق root أو لم يتوفر `iptables`، ترجع حالة صريحة تقول إن أوامر المستخدم يمكنها الوصول إلى الشبكة الخاصة للمضيف. لكن `run_command()` يستدعي الدالة ثم يكمل تنفيذ الأمر؛ لا يرفض التنفيذ عند غياب الحماية أو فشل إضافة القواعد.
 
@@ -143,7 +143,7 @@
 3. أضف اختبارات SSRF تشمل IPv4 وIPv6، عناوين metadata، أسماء DNS، DNS rebinding، redirects، iframe، fetch/XHR، websocket، التحميلات، والروابط التي تبدأ عامة ثم تحوّل إلى عنوان داخلي.
 4. لا تعتبر نجاح `safe_url` وحده إثباتاً لأن كل الاتصالات اللاحقة بقيت آمنة.
 
-## 4.3 <badge>حرج</badge> Chromium يعمل دون Sandbox
+## 4.3 **حرج** Chromium يعمل دون Sandbox
 
 - `browser_computer.py` يشغّل Playwright مع `--no-sandbox`، ويذكر أن تجربة bwrap مجرد فحص تشخيصي ولا يعتمد عليها كعزل فعلي.
 - `desktop_computer.py` يشغّل متصفح سطح المكتب مع `--no-sandbox` أيضاً.
