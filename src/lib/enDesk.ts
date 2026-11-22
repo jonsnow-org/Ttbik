@@ -658,13 +658,13 @@ export const EN_EVENTS: DeskItem[] = [
     "date": "2026-11-09",
     "dateLabel": "9–20 November 2026",
     "endDate": "2026-11-20",
-    "dek": "Antalya hosts the 31st UN Climate Change Conference through 20 November, bringing together governments, negotiators and stakeholders working on climate action.",
+    "dek": "The official COP31 dates ran from 9–20 November 2026. Negotiations continued beyond the scheduled end on 21 November, with no final deal announced in the latest update.",
     "body": [
-      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) is taking place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. It brings together national delegations, negotiators, observers, civil society and private-sector representatives to advance implementation of the Paris Agreement.",
+      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) was held at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. Negotiations continued on 21 November after the official dates ended, as delegates remained divided over the final text.",
       "The session also includes the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
-      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment is scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
+      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment was scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
       "The venue is the Antalya Expo Center in Antalya, Türkiye, and local time is UTC+3. Access to the Blue Zone is for accredited participants; Green Zone activities are subject to arrangements set by the host country.",
-      "Event dates: 9–20 November 2026. Status on 18 November: the conference is ongoing, and not all final outcomes have been announced."
+      "Event dates: 9–20 November 2026; final negotiations continued on 21 November. Status as of the latest reviewed update: the official conference dates have passed and no final agreement had been announced. The summit must not be presented as upcoming."
     ],
     "sources": [
       {
