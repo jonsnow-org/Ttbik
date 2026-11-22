@@ -234,6 +234,13 @@ export async function shamAgentRun(opts: {
         opts.onEvent?.("info", clip(String(step?.result || ""), 300));
       }
       const answer = String(direct.text || "").trim();
+      // The head decided: no command, no tool. A plain conversation is then spoken by Sham Pro's BODY (the 4.5M head writes short command lines, not conversation: live 2026-11-22
+      // its greeting came out doubled and cut mid-word, «...والبحثمرحبا! أنا شام برو...»). Same model, same Studio; the head's text stays the fallback.
+      if (!ran.length && !used.length && tldmSteps === 1 && chatMessages.length) {
+        const spoken = await shamGenerateChat(chatMessages, 768, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+        const said = spoken?.type === "text" ? String(spoken.text || "").trim() : "";
+        if (said) return { kind: "text", text: said, used, steps: tldmSteps + 1 };
+      }
       return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
     }
     if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: tldmSteps };
