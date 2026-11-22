@@ -165,27 +165,39 @@ test("Manipur public-health incident briefing uses matching official and indepen
   assert.match(english.body.join(" "), /does not describe the incident as confirmed methanol poisoning/i);
 });
 
-test("COP31 overtime briefing is bilingual, date-aware and distinguishes the draft from an adopted deal", () => {
+test("COP31 update preserves the original publication date and synchronizes the 22 November outcome in both languages", () => {
   const slug = "cop31-overtime-climate-talks-2026";
   const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
   const english = EN_NEWS.find((item) => item.slug === slug);
-  assert.ok(arabic, "Arabic COP31 briefing is missing");
-  assert.ok(english, "English COP31 briefing is missing");
+  const arabicEvent = EVENT_EXTRAS.find((item) => item.slug === "cop31-antalya-2026");
+  const englishEvent = EN_EVENTS.find((item) => item.slug === "cop31-antalya-2026");
+  assert.ok(arabic && english && arabicEvent && englishEvent);
   assert.equal(arabic.dateIso, "2026-11-21");
+  assert.equal(arabic.dateLabel, "21 نوفمبر 2026");
   assert.equal(english.date, "21 November 2026");
+  assert.equal(arabic.updatedDateIso, "2026-11-22");
+  assert.equal(english.updatedDateIso, "2026-11-22");
+  assert.equal(arabic.updatedDateLabel, "22 نوفمبر 2026");
+  assert.equal(english.updatedDateLabel, "22 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
-  assert.match(arabic.contextDateLabel, /14:36 UTC/);
-  assert.match(english.contextDateLabel, /19:54 UTC/);
+  assert.match(arabic.contextDateLabel, /تاريخ النشر الأصلي في شام AI: 21 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /original Sham AI publication: 21 November 2026/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
-  assert.ok(arabic.sources.some((source) => source.href === "https://unfccc.int/cop31"));
-  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
+  assert.deepEqual(sourceUrls(arabicEvent), sourceUrls(englishEvent));
+  assert.ok(arabic.sources.some((source) => source.href.includes("unfccc.int/news/")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com") && source.href.includes("2026-11-22")));
   assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
-  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com")));
-  assert.match(arabic.description, /دون تسوية نهائية/);
-  assert.match(english.dek, /still unresolved/i);
-  assert.match(arabic.paragraphs.join(" "), /لا ينبغي عرض القمة على أنها حدث قادم/);
-  assert.match(english.body.join(" "), /must not be presented as upcoming/i);
-  assert.match(english.body.join(" "), /draft must not be described as an adopted agreement/i);
+  assert.match(arabic.description, /دون توافق على القرار السياسي الشامل/);
+  assert.match(english.dek, /without consensus on an overarching political outcome/i);
+  assert.match(arabic.paragraphs.join(" "), /22 نوفمبر 2026/);
+  assert.match(english.body.join(" "), /22 November 2026/);
+  assert.match(arabic.paragraphs.join(" "), /الانتقال العادل/);
+  assert.match(english.body.join(" "), /Just Transition/);
+  assert.equal(arabicEvent.endDateIso, "2026-11-20");
+  assert.equal(englishEvent.endDate, "2026-11-20");
+  assert.equal(isEventCurrent(arabicEvent, "2026-11-22"), false);
+  assert.equal(isEventUpcomingOrCurrent(arabicEvent, "2026-11-22"), false);
+  assert.equal(isUpcomingDate(englishEvent, "2026-11-22"), false);
 });
 
 test("21 November autonomous-weapons briefing is bilingual, source-matched and does not overstate the outcome", () => {

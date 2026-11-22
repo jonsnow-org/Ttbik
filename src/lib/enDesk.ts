@@ -5,6 +5,9 @@ export type DeskItem = {
   date: string;
   dateLabel?: string;
   contextDateLabel?: string;
+  updatedDateIso?: string;
+  updatedDateLabel?: string;
+  category?: string;
   body: string[];
   tool?: string;
   sources?: { href: string; label: string }[];
@@ -247,33 +250,36 @@ export const EN_NEWS: DeskItem[] = [
   },
   {
     "slug": "cop31-overtime-climate-talks-2026",
-    "title": "COP31 talks continue beyond the scheduled close amid fossil-fuel and climate-finance disputes",
+    "title": "COP31 closes in Antalya without consensus on an overarching political outcome",
     "date": "21 November 2026",
-    "contextDateLabel": "Official COP31 schedule: 9–20 November 2026; negotiations continued: 21 November; Reuters published: 21 November 2026, 14:36 UTC; latest Guardian live-page update: 21 November 2026, 14:54 EST (19:54 UTC); publication date: 21 November 2026",
-    "dek": "Climate negotiations in Antalya continued beyond their scheduled end, with fossil-fuel language and adaptation finance still unresolved, and no final settlement announced in the latest update; the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels.",
+    "updatedDateIso": "2026-11-22",
+    "updatedDateLabel": "22 November 2026",
+    "contextDateLabel": "Official dates: 9–20 November 2026; closing plenary: 22 November 2026 in Antalya (UTC+3); UNFCCC statement: 22 November 2026; Reuters update: 22 November 2026, 10:13 UTC; AP report: 22 November 2026; original Sham AI publication: 21 November 2026; article updated: 22 November 2026.",
+    "dek": "COP31 ended without consensus on an overarching political outcome after negotiations ran more than 50 hours into overtime. Fossil-fuel language and adaptation finance remained central disputes, while some other decisions and initiatives moved forward.",
     "body": [
-      "The UN Framework Convention on Climate Change lists COP31 in Antalya, Türkiye, for 9–20 November 2026. Reuters and the Associated Press reported that negotiations continued on Saturday, 21 November, beyond the scheduled close. The latest Guardian live-page update reviewed was at 14:54 EST (19:54 UTC) on 21 November, and no final agreement had been announced.",
-      "In its 14:36 UTC update on 21 November, Reuters said negotiators from nearly 200 countries remained divided over whether the outcome should mention fossil fuels and provide adaptation finance to countries with fewer resources. A draft published on Thursday had removed earlier references to ending fossil-fuel use and dropped a proposed $120 billion adaptation-finance target; those details describe a negotiating draft, not a final decision.",
-      "In its 14:54 EST (19:54 UTC) update, the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels in the final text. It said Saudi Arabia continued to resist that language and wanted carbon capture and storage emphasised, while the EU was considering its next move. No final compromise text had been announced in the update reviewed.",
-      "The Associated Press also reported that talks had entered overtime and that climate-vulnerable countries were seeking more support for adaptation and disaster recovery. The reports reviewed did not establish that a final agreement had been adopted by the Guardian’s 19:54 UTC update on 21 November.",
-      "Location: Antalya, Türkiye. Official conference dates: 9–20 November 2026; additional negotiations: 21 November. Latest live-page update reviewed: 21 November 2026, 14:54 EST (19:54 UTC). Sham AI publication date: 21 November 2026. The summit must not be presented as upcoming. The negotiating draft must not be described as an adopted agreement."
+      "The official schedule listed the 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) in Antalya, Türkiye, for 9–20 November 2026. Negotiations continued beyond those dates, and the closing plenary took place at the Antalya Expo Center on Sunday, 22 November, local time UTC+3.",
+      "In closing-plenary remarks published on 22 November, the UNFCCC Executive Secretary said the conference had been unable to agree on issues related to both Presidency-led decisions. This is the official description of the impasse; it does not mean that every decision or workstream at the conference stopped.",
+      "In an update published on 22 November at 10:13 UTC, Reuters reported that countries had failed to agree on an overarching political outcome after the European Union and other parties rejected the final proposal. Key disputes included the absence of an explicit reference to fossil fuels and disagreements over adaptation finance and the baseline for the proposed increase.",
+      "The Associated Press independently reported that the talks ended without an overarching agreement after more than 50 hours of overtime. It also noted progress on smaller issues and a separate electrification pledge signed by nearly 100 countries. Unresolved matters were deferred to next year's talks in Ethiopia.",
+      "The failure to agree on the overarching political outcome should be distinguished from the conference's other results: the UNFCCC closing remarks said key negotiating decisions had been made, including one on a Just Transition. This report therefore does not describe the entire conference as having produced no outcomes.",
+      "Location: Antalya Expo Center, Antalya, Türkiye. Official dates: 9–20 November 2026; actual closing plenary: 22 November 2026. Original Sham AI publication: 21 November 2026; article updated: 22 November 2026. The event has ended and must not be presented as upcoming."
     ],
     "sources": [
       {
         "href": "https://unfccc.int/cop31",
-        "label": "UN Framework Convention on Climate Change — official COP31 dates and information"
+        "label": "UNFCCC — official COP31 dates"
       },
       {
-        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
-        "label": "Reuters — 21 November 2026 update, 14:36 UTC"
+        "href": "https://unfccc.int/news/un-climate-change-executive-secretary-simon-stiell-remarks-at-the-closing-plenary-of-cop31",
+        "label": "UNFCCC — Executive Secretary's closing-plenary remarks, 22 November 2026"
       },
       {
-        "href": "https://apnews.com/article/cop31-un-turkey-climate-change-global-warming-b54eebcade92e5ee4c513b9a5b2192a7",
-        "label": "Associated Press — talks continue beyond the scheduled close, 21 November 2026"
+        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-deal-balance-after-fractious-talks-2026-11-22/",
+        "label": "Reuters — delegates react after consensus fails, 22 November 2026, 10:13 UTC"
       },
       {
-        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
-        "label": "The Guardian — live coverage, updated 14:54 EST (19:54 UTC) on 21 November"
+        "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
+        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026"
       }
     ]
   },
@@ -658,34 +664,31 @@ export const EN_EVENTS: DeskItem[] = [
     "date": "2026-11-09",
     "dateLabel": "9–20 November 2026",
     "endDate": "2026-11-20",
-    "dek": "The official COP31 dates ran from 9–20 November 2026. Negotiations continued beyond the scheduled end on 21 November, with no final deal announced in the latest update.",
+    "category": "UN climate conference",
+    "dek": "COP31's official dates were 9–20 November 2026, but negotiations continued until the closing plenary on 22 November. The parties did not reach consensus on the Presidency-led decisions or an overarching political outcome.",
     "body": [
-      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) was held at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. Negotiations continued on 21 November after the official dates ended, as delegates remained divided over the final text.",
-      "The session also includes the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
-      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment was scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
-      "The venue is the Antalya Expo Center in Antalya, Türkiye, and local time is UTC+3. Access to the Blue Zone is for accredited participants; Green Zone activities are subject to arrangements set by the host country.",
-      "Event dates: 9–20 November 2026; final negotiations continued on 21 November. Status as of the latest reviewed update: the official conference dates have passed and no final agreement had been announced. The summit must not be presented as upcoming."
+      "COP31 was held at the Antalya Expo Center in Antalya, Türkiye, on the official schedule of 9–20 November 2026. Negotiations ran more than 50 hours into overtime before the closing plenary on 22 November, local time UTC+3.",
+      "In closing-plenary remarks published on 22 November, the UNFCCC Executive Secretary said the conference had been unable to agree on issues related to both Presidency-led decisions. The parties therefore did not reach consensus on an overarching political outcome.",
+      "Reuters and the Associated Press reported that the dispute centred on the absence of an explicit reference to fossil fuels and disagreements over adaptation finance, and that the European Union and other parties rejected the final proposal. The Presidency's draft must not be confused with an adopted decision.",
+      "Not all conference work stopped: the UNFCCC statement noted that key negotiating decisions had been made, including one on a Just Transition. AP also reported progress on smaller issues and a separate electrification pledge signed by nearly 100 countries. Unresolved matters were deferred to the following year's talks in Ethiopia.",
+      "Location: Antalya Expo Center, Antalya, Türkiye. Official conference dates: 9–20 November 2026; closing plenary after extended negotiations: 22 November 2026. Status: concluded."
     ],
     "sources": [
       {
-        "href": "https://unfccc.int/cop31/about",
-        "label": "UNFCCC — COP31 overview and dates"
+        "href": "https://unfccc.int/cop31",
+        "label": "UNFCCC — official COP31 dates"
       },
       {
-        "href": "https://unfccc.int/cop31/ifp",
-        "label": "UNFCCC — participant information and venue"
+        "href": "https://unfccc.int/news/un-climate-change-executive-secretary-simon-stiell-remarks-at-the-closing-plenary-of-cop31",
+        "label": "UNFCCC — Executive Secretary's closing-plenary remarks, 22 November 2026"
       },
       {
-        "href": "https://unfccc.int/sites/default/files/resource/updated_resumed_hls_2026.pdf",
-        "label": "UNFCCC — resumed high-level segment schedule"
+        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-deal-balance-after-fractious-talks-2026-11-22/",
+        "label": "Reuters — delegates react after consensus fails, 22 November 2026, 10:13 UTC"
       },
       {
-        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
-        "label": "Reuters — negotiations continued beyond the official end, 21 November 2026"
-      },
-      {
-        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
-        "label": "The Guardian — live coverage, latest update reviewed at 14:54 EST (19:54 UTC), 21 November 2026"
+        "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
+        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026"
       }
     ]
   },

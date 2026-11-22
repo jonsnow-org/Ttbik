@@ -37,6 +37,7 @@ export default async function Page(props: { params: Promise<{ slug: string }> })
         <img src={englishCover(item.slug)} alt="" className="aspect-[21/9] w-full object-cover" />
         <div className="p-5 sm:p-7">
           <p className="text-xs font-bold text-sky-700">Published · {item.date}</p>
+          {item.updatedDateLabel ? <p className="mt-1 text-xs font-bold text-slate-600">Updated · {item.updatedDateLabel}</p> : null}
           {item.contextDateLabel ? (
             <p className="mt-1 text-xs leading-6 text-slate-500">Event/report date · {item.contextDateLabel}</p>
           ) : null}
