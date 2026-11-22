@@ -1013,7 +1013,13 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
     cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
     _flag_cycle(True, keep=True)                     # an interrupted cycle's flag stays: the child's prepare_resume decides (and restarts the flag when it does not resume)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+    # glibc gives every thread its own malloc arena and keeps freed pages: the cycle runs ~13 spider/encoder threads over big tensors and bytes, and its memory grew until the 8 GB
+    # limit killed it (code -9, cn sham-trainer-1, 2026-11-13 and again 2026-11-22: 6.5 GB at a 8.0 GB limit). Two arenas and an eager trim keep the same work in less memory.
+    # A value already set in the Studio's environment wins.
+    env = dict(os.environ)
+    for k, v in (("MALLOC_ARENA_MAX", "2"), ("MALLOC_TRIM_THRESHOLD_", "131072"), ("MALLOC_MMAP_THRESHOLD_", "131072")):
+        env.setdefault(k, v)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True, env=env)
     _CYCLE_LINE_AT[0] = time.time()
     _KILL_REQUEST.clear()
     _set(child_pid=proc.pid, cycle_started=time.time())
