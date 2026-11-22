@@ -37,6 +37,9 @@ sys.path.insert(0, str(HERE))
 REPO = os.environ.get("GITHUB_REPOSITORY", "jonsnow-org/Ttbik")
 FACTORY = {"Sham Collector (free CPU runner)": 6, "Sham CPU Trainer (free CPU runner, slow and continuous)": 6,
            "Sham Merge + Repair + Eval (free CPU runner)": 8}   # workflow name → expected hours between runs
+FACTORY_FILES = {"Sham Collector (free CPU runner)": "sham-collector.yml",
+                 "Sham CPU Trainer (free CPU runner, slow and continuous)": "sham-cpu-trainer.yml",
+                 "Sham Merge + Repair + Eval (free CPU runner)": "sham-merge-eval.yml"}
 MAIN_LINE = ["sham-checkpoint", "sham-multimodal-checkpoint", "sham-chat-checkpoint",
              "sham-image-tokenizer-checkpoint", "sham-audio-tokenizer-checkpoint"]   # the two tokenizers too: an old notebook error is only ignored while these keep advancing
 STALE_HOURS = 24 * 5
@@ -164,6 +167,19 @@ def github_runs(get_json) -> dict[str, list[dict]]:
         if r.get("name") in FACTORY or str(r.get("name", "")).startswith(("Sham ", "Grok")):
             start, end = _parse(r.get("run_started_at") or ""), _parse(r.get("updated_at") or "")
             out.setdefault(r["name"], []).append({
+                "id": r.get("id"), "url": r.get("html_url", ""),
+                "status": r.get("status"), "conclusion": r.get("conclusion"), "started": (r.get("run_started_at") or "")[:16],
+                "minutes": round((end - start).total_seconds() / 60) if start and end and r.get("status") == "completed" else None,
+                "event": r.get("event")})
+    # The repo-wide page holds only the newest 100 runs of ALL workflows, so the slow scheduled factory workflows
+    # (every 6-8 h) fall off it and were reported as "never started" although they ran fine: read each by file.
+    for name, fname in FACTORY_FILES.items():
+        if out.get(name):
+            continue
+        w = get_json(f"https://api.github.com/repos/{REPO}/actions/workflows/{fname}/runs?per_page=4") or {}
+        for r in w.get("workflow_runs", []):
+            start, end = _parse(r.get("run_started_at") or ""), _parse(r.get("updated_at") or "")
+            out.setdefault(name, []).append({
                 "id": r.get("id"), "url": r.get("html_url", ""),
                 "status": r.get("status"), "conclusion": r.get("conclusion"), "started": (r.get("run_started_at") or "")[:16],
                 "minutes": round((end - start).total_seconds() / 60) if start and end and r.get("status") == "completed" else None,
