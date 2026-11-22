@@ -690,6 +690,39 @@ export const EN_EVENTS: DeskItem[] = [
     ]
   },
   {
+    "slug": "apec-economic-leaders-meeting-shenzhen-2026",
+    "title": "APEC Leaders' Week in Shenzhen",
+    "date": "2026-11-18",
+    "endDate": "2026-11-19",
+    "dateLabel": "18–19 November 2026",
+    "category": "International economic summit",
+    "dek": "Shenzhen hosted APEC Leaders' Week on 18–19 November 2026, including a keynote address and a separate trilateral meeting on the sidelines.",
+    "body": [
+      "APEC Leaders' Week took place in Shenzhen, China, on 18–19 November 2026. On 18 November, Chinese President Xi Jinping delivered remarks at the opening of the APEC CEO Summit, calling for stronger economic integration, trade and open investment across the Asia-Pacific.",
+      "On 19 November, Xi Jinping, Vladimir Putin and Donald Trump met in Shenzhen on the sidelines of APEC Leaders' Week. China's Foreign Ministry said the three countries would support UN reform, work to increase production and supplies of refined petroleum products, and hold dialogue on reducing nuclear risks and preventing proliferation.",
+      "The Guardian reported that the meeting lasted more than an hour but produced no announced breakthrough on the main issues, and did not establish a new framework for resolving the war in Ukraine or the dispute involving Iran. It should not be described as a peace agreement or settlement of either conflict.",
+      "Location: Shenzhen, China. Dates: 18–19 November 2026. Local time: China Standard Time (CST, UTC+8). Status: concluded."
+    ],
+    "sources": [
+      {
+        "href": "https://english.www.gov.cn/news/202611/18/content_WS6afd950fc6d00ca5f9a0e696.html",
+        "label": "China's State Council / Xinhua — Xi's remarks at the APEC CEO Summit"
+      },
+      {
+        "href": "https://www.fmprc.gov.cn/eng/xw/zyxw/202611/t20261119_12063224.html",
+        "label": "China's Ministry of Foreign Affairs — 19 November trilateral statement"
+      },
+      {
+        "href": "https://www.theguardian.com/world/live/2026/nov/19/apec-summit-trump-xi-putin-meeting-shenzhen-china",
+        "label": "The Guardian — coverage of the meeting and its announced outcome"
+      },
+      {
+        "href": "https://www.apec.org/press/news-releases/2026/1115_CSOM",
+        "label": "APEC — trade, connectivity and AI priorities"
+      }
+    ]
+  },
+  {
     "slug": "world-toilet-day-2026",
     "title": "World Toilet Day 2026: Safe toilets, equal futures",
     "date": "2026-11-19",

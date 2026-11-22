@@ -57,7 +57,7 @@ test("current and upcoming global events have matching English dates and sources
   ];
 
   for (const item of expected) {
-    const arabic = EVENT_EXTRAS.find((event) => event.slug === item.slug);
+    const arabic = [...EVENT_ITEMS, ...EVENT_EXTRAS].find((event) => event.slug === item.slug);
     const english = EN_EVENTS.find((event) => event.slug === item.slug);
     assert.ok(arabic, `Missing Arabic event ${item.slug}`);
     assert.ok(english, `Missing English event ${item.slug}`);
