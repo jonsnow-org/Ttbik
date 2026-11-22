@@ -346,6 +346,25 @@ class Sham2HeadsFromTrainer(unittest.TestCase):
         self.assertTrue(S.status_fields()["identity_lora"])
         self.assertTrue(S.apply_identity(body, self.path)["identity_lora"])   # idempotent
 
+    def test_merged_identity_is_the_same_function_without_adapters(self):
+        import torch
+        body = self.body()
+        self.assertTrue(S.apply_identity(body, self.path)["identity_lora"])
+        ids = torch.tensor([[5, 6, 7, 8, 9]])
+        with torch.no_grad():
+            unmerged = body(ids)[0].clone()
+        n = S.merge_identity(body)
+        self.assertGreater(n, 0)
+        self.assertFalse(any(".adapter_" in k for k, _ in body.named_parameters()))          # plain Linear projections again
+        with torch.no_grad():
+            merged = body(ids)[0]
+        self.assertTrue(torch.allclose(unmerged, merged, atol=1e-4), float((unmerged - merged).abs().max()))
+        self.assertEqual(S.merge_identity(body), 0)                                          # idempotent
+        self.assertTrue(S.apply_identity(body, self.path)["identity_lora"])                  # the same head: the cached status
+        other = S.apply_identity(body, None, S.read_payload(self.path))                                # another head after a merge is refused, never double-applied
+        self.assertFalse(other["identity_lora"])
+        self.assertIn("merged", other["identity_lora_why"])
+
     def test_identity_that_does_not_fit_is_refused_and_body_unchanged(self):
         import torch
         p = S.read_payload(self.path)

@@ -360,3 +360,18 @@ describe("run-on-the-computer requests are agentic (live Nova suite 2026-11-22)"
     expect(classifyRequest("حدثني عن حاسوب الجيب القديم")).toBe("chat");
   });
 });
+
+describe("task continuation vs plain chat (the lite path)", () => {
+  const { isTaskContinuation } = require("@/lib/modes");
+  it("a plain chat whose last reply ended with a question is NOT a continuation (stays on the fast lite path)", () => {
+    expect(isTaskContinuation([{ role: "user", content: "مرحبا" }, { role: "assistant", content: "أهلا! كيف يمكنني مساعدتك اليوم؟" }, { role: "user", content: "كيف حالك" }])).toBe(false);
+  });
+  it("a question after tool work, or a reply with tool calls, IS a continuation (keeps every tool)", () => {
+    expect(isTaskContinuation([{ role: "user", content: "أصلح الخطأ" }, { role: "assistant", content: "", tool_calls: [{}] }, { role: "tool", content: "ok" }, { role: "assistant", content: "أي فرع؟" }, { role: "user", content: "main" }])).toBe(true);
+    expect(isTaskContinuation([{ role: "user", content: "x" }, { role: "assistant", content: "جارٍ", tool_calls: [{}] }])).toBe(true);
+  });
+  it("no assistant turn yet, or a statement ending: not a continuation", () => {
+    expect(isTaskContinuation([{ role: "user", content: "hi" }])).toBe(false);
+    expect(isTaskContinuation([{ role: "user", content: "a" }, { role: "assistant", content: "تم." }])).toBe(false);
+  });
+});

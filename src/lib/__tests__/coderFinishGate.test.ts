@@ -64,3 +64,22 @@ describe("greetings are never action requests", () => {
     expect(finishNudge("كيف حالك من انت", [], "أنا نوفا، مساعد ذكي. كيف يمكنني مساعدتك اليوم؟", 0)).toBe("");
   });
 });
+
+describe("stale harness nudges", () => {
+  const { dropStaleHarness } = require("@/lib/coderFinishGate");
+  it("drops [harness] user messages that precede the last real user message; keeps the current run's own", () => {
+    const msgs = [
+      { role: "user", content: "أصلح الخطأ" },
+      { role: "user", content: "[harness] The owner has already authorised you to ACT…" },
+      { role: "assistant", content: "حاضر" },
+      { role: "user", content: "كيف حالك من انت" },
+      { role: "user", content: "[harness] now do the work" },
+    ];
+    const out = dropStaleHarness(msgs);
+    expect(out.map((m: any) => m.content)).toEqual(["أصلح الخطأ", "حاضر", "كيف حالك من انت", "[harness] now do the work"]);
+  });
+  it("leaves a history without a real user message untouched", () => {
+    const msgs = [{ role: "user", content: "[harness] x" }];
+    expect(dropStaleHarness(msgs)).toEqual(msgs);
+  });
+});

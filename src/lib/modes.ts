@@ -195,3 +195,21 @@ export const NOVA_CHAT_SYSTEM = [
   "If the user needs today's information, files, GitHub or a computer, say what you need to do it. Do not pretend to have done anything.",
   "Identity: you are Nova AI, with your own identity. Never say you were made, trained or built by any team, company or model, never name a base model, and do not discuss training details.",
 ].join("\n");
+
+/**
+ * Is the user's new message the continuation of a TASK (so it keeps every tool), or an ordinary chat turn (so the fast lite path may answer it)?
+ * A task continuation = the last assistant turn made tool calls, or it ended with a question AND tool work happened recently in this conversation
+ * («أي فرع؟» → «main»). A plain chat whose last reply merely ended with «كيف يمكنني مساعدتك؟» is NOT one: before this, every such reply pushed the next turn onto the
+ * full 11,000-token tool path (live 2026-11-22: a greeting answered in seconds, the next «كيف حالك» read 16,719 tokens). Sham Pro's direct chat never had that rule.
+ */
+export function isTaskContinuation(messages: { role: string; content?: unknown; tool_calls?: unknown[] }[], window = 12): boolean {
+  const recent = (messages || []).slice(-window);
+  const last = [...recent].reverse().find((m) => m.role === "assistant");
+  if (!last) return false;
+  if ((last.tool_calls || []).length > 0) return true;
+  if (!/[?؟]\s*$/.test(String(last.content || "").trim())) return false;
+  if (recent.some((m) => m.role === "tool" || (m.role === "assistant" && (m.tool_calls || []).length > 0))) return true;
+  // the question may follow a task request that had no tool step yet («اقرأ ملف README» → «هل تريد المتابعة؟» → «نعم»)
+  const users = recent.filter((m) => m.role === "user" && !String(m.content || "").startsWith("[harness]"));
+  return users.slice(0, -1).some((m) => { const k = classifyRequest(String(m.content || "")); return k === "code" || k === "agentic"; });
+}
