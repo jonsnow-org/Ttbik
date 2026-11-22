@@ -26,6 +26,12 @@ on:
       seeds:
         description: "seeds"
         default: "3"
+      loop:
+        description: "also train the agent-loop head (Sham Pro's loop_seed recipe) on the GGUF features: the multi-step terminal loop of the original T-LDM report"
+        default: "true"
+      loop_seeds:
+        description: "loop-head seeds"
+        default: "1"
       strict_wilson:
         description: "publish only when the 95% Wilson verdict is PASS on both held-out sets (review note #1198 §5.3); off = the same 0.6-mean gate Sham Pro used"
         default: "false"
@@ -91,7 +97,7 @@ jobs:
         run: |
           set -o pipefail
           cd ai-system/tldm
-          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" $( [ "${{ inputs.loop || 'true' }}" = "true" ] && echo "--loop --loop_seeds ${{ inputs.loop_seeds || '1' }}" ) --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -117,6 +123,11 @@ jobs:
           if os.environ.get("STRICT_WILSON") == "true":
               ok = ok and r["heldout"]["verdict_mean"] == "pass" and r["heldout2"]["verdict_mean"] == "pass"
               print("strict Wilson:", r["heldout"]["verdict_mean"], r["heldout2"]["verdict_mean"])
+          loop = r.get("loop") or []
+          if loop:
+              best = max(x["all"]["success"] for x in loop)
+              print("agent-loop head: full-task success per seed", [x["all"]["success"] for x in loop], "multi-step", [x["multi_step"]["success"] for x in loop])
+              ok = ok and best >= 0.6
           print("heldout", r["heldout"]["mean"], "heldout2", r["heldout2"]["mean"], "gate 0.6 ->", "PASS" if ok else "BLOCKED")
           if not ok:
               sys.exit("head below the gate: not published")
