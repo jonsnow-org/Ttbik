@@ -203,21 +203,21 @@ describe("Nova's real loop uses the profile", () => {
     expect(c[0].body.think).toBe("1"); expect(c[0].body.max_tokens).toBe(0);
     expect(c[1].body.think).toBe("");
   });
-  it("agent work with the 'deeper thinking' switch (policy always): every step thinks", async () => {
+  it("a stored 'always' policy (the old deeper-thinking switch) is ignored: the request class decides, as for everyone", async () => {
     const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };
     const calls = studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }, { type: "done", job: "j2", text: "انتهيت.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", perModel: { coder: { policy: "always" } }, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", perModel: { coder: { policy: "always" } }, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2a", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const c = chats(calls);
-    expect(c[0].body.think).toBe("1"); expect(c[1].body.think).toBe("1");
+    expect(c[0].body.think).toBe("1"); expect(c[1].body.think).toBe("");      // exactly the automatic behaviour above
   });
-  it("policy never: no thought even for agent work", async () => {
+  it("a stored 'never' policy is ignored too: agent work still thinks on its planning step", async () => {
     const calls = studio([{ type: "done", job: "j1", text: "تم.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", think: false, perModel: { coder: { policy: "never" } }, messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2c", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", think: false, perModel: { coder: { policy: "never" } }, messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
-    expect(chats(calls)[0].body.think).toBe("");
+    expect(chats(calls)[0].body.think).toBe("1");
   });
   it("fast / balanced chat never thinks and is capped; the owner's force changes it for everyone", async () => {
     let calls = studio([{ type: "done", job: "j1", text: "باريس.", tool_calls: [] }]);
@@ -255,19 +255,16 @@ describe("defaults and Auto: measured request parameters (no separate Auto switc
     expect(r.greeting.think).toBe(""); expect(r.question.think).toBe("");
     expect(r.code.think).toBe("1"); expect(r.plan.think).toBe("1");
   });
-  it("balanced vs fast vs precise on a CODE request: the temperature sent differs (0.7 / 0.6 / 0.2) and the thought cap differs", async () => {
+  it("a stored accuracy (fast / precise) is ignored on a CODE request: everyone is on balanced (0.6) with the same thought cap", async () => {
     const out: any = {};
     for (const a of ["fast", "balanced", "precise"]) out[a] = await params("اكتب دالة بايثون تعكس النص", { perModel: { coder: { accuracy: a } } }, "c_" + a);
-    console.log("MEASURED accuracy (code request)", JSON.stringify(out));
-    expect([out.fast.temperature, out.balanced.temperature, out.precise.temperature]).toEqual([0.7, 0.6, 0.2]);
-    expect([out.fast.think, out.balanced.think, out.precise.think]).toEqual(["1:500", "1", "1:3000"]);   // the thought cap differs too
+    expect([out.fast.temperature, out.balanced.temperature, out.precise.temperature]).toEqual([0.6, 0.6, 0.6]);
+    expect([out.fast.think, out.balanced.think, out.precise.think]).toEqual(["1", "1", "1"]);
   });
-  it("the accuracy setting changes what is sent: fast / balanced / precise differ in temperature, answer cap and thinking", async () => {
+  it("a stored accuracy is ignored on a plain question too: nothing a user once stored changes what is sent", async () => {
     const out: any = {};
     for (const a of ["fast", "balanced", "precise"]) out[a] = await params("ما هي عاصمة فرنسا؟", { perModel: { coder: { accuracy: a } }, accuracy: undefined, think: undefined }, "a_" + a);
-    console.log("MEASURED accuracy (plain question)", JSON.stringify(out));
-    expect(new Set(Object.values(out).map((v: any) => JSON.stringify(v))).size).toBeGreaterThan(1);
-    expect(out.precise.temperature).toBeLessThan(out.fast.temperature); expect(out.precise.max_tokens).toBeGreaterThan(out.fast.max_tokens);
+    expect(new Set(Object.values(out).map((v: any) => JSON.stringify(v))).size).toBe(1);
   });
 });
 
