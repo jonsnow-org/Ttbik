@@ -47,3 +47,29 @@ export function finishNudge(goal: string, toolNames: string[], text: string, nud
 export function worthALesson(goal: string, toolNames: string[]): boolean {
   return !isActionGoal(goal) || madeChanges(toolNames);
 }
+
+/**
+ * Execution gate (live task suite 2026-11-21, Nova `code-run`): «اكتب برنامج بايثون يطبع مربعات الأعداد ونفّذه على حاسوبك وأخبرني بالناتج» got a reply that showed the code
+ * and a made-up result with ZERO tool calls. When the request itself says to RUN something on the computer and the run made no execution call, the answer is sent back to
+ * work (at most twice). It applies to every user: running code in the isolated computer is what they asked for, not an owner-only authorisation.
+ */
+const EXEC_VERB = /(نفّ?ذ(?:ه|ها|وه|ي)?|نفذ(?:ه|ها)?|شغّ?ل(?:ه|ها)?|run it|execute|run the (?:code|program|script)|run (?:it )?on)/i;
+const EXEC_PLACE = /(حاسوب|جهاز|computer|terminal|sandbox|الطرفية)/i;
+const EXEC_TOOL = /^(computer_(run|test|batch|job)|sandbox_exec|browser|desktop)$/;
+
+export function asksToRun(goal: string): boolean {
+  const t = String(goal || "");
+  return EXEC_VERB.test(t) && EXEC_PLACE.test(t);
+}
+
+export function ranSomething(toolNames: string[]): boolean {
+  return toolNames.some((n) => EXEC_TOOL.test(n));
+}
+
+/** The harness message for a run whose request said to run something but made no execution call, else "". */
+export function execNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
+  if (nudges >= 2 || !asksToRun(goal) || ranSomething(toolNames)) return "";
+  if (String(text || "").trim().length < 10) return "";
+  return "[harness] The user asked you to RUN this on the computer, but you answered without running anything: no computer_run call was made, so any output you wrote is not real. "
+    + "Write the program with computer_write if you have not, then call computer_run on it now, and answer ONLY from its real printed output. Reply in the user's language.";
+}

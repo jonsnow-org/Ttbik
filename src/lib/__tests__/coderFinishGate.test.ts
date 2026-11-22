@@ -1,4 +1,4 @@
-import { finishNudge, madeChanges, worthALesson, toolNamesIn } from "../coderFinishGate";
+import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething } from "../coderFinishGate";
 
 const GOAL = "اذهب للمستودع وابحث عن بوت سلاسل يومية يوجد له تطبيق مصغر قم باصلاح وتطوير البوت والتطبيق المصغر بشكل كامل";
 const MENU = "بناءً على تحليلي وجدت البوت. هل تريد أن أقوم بإصلاح الكود؟ أخبرني بالخطوة التي تريد البدء بها!";
@@ -31,5 +31,25 @@ describe("owner finish gate", () => {
     expect(finishNudge("البوت هو @Slaselbot", ["computer_read", "computer_search"], report, 0)).toMatch(/NO edit/);
     expect(finishNudge("البوت هو @Slaselbot", ["computer_edit"], report, 0)).toBe("");
     expect(finishNudge("ما هو أفضل مكتبة؟", [], "أنصح بكذا لأن السبب طويل وواضح", 0)).toBe("");
+  });
+});
+
+describe("execution gate (Nova code-run, live suite 2026-11-21)", () => {
+  const goal = "اكتب برنامج بايثون يطبع مربعات الأعداد من 1 إلى 5 ونفّذه على حاسوبك وأخبرني بالناتج.";
+  const shown = "أكتب لك كود بايثون: print([i*i for i in range(1,6)]) والناتج 1 4 9 16 25";
+  it("sends back an answer that showed code but ran nothing, at most twice", () => {
+    expect(execNudge(goal, [], shown, 0)).toMatch(/computer_run/);
+    expect(execNudge(goal, [], shown, 1)).toMatch(/computer_run/);
+    expect(execNudge(goal, [], shown, 2)).toBe("");
+  });
+  it("lets it end once something was executed", () => {
+    expect(execNudge(goal, ["computer_write", "computer_run"], shown, 0)).toBe("");
+    expect(ranSomething(["sandbox_exec"])).toBe(true);
+  });
+  it("does not fire on requests that do not ask to run anything on the computer", () => {
+    expect(asksToRun("اكتب برنامج بايثون يطبع مربعات الأعداد")).toBe(false);
+    expect(asksToRun("ما هي عاصمة مصر؟")).toBe(false);
+    expect(asksToRun("شغّل الأمر echo hi على حاسوبك")).toBe(true);
+    expect(execNudge("ما هي عاصمة مصر؟", [], shown, 0)).toBe("");
   });
 });
