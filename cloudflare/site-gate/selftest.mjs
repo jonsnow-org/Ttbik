@@ -15,7 +15,7 @@ globalThis.fetch = async (url, init = {}) => {
   return s(u, init);
 };
 const ctx = { waitUntil: (p) => p };
-const reset = (mode = "auto") => { calls = []; script = {}; kvData.clear(); kvData.set("mode", mode); _state.modeAt = 0; _state.downUntil = 0; _state.until = 0; };
+const reset = (mode = "auto") => { calls = []; script = {}; kvData.clear(); kvData.set("mode", mode); _state.modeAt = 0; _state.downUntil = 0; _state.until = 0; _state.standbyPausedUntil = 0; };
 const get = (path, init, e = env) => gate.fetch(new Request("https://gate.test" + path, init), e, ctx);
 const hdr = (i) => new Headers(calls[i].headers);
 
@@ -150,4 +150,25 @@ const bytes = new Uint8Array(await r.arrayBuffer()); assert.equal(String.fromCha
 // a server answering with something that is not an image is not trusted as the icon
 store.clear(); reset(); script.oracle = () => new Response("<html>", { headers: { "content-type": "text/html" } }); script.vercel = () => WEBP();
 r = await get(ICON); assert.equal(r.headers.get("x-gate-origin"), "vercel");
+
+// The standby (Vercel) is paused and answers 402: the gate must never show that to visitors, must remember it, and must wait for Oracle instead.
+reset();
+script.oracle = () => new Response("down", { status: 502 });
+script.vercel = () => new Response("paused", { status: 402 });
+r = await get("/during-paused-standby-and-oracle-blip");
+assert.equal(r.status, 503, "a 402 from the paused standby is replaced by the update page");
+assert.equal(r.headers.get("retry-after"), "5");
+assert.ok(_state.standbyPausedUntil > Date.now(), "the paused standby is remembered");
+reset();
+_state.standbyPausedUntil = Date.now() + 60_000;
+r = await get("/with-paused-standby");
+assert.equal(await r.text(), "oracle ok");
+assert.ok(calls.every((c) => c.url.startsWith(P)), "a known-paused standby is never contacted");
+reset();
+_state.downUntil = Date.now() + 30_000; // oracle was marked down, so vercel is asked first...
+script.vercel = () => new Response("paused", { status: 402 });
+r = await get("/down-then-paused");
+assert.equal(await r.text(), "oracle ok", "...its 402 sends the request back to Oracle");
+_state.standbyPausedUntil = 0;
+
 console.log("site-gate selftest: all checks passed");

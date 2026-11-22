@@ -1,6 +1,9 @@
 // The free headless browser and all computer tools run only on the reserved private 16 GB computer Studio.
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
-export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+/** Nova 2's own computer: the hub on the international Studio (open internet; the cn hub cannot reach GitHub, live 2026-11-22). NOVA2_COMPUTER_STUDIO_URL overrides it; "off" disables it. */
+export const DEFAULT_NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai";
+export const nova2ComputerUrl = (): string => (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim() || DEFAULT_NOVA2_COMPUTER_STUDIO_URL;
+export const DEFAULT_COMPUTER_STUDIO_URL = DEFAULT_NOVA2_COMPUTER_STUDIO_URL;      // Nova 1 was removed (2026-11-22): the one Nova works on the international hub (the cn hub could not reach GitHub)
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
 import { secretCached } from "@/lib/hostedSecrets";
 import { nova2Urls } from "@/lib/openCoderStudio";
@@ -8,30 +11,28 @@ import { nova2Urls } from "@/lib/openCoderStudio";
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
 export type BrowserArgs = {
-  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean;
+  action?: string; url?: string; id?: number | string; x?: number; y?: number; text?: string; enter?: boolean; key?: string; dy?: number; seconds?: number; screenshot?: boolean; selector?: string; file_path?: string; output_path?: string; value?: string; index?: number;
 };
 
-const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
+const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "select", "check", "uncheck", "hover", "console", "network"]);
 
 /** Each model uses its own computer endpoint. Nova 2 is unavailable until a dedicated computer Studio exists. */
 export function browserStudioFor(modelId: string | undefined): string | null {
   if (!modelId || !COMPUTER_MODELS.has(modelId)) return null;
   if (modelId === "sham" || modelId === "sham_v2") return null;
   if (modelId === "nova2") {
-    const configured = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim();
+    const configured = nova2ComputerUrl();
     if (!configured || /^(off|none|0)$/i.test(configured) || !/^https:\/\//i.test(configured)) return null;
     const base = configured.replace(/\/+$/, "");
-    const novaHub = (process.env.COMPUTER_STUDIO_URL || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
     const separateMediaStudios = [
       process.env.NOVA2_MEDIA_STUDIO_URL || "",
       process.env.NOVA_MEDIA_STUDIO_URL || "",
-      process.env.LFM_MEDIA_STUDIO_URL || "",
       process.env.NOVA_IMAGE_STUDIO_URL || "",
       process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "",
       process.env.SHAM_MEDIA_STUDIO_URL || "",
       process.env.SHAM_V2_MEDIA_STUDIO_URL || "",
     ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
-    if (base === novaHub || nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|lfm25-media-server|epicrealism-image-test|sham/i.test(base)) return null;
+    if (nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
     return base;
   }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
@@ -40,10 +41,11 @@ export function browserStudioFor(modelId: string | undefined): string | null {
 }
 
 export function studioToken(base?: string): string {
-  const n2 = (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  const n2 = nova2ComputerUrl().replace(/\/+$/, "");
   if (base && n2 && base.replace(/\/+$/, "") === n2) {
-    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
+    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
   }
+  if (base && /\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim();   // an international Studio takes the international account's token
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
 
@@ -60,6 +62,12 @@ export function cleanBrowserArgs(a: BrowserArgs): Record<string, unknown> | null
   if (a.key !== undefined) out.key = String(a.key).slice(0, 30);
   if (a.dy !== undefined && Number.isFinite(Number(a.dy))) out.dy = Math.max(-4000, Math.min(4000, Math.trunc(Number(a.dy))));
   if (a.seconds !== undefined && Number.isFinite(Number(a.seconds))) out.seconds = Math.max(1, Math.min(20, Math.trunc(Number(a.seconds))));
+  if (a.selector !== undefined) out.selector = String(a.selector).slice(0, 300);
+  if (a.file_path !== undefined) out.file_path = String(a.file_path).slice(0, 500);
+  if (a.output_path !== undefined) out.output_path = String(a.output_path).slice(0, 500);
+  if (a.value !== undefined) out.value = String(a.value).slice(0, 200);
+  if (a.index !== undefined && Number.isFinite(Number(a.index))) out.index = Math.max(0, Math.min(11, Math.trunc(Number(a.index))));
+  if (a.screenshot) out.screenshot = true;
   return out;
 }
 
@@ -79,6 +87,11 @@ export function renderBrowserReply(r: Record<string, any>): string {
   // drawn areas (canvas / video / svg / iframes) have no text: tell the model where they are so it can click by x,y or ask for the outline
   if (r.visual) parts.push("", "DRAWN AREAS WITHOUT READABLE TEXT (click them with x,y, or call action=aria for the page outline):", String(r.visual));
   if (r.outline) parts.push("", "PAGE OUTLINE (roles and names):", String(r.outline));
+  if (Array.isArray(r.tabs)) parts.push("", "OPEN TABS:", JSON.stringify(r.tabs).slice(0, 2500));
+  if (Array.isArray(r.console_errors) && r.console_errors.length) parts.push("", "PAGE CONSOLE ERRORS:", r.console_errors.join("\n").slice(0, 2500));
+  if (Array.isArray(r.network_errors) && r.network_errors.length) parts.push("", "FAILED / HTTP ERROR REQUESTS:", r.network_errors.join("\n").slice(0, 2500));
+  if (r.download) parts.push("", "DOWNLOADED FILE:", JSON.stringify(r.download));
+  if (r.uploaded) parts.push("", "UPLOADED FILE:", String(r.uploaded));
   return parts.join("\n");
 }
 
@@ -106,7 +119,7 @@ export async function browserDo(modelId: string | undefined, session: string, ar
   const base = browserOwnStudioFor(modelId);
   if (!base) return "error: this model has no browser Studio";
   const clean = cleanBrowserArgs(args);
-  if (!clean) return "error: action must be one of open, look, click, type, press, scroll, back, wait, aria";
+  if (!clean) return "error: unsupported browser action or invalid arguments";
   try {
     // Use the same authenticated b64 envelope and bounded gateway retry path as
     // desktop_do and box_do. This keeps every computer action on one transport.

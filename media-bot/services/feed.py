@@ -213,6 +213,7 @@ async def replace_file(item: dict[str, Any], new_file_id: str, duration_sec: int
         "tags": item.get("tags") or ["عام"], "squad_code": item.get("squad_code") or "",
         "duration_sec": int(duration_sec or 0), "quality": item.get("quality") or "",
         "created_at": item.get("created_at") or int(time.time()),
+        "silent": True,  # an existing post: followers must not be notified again
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:

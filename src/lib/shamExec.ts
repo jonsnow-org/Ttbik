@@ -4,11 +4,13 @@
 // Writing to the user's repositories (push, open / merge a pull request) is never run on the model's word alone: the loop stops and the user is asked
 // first (shamAgent.ts "confirm"; the pending call is kept in sham_pending and runs only when the user taps «نفّذ»).
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
-import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
+import { SHAM_SKILL_NAMES, shamSkillText } from "@/lib/skillsSham";
+import { SHAMPRO_SKILL_NAMES, shamproSkillText } from "@/lib/skillsShamPro";
 import { prismaDb, type Db } from "@/lib/shamDb";
 import { knowledgeSave, knowledgeSearch } from "@/lib/shamKnowledge";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { shamUnderstandImage, shamVariant } from "@/lib/shamStudio";
+import type { DesktopArgs } from "@/lib/desktopComputer";
 
 /** What Sham needs from the platform it runs on (web access, the VM driver, limits, memory, schedules, the user's connections). Sham never imports Nova's modules:
  *  everything comes through this interface, implemented in ONE place (shamHost.ts), which is the only file where the two meet. */
@@ -80,11 +82,14 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("computer_publish", "Publish all changed files from a computer_repo checkout on YOUR persistent computer to one GitHub commit. Nothing is sent until the user confirms; GitHub credentials stay in the app server, never in the terminal.", obj({ repo: REPO, branch: s("target branch; creates it from the default branch if missing"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("computer_patch", "Apply a unified diff (git diff format, paths relative to cwd) on your private computer: many changes in many files in ONE call, all or nothing (a patch that does not fit changes nothing).", obj({ diff: s("the unified diff"), cwd: s("folder the paths are relative to, e.g. repos/owner-name; default .") }, ["diff"])),
   tool("computer_test", "Run the project's tests on your private computer as a background job (the runner is detected: npm test, pytest, go test, cargo test, make test). Read the result with computer_job action=log; the last line is TESTS_EXIT=<code>.", obj({ cwd: s("project folder, e.g. repos/owner-name"), command: s("explicit test command, optional") })),
+  tool("computer_apps", "List which optional programs are installed on your private computer (LibreOffice, Inkscape, GIMP, Audacity, ripgrep, git, node, python...). Call it before launching an optional app or choosing a tool.", obj({})),
+  tool("computer_bank", "Your computer's persistent banks (workspace, knowledge, media, archive...): put/get/search/list/delete items that survive restarts, with text search that also works in Arabic. action: create, put, get, search, list, delete, stats, gc. Inline content is indexed for search.", obj({ action: { type: "string", enum: ["create", "put", "get", "search", "list", "delete", "stats", "gc"] }, bank: s("bank name, e.g. workspace or knowledge"), name: s("item name, e.g. note.txt"), content: s("text to store (put)"), source_path: s("file on your computer to store (put)"), query: s("search words (search)"), item_id: s("item id (get/delete)") }, ["action"])),
+  tool("computer_batch", "Run up to 8 computer steps in ONE call, in order: steps=[{tool, args}]. Stops at the first failure unless continue_on_error is true. Use it for known sequences (write, run, read) instead of many round trips; computer_batch cannot be nested.", obj({ steps: { type: "array", items: { type: "object", properties: { tool: s("a computer_* tool name"), args: { type: "object" } }, required: ["tool"] } }, continue_on_error: { type: "boolean" } }, ["steps"])),
   tool("plan", "Write or update the task's TODO list: call it first for any task with more than three steps and again when a step is done or the plan changes. Each item is a short step with a status.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from memory_search, or by a query).", obj({ id: n("memory id"), query: s("text to match when no id") })),
-  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
-  tool("browser", "Control the headless browser owned by this selected Sham model: open and inspect pages, click numbered elements, type, press keys, scroll, wait or inspect the accessibility outline. Browser cookies stay private to this account and model.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20") }, ["action"])),
-  tool("desktop", "Operate the graphical Linux desktop of this model's own computer session (a real screen you can see and control). Start a display with action=start; use status or frame to look at the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action read the returned window list before assuming it worked; action=show offers the screen to the user.", obj({ action: { type: "string", enum: ["status", "start", "frame", "stop", "launch", "click", "dblclick", "move", "type", "key", "scroll", "show"] }, app: { type: "string", enum: ["browser", "terminal", "files"] }, url: s("URL for launch browser"), x: n("pixel x for click/move"), y: n("pixel y for click/move"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type"), key: s("key name, e.g. Return, alt+Tab"), direction: { type: "string", enum: ["up", "down"] }, amount: n("scroll amount") }, ["action"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: SHAM_SKILL_NAMES } }, ["name"])),
+  tool("browser", "Control this Sham model's persistent headless browser with saved logins and tabs. Open/inspect/click/type/press/scroll/back/wait/aria; manage tabs; select/check/hover forms; upload from the private computer; download into it; inspect console and failed network requests. Localhost is allowed only for a server owned by this exact user+model session; private LAN, metadata and other sessions remain blocked.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "select", "check", "uncheck", "hover", "console", "network"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), selector: s("CSS selector if no numbered element exists"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20"), file_path: s("upload source path inside private computer"), output_path: s("download destination inside private computer"), value: s("select option value"), index: n("tab index"), screenshot: { type: "boolean" } }, ["action"])),
+  tool("desktop", "Operate your private graphical Linux desktop. Start a display with action=start; use state to read the screen as text (windows, focus, pointer) or frame for the picture; stop when finished; launch terminal, files, browser, LibreOffice Writer/Calc/Impress/Draw, Inkscape, GIMP or Audacity when installed; click, double-click, drag, move, mouse-down/up, type, press keys, scroll, inspect pointer, and use the session clipboard. Inspect screenshots after GUI actions; check computer_apps before launching optional apps.", obj({ action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "pointer", "clipboard_set", "clipboard_get"] }, app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] }, url: s("URL when launching browser"), x: n("x coordinate from latest screenshot"), y: n("y coordinate"), x2: n("drag destination x"), y2: n("drag destination y"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type or set on clipboard"), key: s("key name, e.g. Enter, Ctrl+L"), direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: n("scroll amount 1-8") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
   tool("sandbox_exec", "Run commands in the separate temporary task workspace. Use computer_run for normal work on your persistent computer; use this only for isolated tests/builds. Long commands return an id for sandbox_wait.", obj({ command: s("shell command"), cwd: s("working dir") }, ["command"])),
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
@@ -95,6 +100,9 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("sandbox_push", "Publish changes from this temporary task workspace only. For changes made in your persistent computer_repo checkout, use computer_publish. The user must confirm before this runs.", obj({ repo: REPO, branch: s("branch to push to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
   tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. Name `base` (the branch the user said); head must already hold the changes. The user is asked first.", obj({ repo: REPO, head: s("source branch"), base: s("target branch (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request. The user is asked first.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
+  tool("github_create_issue", "Open an issue in a repository. The user is asked first.", obj({ repo: REPO, title: s("title"), body: s("description") }, ["repo", "title"])),
+  tool("github_comment", "Comment on an issue or pull request. The user is asked first.", obj({ repo: REPO, number: n("issue / PR number"), body: s("comment text") }, ["repo", "number", "body"])),
+  tool("github_run_workflow", "Start a workflow_dispatch workflow (for example the tests) on a branch. The user is asked first.", obj({ repo: REPO, workflow: s("file name, e.g. ci.yml"), ref: s("branch"), inputs: { type: "object" } }, ["repo", "workflow", "ref"])),
   tool("http_request", "Call a public HTTP API (GET / HEAD run at once; POST / PUT / PATCH / DELETE wait for the user's tap) and read the answer. For a plain page use fetch_page; for the user's linked services use connector_api. Private / internal addresses are refused.", obj({ method: s("GET | POST | PUT | PATCH | DELETE | HEAD"), url: s("https URL"), headers: { type: "object", description: "optional request headers" }, body: s("request body text (JSON as a string)") }, ["url"])),
   tool("knowledge_search", "Search your library of EVERYTHING you have read before in earlier tasks and chats (pages, search results, research reports, each with its source and date) AND the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions). Use it BEFORE searching the web again, and say where the answer came from.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading it again.", obj({ query: s("what to look for"), count: n("passages, default 3") }, ["query"])),
@@ -107,7 +115,7 @@ export const SHAM_TOOLS: CoderTool[] = [
 ];
 
 /** Calls that change the user's repositories: they wait for the user's tap. */
-export const SHAM_NEEDS_OK = new Set(["computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "mcp_call"]);
+export const SHAM_NEEDS_OK = new Set(["computer_publish", "sandbox_push", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "mcp_call"]);
 /** Does this call change something outside the chat? Those wait for the user's tap: the fixed write tools, an MCP call, and a connector call that is not a plain read. */
 export function shamNeedsOk(call: CoderToolCall): boolean {
   if (SHAM_NEEDS_OK.has(call.function.name)) return true;
@@ -116,11 +124,12 @@ export function shamNeedsOk(call: CoderToolCall): boolean {
   try { return !/^(GET|HEAD)$/i.test(String((JSON.parse(call.function.arguments || "{}") as { method?: string }).method || "GET")); } catch { return true; }
 }
 const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_call"]);
-const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "computer_publish", "sandbox_push"]);
+const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "computer_publish", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
-  return SHAM_TOOLS.filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
+  const proSkill = shamVariant.getStore() === "v2";
+  return SHAM_TOOLS.map((t) => (proSkill && t.function.name === "skill" ? { ...t, function: { ...t.function, parameters: { ...(t.function.parameters as object), properties: { name: { type: "string", enum: SHAMPRO_SKILL_NAMES } } } as typeof t.function.parameters } } : t)).filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
@@ -299,6 +308,18 @@ async function githubTool(ctx: ShamCtx, name: string, a: Record<string, any>): P
       const r = await gh(ctx, "POST", `${R}/pulls`, { head: a.head, base, title: a.title, body: a.body || "" });
       return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url} (${a.head} → ${base})` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
     }
+    case "github_create_issue": {
+      const r = await gh(ctx, "POST", `${R}/issues`, { title: a.title, body: a.body || "" });
+      return r.status < 300 ? `issue #${r.data.number} ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message}`);
+    }
+    case "github_comment": {
+      const r = await gh(ctx, "POST", `${R}/issues/${Number(a.number)}/comments`, { body: a.body });
+      return r.status < 300 ? `comment ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message}`);
+    }
+    case "github_run_workflow": {
+      const r = await gh(ctx, "POST", `${R}/actions/workflows/${encodeURIComponent(String(a.workflow))}/dispatches`, { ref: a.ref, inputs: a.inputs || {} });
+      return r.status < 300 ? `started ${a.workflow} on ${a.ref}` : clip(`error ${r.status}: ${r.data?.message}`);
+    }
     case "github_merge_pr": {
       const pr = await gh(ctx, "GET", `${R}/pulls/${Number(a.number)}`);
       const r = await gh(ctx, "PUT", `${R}/pulls/${Number(a.number)}/merge`, { merge_method: ["merge", "squash", "rebase"].includes(a.method) ? a.method : "merge" });
@@ -407,7 +428,7 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
         return `sent ${f.path} (${f.bytes.length} bytes) to the user`;
       } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
-    if (name === "skill") return agentSkillText(String(a.name || ""));
+    if (name === "skill") return shamVariant.getStore() === "v2" ? shamproSkillText(String(a.name || "")) : shamSkillText(String(a.name || ""));   // each Sham has its OWN skill file
     if (name === "plan") {
       const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
       const rows = (Array.isArray(a.items) ? a.items : []).slice(0, 12).map((x: any) => (x && typeof x === "object" ? x : null)).filter((x: any) => x && String(x.step || "").trim());
@@ -521,6 +542,9 @@ export function shamConfirmText(call: CoderToolCall): string {
     : call.function.name === "sandbox_push" ? `رفع التعديلات من مساحة العمل المؤقتة إلى الفرع ${a.branch} في ${a.repo}\nرسالة الحفظ: ${String(a.message || "").slice(0, 200)}`
     : call.function.name === "mcp_call" ? `استدعاء الأداة ${a.tool} على الخادم ${a.server}`
     : call.function.name === "connector_api" ? `طلب ${String(a.method || "").toUpperCase()} إلى ${a.service}: ${String(a.path || "").slice(0, 120)}`
+    : call.function.name === "github_create_issue" ? `فتح مشكلة في ${a.repo}: ${String(a.title || "").slice(0, 200)}`
+    : call.function.name === "github_comment" ? `تعليق على #${a.number} في ${a.repo}:\n${String(a.body || "").slice(0, 300)}`
+    : call.function.name === "github_run_workflow" ? `تشغيل سير العمل ${a.workflow} في ${a.repo} على ${a.ref}`
     : call.function.name === "github_create_pr" ? `فتح طلب دمج في ${a.repo}: ${a.head} ← ${a.base}\n${String(a.title || "").slice(0, 200)}`
     : call.function.name === "tldm_confirm" ? `أمر على حاسوب شام برو الداخلي يحتاج موافقتك:\n${String(a.command || a.question || "").slice(0, 400)}`
     : `دمج طلب الدمج رقم ${a.number} في ${a.repo}`;

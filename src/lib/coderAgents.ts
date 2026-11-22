@@ -6,7 +6,7 @@
 // CODER_AGENTS=off removes the tool.
 
 import { reportsHardChars } from "@/lib/coderContext";
-import { currentEngineModel } from "@/lib/openCoderStudio";
+import { currentEngineModel, runsOnBigModel } from "@/lib/openCoderStudio";
 
 /** CODER_TOOL_GROUPS=lazy brings back the earlier lazy loading (load_tools); the default is ONE fixed tool list on every step (coderAgent.ts coderToolsFor). */
 export const toolGroupsLazy = (): boolean => {
@@ -15,7 +15,7 @@ export const toolGroupsLazy = (): boolean => {
   if (mode === "fixed") return false;
   // Nova 2 (35B on 2 cores) reads ~7-9 tokens/s: the full tool list is ~11,000 tokens = 20+ minutes of reading before the first word (measured 2026-11-17: 14,342-token prompt for "who are you").
   // It gets the small list (load_tools + the group it needs); Nova (4B, fast reader) keeps the fixed list that its prompt cache likes.
-  return currentEngineModel() === "nova2";
+  return runsOnBigModel();
 };
 
 export const AGENT_MAX = 5;          // agents one run can start at once
@@ -33,7 +33,7 @@ export const AGENT_TIMEOUT_MS = 25 * 60000;
 export function maxParallelAgentsForStudios(studioCount: number, nested = false): number {
   const count = Math.max(0, Math.floor(Number(studioCount) || 0));
   if (count < 1) return 0;
-  const serialNova2 = currentEngineModel() === "nova2" && count === 1;
+  const serialNova2 = runsOnBigModel() && count === 1;
   if (count < 2 && !serialNova2) return 0;
   if (nested && serialNova2) return 0;
   return nested ? Math.min(SUB_AGENT_MAX, 1) : Math.min(AGENT_MAX, count);

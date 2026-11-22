@@ -1,4 +1,3 @@
-import { pressureOn } from "@/lib/pressureMode";
 // Sham v2's Studio pool: dedicated primary endpoint(s) plus an optional, separately named overflow endpoint.
 // Overflow is never allowed to use Nova or Sham v1 endpoints. A real endpoint status check also confirms the Sham v2 checkpoint before use.
 //
@@ -101,7 +100,6 @@ export async function tracked<T>(base: string, run: () => Promise<T>, failed: (r
 export function orderV2(primaries: string[], now = Date.now()): string[] {
   const over = overflowBase();
   if (!over || primaries.includes(over)) return primaries;
-  if (pressureOn() && !congested(over, now)) return [over, ...primaries];                 // pressure mode (owner switch): the overflow Studio takes new calls first
   const free = primaries.filter((b) => !congested(b, now));
   if (free.length) return [...free, ...primaries.filter((b) => !free.includes(b)), over];
   return congested(over, now) ? [...primaries, over] : [over, ...primaries];

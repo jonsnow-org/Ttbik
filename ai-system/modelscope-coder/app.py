@@ -269,15 +269,12 @@ def _start_server(model: Path, bindir: Path) -> None:
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
            "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
-    if "lfm" in model.name.lower():       # LFM thinks by default: all of a short answer's tokens went to reasoning and the text came back empty (measured 2026-11-02); the app turns thinking on per request itself
-        cmd += ["--reasoning-budget", "0"]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
     # Measured 2026-11-12 (nova-decode-bench.yml, same llama.cpp build and model, 2 cores): ngram-mod writes a file edit / code at 9.3 tokens/s against 3.6 without it (2.6x), free prose
-    # is unchanged (3.9), no extra RAM, no draft model; flash attention, a q8 KV cache and bigger batches gave nothing. So it is ON by default, except for LFM (a recurrent hybrid)
-    # and a Studio that loads the vision file. CODER_SPEC overrides it ("off" turns it off); a server that does not start with it is restarted without it (the _SPEC["bad"] path below).
+    # is unchanged (3.9), no extra RAM, no draft model; flash attention, a q8 KV cache and bigger batches gave nothing. So it is ON by default, except for a Studio that loads the vision file. CODER_SPEC overrides it ("off" turns it off); a server that does not start with it is restarted without it (the _SPEC["bad"] path below).
     spec = os.environ.get("CODER_SPEC", "").strip()
-    if not spec and "lfm" not in model.name.lower() and not _vision_wanted():
+    if not spec and not _vision_wanted():
         spec = "--spec-type ngram-mod"
     if spec.lower() == "off":
         spec = ""
@@ -349,6 +346,13 @@ def _supervisor() -> None:
                         continue
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
+                try:                                  # review note #1198 §5.6: with NOVA_TLDM=1 the head's dependencies, the second reader server and the head load NOW, not on the first user request
+                    import nova_tldm_serve as _nt
+                    if _nt.enabled() and not _nt._STATE.get("warming"):
+                        _nt._STATE["warming"] = True
+                        threading.Thread(target=lambda: _log("nova tldm warm:", _nt.load(str(Path(_PATHS["bindir"]) / "llama-server"), _PATHS["model"])[1] or "ready"), daemon=True).start()
+                except Exception as _exc:  # noqa: BLE001
+                    _log("nova tldm warm skipped:", type(_exc).__name__)
         except Exception as exc:
             if _VIS["on"]:
                 _VIS["bad"] = True
@@ -884,6 +888,35 @@ def start_background() -> None:
     threading.Thread(target=_runner, daemon=True).start()
 
 
+def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0,
+                  deny_list: str = "", owner: float = 0, resume_tool_name: str = "", resume_tool_arguments_json: str = "", resume_tool_result: str = "",
+                  resume_tool_error: float = 0, resume_tool_request_id: str = "") -> str:
+    """Nova's own T-LDM head (nova_tldm_serve.py): a few-million-parameter head over the frozen features of THIS Studio's own GGUF (a second llama-server in embedding mode on the
+    same file). It answers {"type": "text" | "tool_request" | "body" | "error"}. Off unless NOVA_TLDM=1; chat is never affected. Sham and the other models are never used."""
+    try:
+        import nova_tldm_serve as nt
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"type": "error", "text": f"مسار T-LDM لنوفا غير متاح ({type(exc).__name__}). لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    if not nt.enabled() or not float(tldm_flag or 0):
+        return nt.error_json(nt.missing_message())
+    if STATE.get("phase") != "ready" or not _PATHS["model"]:
+        return json.dumps({"type": "error", "text": "نوفا يتهيأ بعد. لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    try:
+        msgs = json.loads(messages_json or "[]")
+        task = str(msgs[-1]["content"]) if msgs and msgs[-1].get("role") == "user" else ""
+    except Exception:  # noqa: BLE001
+        return nt.error_json("messages_json غير صالح.")
+    if not task and not resume_tool_name:
+        return nt.error_json("الرسالة الأخيرة يجب أن تكون من المستخدم.")
+    try:
+        return nt.respond(str(Path(_PATHS["bindir"]) / "llama-server"), _PATHS["model"], str(session or "default"), task, deny_list=str(deny_list or ""), owner=bool(float(owner or 0)),
+                          resume_tool_name=str(resume_tool_name or ""), resume_tool_arguments_json=str(resume_tool_arguments_json or ""), resume_tool_result=str(resume_tool_result or ""),
+                          resume_tool_error=bool(float(resume_tool_error or 0)), resume_tool_request_id=str(resume_tool_request_id or ""))
+    except Exception as exc:  # noqa: BLE001
+        _log("generate_tldm failed", type(exc).__name__, str(exc)[:160])
+        return nt.error_json(f"مسار T-LDM لنوفا فشل ({type(exc).__name__}). لم يُستخدم نموذج آخر.")
+
+
 def build_ui():
     import gradio as gr
     tabs = [
@@ -896,8 +929,13 @@ def build_ui():
         gr.Interface(status, None, gr.Textbox(label="status"), api_name=f"{PREFIX}status", flagging_mode="never"),
         gr.Interface(bench, None, gr.Textbox(label="bench"), api_name=f"{PREFIX}bench", flagging_mode="never"),
         gr.Interface(warm, [gr.Textbox(label="messages"), gr.Textbox(label="tools")], gr.Textbox(label="json"), api_name=f"{PREFIX}warm", flagging_mode="never"),
+        gr.Interface(generate_tldm, [gr.Textbox(label="messages_json"), gr.Textbox(label="session"), gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
+                                     gr.Textbox(label="confirm_cmd"), gr.Number(label="confirm_ok", value=0), gr.Textbox(label="deny_list"), gr.Number(label="owner", value=0),
+                                     gr.Textbox(label="resume_tool_name"), gr.Textbox(label="resume_tool_arguments_json"), gr.Textbox(label="resume_tool_result"),
+                                     gr.Number(label="resume_tool_error", value=0), gr.Textbox(label="resume_tool_request_id")],
+                     gr.Textbox(label="T-LDM result"), api_name="generate_tldm", flagging_mode="never"),
     ]
-    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench", "warm"], title="coder")
+    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench", "warm", "generate_tldm"], title="coder")
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ describe("Sham v2 embedded environment", () => {
     expect(ran).toHaveLength(0);
   });
   it("Nova's hub is untouched: another model's computer call still goes to the host", async () => {
-    await shamRunTool(call("computer_run", { command: "ls" }), ctx("lfm25"));
+    await shamRunTool(call("computer_run", { command: "ls" }), ctx("coder"));
     expect(ran.map((r) => r.tool)).toEqual(["computer_run"]);
   });
 });

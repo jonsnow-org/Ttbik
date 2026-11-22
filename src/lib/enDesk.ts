@@ -13,6 +13,38 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "riemann-hypothesis-lean-verification-2026",
+    "title": "Lean and Mathlib communities announce verification of a Riemann hypothesis proof developed with Claude",
+    "date": "22 November 2026",
+    "contextDateLabel": "Researcher's note: 20 November 2026; Lean and Mathlib community statement: 21 November 2026, 13:55 UTC; Andrew Sutherland (MIT) verification log updated: 22 November 2026, 16:20 UTC; The Guardian update: 22 November 2026, 17:55 UTC; Sham AI publication: 22 November 2026.",
+    "dek": "The Lean and Mathlib communities say they verified Levent Alpöge's Lean-formalized proof of the Riemann hypothesis. An independently maintained verification page records multiple successful checks while noting that some long-running checks were still in progress at its latest update.",
+    "body": [
+      "On 20 November 2026, mathematician Levent Alpöge posted a note on his personal website saying that he had found a proof of the Riemann hypothesis with Claude and released a Lean library to formalize the argument. That is the date of the author's announcement; community verification followed later.",
+      "At 13:55 UTC on 21 November, the Lean and Mathlib communities published a joint statement saying they had reviewed the formalization and had full confidence in the proof. The statement described a Lean library of about 17 million lines and said the community checked that the mathematical statement matched Mathlib's definition and that independent proof-checking tools accepted the proof.",
+      "A verification page maintained by Andrew Sutherland, a researcher at MIT, reported on 22 November at 16:20 UTC that all 175,187 modules compiled without errors and that checks by leanchecker, nanoda, con-leche and con-ron passed. It also said that Lean's kernel replay of the full export and the final lake comparator stage were still running at the latest update; those long-running checks should not be described as finished.",
+      "The same page says the generalized-Riemann-hypothesis result checked there covers Dirichlet L-functions, not Dedekind zeta functions, Hecke L-functions or automorphic L-functions generally. This report therefore does not extend the claim to every form of the generalized Riemann hypothesis.",
+      "Proposed by Bernhard Riemann in 1859, the hypothesis concerns the non-trivial zeros of the zeta function and has deep consequences for the distribution of prime numbers. This is a report about a Lean-formalized proof and its computational checks, not a report that the Clay Mathematics Institute has awarded its Millennium Prize. Alpöge's note credits the work to himself in collaboration with Claude, not to an AI system acting alone."
+    ],
+    "sources": [
+      {
+        "href": "https://alpo.ge/remark.pdf",
+        "label": "Levent Alpöge — primary note and Lean proof release, 20 November 2026"
+      },
+      {
+        "href": "https://leanprover-community.github.io/blog/posts/riemann-hypothesis/",
+        "label": "Lean and Mathlib communities — joint verification statement, 21 November 2026, 13:55 UTC"
+      },
+      {
+        "href": "https://math.mit.edu/~drew/grh/",
+        "label": "Andrew Sutherland (MIT) — independent verification log, updated 22 November 2026, 16:20 UTC"
+      },
+      {
+        "href": "https://www.theguardian.com/technology/2026/nov/21/anthropic-riemann-hypothesis-solved-claude-ai",
+        "label": "The Guardian — independent report, updated 22 November 2026, 18:55 CET (17:55 UTC)"
+      }
+    ]
+  },
+  {
     "slug": "bepicolombo-mercury-orbit-insertion-status-2026",
     "title": "BepiColombo's Mercury orbit insertion is scheduled for 21 November; completion remains unconfirmed",
     "date": "21 November 2026",
@@ -605,18 +637,18 @@ export const EN_EVENTS: DeskItem[] = [
     "date": "2026-11-09",
     "dateLabel": "9–20 November 2026",
     "endDate": "2026-11-20",
-    "dek": "The official conference period ended on 20 November, although final negotiations continued into 21 November amid disputes over fossil fuels and adaptation finance.",
+    "dek": "Antalya hosts the 31st UN Climate Change Conference through 20 November, bringing together governments, negotiators and stakeholders working on climate action.",
     "body": [
-      "COP31 took place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. The official conference period ended on 20 November, but final negotiations continued on 21 November after delegates failed to reach consensus on the outcome text.",
-      "The session also included the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
-      "In its 14:54 EST (19:54 UTC) update on 21 November, the Guardian reported that the EU believed about 130 countries backed a reference to moving away from fossil fuels, while Saudi Arabia continued to resist that wording and pressed for carbon capture and storage to be emphasised. No final agreement had been announced in the update reviewed. The summit must not be presented as upcoming, and a draft must not be described as an adopted agreement.",
-      "The venue was the Antalya Expo Center in Antalya, Türkiye, and local time was UTC+3. The official dates were 9–20 November 2026, so the conference listing is classified as past while noting that additional negotiations continued on 21 November.",
-      "Event status: the official conference period ended on 20 November 2026; latest negotiation update reviewed: 21 November 2026, 14:54 EST (19:54 UTC)."
+      "The 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) is taking place at the Antalya Expo Center in Antalya, Türkiye, from 9 to 20 November 2026. It brings together national delegations, negotiators, observers, civil society and private-sector representatives to advance implementation of the Paris Agreement.",
+      "The session also includes the 21st meeting of the Parties to the Kyoto Protocol (CMP21) and the eighth meeting of the Parties to the Paris Agreement (CMA8), alongside negotiations, work programmes and initiatives led by the Turkish Presidency.",
+      "The Leaders’ Summit took place on 11–12 November, and the resumed high-level segment is scheduled for 17–18 November according to UNFCCC documents. Detailed session times can change, so visitors should consult the official schedule before planning to attend a specific session.",
+      "The venue is the Antalya Expo Center in Antalya, Türkiye, and local time is UTC+3. Access to the Blue Zone is for accredited participants; Green Zone activities are subject to arrangements set by the host country.",
+      "Event dates: 9–20 November 2026. Status on 18 November: the conference is ongoing, and not all final outcomes have been announced."
     ],
     "sources": [
       {
         "href": "https://unfccc.int/cop31/about",
-        "label": "UNFCCC — COP31 overview and official dates"
+        "label": "UNFCCC — COP31 overview and dates"
       },
       {
         "href": "https://unfccc.int/cop31/ifp",
@@ -625,14 +657,6 @@ export const EN_EVENTS: DeskItem[] = [
       {
         "href": "https://unfccc.int/sites/default/files/resource/updated_resumed_hls_2026.pdf",
         "label": "UNFCCC — resumed high-level segment schedule"
-      },
-      {
-        "href": "https://www.reuters.com/sustainability/cop/cop31-climate-summit-risks-failure-talks-go-deep-into-overtime-2026-11-21/",
-        "label": "Reuters — overtime negotiations after the scheduled close, 21 November 2026"
-      },
-      {
-        "href": "https://www.theguardian.com/environment/live/2026/nov/21/cop31-climate-deal-latest-news-updates",
-        "label": "The Guardian — latest update reviewed at 14:54 EST (19:54 UTC), 21 November 2026"
       }
     ]
   },
@@ -687,26 +711,6 @@ export const EN_EVENTS: DeskItem[] = [
       {
         "href": "https://www.unicef.org/parenting/world-childrens-day-toolkit",
         "label": "UNICEF — 2026 campaign toolkit"
-      }
-    ]
-  },
-  {
-    "slug": "iffi-goa-2026",
-    "title": "57th International Film Festival of India in Goa",
-    "date": "2026-11-20",
-    "endDate": "2026-11-28",
-    "dateLabel": "20–28 November 2026",
-    "dek": "The 57th International Film Festival of India runs in Goa from 20 to 28 November 2026, with screenings and events across several venues; the festival is currently under way.",
-    "body": [
-      "The official schedule says the 57th International Film Festival of India (IFFI) takes place in Goa from 20 to 28 November 2026. The opening ceremony is scheduled for 17:00 on 20 November at Dr. Shyama Prasad Mukherjee Indoor Stadium in Panjim; the closing ceremony is scheduled for 17:00 at the same venue on 28 November.",
-      "On 21 November, the schedule lists the inauguration of Indian Panorama at 11:30 at INOX Panjim Audi 2. Screenings for the section begin at 12:15, with Becoming listed as the opening non-feature film and Dhurandhar as the opening feature film.",
-      "The Indian Panorama opening should not be confused with the festival-wide opening: the main festival’s opening film on 20 November was Fatherland. The official schedule says timings are subject to change, so visitors should check the latest schedule before attending a specific screening.",
-      "Location: Goa, India. Dates: 20–28 November 2026. Local time: India Standard Time (IST, UTC+5:30). Status on 21 November: in progress."
-    ],
-    "sources": [
-      {
-        "href": "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2026/nov/doc_10537_20261119_19391801.pdf",
-        "label": "Government of India / Press Information Bureau — official 57th IFFI schedule, 20–28 November 2026"
       }
     ]
   },

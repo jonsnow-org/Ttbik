@@ -1,4 +1,4 @@
-// The owner's isolated graphical Linux desktop: Nova 1/LFM use the shared hub; Nova 2 requires its own configured Studio.
+// The owner's isolated graphical Linux desktop: Nova 1 uses the shared hub; Nova 2 requires its own configured Studio.
 // A verified user+model session owns its own display, home directory and UID;
 // only bounded input actions and JPEG frames cross the authenticated Gradio API.
 import { browserStudioFor, studioCall, studioStream } from "@/lib/browserComputer";
@@ -6,7 +6,7 @@ import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
 export type DesktopArgs = {
   action?: string;
-  app?: "browser" | "terminal" | "files";
+  app?: "browser" | "terminal" | "files" | "writer" | "calc" | "impress" | "draw" | "inkscape" | "gimp" | "audacity";
   url?: string;
   x?: number;
   y?: number;
@@ -22,7 +22,7 @@ export type DesktopArgs = {
   height?: number;
 };
 
-/** Nova 1/LFM use the shared computer hub; Nova 2 uses only NOVA2_COMPUTER_STUDIO_URL.
+/** Nova 1 uses the shared computer hub; Nova 2 uses only NOVA2_COMPUTER_STUDIO_URL.
  *  Sham/Sham Pro use their own embedded model Studio. The Mini App is a viewer/controller, not a shared backend. */
 export function desktopTargetFor(modelId: string | undefined): { base: string; own: boolean } | null {
   if (modelId === "sham" || modelId === "sham_v2") {
@@ -36,7 +36,7 @@ export function desktopTargetFor(modelId: string | undefined): { base: string; o
 const ACTIONS = new Set([
   "status", "start", "frame", "state", "stop", "launch",
   "click", "move", "type", "key", "scroll",
-  "dblclick", "drag", "mousedown", "mouseup", "clipboard_set", "clipboard_get",
+  "dblclick", "drag", "mousedown", "mouseup", "clipboard_set", "clipboard_get", "pointer",
 ]);
 
 export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | null {
@@ -52,7 +52,7 @@ export function cleanDesktopArgs(input: DesktopArgs): Record<string, unknown> | 
   }
   if (action === "launch") {
     const app = String(input.app || "");
-    if (!["browser", "terminal", "files"].includes(app)) return null;
+    if (!["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"].includes(app)) return null;
     out.app = app;
     if (input.url !== undefined) out.url = String(input.url).trim().slice(0, 2000);
   }

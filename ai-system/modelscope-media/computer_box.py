@@ -18,6 +18,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import importlib.util
 import os
 import re
 import resource
@@ -42,7 +43,8 @@ MAX_JOBS = 4                       # per-session ceiling
 MAX_DESKTOPS = max(1, int(os.environ.get("COMPUTER_MAX_DESKTOPS", "3")))   # graphical desktops at the same time, one per user+model session (the free-memory gate still applies to each)
 MAX_GLOBAL_JOBS = max(1, int(os.environ.get("COMPUTER_MAX_GLOBAL_JOBS", "6")))  # users run at the same time, each in a private session; the free-memory gate below is what protects the Studio
 MIN_AVAILABLE_MB = max(512, int(os.environ.get("COMPUTER_MIN_AVAILABLE_MB", "2048")))
-QUOTA_BYTES = max(1, min(12, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
+TASK_HEADROOM_MB = max(0, int(os.environ.get("COMPUTER_TASK_HEADROOM_MB", "512")))   # memory an already-admitted task is still expected to grow by (review note #1198 §4.5: MemAvailable alone over-admits)
+QUOTA_BYTES = max(1, min(64, int(os.environ.get("COMPUTER_QUOTA_GB", "3")))) * 1024 ** 3
 MEMORY_KILL = max(512, int(os.environ.get("COMPUTER_MEMORY_KILL_MB", "1536"))) * 1024 ** 2
 LIMITS = {                          # applied to every command and job
     "nproc": 512,                   # fork bombs
@@ -60,7 +62,7 @@ _RUN_LOCKS: dict[str, threading.Lock] = {}
 _JOBS: dict[str, dict[str, dict]] = {}
 _ACTIVE_COMMANDS: set[str] = set()
 _ACTIVE_DESKTOPS: set[str] = set()  # one graphical desktop per Studio; it does not consume the model's shell-task slot
-STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}}
+STATE: dict = {"egress": "not checked", "toolchain": "not checked", "apt_sources": {}, "apps": "not started"}
 _APT_INDEX_UPDATED_AT = 0.0
 
 
@@ -588,6 +590,20 @@ def install_egress_rules() -> str:
         return STATE["egress"]
 
 
+def egress_secure() -> bool:
+    """True only when the private/metadata ranges are blocked for computer sessions (IPv4 and IPv6)."""
+    return str(STATE.get("egress", "")).startswith("private IPv4/IPv6 ranges")
+
+
+def egress_gate() -> dict | None:
+    """Review note #1198 (P0): with COMPUTER_EGRESS_STRICT=1 a command is REFUSED while the host's private network is reachable (fail closed). Off by default so an
+    existing computer on a host without iptables is not switched off by a deploy; the state is always visible in /status (`egress_secure`) so the owner flips it knowingly."""
+    install_egress_rules()
+    if os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not egress_secure():
+        return {"ok": False, "error": "egress_not_secure: the computer cannot block the host's private network here, so it refuses to run commands (COMPUTER_EGRESS_STRICT=1). " + str(STATE.get("egress", ""))}
+    return None
+
+
 # ---------------------------------------------------------------- memory watcher (rlimits cannot cap real memory)
 _WATCHED: dict[int, str] = {}                  # process-group id -> what it is, for the message
 _WATCH_THREAD: threading.Thread | None = None
@@ -718,8 +734,9 @@ def _capacity_reason_locked(session: str) -> str:
     available = _mem_available_mb()
     if available is None:
         return "the Studio could not report available memory; refusing a new task rather than risk the model process"
-    if available < MIN_AVAILABLE_MB:
-        return f"the Studio has only {available} MB available; a new task requires at least {MIN_AVAILABLE_MB} MB"
+    committed = TASK_HEADROOM_MB * active
+    if available - committed < MIN_AVAILABLE_MB:
+        return f"the Studio has {available} MB available but {active} running task(s) may still grow by {committed} MB; a new task requires {MIN_AVAILABLE_MB} MB left over"
     return ""
 
 
@@ -789,7 +806,9 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
     if over_quota(session):
         return {"ok": False, "error": f"your computer's disk is full ({QUOTA_BYTES // 1024 ** 3} GB); delete files first"}
     t2 = time.monotonic()
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     t3 = time.monotonic()
     try:
         workdir = safe_path(session, cwd)
@@ -882,7 +901,7 @@ _QUIET_ACTIONS = {"status", "activity", "job_list"}
 
 
 def _act_detail(action: str, job: dict) -> str:
-    for key in ("command", "path", "url", "pattern", "repo", "id", "app", "key"):
+    for key in ("command", "path", "source_path", "name", "bank", "item_id", "url", "pattern", "repo", "id", "app", "key"):
         value = job.get(key)
         if value:
             return str(value)[:240]
@@ -993,6 +1012,72 @@ DEV_TIERS = [
 ]
 DEV_MIN_FREE_GB = {"core": 1.5, "languages": 3.0, "tools": 3.0}
 
+# Optional workstation applications are installed only after the core computer is ready.
+# A short disk gate keeps the computer responsive and never makes the main toolchain depend on these packages.
+APP_PACKAGE_BUNDLES = {
+    "documents": ["libreoffice-writer", "libreoffice-calc", "libreoffice-impress", "libreoffice-draw", "tesseract-ocr", "tesseract-ocr-ara", "ocrmypdf", "qpdf"],
+    "data": ["python3-pandas", "python3-openpyxl", "python3-matplotlib", "python3-jupyterlab"],
+    "visual": ["inkscape", "gimp", "audacity"],
+}
+APP_MIN_FREE_GB = {"documents": 3.5, "data": 4.5, "visual": 7.0}
+
+
+def workspace_apps_status() -> dict:
+    def has_tesseract_arabic() -> bool:
+        roots = (Path("/usr/share/tesseract-ocr"), Path("/usr/share/tessdata"))
+        return any(p.exists() for root in roots for p in root.rglob("ara.traineddata"))
+    return {
+        "writer": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "calc": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "impress": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "draw": bool(shutil.which("libreoffice") or shutil.which("soffice")),
+        "tesseract": bool(shutil.which("tesseract")),
+        "tesseract_arabic": has_tesseract_arabic(),
+        "ocrmypdf": bool(shutil.which("ocrmypdf")),
+        "qpdf": bool(shutil.which("qpdf")),
+        "pdftotext": bool(shutil.which("pdftotext")),
+        "inkscape": bool(shutil.which("inkscape")),
+        "gimp": bool(shutil.which("gimp")),
+        "audacity": bool(shutil.which("audacity")),
+        "jupyterlab": bool(shutil.which("jupyter") or shutil.which("jupyter-lab")),
+        "pandas": importlib.util.find_spec("pandas") is not None,
+        "openpyxl": importlib.util.find_spec("openpyxl") is not None,
+        "matplotlib": importlib.util.find_spec("matplotlib") is not None,
+        "duckdb": importlib.util.find_spec("duckdb") is not None,
+        "devtools_status": STATE.get("apps", "not started"),
+    }
+
+
+def ensure_workspace_apps() -> str:
+    if not is_root():
+        STATE["apps"] = "skipped: not root"
+        return STATE["apps"]
+    installed: list[str] = []
+    skipped: list[str] = []
+    try:
+        STATE["apps"] = "installing optional workstation apps"
+        for tier, packages in APP_PACKAGE_BUNDLES.items():
+            minimum = APP_MIN_FREE_GB.get(tier, 4.0)
+            if _free_gb() < minimum:
+                skipped.append(f"{tier}: only {_free_gb():.1f} GB free")
+                continue
+            for package in packages:
+                if _free_gb() < max(1.5, minimum - 1.5):
+                    skipped.append(f"{package}: disk reserve reached")
+                    continue
+                result = apt_install([package], timeout=900)
+                (installed if result.returncode == 0 else skipped).append(package if result.returncode == 0 else f"{package}: not installable")
+        if _free_gb() >= APP_MIN_FREE_GB["data"]:
+            try:
+                pip_result = subprocess.run(["python3", "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--break-system-packages", "duckdb"], capture_output=True, text=True, timeout=900, check=False)
+                (installed if pip_result.returncode == 0 else skipped).append("duckdb (pip)" if pip_result.returncode == 0 else "duckdb (pip): not installable")
+            except Exception as exc:
+                skipped.append(f"duckdb (pip): {type(exc).__name__}")
+        STATE["apps"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:500]})" if skipped else "")
+    except Exception as exc:  # optional packages must never break the base computer
+        STATE["apps"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
+    return STATE["apps"]
+
 
 def _free_gb() -> float:
     return shutil.disk_usage("/").free / 1024 ** 3
@@ -1024,6 +1109,7 @@ def ensure_dev_tools() -> str:
         STATE["devtools"] = f"done: {len(installed)} installed, {len(skipped)} skipped" + (f" ({'; '.join(skipped)[:300]})" if skipped else "")
     except Exception as exc:  # noqa: BLE001
         STATE["devtools"] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
+    threading.Thread(target=ensure_workspace_apps, daemon=True, name="computer-apps-install").start()
     return STATE["devtools"]
 
 
@@ -1083,12 +1169,30 @@ def _jobs(session: str) -> dict:
     return _JOBS.setdefault(session, {})
 
 
+def _write_manifest(job: dict) -> None:
+    """Review note #1198 §4.6: a job's state lives on disk next to its log, so a Studio restart yields a truthful answer (finished with its exit code / interrupted) instead of "no such job"."""
+    try:
+        path = Path(job["log"]).with_suffix(".json")
+        path.write_text(json.dumps({"command": job.get("command", ""), "name": job.get("name", ""), "started": job.get("started"), "exit_code": job.get("exit_code"),
+                                    "ended": job.get("ended")}), encoding="utf-8")
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+
+
+def _read_manifest(session: str, job_id: str) -> dict | None:
+    try:
+        return json.loads((session_home(session) / ".jobs" / f"{job_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def _refresh(job: dict) -> None:
     if job.get("exit_code") is None:
         code = job["proc"].poll()
         if code is not None:
             job["exit_code"] = code
             job["ended"] = time.time()
+            _write_manifest(job)
 
 
 def job_start(session: str, command: str, name: str = "") -> dict:
@@ -1098,7 +1202,9 @@ def job_start(session: str, command: str, name: str = "") -> dict:
     home = ensure_home(session)
     if over_quota(session):
         return {"ok": False, "error": "your computer's disk is full; delete files first"}
-    install_egress_rules()
+    blocked = egress_gate()
+    if blocked:
+        return blocked
     with _LOCK:
         jobs = _jobs(session)
         for job in jobs.values():
@@ -1122,6 +1228,7 @@ def job_start(session: str, command: str, name: str = "") -> dict:
             handle.close()
         watch(proc.pid, "job")
         jobs[job_id] = {"proc": proc, "log": log, "command": command[:300], "name": str(name or "")[:60], "started": time.time(), "exit_code": None}
+        _write_manifest(jobs[job_id])
     return {"ok": True, "id": job_id, "message": "running in the background; read it with computer_job action=log"}
 
 
@@ -1142,6 +1249,14 @@ def job_log(session: str, job_id: str, tail: int = 60) -> dict:
     with _LOCK:
         job = _jobs(session).get(job_id)
         if not job:
+            saved = _read_manifest(session, job_id)
+            if saved:
+                code = saved.get("exit_code")
+                text = clip(_tail(session_home(session) / ".jobs" / f"{job_id}.log", tail))
+                if code is not None:
+                    return {"ok": True, "id": job_id, "running": False, "exit_code": code, "seconds": round((saved.get("ended") or saved.get("started") or 0) - (saved.get("started") or 0), 1), "output": text}
+                return {"ok": True, "id": job_id, "running": False, "exit_code": None, "interrupted": True, "output": text,
+                        "note": "the Studio restarted before this job finished: it was interrupted (its output so far is above); start it again if you still need it"}
             return {"ok": False, "error": "no such job (a restart of the Studio ends running jobs)"}
         _refresh(job)
     if job.get("done") is not None and job["exit_code"] is not None:
@@ -1170,6 +1285,16 @@ def job_list(session: str) -> dict:
         for job_id, job in _jobs(session).items():
             _refresh(job)
             rows.append({"id": job_id, "name": job["name"], "command": job["command"][:80], "running": job["exit_code"] is None, "exit_code": job["exit_code"]})
+        known = {r["id"] for r in rows}
+        try:                                                    # jobs of an earlier Studio run, from their manifests
+            for path in sorted((session_home(session) / ".jobs").glob("*.json"))[-20:]:
+                if path.stem in known:
+                    continue
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                rows.append({"id": path.stem, "name": saved.get("name", ""), "command": str(saved.get("command", ""))[:80], "running": False, "exit_code": saved.get("exit_code"),
+                             **({} if saved.get("exit_code") is not None else {"interrupted": True})})
+        except (OSError, ValueError):
+            pass
     return {"ok": True, "jobs": rows}
 
 
@@ -1428,7 +1553,7 @@ def status(session: str = "") -> dict:
         desktop_available = not active_desktops or desktop_owned
         can_accept = (desktop_available
                       and active_jobs + active_commands < MAX_GLOBAL_JOBS
-                      and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
+                      and available_mb is not None and available_mb - TASK_HEADROOM_MB * (active_jobs + active_commands) >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
              "limits": {"command_seconds": MAX_TIMEOUT, "foreground_seconds": FG_SECONDS, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
@@ -1436,7 +1561,9 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
+             "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1",
+             "storage_mode": "persistent" if str(ROOT).startswith("/mnt/workspace") else "ephemeral",
+             "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
         reply["your_disk_mb"] = round(session_size(home) / 1024 ** 2, 1) if home.exists() else 0
@@ -1447,7 +1574,7 @@ def status(session: str = "") -> dict:
 
 # ---------------------------------------------------------------- patch + test (2026-11-04: fewer tokens per change, one call per test run)
 TOOL_NAMES = ("python3", "pip", "node", "npm", "git", "gh", "rg", "fdfind", "jq", "gcc", "make", "curl", "unzip", "patch", "ffmpeg", "convert", "pandoc",
-              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java")
+              "pdftotext", "sqlite3", "shellcheck", "go", "cargo", "java", "libreoffice", "tesseract", "ocrmypdf", "qpdf", "inkscape", "gimp", "audacity", "jupyter")
 MAX_PATCH = 400_000
 
 
@@ -1512,9 +1639,10 @@ def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
 
 
 def tools_inventory(session: str = "") -> dict:
-    """Which tools this computer has right now (and how the background installation is going)."""
-    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "toolchain": STATE.get("toolchain", "not checked"),
-            "devtools": STATE.get("devtools", "not started"), "apt_cache": str(apt_cache_dir())}
+    """Which tools and workstation applications this computer has right now."""
+    return {"ok": True, "tools": {name: bool(shutil.which(name)) for name in TOOL_NAMES}, "apps": workspace_apps_status(),
+            "toolchain": STATE.get("toolchain", "not checked"), "devtools": STATE.get("devtools", "not started"),
+            "apt_cache": str(apt_cache_dir())}
 
 def api_box_status(body: str = "") -> str:
     session = ""
@@ -1571,6 +1699,19 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
         out = run_tests(session, job.get("cwd", "."), job.get("command", ""))
     elif action == "tools":
         out = tools_inventory(session)
+    elif action == "apps":
+        out = {"ok": True, "apps": workspace_apps_status(), "install_status": STATE.get("apps", "not started")}
+    elif action == "bank":
+        if str(job.get("bank_action") or "").lower() == "put" and over_quota(session):
+            out = {"ok": False, "error": f"computer storage quota reached ({QUOTA_BYTES // 1024 ** 3} GB); free space first"}
+        else:
+            import computer_banks
+            home = session_home(session)
+            out = computer_banks.perform(
+                home, job, quota_bytes=QUOTA_BYTES, used_bytes=dir_size(home),
+                path_resolver=lambda value: safe_path(session, value),
+                owner_uid=session_uid(session) if is_root() else None,
+            )
     else:
         out = {"ok": False, "error": "unknown action " + action[:30]}
     return out
@@ -1680,7 +1821,7 @@ def api_box_do(body: str) -> str:
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
     finally:
         _CALL.env = None
-    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
+    if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch", "bank", "apps"):
         try:
             tips = welcome(session)                        # once per session, never repeated
         except Exception:  # noqa: BLE001 - a tip must never turn a good answer into an empty Gradio error

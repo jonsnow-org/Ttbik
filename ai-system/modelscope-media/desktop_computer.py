@@ -282,6 +282,17 @@ SITES = (
 )
 
 
+def _proxy_flags() -> list[str]:
+    """Review note #1198 (P0): every request of the desktop browser (redirects, iframes, XHR, websockets, subresources) goes through the egress filter (egress_proxy.py), which
+    refuses private / link-local / metadata addresses after resolving the name once. No proxy (disabled or could not start) = the browser starts as before."""
+    try:
+        import egress_proxy
+        port = egress_proxy.ensure()
+    except Exception:  # noqa: BLE001
+        port = 0
+    return [f"--proxy-server=http://127.0.0.1:{port}"] if port else []
+
+
 def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | None:
     """The shell script a taskbar button runs: the same command the Mini App's launch action uses (the browser is looked up when clicked, because Chromium may be installed after the desktop started)."""
     if app == "browser":
@@ -289,10 +300,21 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
         profile = box.session_home(session) / ".desktop" / "chrome-profile"
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
         flags = " ".join(shlex.quote(f) for f in [
-            "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
-            "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
+            "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
+            "--disable-background-networking",
+            # owner 2026-11-22: the screen was heavy on 2 vCPU. Site isolation runs one renderer per site (CPU + RAM the box does not have), autoplay decodes a video nobody asked for,
+            # and LCD text / sound add work the picture never needs. The model and the user still start any video by tapping it.
+            "--disable-features=Translate,MediaRouter,OptimizationHints,InterestFeedContentSuggestions" + ("" if os.environ.get("DESKTOP_SITE_ISOLATION", "off").strip().lower() == "on" else ",site-per-process,IsolateOrigins"), "--autoplay-policy=document-user-activation-required", "--mute-audio",
+            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", *_proxy_flags(), f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
-        return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
+        # `nice`: the browser yields the two cores to the desktop's own input (xdotool) and picture capture, so typing and taps are answered while a page is still loading
+        # Review note #1198 (P0), done without breaking the browser: Chromium's own sandbox is tried FIRST (the session runs as an unprivileged user); if the host forbids it
+        # (no user namespaces) Chromium dies within seconds and the SAME command is started again with --no-sandbox. DESKTOP_CHROME_SANDBOX=off keeps the old behaviour at once.
+        sandbox_off = os.environ.get("DESKTOP_CHROME_SANDBOX", "auto").strip().lower() == "off"
+        first = "--no-sandbox " if sandbox_off else ""
+        return (f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\n'
+                f'T0=$(date +%s)\nnice -n 8 "$C" {first}{flags}\nRC=$?\n'
+                f'if [ "$RC" -ne 0 ] && [ $(( $(date +%s) - T0 )) -lt 8 ] && [ -z "{first}" ]\nthen\nexec nice -n 8 "$C" --no-sandbox {flags}\nfi\nexit "$RC"\n')
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):
@@ -902,7 +924,18 @@ def _input_action(session: str, action: str, job: dict) -> dict:
         elif app == "files":
             if not shutil.which("pcmanfm"):
                 return {"ok": False, "error": "The file manager is not installed in this Studio."}
-            cmd = ["pcmanfm", str(box.session_home(session))]
+            cmd = ["pcmanfm", "--no-desktop", "--new-window", str(box.session_home(session))]
+        elif app in ("writer", "calc", "impress", "draw"):
+            binary = shutil.which("libreoffice") or shutil.which("soffice")
+            if not binary:
+                return {"ok": False, "error": "LibreOffice is not installed yet; check computer_apps for the workstation package status."}
+            mode = {"writer": "--writer", "calc": "--calc", "impress": "--impress", "draw": "--draw"}[app]
+            cmd = [binary, "--nologo", "--norestore", mode]
+        elif app in ("inkscape", "gimp", "audacity"):
+            binary = shutil.which(app)
+            if not binary:
+                return {"ok": False, "error": f"{app} is not installed yet; check computer_apps for the workstation package status."}
+            cmd = [binary]
         elif app == "browser":
             url = str(job.get("url") or "about:blank").strip()
             if url != "about:blank":
@@ -929,7 +962,7 @@ def _input_action(session: str, action: str, job: dict) -> dict:
                 f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
             ]
         else:
-            return {"ok": False, "error": "app must be terminal, files or browser"}
+            return {"ok": False, "error": "app is not in the computer's approved desktop app catalog"}
         proc = _spawn(cmd, _ENV, "app-" + app)
         _PROCESSES.append(proc)
         return {"ok": True, "phase": "running", "app": app}

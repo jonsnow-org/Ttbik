@@ -126,6 +126,9 @@ CATALOG = [
     ("ماذا تتذكر عن تفضيلاتي؟", "memory_search", {"query": "تفضيلات المستخدم"}, "المستخدم يفضّل الردود القصيرة", "أتذكر أنك تفضّل الردود القصيرة."),
     ("ما المهام المجدولة عندي؟", "schedule_list", {}, "s1 | مراجعة الطلبات | كل يوم 9:00", "عندك مهمة واحدة: مراجعة الطلبات كل يوم 9:00."),
     ("ابحث بعمق: ما الفرق بين WebSocket وSSE؟", "deep_research", {"question": "الفرق بين WebSocket وSSE"}, "[1] MDN: SSE اتجاه واحد من الخادم؛ [2] WebSocket ثنائي الاتجاه", "WebSocket ثنائي الاتجاه، أما SSE فمن الخادم إلى المتصفح فقط [1][2]."),
+    ("افتح مشكلة في {repo} بعنوان «الصفحة الرئيسية بطيئة» ووصف قصير.", "github_create_issue", {"repo": "{repo}", "title": "الصفحة الرئيسية بطيئة", "body": "تستغرق أكثر من 5 ثوانٍ"}, "issue #12 https://github.com/{repo}/issues/12", "فتحتُ المشكلة #12 في {repo}."),
+    ("علّق على طلب الدمج رقم 7 في {repo} بأن الاختبارات نجحت.", "github_comment", {"repo": "{repo}", "number": 7, "body": "الاختبارات نجحت."}, "comment https://github.com/{repo}/pull/7#issuecomment-1", "أضفتُ التعليق على #7."),
+    ("شغّل سير عمل الاختبارات ci.yml على الفرع main في {repo}.", "github_run_workflow", {"repo": "{repo}", "workflow": "ci.yml", "ref": "main"}, "started ci.yml on main", "شغّلتُ ci.yml على main؛ أخبرك بنتيجته عندما تنتهي."),
     ("ادمج طلب الدمج رقم 7 في {repo}.", "github_merge_pr", {"repo": "{repo}", "number": 7, "method": "merge"}, "merged PR #7 into main", "دمجتُ طلب الدمج #7 في main."),
     ("سجّل دخولي إلى حسابي في GitHub من المتصفح.", "request_secret", {"name": "github_password", "purpose": "كلمة مرور حساب GitHub لتسجيل الدخول"}, "waiting for the user to fill the secure box", "افتح «الخانة الآمنة» في التطبيق وأدخل كلمة المرور هناك (لا تكتبها في المحادثة)، ثم أكمل لك تسجيل الدخول."),
     ("اقرأ مستودعي الخاص، وسأعطيك رمز الوصول.", "request_secret", {"name": "github_token", "purpose": "رمز وصول لقراءة المستودع الخاص"}, "waiting for the user to fill the secure box", "ضع الرمز في «الخانة الآمنة» بالتطبيق وليس هنا، وسأكمل بعد حفظه."),
@@ -425,6 +428,19 @@ def plan_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     return req, steps, "أنجزت الخطوات الثلاث: كتبت الدالة والاختبار، وشغّلت الاختبار فنجح (1 passed)."
 
 
+def bank_batch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
+    """Remember something durably in a bank, find it again, and chain known steps in one batch."""
+    note = rng.choice(["اجتماع الخميس: تأجيل الإطلاق أسبوعًا", "كلمة السر الجديدة للمشروع تُحفظ عند المالك فقط", "موعد التسليم نهاية الشهر"])
+    word = note.split()[1] if len(note.split()) > 1 else note
+    steps = [
+        ("computer_apps", {}, "python3, git, node, rg"),
+        ("computer_bank", {"action": "put", "bank": "workspace", "name": "note.txt", "content": note}, '{"ok": true, "item_id": "i1", "text_indexed_chars": 30}'),
+        ("computer_bank", {"action": "search", "bank": "workspace", "query": word}, '{"ok": true, "results": [{"item_id": "i1", "name": "note.txt"}]}'),
+        ("computer_batch", {"steps": [{"tool": "computer_write", "args": {"path": "a.py", "content": "print(1)\n"}}, {"tool": "computer_run", "args": {"command": "python3 a.py"}}]}, "1. ok wrote a.py\n2. ok 1"),
+    ]
+    return "احفظ هذه الملاحظة في ذاكرتك الدائمة وتأكد أنك تجدها بالبحث، ثم شغّل ملف بايثون صغيرًا في خطوة واحدة: " + note, steps, "حفظت الملاحظة في مصرف workspace ووجدتها بالبحث، ثم كتبت الملف وشغّلته في دفعة واحدة وكان الناتج 1."
+
+
 def patch_flow_spec(rng: random.Random) -> tuple[str, list, str]:
     """Change a repository the careful way: clone, patch (all or nothing), run the tests, read the result, then offer to publish."""
     repo = rng.choice(REPOS)
@@ -481,11 +497,13 @@ def any_spec(rng: random.Random) -> tuple[str, list, str]:
         return skill_flow_spec(rng)
     if r < 0.57:
         return plan_flow_spec(rng)
-    if r < 0.64:
+    if r < 0.62:
         return patch_flow_spec(rng)
-    if r < 0.69:
+    if r < 0.67:
+        return bank_batch_flow_spec(rng)
+    if r < 0.72:
         return forget_flow_spec(rng)
-    if r < 0.75:
+    if r < 0.78:
         return knowledge_flow_spec(rng)
     return catalog_spec(rng)
 
@@ -508,6 +526,9 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "github_prs": ("repo, number?, state?", "List or inspect pull requests in a GitHub repository"),
     "github_ci": ("repo, ref?", "Read actual CI check outcomes and failure lines"),
     "github_create_pr": ("repo, head, base, title, body?", "Open a pull request from head INTO base after permission"),
+    "github_create_issue": ("repo, title, body?", "Open an issue after the user's confirmation"),
+    "github_comment": ("repo, number, body", "Comment on an issue or pull request after confirmation"),
+    "github_run_workflow": ("repo, workflow, ref, inputs?", "Start a workflow_dispatch workflow after confirmation"),
     "github_merge_pr": ("repo, number, method?", "Merge a pull request after the user's confirmation"),
     "connector_api": ("service, method?, path, body?", "Read or call the API of a connected service such as Vercel; writes require confirmation"),
     "mcp_list_tools": ("server", "List tools from the user's configured MCP server"),
@@ -550,6 +571,9 @@ TOOL_SPECS: dict[str, tuple[str, str]] = {
     "computer_publish": ("repo, branch, message, dir?", "Publish the changed files of a computer_repo checkout to one GitHub commit after confirmation"),
     "computer_patch": ("diff, cwd?", "Apply a unified diff on this model's private computer, all or nothing"),
     "computer_test": ("cwd?, command?", "Run the project's tests on this model's computer as a background job"),
+    "computer_apps": ("", "List the optional programs installed on this model's computer"),
+    "computer_bank": ("action, bank?, name?, content?, source_path?, query?, item_id?", "Persistent banks on this model's computer: put/get/search/list/delete items (Arabic search works)"),
+    "computer_batch": ("steps, continue_on_error?", "Run up to 8 computer steps in one call, in order"),
     "plan": ("items", "Write or update the task's TODO list (step + status)"),
     "memory_forget": ("id?, query?", "Forget a memory that is wrong or that the user asked to forget"),
     "skill": ("name", "Load a short how-to: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data"),

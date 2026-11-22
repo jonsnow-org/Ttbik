@@ -12,7 +12,7 @@ Inference and media weights remain isolated by model. The execution host is now 
 ## Independence rule (owner, 2026-11-18)
 
 Every model is independent: its own computer session, tools, chats, working state, memory and data. No routing between models and no silent fallback.
-- Nova 2 keeps its working state, threads and long-term memory under \`<chat>#model:nova2\` (same scheme as LFM2.5), never in Nova's rows.
+- Nova 2 keeps its working state, threads and long-term memory under \`<chat>#model:nova2\` , never in Nova's rows.
 - Nova 2's child agents use its own Studio pool; its one current Studio runs one child serially.
 - Nova 2's GitHub access uses `NOVA2_GITHUB_TOKEN` / `AI_NOVA2_GITHUB_TOKEN`. Nova's OAuth connections and MCP servers are unavailable to it.
 - Nova 2's computer/media routers fail closed unless `NOVA2_COMPUTER_STUDIO_URL` / `NOVA2_MEDIA_STUDIO_URL` point to independent Studios; they never reuse Nova's `COMPUTER_STUDIO_URL` or `NOVA_MEDIA_STUDIO_URL`.
@@ -33,17 +33,17 @@ The Studio provides two CPU vCPUs with a bounded multi-session scheduler: up to 
 
 ## Router
 
-`src/lib/browserComputer.ts` routes Nova 1/LFM to `COMPUTER_STUDIO_URL`; Nova 2 uses only `NOVA2_COMPUTER_STUDIO_URL` and fails closed until its separate computer-only Studio is provisioned. Each session key includes the verified user and selected model. Media generation always uses the selected model's separate media Studio, never a computer endpoint.
+`src/lib/browserComputer.ts` routes Nova 1 to `COMPUTER_STUDIO_URL`; Nova 2 uses only `NOVA2_COMPUTER_STUDIO_URL` and fails closed until its separate computer-only Studio is provisioned. Each session key includes the verified user and selected model. Media generation always uses the selected model's separate media Studio, never a computer endpoint.
 
 ## Verification
 
-The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-11-r9-mount-probe\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.
+The deployment must report \`role=computer-only\`, \`model_loaded=false\` and revision \`computer-hub-16gb-2026-11-22-r10-banks\`. The live smoke test verifies Bash, persistent file read/write, background jobs, an X11 screenshot and Bash while the desktop is running. Chromium has a separate live page-open check after bootstrap.
 
 ## Handing the computer to the user (2026-11-18)
 
-Nova AI and LFM2.5 can hand their own configured computer screen to the user for a step only the user should do on their account (sign-in, 2FA, captcha or final confirmation). Sham and Sham Pro use their own embedded screen. Nova 2's computer Studio is not provisioned yet, so its handoff is unavailable until `NOVA2_COMPUTER_STUDIO_URL` points to a separate computer-only Studio. The handoff tool is model-local: Nova/LFM in `coderAgent.ts`, Sham/Sham Pro in `shamExec.ts`.
+Nova AI can hand their own configured computer screen to the user for a step only the user should do on their account (sign-in, 2FA, captcha or final confirmation). Sham and Sham Pro use their own embedded screen. Nova 2's computer Studio is not provisioned yet, so its handoff is unavailable until `NOVA2_COMPUTER_STUDIO_URL` points to a separate computer-only Studio. The handoff tool is model-local: Nova in `coderAgent.ts`, Sham/Sham Pro in `shamExec.ts`.
 
-- Nova AI / LFM2.5: the run waits like `ask_user` (`run.asking.kind = "handoff"`), a `screen` task event carries `{model, handoff, resume:"run", slot}`, and the Mini App opens that model's live screen with the **You have control** bar (`ComputerHandoffBar.tsx`). Nova 2 is excluded until its own computer Studio is provisioned. Done / Not now call `handoff_done` and resume only the selected model's waiting run.
+- Nova AI: the run waits like `ask_user` (`run.asking.kind = "handoff"`), a `screen` task event carries `{model, handoff, resume:"run", slot}`, and the Mini App opens that model's live screen with the **You have control** bar (`ComputerHandoffBar.tsx`). Nova 2 is excluded until its own computer Studio is provisioned. Done / Not now call `handoff_done` and resume only the selected model's waiting run.
 - Sham / Sham Pro: the round ends with the handoff; Done sends a short `[الحاسوب] …` follow-up message that continues the chat.
-- Each model is reached only through its own computer endpoint (Nova 1/LFM hub session user:model; Nova 2's dedicated computer Studio once provisioned; Sham's own Studio desktop). The login the user typed stays in that model's session only.
+- Each model is reached only through its own computer endpoint (Nova 1 hub session user:model; Nova 2's dedicated computer Studio once provisioned; Sham's own Studio desktop). The login the user typed stays in that model's session only.
 - Live proof: `.github/workflows/computer-live-shots.yml` opens the browser on each model's own desktop in a verification session and uploads the pictures.

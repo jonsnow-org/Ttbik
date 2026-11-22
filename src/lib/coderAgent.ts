@@ -4,7 +4,7 @@
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
-import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
+import { NOVA_SKILL_NAMES, novaSkillText } from "@/lib/skillsNova";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { agentsAllowedFor, coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
@@ -79,23 +79,25 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
 
 /** Free headless browser on the shared computer hub; each user+model session keeps separate cookies and storage. */
 export const BROWSER_TOOL_DEFS: CoderTool[] = [
-  tool("browser", "Your own web browser (real pages, JavaScript; it keeps your cookies and logins between calls, even after you were away). action=open{url} loads a page; look re-reads it; click{id} presses element [id] from the list (or click{x,y} for a drawn area); type{id,text,enter} fills a field; press{key}; scroll{dy}; back; wait{text,seconds} waits for a single-page app to show some text, then reads the page; aria gives the page outline (roles and names) when the numbered list is not enough. Every answer lists the page text and numbered clickable elements.",
-    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20") }, ["action"])),
+  tool("browser", "Your persistent headless browser with saved logins and tabs. Use open/look/click/type/press/scroll/back/wait/aria; manage tabs; select/check/hover form controls; upload files from your private computer; download files back into it; inspect console and failed network requests. Localhost is allowed only for a server owned by this exact user+model session. Private LAN, metadata and other sessions' local services remain blocked.",
+    obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "select", "check", "uncheck", "hover", "console", "network"] }, url: s("address for open"), id: n("element number from the last answer"), x: n("x of a drawn area, with y"), y: n("y of a drawn area, with x"), selector: s("optional CSS selector when no numbered element exists"), text: s("text to type, or text to wait for"), enter: { type: "boolean" }, key: s("key name, e.g. Enter"), dy: n("scroll pixels, negative = up"), seconds: n("how long wait may take, 1-20"), file_path: s("upload source path inside your private computer"), output_path: s("download destination path inside your private computer"), value: s("option value for select"), index: n("tab index for switch_tab/close_tab"), screenshot: { type: "boolean", description: "include a page screenshot" } }, ["action"])),
 ];
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use state to read the screen as text (the visible windows, the focused one, the pointer) or frame for the picture; after launch/click/key the reply already carries the window list; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use state to read the screen as text (the visible windows, the focused one, the pointer) or frame for the picture; after launch/click/key the reply already carries the window list; launch browser, terminal, files, LibreOffice Writer/Calc/Impress/Draw, Inkscape, GIMP or Audacity when installed; click, double-click, drag, move, hold/release mouse buttons, type, press keys, scroll, inspect pointer, and read/write the session clipboard. Inspect the screenshot after GUI actions; check computer_apps before launching an app.",
     obj({
-      action: { type: "string", enum: ["start", "status", "frame", "state", "stop", "launch", "click", "move", "type", "key", "scroll"] },
-      app: { type: "string", enum: ["browser", "terminal", "files"] },
+      action: { type: "string", enum: ["start", "status", "frame", "state", "stop", "launch", "click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "pointer", "clipboard_set", "clipboard_get"] },
+      app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] },
       url: s("URL to open when launching the browser"),
       x: n("horizontal pixel coordinate from the latest screenshot"),
       y: n("vertical pixel coordinate from the latest screenshot"),
+      x2: n("drag destination x coordinate"),
+      y2: n("drag destination y coordinate"),
       button: { type: "string", enum: ["left", "middle", "right"] },
-      text: s("text to type"),
+      text: s("text to type or set on the desktop clipboard"),
       key: s("key name, e.g. Enter, Tab, Ctrl+L"),
-      direction: { type: "string", enum: ["up", "down"] },
+      direction: { type: "string", enum: ["up", "down", "left", "right"] },
       amount: n("scroll amount, 1-8"),
     }, ["action"])),
   // the user takes over this model's own screen for a step only they should do (their sign-in, a code, a captcha); the task waits for "Done"
@@ -113,6 +115,11 @@ export const COMPUTER_PLAYBOOK = [
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
   "- several small steps (read + search + run + write) go in ONE computer_batch call (up to 8 steps): every separate computer call costs about 2 s.",
   "- when the work is done and tested, computer_publish sends ALL your changes to GitHub in ONE commit without re-sending any content; then open the pull request.",
+  "- keep durable files and knowledge in the private computer bank network: create topic banks, put files by source_path, search before rereading, and get an item back to a path when needed; banks are isolated by user+model and share no data across sessions.",
+  "- use computer_apps to inspect actual installed workstation apps; launch writer/calc/impress/draw/inkscape/gimp/audacity with desktop. For Arabic scanned PDFs use ocrmypdf -l ara+eng; use pdftotext/qpdf for PDF tasks and LibreOffice for office files.",
+  "- for data work use pandas/openpyxl/matplotlib and DuckDB when computer_apps reports them; JupyterLab should run as a background computer job bound to 127.0.0.1 and be opened with the headless browser, not by exposing a public port.",
+  "- for Jupyter or a local web preview, run the server as a background computer_job bound to 127.0.0.1; the headless browser permits localhost only when the listening process belongs to this exact session. Never bind a preview to 0.0.0.0.",
+  "- when asked to test, audit or evaluate yourself, load skill self_test and PROVE each ability with a real tool call; never describe your abilities from memory. Before the final answer of any code or multi-step task, load skill deliver (and review for code); after a failure or a correction, load skill mistakes and save the lesson.",
 ].join("\n");
 
 export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
@@ -137,6 +144,31 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
   tool("computer_search", "Search text in files on YOUR computer (ripgrep): matching lines with file:line. path = folder or file, glob like *.ts.",
     obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
+  tool("computer_apps", "Report which workstation applications are actually installed and the optional app bundle installation status. Use this before launching an office or visual app.",
+    obj({})),
+  tool("computer_bank", "Manage your private, disk-backed bank network (no Supabase or external DB): create unlimited named banks by topic/category; store files from source_path or small text content; deduplicate blobs; index searchable text (including PDF text when pdftotext is installed); search and restore items. User+model isolated; physical disk and session quota still apply. Actions: list/create/put/get/search/stats/delete/drop. For put use source_path for large/binary files; get binary items with output_path.",
+    obj({
+      action: { type: "string", enum: ["list", "create", "put", "get", "search", "stats", "delete", "drop", "link", "related", "gc"] },
+      bank: s("bank id, e.g. documents, datasets, apps, tools, sessions"),
+      target_bank: s("destination bank id for link"),
+      relation: s("short relation name for link, e.g. uses, contains, references"),
+      note: s("optional explanation for the bank relationship"),
+      include_related: { type: "boolean", description: "search linked banks as well as the named bank" },
+      category: { type: "string", enum: ["general", "documents", "datasets", "apps", "tools", "sessions", "memory", "media", "projects"] },
+      description: s("what this bank contains"),
+      name: s("item filename or logical title"),
+      source_path: s("existing file path inside your private computer, for put"),
+      output_path: s("destination path inside your private computer, for binary get"),
+      content: s("small UTF-8 note or text file content; use source_path for large/binary files"),
+      text: s("optional extracted/searchable text when source file is not plain text"),
+      kind: { type: "string", enum: ["file", "document", "dataset", "app", "tool", "session", "memory", "media", "project"] },
+      item_id: s("item id returned by put/search/list"),
+      query: s("search words or question; Arabic and English supported"),
+      limit: n("search results or catalog page size, 1-200"),
+      offset: n("catalog offset for paging through large bank networks"),
+      metadata: { type: "object", description: "small JSON metadata object" },
+      confirm: { type: "boolean", description: "must be true to drop an entire non-default bank" },
+    }, ["action"])),
 ];
 
 export const COMMON_TOOLS: CoderTool[] = [
@@ -166,7 +198,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("plan", "Write or UPDATE the TODO list, only for work that changes or builds something in 3+ steps (never for reading, explaining or answering). At most 5 items of at most 6 words; update only when the plan changes.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("knowledge_search", "Search the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions; each passage with its source). Use it BEFORE searching the web for a fact or an explanation, and cite the source.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
-  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo, self_test (test yourself for real), review (code quality before delivering), security, performance (speed and Big-O), architecture, practices (best practice per language), freshness (current library versions), mistakes (learn from errors), deliver (pre-handover checklist). It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: NOVA_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -702,7 +734,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       const out = await bankSection(String(a.query || ""), Number(a.count) || 4);
       return out ? `From the shared knowledge bank (cite the source):\n${out}` : "the shared knowledge bank has nothing on this (or is not reachable): use web_search / deep_research";
     }
-    if (name === "skill") return agentSkillText(String(a.name || ""));
+    if (name === "skill") return novaSkillText(String(a.name || ""));
     if (name === "plan") {
       const text = renderPlan(a.items);
       if (!text) return "error: items must be a non-empty list of { step, status }";

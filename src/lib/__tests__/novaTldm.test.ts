@@ -63,6 +63,45 @@ describe("Nova T-LDM: independence", () => {
     }
   });
 
+  it("a head answer {type:text} becomes a finished model turn the agent loop accepts (it has a job); a step it cannot serve yet is an honest error", async () => {
+    const real = global.fetch;
+    try {
+      const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      global.fetch = studioFetch({ type: "text", text: "مرحبا، أنا نوفا." });
+      const ok = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(ok.type).toBe("done");
+      expect(ok.job).toBeTruthy();
+      expect(ok.text).toBe("مرحبا، أنا نوفا.");
+      global.fetch = studioFetch({ type: "tool_request", tool_name: "computer_run", tool_arguments: { command: "ls" }, tool_request_id: "abc123" });
+      const tr = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(tr.type).toBe("done");
+      expect(tr.tool_calls?.[0].id).toBe("tldm:abc123");
+      expect(tr.tool_calls?.[0].function.name).toBe("computer_run");
+      expect(JSON.parse(tr.tool_calls![0].function.arguments)).toEqual({ command: "ls" });
+      global.fetch = studioFetch({ type: "body" });
+      const body = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect((body as any).error).toBe("body");
+    } finally {
+      global.fetch = real;
+    }
+  });
+
+  it("tldmTurnFrom: the head gets the task only, and the result of a tool it asked for is handed back as resumeTool", async () => {
+    const { tldmTurnFrom } = await import("@/lib/novaTldm");
+    const plain = tldmTurnFrom([{ role: "system", content: "SYSTEM" }, { role: "user", content: "اعرض الملفات" }]);
+    expect(plain.messages).toEqual([{ role: "user", content: "اعرض الملفات" }]);
+    expect(plain.resumeTool).toBeUndefined();
+    const resumed = tldmTurnFrom([
+      { role: "system", content: "SYSTEM" }, { role: "user", content: "اعرض الملفات" },
+      { role: "assistant", content: "", tool_calls: [{ id: "tldm:r1", type: "function", function: { name: "computer_run", arguments: "{\"command\":\"ls\"}" } }] },
+      { role: "tool", tool_call_id: "tldm:r1", content: "a.txt b.txt" },
+    ]);
+    expect(resumed.resumeTool).toEqual({ requestId: "r1", name: "computer_run", arguments: { command: "ls" }, result: "a.txt b.txt", error: false });
+    const other = tldmTurnFrom([{ role: "user", content: "x" }, { role: "assistant", content: "", tool_calls: [{ id: "call_9", function: { name: "web_search", arguments: "{}" } }] }, { role: "tool", tool_call_id: "call_9", content: "r" }]);
+    expect(other.resumeTool).toBeUndefined();          // a tool the body asked for is never handed to the head
+  });
+
   it("refuses when no Nova model is in scope (never guesses, never falls back to Sham)", async () => {
     const real = global.fetch;
     const bodies: any[] = [];
@@ -93,14 +132,14 @@ describe("Nova T-LDM: independence", () => {
       const P = await import("@/lib/tldmPolicy");
       const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
       const { withEngineModel } = await import("@/lib/openCoderStudio");
-      P._setTldmPolicyForTests("nova2", true, ["rm -rf /"]);
+      P._setTldmPolicyForTests("coder", true, ["rm -rf /"]);                      // Nova is one model: its deny-list is sent under the legacy id too, and never to Sham Pro
       await withEngineModel("nova2", () => withNovaTldmModel("nova2", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
-      const n2 = payloads.find((p) => String(p.deny_list || "").includes("rm -rf /"));
-      expect(n2).toBeTruthy();
+      expect(payloads.find((p) => String(p.deny_list || "").includes("rm -rf /"))).toBeTruthy();
       payloads.length = 0;
       await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
-      expect(payloads.some((p) => String(p.deny_list || "").includes("rm -rf /"))).toBe(false);
-      P._setTldmPolicyForTests("nova2", false, []);
+      expect(payloads.some((p) => String(p.deny_list || "").includes("rm -rf /"))).toBe(true);
+      expect(P.tldmOwnerDenyList("sham_v2")).toEqual([]);
+      P._setTldmPolicyForTests("coder", false, []);
     } finally {
       global.fetch = real;
     }
@@ -145,50 +184,42 @@ describe("Nova T-LDM: the switch is per model", () => {
   it("enabling T-LDM on one Nova never enables the other, and neither enables Sham", async () => {
     const { tldmEnabled, setTldmEnabled } = await import("@/lib/coderModels");
     const st: any = { perModel: {} };
-    setTldmEnabled(st, true, "nova2");
-    expect(tldmEnabled(st, "nova2")).toBe(true);
-    expect(tldmEnabled(st, "coder")).toBe(false);
-    expect(tldmEnabled(st, "sham_v2")).toBe(false);
     setTldmEnabled(st, true, "coder");
     expect(tldmEnabled(st, "coder")).toBe(true);
     expect(tldmEnabled(st, "sham_v2")).toBe(false);
-    setTldmEnabled(st, false, "nova2");
-    expect(tldmEnabled(st, "nova2")).toBe(false);
-    expect(tldmEnabled(st, "coder")).toBe(true);
+    setTldmEnabled(st, false, "coder");
+    expect(tldmEnabled(st, "coder")).toBe(false);
   });
 
   it("a model with no head never reports a T-LDM switch", async () => {
     const { tldmEnabled, setTldmEnabled } = await import("@/lib/coderModels");
     const st: any = { perModel: {} };
-    expect(setTldmEnabled(st, true, "lfm25")).toBe(false);
-    expect(tldmEnabled(st, "lfm25")).toBe(false);
-    expect(st.perModel.lfm25).toBeUndefined();
+    expect(setTldmEnabled(st, true, "sham")).toBe(false);
+    expect(tldmEnabled(st, "sham")).toBe(false);
+    expect(st.perModel.sham).toBeUndefined();
   });
 
-  it("the audience gate is per model: opening Nova 2 to everyone does not open Nova 1 or Sham to anyone else", async () => {
+  it("the audience gate is per model: opening Nova to everyone does not open Sham Pro (nova2 is only Nova's legacy alias)", async () => {
     const P = await import("@/lib/tldmPolicy");
-    // the default for every T-LDM model is owner-only; the owner may open one of them to all users
-    P._setTldmPolicyForTests("nova2", true, []);
+    P._setTldmPolicyForTests("coder", true, []);
+    expect(P.tldmAllowedFor("pro", "coder")).toBe(true);
     expect(P.tldmAllowedFor("pro", "nova2")).toBe(true);
-    expect(P.tldmAllowedFor("pro", "coder")).toBe(false);
     expect(P.tldmAllowedFor("pro", "sham_v2")).toBe(false);
-    // the owner is allowed on each model's own switch (the default state is "owner only", not "off")
-    expect(P.tldmAllowedFor("owner", "coder")).toBe(true);
-    expect(P.tldmAllowedFor("owner", "sham_v2")).toBe(true);
-    P._setTldmPolicyForTests("nova2", false, []);
+    expect(P.tldmAllowedFor("owner", "sham_v2")).toBe(true);                       // the owner is allowed on each model's own switch
+    P._setTldmPolicyForTests("coder", false, []);
     expect(P.tldmAllowedFor("pro", "nova2")).toBe(false);
   });
 
-  it("the env switch names each model separately", async () => {
+  it("the env switch: Nova's NOVA_TLDM_OPEN (old NOVA1_/NOVA2_ names still work), Sham Pro's SHAM_TLDM_OPEN, never shared", async () => {
     const P = await import("@/lib/tldmPolicy");
-    const keep = process.env.NOVA2_TLDM_OPEN;
+    const keep = [process.env.NOVA_TLDM_OPEN, process.env.NOVA2_TLDM_OPEN];
+    delete process.env.NOVA_TLDM_OPEN; delete process.env.NOVA1_TLDM_OPEN; delete process.env.SHAM_TLDM_OPEN;
     process.env.NOVA2_TLDM_OPEN = "1";
-    delete process.env.NOVA1_TLDM_OPEN;
-    delete process.env.SHAM_TLDM_OPEN;
     expect(P.envOpen("nova2")).toBe(true);
-    expect(P.envOpen("coder")).toBe(false);
+    expect(P.envOpen("coder")).toBe(true);
     expect(P.envOpen("sham_v2")).toBe(false);
-    if (keep === undefined) delete process.env.NOVA2_TLDM_OPEN; else process.env.NOVA2_TLDM_OPEN = keep;
+    if (keep[1] === undefined) delete process.env.NOVA2_TLDM_OPEN; else process.env.NOVA2_TLDM_OPEN = keep[1];
+    if (keep[0] !== undefined) process.env.NOVA_TLDM_OPEN = keep[0];
   });
 });
 
@@ -203,7 +234,9 @@ describe("Nova T-LDM: the loop stops on the model's own error", () => {
     expect(src).toMatch(/if \(tldmModel && r\?\.type === "error"\) \{/);
     expect(src).toMatch(/await endRun\(st, "failed", db, why, modelSessionChatKey\(chatId\)\);/);
     // and the error reply carries no `failure`, so the outage loop cannot swallow it
-    expect(src).toMatch(/\.then\(\(r\): CoderOutcome => \(\{ reply: r \}\)\)/);
+    expect(src).toMatch(/return \{ reply: r \} as CoderOutcome;/);
+    // only the head's own "nothing for this task" signal reaches the SAME model's plain chat
+    expect(src).toMatch(/\.error === "body"\) return plainChat\(\)/);
   });
 
   it("the /tldm command and its button follow the chat's model, not Sham's", async () => {

@@ -141,6 +141,10 @@ export async function shamAgentRun(opts: {
     let direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
     let tldmSteps = 1;
     const tldmReadTools = new Set(["web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    // GitHub read tools return whole files / trees: the T-LDM head decided to ask for them (trained: data/trajectories.make_open_episode), and Sham Pro's own BODY writes the answer
+    // from the FULL result (a 4.5M head cannot summarise a file). Web tools keep the head's own loop.
+    const bodyAnswers = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    let bodyAnswer: { name: string; args: Record<string, unknown>; result: string } | null = null;
     while (direct?.type === "tool_request" && tldmSteps < 7 && left() > 2500) {
       if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
       const toolName = String(direct.tool_name || "");
@@ -164,6 +168,7 @@ export async function shamAgentRun(opts: {
         opts.onEvent?.("info", clip(result, 300));
       }
       if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      if (available && bodyAnswers.has(toolName) && result && !/^error/i.test(result)) { bodyAnswer = { name: toolName, args: rawArgs, result }; break; }
       const previousBase = String(direct.tldmBase || "");
       const requestId = String(direct.tool_request_id || "");
       tldmSteps++;
@@ -186,6 +191,24 @@ export async function shamAgentRun(opts: {
       ));
     }
     if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+    if (bodyAnswer) {
+      const last = chatMessages.length ? chatMessages[chatMessages.length - 1] : null;
+      const asked = last && last.role === "user" ? last.content : String(opts.text || "");
+      const handed = [
+        ...chatMessages.slice(0, -1),
+        { role: "user" as const, content: `${asked}\n\n[نتيجة الأداة ${bodyAnswer.name} ${JSON.stringify(bodyAnswer.args).slice(0, 200)}]\n${bodyAnswer.result.slice(0, 6000)}\n\nأجب عن طلبي أعلاه اعتمادًا على هذه النتيجة وحدها، بالعربية وباختصار.` },
+      ];
+      const written = await shamGenerateChat(handed, 640, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+      const text = written?.type === "text" ? String(written.text || "").trim() : "";
+      if (text) return { kind: "text", text, used, steps: tldmSteps + 1 };
+      // the body could not answer: hand the result back to the head, as before (the same model, never another one)
+      const resumed = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, Math.max(1000, Math.min(timeout, left() - 1000)), {
+        bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner),
+        resumeTool: { requestId: String(direct?.tool_request_id || ""), name: bodyAnswer.name, arguments: bodyAnswer.args, result: bodyAnswer.result.slice(0, 7000), error: false, routeBase: String(direct?.tldmBase || "") },
+      }));
+      if (resumed?.type === "text" && String(resumed.text || "").trim()) return { kind: "text", text: String(resumed.text).trim(), used, steps: tldmSteps + 1 };
+      return { kind: "text", text: "قرأتُ النتيجة لكن تعذّرت صياغة الجواب الآن. أعد إرسال الطلب.", used, steps: tldmSteps + 1 };
+    }
     if (direct?.type === "tool_request") {
       return { kind: "text", text: "لم تكتمل خطوات البحث في الوقت المتاح. أعد إرسال الطلب لمتابعته.", used, steps: tldmSteps };
     }
@@ -211,6 +234,13 @@ export async function shamAgentRun(opts: {
         opts.onEvent?.("info", clip(String(step?.result || ""), 300));
       }
       const answer = String(direct.text || "").trim();
+      // The head decided: no command, no tool. A plain conversation is then spoken by Sham Pro's BODY (the 4.5M head writes short command lines, not conversation: live 2026-11-22
+      // its greeting came out doubled and cut mid-word, «...والبحثمرحبا! أنا شام برو...»). Same model, same Studio; the head's text stays the fallback.
+      if (!ran.length && !used.length && tldmSteps === 1 && chatMessages.length) {
+        const spoken = await shamGenerateChat(chatMessages, 768, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+        const said = spoken?.type === "text" ? String(spoken.text || "").trim() : "";
+        if (said) return { kind: "text", text: said, used, steps: tldmSteps + 1 };
+      }
       return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
     }
     if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: tldmSteps };

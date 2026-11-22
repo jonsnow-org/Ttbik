@@ -47,6 +47,10 @@ def run(cfg, reader, encode, seeds, log=print):
              "heldout": S.eval_head(head, reader, encode, T.HELDOUT, cfg), "heldout2": S.eval_head(head, reader, encode, RW.HELDOUT2, cfg)}
         log(f"seed {seed}: train {r['train']['same_effect']} heldout {r['heldout']['same_effect']} heldout2 {r['heldout2']['same_effect']}")
         res["seeds"].append(r)
+        score = r["heldout"]["same_effect"] + r["heldout2"]["same_effect"]
+        if score >= res.get("_best_score", -1.0):                       # keep the best seed's head to serve (the served head is the one that scored best on unseen tasks)
+            res["_best_score"], res["_best_seed"] = score, seed
+            res["_best_state"] = {k: v.detach().clone() for k, v in head.state_dict().items()}
     gate = float(cfg.get("gate_heldout", 0.6))
     for k, rows_k in (("heldout", T.HELDOUT), ("heldout2", RW.HELDOUT2)):
         vals = [s[k]["same_effect"] for s in res["seeds"]]
@@ -66,6 +70,8 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--json", default="")
+    ap.add_argument("--meta", default="", help="JSON object stored in the head payload (the GGUF file, tokenizer repo, llama.cpp build...) so the Studio can refuse a head made for another body")
+    ap.add_argument("--out", default="", help="write the best seed's head as a servable payload {cfg, heads:{writer: state}, feature_width, reader} (the Studio's nova_tldm_serve loads it)")
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
     if a.steps:
@@ -74,9 +80,16 @@ def main(argv=None):
     tk = Tokenizer.from_file(a.tokenizer)
     encode = lambda text, n: (tk.encode(text).ids[:n] + [0] * n)[:n]       # noqa: E731
     res = run(cfg, LlamaReader(a.server), encode, a.seeds)
+    state = res.pop("_best_state", None)
+    best_seed, _ = res.pop("_best_seed", None), res.pop("_best_score", None)
     print(json.dumps({k: v for k, v in res.items() if k != "seeds"}, ensure_ascii=False, indent=1))
     if a.json:
         json.dump(res, open(a.json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    if a.out and state is not None:
+        torch.save({"cfg": dict(cfg), "heads": {"writer": state}, "feature_width": res["feature_width"], "reader": "llama-gguf", "best_seed": best_seed,
+                    "heldout": res["heldout"]["mean"], "heldout2": res["heldout2"]["mean"], "verdict": {"heldout": res["heldout"]["verdict_mean"], "heldout2": res["heldout2"]["verdict_mean"]},
+                    "meta": json.loads(a.meta) if a.meta else {}}, a.out)
+        print(f"saved head -> {a.out}")
     return 0
 
 

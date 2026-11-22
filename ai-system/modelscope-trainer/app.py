@@ -584,7 +584,7 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/rewordings.py", "data/augment.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]
@@ -1013,7 +1013,13 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
     deadline = time.time() + cfg["hours"] * 3600 + 40 * 60
     cmd = cmd or [sys.executable, "-u", str(Path(__file__).resolve()), "--cycle"]
     _flag_cycle(True, keep=True)                     # an interrupted cycle's flag stays: the child's prepare_resume decides (and restarts the flag when it does not resume)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+    # glibc gives every thread its own malloc arena and keeps freed pages: the cycle runs ~13 spider/encoder threads over big tensors and bytes, and its memory grew until the 8 GB
+    # limit killed it (code -9, cn sham-trainer-1, 2026-11-13 and again 2026-11-22: 6.5 GB at a 8.0 GB limit). Two arenas and an eager trim keep the same work in less memory.
+    # A value already set in the Studio's environment wins.
+    env = dict(os.environ)
+    for k, v in (("MALLOC_ARENA_MAX", "2"), ("MALLOC_TRIM_THRESHOLD_", "131072"), ("MALLOC_MMAP_THRESHOLD_", "131072")):
+        env.setdefault(k, v)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True, env=env)
     _CYCLE_LINE_AT[0] = time.time()
     _KILL_REQUEST.clear()
     _set(child_pid=proc.pid, cycle_started=time.time())
@@ -1390,12 +1396,6 @@ def main() -> None:
     threading.Thread(target=heartbeat_loop, daemon=True, name="sham-heartbeat").start()
     if settings()["job"] in LIVE_JOBS:
         threading.Thread(target=checkpoint_upload_loop, daemon=True, name="sham-ckpt-upload").start()
-    try:                                                   # watch the other trainer Studios and sham-runner-1 (both sites): any one that sleeps or dies is started again
-        sys.path.insert(0, str(HERE))
-        import studio_guard
-        studio_guard.start_thread()
-    except Exception as exc:  # noqa: BLE001
-        print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
     with gr.Blocks(title="Sham trainer") as demo:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)

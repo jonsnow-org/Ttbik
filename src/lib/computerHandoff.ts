@@ -2,7 +2,7 @@
 // A model working on ITS OWN computer reaches a step only the user should do: sign in to the user's own account, type a one-time / 2FA code,
 // solve a captcha, confirm a payment. It calls computer_handoff{kind, reason}: the task waits (no time limit), the Mini App opens that model's
 // live screen with a "you have control" bar, the user does the step on the screen, taps Done, and the model continues from what is on the screen.
-// Model-independent on purpose: each model keeps its own computer (Nova / LFM: the hub session user:model; Sham / Sham Pro: their own Studio's
+// Model-independent on purpose: each model keeps its own computer (Nova: the hub session user:model; Sham / Sham Pro: their own Studio's
 // embedded desktop). Only the pause, the bar and the resume note live here; nothing of one model's computer is shared with another.
 
 export const HANDOFF_TOOL_NAME = "computer_handoff";

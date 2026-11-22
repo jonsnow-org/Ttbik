@@ -34,6 +34,21 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("patch", { ok: false, error: "the patch does not apply here (nothing was changed)", output: "hunk FAILED" })).toMatch(/does not apply[\s\S]*hunk FAILED/);
   });
 
+  test("the model can inspect installed apps and use its private persistent bank network", () => {
+    expect(boxActionFor("computer_apps", {})).toEqual({ action: "apps" });
+    const mapped = boxActionFor("computer_bank", { action: "put", bank: "documents", source_path: "reports/guide.pdf", kind: "document", metadata: { lang: "ar" }, offset: 12 });
+    expect(mapped).toMatchObject({ action: "bank", bank_action: "put", bank: "documents", source_path: "reports/guide.pdf", kind: "document", offset: 12 });
+    const link = boxActionFor("computer_bank", { action: "link", bank: "documents", target_bank: "datasets", relation: "references", note: "project data" });
+    expect(link).toMatchObject({ action: "bank", bank_action: "link", target_bank: "datasets", relation: "references", note: "project data" });
+    expect(cleanBoxArgs(mapped!)).toMatchObject({ action: "bank", bank_action: "put", source_path: "reports/guide.pdf", offset: 12 });
+    expect(renderBoxReply("bank", { ok: true, action: "put", item_id: "abc", deduplicated: true })).toContain("deduplicated");
+    expect(renderBoxReply("apps", { ok: true, apps: { writer: true, tesseract_arabic: false } })).toContain("tesseract_arabic");
+    const names = toolGroups(true, false).computer.map((item) => item.function.name);
+    expect(names).toContain("computer_bank");
+    expect(names).toContain("computer_apps");
+    expect(COMPUTER_PLAYBOOK).toMatch(/private computer bank network/);
+  });
+
   test("fields are bounded before they reach the Studio", () => {
     const clean = cleanBoxArgs({ action: "run", command: "x".repeat(20000), timeout: 9999, cwd: "src" })!;
     expect(String(clean.command).length).toBe(8000);
@@ -107,10 +122,10 @@ describe("the model's own persistent computer", () => {
       if (url.endsWith("/gradio_api/call/box_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, exit_code: 0, seconds: 0.1, cwd: ".", output: "hello" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await boxDo("lfm25", "42:lfm25", { action: "run", command: "echo hello" }, fetchImpl);
+    const out = await boxDo("coder", "42:coder", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
-    expect(calls[0].url).toContain("nova-inference-server");
-    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:lfm25" });
+    expect(calls[0].url).toContain("sham-trainer-2");
+    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:coder" });
     // Sham and Sham v2 have NO computer Studio: their computer is inside the model's own loop (owner 2026-11-08), so the app never sends them a command
     const before = calls.length;
     expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);

@@ -1,5 +1,5 @@
 import { stripForeignScript } from "@/lib/scriptGuard";
-// Thought blocks are for the model, never for the user: every send path (Telegram, Mini App, Nova, LFM2.5, Sham v2, candidates) strips them.
+// Thought blocks are for the model, never for the user: every send path (Telegram, Mini App, Nova, Sham v2, candidates) strips them.
 /** Drop <think>…</think> blocks (and an unclosed one at the end, still being written) from text the user will read. */
 export function stripThinkTags(text: string): string {
   if (!/<\/?think>/i.test(text)) return stripForeignScript(text);

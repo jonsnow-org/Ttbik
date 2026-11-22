@@ -121,6 +121,9 @@ function rawLabel(name: string, args?: unknown): string {
     case "github_list_issues": return `عرض المشكلات في ${short(a.repo, 40)}`;
     case "github_commits": return `قراءة آخر الإيداعات في ${short(a.repo, 40)}`;
     case "github_ci_status": case "github_ci_logs": return `فحص CI في ${short(a.repo, 40)}`;
+    case "github_create_issue": return `فتح مشكلة: ${short(a.title, 40)}`;
+    case "github_comment": return `تعليق على #${a.number}`;
+    case "github_run_workflow": return `تشغيل سير عمل ${short(a.workflow, 30)}`;
     case "github_create_pr": return `فتح طلب دمج ${short(a.head, 30)} ← ${short(a.base, 30)}`;
     case "github_merge_pr": return `دمج طلب ${short(a.repo, 40)}#${short(a.number, 8)}`;
     case "github_create_branch": return `إنشاء فرع ${short(a.branch, 40)}`;
@@ -166,8 +169,8 @@ export function renderTimeline(tl: Timeline, now = Date.now(), opts: { maxSteps?
     return `${running ? ICON_RUN : s.ok === false ? ICON_FAIL : ICON_DONE} ${clock}  ${body}${running && !/[.…]$/.test(body) && s.kind === "phase" ? "…" : ""}${dur}`;
   });
   const head = `🕒 ${dateAt(tl.startedAt)} · ${clockAt(tl.startedAt)}`;
-  const ack = `💬 ${tl.ack || NEUTRAL_ACK}`;
+  const ack = tl.ack ? `\n💬 ${tl.ack}` : "";      // owner 2026-11-22: no fixed "received" sentence; the first row is the real "استلام الطلب" step
   const mid = hidden ? `… ${hidden} خطوات سابقة\n` : "";
-  const text = `${head}\n${ack}\n\n📋 التقدم · ${fmtDur(now - tl.startedAt)}\n${mid}${rows.length ? rows.join("\n") : `${ICON_RUN} ${clockAt(tl.startedAt)}  استلام الطلب…`}${opts.tail?.length ? `\n${opts.tail.join("\n")}` : ""}`;
+  const text = `${head}${ack}\n\n📋 التقدم · ${fmtDur(now - tl.startedAt)}\n${mid}${rows.length ? rows.join("\n") : `${ICON_RUN} ${clockAt(tl.startedAt)}  جاري التحضير…`}${opts.tail?.length ? `\n${opts.tail.join("\n")}` : ""}`;
   return text.slice(0, 4000);
 }

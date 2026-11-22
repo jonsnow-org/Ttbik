@@ -1,6 +1,6 @@
 name: Deploy the dedicated computer and full developer toolchain to the reserved 16 GB ModelScope Studio
 
-# This is the production computer host. Keep it on the private 16 GB nova-inference-server Studio; inference and media have their own separate Studios.
+# This is the production computer host. Since 2026-11-22 it lives on the international 16 GB Studio Jonjithup/sham-trainer-2 (open internet; the cn hub could not reach GitHub); the cn nova-inference-server is left empty on the owner order; inference and media have their own separate Studios.
 # MiniCPM-o 4.5 remains in its separate candidate Studio; no model/media weights are used here.
 on:
   push:
@@ -9,6 +9,8 @@ on:
     paths:
       - ai-system/modelscope-media/computer_studio_app.py
       - ai-system/modelscope-media/computer_box.py
+      - ai-system/modelscope-media/computer_banks.py
+      - ai-system/modelscope-media/egress_proxy.py
       - ai-system/modelscope-media/desktop_computer.py
       - ai-system/modelscope-media/browser_computer.py
       - ai-system/modelscope-media/requirements-computer.txt
@@ -24,10 +26,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MS: https://www.modelscope.cn
-  OWNER: novaai2026
-  REPO: nova-inference-server
-  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+  MS: https://www.modelscope.ai
+  OWNER: Jonjithup
+  REPO: sham-trainer-2
+  API: https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai
 
 jobs:
   deploy:
@@ -45,13 +47,17 @@ jobs:
           python3 -m py_compile \
             ai-system/modelscope-media/computer_studio_app.py \
             ai-system/modelscope-media/computer_box.py \
+            ai-system/modelscope-media/computer_banks.py \
+            ai-system/modelscope-media/egress_proxy.py \
             ai-system/modelscope-media/desktop_computer.py \
             ai-system/modelscope-media/browser_computer.py \
             scripts/ops/modelscope_computer_smoke.py
           python3 - <<'PY'
           from pathlib import Path
           app = Path("ai-system/modelscope-media/computer_studio_app.py").read_text()
-          assert 'APP_REVISION = "computer-hub-16gb-2026-11-11-r9-mount-probe"' in app
+          bank = Path("ai-system/modelscope-media/computer_banks.py").read_text()
+          assert "content-addressed" in bank and "CREATE TABLE IF NOT EXISTS banks" in bank
+                    assert 'APP_REVISION = "computer-hub-16gb-2026-11-22-r10-banks"' in app
           assert "model_loaded" in app and "api_desktop_do" in app and "api_browser_do" in app
           assert "donor-bakeoff/minicpmo45-big/model_cache" in app
           print("computer app syntax and contracts: OK")
@@ -59,7 +65,7 @@ jobs:
 
       - name: Verify the target is the private 16 GB Studio
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$T"
@@ -89,7 +95,7 @@ jobs:
 
       - name: Stop the old MiniCPM runtime before replacing it
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           # The ModelScope API intermittently answers 200 with an EMPTY body (2026-11-05: this step died on
@@ -133,14 +139,16 @@ jobs:
 
       - name: Replace MiniCPM app with the computer-only runtime
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           git config --global user.name "computer hub deployment"
           git config --global user.email "computer-hub@users.noreply.github.com"
-          git clone "https://oauth2:$T@www.modelscope.cn/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
+          git clone "https://oauth2:$T@www.modelscope.ai/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
           cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
           cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
+          cp ai-system/modelscope-media/computer_banks.py ms/computer_banks.py
+          cp ai-system/modelscope-media/egress_proxy.py ms/egress_proxy.py
           cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
           cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
           cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt
@@ -150,6 +158,7 @@ jobs:
           # Dedicated 16 GB computer hub
           This private Studio is reserved for the persistent Linux computer, headless Chromium browser, and X11 graphical desktop.
           No LLM, MiniCPM, image, speech, or video weights are loaded here.
+          Each user:model session has a private sharded bank network; office and Arabic PDF/OCR packages install as an optional tier.
           Workspaces are isolated by user+model session keys under /mnt/workspace/computer and /mnt/workspace/browser.
           The MiniCPM big-model app and its dedicated download cache were retired; the separate MiniCPM candidate Studio is unchanged.
           EOF
@@ -160,7 +169,7 @@ jobs:
 
       - name: Deploy and wait for computer-only readiness
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           show_logs() {
@@ -197,7 +206,7 @@ jobs:
           if isinstance(value,str):
               try: value=json.loads(value)
               except Exception: value={}
-          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-11-r9-mount-probe" and value.get("role")=="computer-only" and value.get("model_loaded") is False
+          ok=isinstance(value,dict) and value.get("phase")=="ready" and value.get("app_revision")=="computer-hub-16gb-2026-11-22-r10-banks" and value.get("role")=="computer-only" and value.get("model_loaded") is False
           print("Computer app status:",{k:value.get(k) for k in ("phase","app_revision","role","model_loaded","hardware")} if isinstance(value,dict) else value)
           raise SystemExit(0 if ok else 1)
           PY
@@ -210,7 +219,7 @@ jobs:
 
       - name: Wait for terminal and graphical desktop prerequisites
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           ready=0
@@ -258,7 +267,7 @@ jobs:
 
       - name: Wait for every programmer tool tier to finish (require zero skipped packages)
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           ready=0
@@ -298,7 +307,7 @@ jobs:
 
       - name: Start Chromium bootstrap
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           curl -sS --connect-timeout 8 --max-time 30 -X POST \
@@ -308,7 +317,7 @@ jobs:
 
       - name: Wait for Chromium or mark its separate status
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -uo pipefail
           browser_ready=0
@@ -336,7 +345,7 @@ jobs:
 
       - name: Live persistent terminal, files, jobs, X11 desktop and browser tests
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           API: ${{ env.API }}
           BROWSER_READY: ${{ env.BROWSER_READY }}
         timeout-minutes: 25

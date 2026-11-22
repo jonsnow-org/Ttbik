@@ -1,6 +1,6 @@
-// SKILLS (shared by Sham, Sham v2 and Nova): short, exact how-tos the model loads with the `skill` tool before a kind of work it does not do every day (the idea behind the "skills" of the largest assistants:
+// SKILLS of Sham 1 ONLY (owner 2026-11-22: every model is independent, a red line: this file is Sham 1's own copy, edited on its own, shared with no other model): short, exact how-tos the model loads with the `skill` tool before a kind of work it does not do every day (the idea behind the "skills" of the largest assistants:
 // a procedure on demand instead of a fact the weights must hold). Each one names the tools to call, in order, with real arguments. Plain text, no network, no secrets.
-export const AGENT_SKILLS: Record<string, { title: string; when: string; steps: string }> = {
+export const SHAM_SKILLS: Record<string, { title: string; when: string; steps: string }> = {
   pdf: {
     title: "Read or make a PDF", when: "the user gives a PDF to read, or wants a PDF file",
     steps: "Read: computer_run command=\"pip install -q pypdf && python3 -c \\\"import pypdf;r=pypdf.PdfReader('f.pdf');print(len(r.pages));print(r.pages[0].extract_text()[:3000])\\\"\". Scanned PDF (no text): computer_run \"pdftotext -layout f.pdf - | head -200\" or OCR with tesseract if installed.\nMake: computer_write report.py using reportlab (pip install -q reportlab; canvas.Canvas('out.pdf'); drawString; save), computer_run \"python3 report.py\", then send_file path=out.pdf. Arabic text needs arabic-reshaper + python-bidi and an Arabic TTF font.",
@@ -41,17 +41,25 @@ export const AGENT_SKILLS: Record<string, { title: string; when: string; steps: 
     title: "Plan a long task", when: "the task has more than three steps",
     steps: "Call plan first with items [{step, status:'pending'}...], do one step, call plan again marking it done/doing, and finish by checking every item. If a step fails, change the plan (add the fix step) instead of ignoring it. Keep each step short and verifiable.",
   },
+  design: {
+    title: "Design a page, app screen or UI with a real point of view", when: "the user wants a web page, landing page, dashboard, Mini App screen or any visual UI built or restyled",
+    steps: "Before any code write a SHORT design plan: 1) the subject, the audience and the page's one job (ask the user in one line if unclear); 2) a token set: 4-6 named hex colors, the typefaces and their roles (one family or two clearly different ones, not the default family you would use anywhere), the layout idea in one sentence plus a small ASCII wireframe, and the one thing that will be memorable. 3) Review the plan against the brief: if a part would look the same for any similar page, change it and say what you changed. The user's own words always win over these rules. AVOID the generic defaults: cream background + serif + terracotta accent; near-black + one acid-green accent; identical rounded cards with the same soft shadow and gradient washes; an ALL-CAPS eyebrow above every heading; numbered 01/02/03 markers on content that is not a sequence; one word of a headline in a different color; fade-up on every section; '→' on every button. Spend boldness in ONE place and keep the rest quiet. Open with the most characteristic thing of the subject (a headline, image, live demo or number), not a stock hero. Type: line length under 80 characters, a clear scale, sentence case. Motion only where it answers a user action or draws one deliberate moment. Quality floor without announcing it: responsive to a phone width, visible keyboard focus, prefers-reduced-motion respected, enough contrast. For Arabic set dir=\"rtl\" and lang=\"ar\", use a font with real Arabic glyphs, and mirror the layout. Words are design: buttons say what happens ('Save changes' not 'Submit'), errors say what went wrong and how to fix it without apologising, empty screens invite an action. Build it (computer_write the files), open it with the browser tool at phone width and desktop width, fix what looks wrong, then tell the user the choices you made in three lines.",
+  },
+  logo: {
+    title: "Brief a logo or brand mark (and prompt the image tool for it)", when: "the user wants a logo, icon, app icon, favicon or brand mark",
+    steps: "Ask or decide first: the name (spelled exactly), what it does, the audience, three feel-words, and where it will be used (app icon, header, print). Design rules: it must still read at 16 px and in one color; one idea, not a collage; a simple geometric base (letterform, symbol or both) with at most 2 colors plus neutral; no photo detail, no gradients that break in print, no tiny text; leave clear space around it; check it on both a light and a dark background. Give 3 distinct directions (wordmark, symbol, combination) in one line each, let the user pick, then refine ONE. For make_media write the prompt in English as: 'flat vector logo of <symbol idea> for <name>, <style words>, <2 colors named>, centered on a plain white background, simple shapes, no text' - never ask the image model to render long words (it garbles letters): add the name afterwards as real text in an SVG or HTML file with computer_write, and send_file it. Offer the variants: icon only, horizontal lockup, one-color version, dark-background version.",
+  },
   data: {
     title: "Analyse data", when: "the user gives numbers/logs/CSV and wants conclusions",
     steps: "Load it with pandas in a script (computer_write + computer_run), print shape, columns, head, describe, missing values; compute exactly what was asked; print the results; answer ONLY from printed numbers and say the sample size. Offer a chart (skill chart) when a picture helps.",
   },
 };
 
-export function agentSkillText(name: string): string {
+export function shamSkillText(name: string): string {
   const key = String(name || "").trim().toLowerCase();
-  const s = AGENT_SKILLS[key];
-  if (!s) return `unknown skill "${key}". Available: ${Object.entries(AGENT_SKILLS).map(([k, v]) => `${k} (${v.when})`).join("; ")}`;
+  const s = SHAM_SKILLS[key];
+  if (!s) return `unknown skill "${key}". Available: ${Object.entries(SHAM_SKILLS).map(([k, v]) => `${k} (${v.when})`).join("; ")}`;
   return `SKILL ${key}: ${s.title}\nUse when: ${s.when}\n${s.steps}`;
 }
 
-export const AGENT_SKILL_NAMES = Object.keys(AGENT_SKILLS);
+export const SHAM_SKILL_NAMES = Object.keys(SHAM_SKILLS);

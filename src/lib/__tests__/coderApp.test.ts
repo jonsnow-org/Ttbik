@@ -50,7 +50,7 @@ describe("mini app api", () => {
     const { bot } = fakeBot();
     await appOp({ chatId: USER, tier: "user" }, "settings", { think: true, lang: "en", tz: "Europe/Istanbul", repo: "o/r" }, { db, bot, botRow });
     let st = await loadState(USER, db);
-    expect([st.mode, st.think, st.lang, st.tz, st.repo]).toEqual(["coder", true, "en", "Europe/Istanbul", "o/r"]);
+    expect([st.mode, st.think, st.lang, st.tz, st.repo]).toEqual(["coder", false, "en", "Europe/Istanbul", "o/r"]);   // thinking is automatic: the request to turn it on changes nothing
     // Sham belongs to the owner until the owner opens it: a user cannot pick it (one picker, checked on the server)
     await expect(appOp({ chatId: USER, tier: "user" }, "settings", { model: "sham" }, { db, bot, botRow })).rejects.toBeInstanceOf(AppError);
     await expect(appOp({ chatId: USER, tier: "user" }, "settings", { model: "nova_pro" }, { db, bot, botRow })).rejects.toBeInstanceOf(AppError);   // Nova Pro no longer exists

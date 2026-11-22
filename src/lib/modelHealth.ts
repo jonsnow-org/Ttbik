@@ -5,11 +5,14 @@ import { shamBases, shamVariant } from "@/lib/shamStudio";
 // down (red) = not answering. It only reads status: no model is ever called to generate anything.
 export type Health = "ok" | "busy" | "down";
 
-/** Nova has several Studios: green while at least one is ready and free, yellow when every ready one is occupied, red when none is ready. */
+/** Requests waiting in a Studio's queue from which it counts as heavily loaded (yellow). */
+export const HEAVY_QUEUE = 2;
+
+/** Nova has several Studios: green while at least one is ready and free, yellow only under heavy pressure (every ready one has HEAVY_QUEUE+ requests waiting), red when none is ready. */
 export function classifyStudios(statuses: (Record<string, unknown> | null)[]): Health {
   const ready = statuses.filter((s): s is Record<string, unknown> => Boolean(s) && (s as Record<string, unknown>).phase === "ready");
   if (!ready.length) return "down";
-  const free = ready.filter((s) => Number(s.queue || 0) === 0 && !(Array.isArray(s.active) && s.active.length));
+  const free = ready.filter((s) => Number(s.queue || 0) < HEAVY_QUEUE);   // owner 2026-11-22: running a task (even with one request waiting) is WORKING = green; yellow = heavy pressure only; red = not ready (deploying / error)
   return free.length ? "ok" : "busy";
 }
 

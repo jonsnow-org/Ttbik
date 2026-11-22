@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { tldmOwnerDenyList } from "@/lib/tldmPolicy";
 import type { ShamTool } from "@/lib/shamTypes";
-import { pressureMedia } from "@/lib/pressureMode";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
 import { stripThinkTags } from "@/lib/thinkTags";
 import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
@@ -363,12 +362,13 @@ export async function shamCoordinate(
 }
 
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
-export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean } = {}): Promise<ShamReply | null> {
+export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean; direct?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat refused outside the Sham v2 variant");
     return null;
   }
-  if (shamTldmOn()) return shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
+  // `direct`: the answer is written by Sham Pro's own body from a long tool result handed to it (the T-LDM head decided to call the tool; a 4.5M head cannot summarise a file).
+  if (shamTldmOn() && !opts.direct) return shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat requires a final user turn");

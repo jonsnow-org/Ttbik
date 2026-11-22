@@ -115,23 +115,12 @@ describe("coder models", () => {
   it("Nova AI is the default and visible; Sham is hidden until the owner turns it on (one tap), and only when it is ready", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "nova2", "sham", "sham_v2", "lfm25", "freei"]);               // Nova Pro is gone; Nova 1 is Nova AI's own improvement; the old direct Sham stays to measure its training
+    expect(all.map((m) => m.id)).toEqual(["coder", "sham", "sham_v2", "freei"]);               // one Nova (Nova 1 and the separate Nova 2 entry are gone), the two Shams
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "sham", false).id).toBe("coder");                    // a user cannot use a hidden one
     expect(effectiveModel(all, "sham", true).id).toBe("sham");                 // the owner can try it
     expect(effectiveModel(all, "sham_loop", true).id).toBe("sham");                      // the former "Sham (advanced)" id is the old Sham now
     expect(effectiveModel(all, "sham_v2", true).id).toBe("sham_v2");                     // the new Sham is its own entry, tried beside the old one
-    for (const id of ["lfm25"]) {
-      const candidate = all.find((m) => m.id === id);
-      expect(candidate).toMatchObject({ ownerOnly: true, visible: false });
-      expect(candidate?.lockedOwnerOnly).toBeFalsy();                   // owner t88u: every model has a show/hide switch
-      expect(effectiveModel(all, id, true).id).toBe(id);
-      expect(effectiveModel(all, id, false).id).toBe("coder");
-    }
-    await updateModel("lfm25", { visible: true }, db);                               // the owner's switch now shows a candidate to everyone…
-    expect((await listModels(db)).find((m) => m.id === "lfm25")?.visible).toBe(true);
-    await updateModel("lfm25", { visible: false }, db);                              // …and hides it again
-    expect(publicModels(await listModels(db), undefined).map((m) => m.id)).not.toContain("lfm25");
     await updateModel("coder", { visible: false }, db);                                  // Nova has its own switch now (owner panel); the owner can hide it and bring it back
     expect((await listModels(db)).find((m) => m.id === "coder")?.visible).toBe(false);
     await updateModel("coder", { visible: true }, db);

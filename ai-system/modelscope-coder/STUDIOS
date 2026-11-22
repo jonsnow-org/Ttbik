@@ -1,9 +1,3 @@
-# One Studio per line. The primary and its replicas are deployed together from the same app.py (workflow deploy-modelscope-coder.yml).
-# A new replica: add its name here (coder-inference-server-<n>, never Sham's), then put its address in OPEN_CODER_STUDIO_URLS (docs/coder/CODER.md).
-# lfm25-inference-server is NOT a Nova replica: it is LFM2.5's own Studio (same app.py, its own model via MODEL_OVERRIDES, its own pool LFM_STUDIO_URLS).
-coder-inference-server
-coder-inference-server-2
-coder-inference-server-3
-coder-inference-server-4
-coder-inference-server-5
-lfm25-inference-server
+# The cn pool. EMPTY on purpose (owner 2026-11-22): Nova runs only on the international 35B Studio (coder-inference-server-16, deployed with an explicit site=ai + studio),
+# so the cn Studios coder-inference-server, -2 .. -5 are free for training (Sham Pro and Nova head trainers). A push that touches the app deploys nothing here.
+# To put a Studio back in the Nova pool, add its name here (coder-inference-server-<n>, never Sham's).

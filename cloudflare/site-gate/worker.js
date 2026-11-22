@@ -20,7 +20,9 @@ const MODE_TTL_MS = 15_000;             // each server instance re-reads the mod
 const BUFFER_LIMIT = 5 * 1024 * 1024;   // request bodies up to this size can be replayed on the standby
 const PIN_HOURS = 12;                   // a pinned mode returns to auto after this long
 const STREAM_PATHS = ["/api/media-stream"];
-const state = { mode: "auto", until: 0, modeAt: 0, downUntil: 0 };
+const PAUSE_MS = 5 * 60_000;            // the standby answered 402 (its account is paused): do not ask it again for this long
+const WAIT_STEPS_MS = [700, 1500, 3000]; // Oracle is the only usable server: a read-only request waits for it through a restart (a deploy swaps the container in a few seconds)
+const state = { mode: "auto", until: 0, modeAt: 0, downUntil: 0, standbyPausedUntil: 0 };
 
 const enc = new TextEncoder();
 function safeEqual(a, b) {
@@ -47,10 +49,16 @@ export async function getMode(env, now = Date.now()) {
 }
 
 /** Which servers to try, in order. `down` = the primary failed less than DOWN_MS ago. */
-export function plan(mode, down) {
+export function plan(mode, down, standbyPaused = false) {
   if (mode === "oracle") return ["oracle"];
   if (mode === "vercel") return ["vercel"];
+  if (standbyPaused) return ["oracle"]; // a paused standby only answers 402: never fail over to it (and never leave Oracle for it)
   return down ? ["vercel", "oracle"] : ["oracle", "vercel"];
+}
+
+/** Friendly page for the moment nothing can answer (instead of the standby's raw 402 / a bare 502). */
+function updatingPage() {
+  return new Response("<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>نُحدّث الموقع</title><body style=\"font-family:sans-serif;text-align:center;padding:3rem 1rem;direction:rtl\"><h2>الموقع يُحدَّث الآن</h2><p>أعد المحاولة بعد لحظات.</p><p dir=ltr>The site is updating, please retry in a moment.</p><script>setTimeout(function(){location.reload()},6000)</script>", { status: 503, headers: { "content-type": "text/html; charset=utf-8", "retry-after": "5", "cache-control": "no-store", "x-gate-origin": "none" } });
 }
 
 function forwardHeaders(request, gateHost, served, failover) {
@@ -119,7 +127,8 @@ async function proxy(request, env, ctx) {
   const gate = new URL(request.url), bases = origins(env);
   const mode = await getMode(env);
   const now = Date.now();
-  const order = plan(mode, state.downUntil > now);
+  const standbyPaused = state.standbyPausedUntil > now;
+  const order = plan(mode, state.downUntil > now, standbyPaused);
   const safe = request.method === "GET" || request.method === "HEAD";
   // video and audio are never carried through the gate (bandwidth, Range requests, Cloudflare's rules on streaming): the browser is sent straight to the active server
   if (safe && STREAM_PATHS.some((p) => gate.pathname.startsWith(p))) return Response.redirect(bases[order[0]] + gate.pathname + gate.search, 307);
@@ -147,6 +156,20 @@ async function proxy(request, env, ctx) {
         await new Promise((ok) => setTimeout(ok, BLIP_PAUSE_MS));
         try { const again = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, fo); if (!isBlip(again.status)) r = again; } catch { /* keep the first answer and fail over */ }
       }
+      // the standby's account is paused (HTTP 402): it can never serve this, remember that and go back to Oracle / show the update page
+      if (name === "vercel" && mode === "auto" && r.status === 402) {
+        state.standbyPausedUntil = Date.now() + PAUSE_MS;
+        if (more) { last = null; continue; }
+        return updatingPage();
+      }
+      // Oracle is the only usable server (standby paused): a read-only request waits for it through a restart instead of failing at once
+      if (safe && name === "oracle" && !more && mode === "auto" && standbyPaused && isBlip(r.status)) {
+        for (const ms of WAIT_STEPS_MS) {
+          await new Promise((ok) => setTimeout(ok, ms));
+          try { const again = await callOrigin(bases[name], request, body, gate.host, timeout, extra, name, fo); if (!isBlip(again.status)) { r = again; break; } } catch { /* keep waiting */ }
+        }
+        if (isBlip(r.status)) return updatingPage();
+      }
       // a static file the other build does not have (the two servers can be on different builds): ask the other server
       if (isAsset && r.status === 404 && more) { last = r; continue; }
       // the server answered but is down behind its proxy (Caddy answers 502/503/504 when the app is not running), or Cloudflare itself could not reach it and answers with
@@ -162,6 +185,13 @@ async function proxy(request, env, ctx) {
       if (more && (!timedOut || safe)) {
         if (name === "oracle" && mode === "auto") state.downUntil = Date.now() + DOWN_MS;
         continue;
+      }
+      if (safe && name === "oracle" && mode === "auto" && standbyPaused) {
+        for (const ms of WAIT_STEPS_MS) {
+          await new Promise((ok) => setTimeout(ok, ms));
+          try { const again = await callOrigin(bases[name], request, body, gate.host, timeout, undefined, name, false); if (!isBlip(again.status)) return finish(again, name, bases, gate.origin); } catch { /* keep waiting */ }
+        }
+        return updatingPage();
       }
       return new Response("upstream unavailable", { status: timedOut ? 504 : 502, headers: { "x-gate-origin": name, "cache-control": "no-store" } });
     }

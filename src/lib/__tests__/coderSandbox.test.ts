@@ -183,12 +183,12 @@ describe("sandbox", () => {
     }) as any;
     try {
       const out = await runSandboxTool("sandbox_exec", { command: "echo model-scope" }, {
-        chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "lfm25", userId: "42", fetchImpl,
+        chatKey: "tgc:modelscope-test", runId: "task-1", modelId: "coder", userId: "42", fetchImpl,
       });
       expect(out).toContain("new sandbox (private ModelScope computer-hub task workspace");
       expect(out).toContain("exit code 0\nModelScope task output");
       expect(calls.length).toBeGreaterThanOrEqual(4);
-      expect(calls.every((c) => c.url.includes("nova-inference-server"))).toBe(true);
+      expect(calls.every((c) => c.url.includes("sham-trainer-2"))).toBe(true);
       expect(calls.every((c) => c.payload.session.startsWith("task:"))).toBe(true);
       expect(calls.some((c) => c.payload.action === "job_start")).toBe(true);
       expect(calls.some((c) => c.payload.action === "status")).toBe(true);

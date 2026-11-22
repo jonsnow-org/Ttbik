@@ -16,10 +16,12 @@ export const TLDM_MODELS = ["sham_v2", "coder", "nova2"] as const;
 export type TldmModel = (typeof TLDM_MODELS)[number];
 export const isTldmModel = (m: string | undefined): m is TldmModel => m === "sham_v2" || m === "coder" || m === "nova2";
 
-const ENV_PREFIX: Record<TldmModel, string> = { sham_v2: "SHAM", coder: "NOVA1", nova2: "NOVA2" };
+const ENV_PREFIX: Record<TldmModel, string> = { sham_v2: "SHAM", coder: "NOVA", nova2: "NOVA" };
+/** Nova is ONE model now (`coder`): the old `nova2` id is a legacy alias for the SAME policy key (review note #1198 §5.9). Sham Pro stays fully separate. */
+const norm = (m: string | undefined): string | undefined => (m === "nova2" ? "coder" : m);
 /** The model, or "" for anything that is not a T-LDM model (it then inherits nothing). */
-const keyOf = (m: string | undefined): TldmModel | "" => (isTldmModel(m) ? m : "");
-const isKey = (m: string | undefined): m is TldmModel => isTldmModel(m);
+const keyOf = (m: string | undefined): TldmModel | "" => (isTldmModel(norm(m)) ? (norm(m) as TldmModel) : "");
+const isKey = (m: string | undefined): m is TldmModel => isTldmModel(norm(m));
 
 const TTL = 20000;
 const MAX_PATTERNS = 200;
@@ -27,7 +29,8 @@ const MAX_PATTERN = 200;
 
 type State = { open: boolean; deny: string[]; at: number };
 const state = new Map<TldmModel, State>();
-const get = (m: TldmModel): State => {
+const get = (model: TldmModel): State => {
+  const m = norm(model) as TldmModel;
   let s = state.get(m);
   if (!s) { s = { open: false, deny: [], at: 0 }; state.set(m, s); }
   return s;
@@ -57,7 +60,10 @@ export function parseDenyList(raw: unknown): string[] {
 /** That model's own env switch; an unknown model is never open by env. */
 export function envOpen(model: string | undefined): boolean {
   if (!isKey(model)) return false;
-  return (process.env[`${ENV_PREFIX[model]}_TLDM_OPEN`] || "").trim() === "1";
+  const m = norm(model) as TldmModel;
+  const on = (name: string) => (process.env[name] || "").trim() === "1";
+  // Nova: the one switch is NOVA_TLDM_OPEN; the old NOVA1_/NOVA2_ names keep working (a deploy never silently closes what the owner opened)
+  return on(`${ENV_PREFIX[m]}_TLDM_OPEN`) || (m === "coder" && (on("NOVA1_TLDM_OPEN") || on("NOVA2_TLDM_OPEN")));
 }
 
 /** Sync: env or the last stored refresh for THAT model. Call refreshTldmPolicy(db, model) on the request first. */
@@ -106,15 +112,20 @@ export async function refreshTldmPolicy(db: Db = prismaDb, model: string | undef
   if (!force && Date.now() - s.at < TTL) return { open: tldmOpenToAll(m), deny: tldmOwnerDenyList(m) };
   try {
     await table(db);
+    const legacy = m === "coder" ? ["nova2"] : [];                      // rows saved while Nova had two ids are still honoured (their deny-list is merged, their open flag counts)
+    const names = [m, ...legacy];
+    const keys = names.flatMap((n) => [`tldm_open:${n}`, `tldm_deny:${n}`]);
     const rows = await db.query<{ key: string; value: string }>(
-      `SELECT key, value FROM coder_flags WHERE key IN ($1, $2)`, `tldm_open:${m}`, `tldm_deny:${m}`,
+      `SELECT key, value FROM coder_flags WHERE key IN (${keys.map((_, i) => `$${i + 1}`).join(", ")})`, ...keys,
     );
     let stored = false;
     let deny: string[] = [];
     for (const r of rows) {
-      if (r.key === `tldm_open:${m}`) stored = (r.value || "").trim() === "1";
-      if (r.key === `tldm_deny:${m}`) {
-        try { deny = parseDenyList(JSON.parse(r.value)); } catch { deny = parseDenyList(r.value); }
+      if (names.some((n) => r.key === `tldm_open:${n}`)) stored = stored || (r.value || "").trim() === "1";
+      if (names.some((n) => r.key === `tldm_deny:${n}`)) {
+        let part: string[] = [];
+        try { part = parseDenyList(JSON.parse(r.value)); } catch { part = parseDenyList(r.value); }
+        deny = [...new Set([...deny, ...part])];
       }
     }
     s.open = stored;

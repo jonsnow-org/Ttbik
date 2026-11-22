@@ -96,7 +96,7 @@ class FreeParentRamTest(unittest.TestCase):
 
     def test_clip_process_also_releases_the_speech_voice(self):
         # The probe makes an image and Arabic speech before the clip; on an 8 GB Studio the resident Piper voice pushed the clip into
-        # out-of-memory (LFM2.5 video probe 2026-11-05: image+speech PASS, `job` submit 502 for minutes). The voice reloads lazily.
+        # out-of-memory (Nova video probe 2026-11-05: image+speech PASS, `job` submit 502 for minutes). The voice reloads lazily.
         app = load()
         app._MODELS["voice"] = object()
         app._free_parent_ram()

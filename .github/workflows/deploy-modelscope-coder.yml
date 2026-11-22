@@ -24,7 +24,7 @@ on:
         required: false
         default: "cn"
       studio:
-        description: "Deploy only this Studio (coder-inference-server, a replica coder-inference-server-<n>, or LFM2.5's lfm25-inference-server). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
+        description: "Deploy only this Studio (coder-inference-server, a replica coder-inference-server-<n>). Empty = every Studio listed in ai-system/modelscope-coder/STUDIOS."
         required: false
         default: ""
 
@@ -60,11 +60,15 @@ jobs:
           if os.environ.get("SITE") == "ai" and not only:
               raise SystemExit("site=ai needs an explicit 'studio' (the STUDIOS list is the cn pool)")
           names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
-          ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?|lfm25-inference-server)$")
+          ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?)$")
           bad = [n for n in names if not ok.match(n)]
-          if bad or not names:
-              raise SystemExit(f"refusing studio names {bad or names} (only coder-inference-server, coder-inference-server-<n> and LFM2.5's lfm25-inference-server; never Sham's)")
-          # A push must not restart the cn Nova 4B / LFM pool unless the files they actually run changed.
+          if bad:
+              raise SystemExit(f"refusing studio names {bad} (only coder-inference-server, coder-inference-server-<n>; never Sham's)")
+          if not names:             # owner 2026-11-22: the cn Studios are free for training; Nova no longer runs on cn, so an empty cn pool deploys nothing
+              open(os.environ["GITHUB_OUTPUT"], "a").write("list=[]\n")
+              print("STUDIOS is empty: nothing to deploy")
+              raise SystemExit(0)
+          # A push must not restart the cn Nova 4B pool unless the files they actually run changed.
           # site=ai is dispatch-only (needs an explicit studio) and is never in the STUDIOS list.
           before = (os.environ.get("BEFORE") or "").strip()
           if (not only) and os.environ.get("EVENT") == "push" and before and set(before) != {"0"}:
@@ -75,6 +79,7 @@ jobs:
                   diff = []
               app_files = {
                   "ai-system/modelscope-coder/app.py",
+                  "ai-system/modelscope-coder/nova_tldm_serve.py",
                   "ai-system/modelscope-coder/requirements.txt",
                   "ai-system/modelscope-coder/VISION_STUDIOS",
                   "ai-system/modelscope-coder/STUDIOS",
@@ -164,7 +169,9 @@ jobs:
           git config --global user.name "coder CI"
           git config --global user.email "ci@coder.local"
           git clone "https://oauth2:${T}@${MS#https://}/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
-          cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ms-studio/
+          cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ai-system/modelscope-coder/nova_tldm_serve.py ms-studio/
+          # Nova's own T-LDM (nova_tldm_serve.py): the head's library is copied next to it; the head file (nova2_heads.pt) comes from the head repo at first use. Off unless NOVA_TLDM=1.
+          rm -rf ms-studio/tldm && mkdir -p ms-studio/tldm && cp -r ai-system/tldm/sham_tldm ms-studio/tldm/ && find ms-studio/tldm -name __pycache__ -prune -exec rm -rf {} +
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
           # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
@@ -179,7 +186,7 @@ jobs:
           rm -f llama-${LLAMA_BUILD}.part*
           cp ../llama-${LLAMA_BUILD}.part* .
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
-          git add app.py requirements.txt .gitattributes llama-${LLAMA_BUILD}.part*
+          git add app.py requirements.txt nova_tldm_serve.py tldm .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"

@@ -238,13 +238,6 @@ if __name__ == "__main__":
     DISK.mkdir(parents=True, exist_ok=True)
     threading.Thread(target=lambda: (_set(restore="running"), restore_once()), daemon=True).start()
     threading.Thread(target=runner_loop, daemon=True).start()
-    try:     # 2026-11-18: this always-on Studio also watches every trainer Studio (cn + ai) and wakes / redeploys any that sleeps, stops, fails or stops making progress
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import studio_guard
-        studio_guard.start_thread()
-        _set(guard="on (every ~10 min)")
-    except Exception as exc:  # noqa: BLE001
-        _set(guard=f"not started: {type(exc).__name__}: {str(exc)[:120]}")
     import gradio as gr
     with gr.Blocks(title="sham-runner") as demo:
         gr.Markdown("### sham-runner: GitHub self-hosted runner (label `studio`) + the notebook's restored data")

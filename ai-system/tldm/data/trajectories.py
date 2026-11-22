@@ -69,6 +69,108 @@ def make_episode(rng: random.Random, new_names: bool = False):
     return c, [], r
 
 
+
+# ---- open-argument episodes (2026-11-22) ------------------------------------------------------------------------------------------------------
+# The first loop data wrote commands from a closed set. A live task such as "run echo <any token> on your computer", "create a file with <any text> and read it",
+# "write a python program for <numbers> and run it" or "read <file> of <owner/repo> on GitHub" needs the head to COPY its arguments from the task (slots @T/@F/@N/@R,
+# data/augment.py) and, for GitHub, to ask for the read-only tool instead of answering from memory. Commands are really run in the sandbox; the GitHub tool has no
+# sandbox: its episodes END at the tool call (what the head must learn is to ASK for the read-only tool with the right repo/path); the app then gives the FULL result
+# to the body, which writes the answer (the 4.5M head cannot summarise a file). No tool result is typed by hand anywhere.
+# Nothing below equals or comes close to a live-suite task (LIVE_TASKS, checked by scripts/test_all.py): the head is measured on those words only by the live suite.
+LIVE_TASKS = [
+    "شغّل الأمر echo ZX7Q-4821 على حاسوبك واذكر ناتجه حرفياً.",
+    "أنشئ على حاسوبك ملفاً باسم note.txt فيه النص QW9-5503 ثم اقرأه وأخبرني بمحتواه.",
+    "اكتب برنامج بايثون يطبع مربعات الأعداد من 1 إلى 5 ونفّذه على حاسوبك وأخبرني بالناتج.",
+    "اقرأ الملف package.json من المستودع jonsnow-org/Ttbik على GitHub واذكر قيمة الحقل name فيه.",
+    "اعرض أسماء الملفات الموجودة في جذر المستودع jonsnow-org/Ttbik على GitHub.",
+    "اقرأ المستودع jonsnow-org/Ttbik على GitHub واشرح بنيته في فقرة قصيرة",
+]
+_UP, _AL = "ABCDEFGHJKLMNPQRSTUVWXYZ", "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"
+OPEN_FILES = [n + ext for n in ("memo", "log1", "notes", "todo", "draft", "scratch", "result", "temp") for ext in (".txt", ".md")]
+OPEN_REPOS = ["acme/webapp", "octo-labs/engine", "demo-org/store", "team-x/api-server", "northwind/docs-site", "zeta-co/mobile-app", "kappa/data-tools", "lumen-works/ui-kit"]
+OPEN_TOOLS_PATHS = ["package.json", "composer.json", "manifest.json", "config.json", "app.json"]
+NAME_WORDS = ["alpha", "bravo", "cedar", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "jasper", "kestrel", "lotus", "meadow", "nimbus", "onyx", "prism"]
+LIST_ITEMS = ["README.md", "package.json", "src", "docs", "tests", "LICENSE", "Makefile", "app", "public", "scripts"]
+
+
+def tool_call_text(name: str, args: dict) -> str:
+    """The exact text the serve layer parses and records: `@tool <name> <JSON>` (sorted keys, default separators)."""
+    import json
+    return "@tool " + name + " " + json.dumps(args, ensure_ascii=False, sort_keys=True)
+
+
+def _token(rng: random.Random) -> str:
+    while True:
+        a = "".join(rng.choice(_AL) for _ in range(rng.choice((2, 3, 4))))
+        b = "".join(rng.choice(_AL) for _ in range(rng.choice((3, 4, 5))))
+        t = a + "-" + b
+        if any(c.isdigit() for c in t) and any(c.isalpha() for c in t) and len(a) >= 2 and len(b) >= 2:
+            return t
+
+
+_AR_ASK = ["اذكر ناتجه", "أخبرني بالنتيجة", "ما الذي ظهر", "وأرني الخرج"]
+_EN_ASK = ["tell me what it printed", "and report the output", "then tell me the result", "and show me what came out"]
+
+
+def make_open_episode(rng: random.Random):
+    """-> (task, plan, reply_t). plan items: ("cmd", command) run in the sandbox, or ("tool", call_text, None) ends the episode at the tool call. {r0},{r1}.. in reply_t are step results."""
+    ar = rng.random() < 0.5
+    ask = rng.choice(_AR_ASK if ar else _EN_ASK)
+    k = rng.randrange(7)
+    if k == 0:                                   # echo any token
+        tok = _token(rng)
+        verb = rng.choice(["نفّذ", "جرّب", "أطلق"] if ar else ["execute", "try", "launch", "do"])
+        t = (f"{verb} الأمر echo {tok} في الطرفية، {ask}." if ar else f"{verb} the command echo {tok} in the terminal, {ask}.")
+        return t, [("cmd", f"echo {tok}")], ("الخرج: {r0}" if ar else "It printed {r0}.")
+    if k == 1:                                   # file with any text, then read it back
+        tok, f = _token(rng), rng.choice(OPEN_FILES)
+        t = (f"اصنع ملفاً اسمه {f} وضع فيه {tok} ثم افتحه وأعلمني بما فيه." if ar else f"make a file called {f} holding {tok}, then open it and let me know what it holds.")
+        return t, [("cmd", f"echo {tok} > {f}"), ("cmd", f"cat {f}")], (f"محتوى {f}: " + "{r1}" if ar else f"{f} contains " + "{r1}.")
+    if k == 2:                                   # python one-liner over a numeric range
+        a, b = rng.randrange(1, 6), rng.randrange(6, 12)
+        op, word_en, word_ar = rng.choice([("i*i", "squares", "المربعات"), ("i*2", "doubles", "الأضعاف"), ("i+10", "each number plus ten", "كل عدد زائد عشرة")])
+        t = (f"أنشئ سكربت بايثون يحسب {word_ar} من {a} حتى {b} وشغّله، {ask}." if ar else f"build a python script that computes the {word_en} for {a} through {b}, run it, {ask}.")
+        return t, [("cmd", f'python3 -c "for i in range({a},{b}+1): print({op})"')], ("الخرج: {r0}" if ar else "Output: {r0}")
+    if k == 3:                                   # read a field of a file in a GitHub repository (read-only tool)
+        repo, path, val = rng.choice(OPEN_REPOS), rng.choice(OPEN_TOOLS_PATHS), rng.choice(NAME_WORDS) + "-" + rng.choice(NAME_WORDS)
+        t = (f"من مستودع {repo} على GitHub افتح الملف {path} وأعطني قيمة الحقل name." if ar else f"open {path} in the GitHub repo {repo} and give me its name field.")
+        return t, [("tool", tool_call_text("github_read_file", {"repo": repo, "path": path}), None)], None
+    if k == 4:                                   # list the root of a GitHub repository (read-only tool)
+        repo = rng.choice(OPEN_REPOS)
+        t = (f"ما الملفات في جذر مستودع {repo} على GitHub؟" if ar else f"what files sit at the top level of the GitHub repo {repo}?")
+        return t, [("tool", tool_call_text("github_list_files", {"repo": repo, "path": ""}), None)], None
+    if k == 5:                                   # run, then a second command that depends on the first result (the feedback matters)
+        a, f = rng.randrange(2, 9), rng.choice(OPEN_FILES)
+        t = (f"احسب مجموع الأعداد من 1 إلى {a * 10} بالطرفية ثم اكتب الناتج في {f}." if ar else f"add up 1 to {a * 10} in the terminal and save the total to {f}.")
+        return t, [("cmd", f'python3 -c "print(sum(range(1,{a * 10}+1)))"'), ("cmd", "echo {r0} > " + f)], (f"حفظت {{r0}} في {f}." if ar else "Saved {r0} to " + f + ".")
+    tok = _token(rng)                            # k == 6: a token that must NOT be run: plain chat about it needs no command
+    return (f"ما رأيك بالرمز {tok}؟" if ar else f"what do you think of the code {tok}?"), [], ("لا شيء هنا لأنفّذه. أشغّله؟" if ar else "Nothing to run there. Run it?")
+
+
+def run_open_episode(task: str, plan, reply_t: str, term_factory=None):
+    """Like run_episode for make_open_episode plans. -> (steps, reply, snapshot); steps = [(history_before, target_text)] incl. the final reply."""
+    term = (term_factory or T.fresh)()
+    try:
+        hist, res, steps = [], [], []
+        for item in plan:
+            if item[0] == "tool":                      # the episode ends here: the tool is not run, the app answers from its full result
+                steps.append((list(hist), "$ " + item[1]))
+                break
+            cmd = item[1].replace("{r0}", res[0]) if "{r0}" in item[1] and res else item[1]
+            steps.append((list(hist), "$ " + cmd))
+            r = term.run(cmd, confirm=True)
+            out = (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")
+            res.append(out)
+            hist.append((cmd, out))
+        if reply_t is None:
+            return steps, "", T.snapshot(term)
+        reply = reply_t.format(**{f"r{i}": v for i, v in enumerate(res)}) if "{r" in reply_t else reply_t
+        steps.append((list(hist), reply))
+        return steps, reply, T.snapshot(term)
+    finally:
+        term.close()
+
+
 def run_episode(task: str, plan, reply_t: str, term_factory=None):
     """Runs the plan in a fresh sandbox. -> (steps, reply, final_snapshot) with steps = [(history_before_the_step, target_text)] for every step incl. the final reply."""
     term = (term_factory or T.fresh)()          # term_factory: e.g. the model's own embedded computer (train_sham2.computer_terminal)

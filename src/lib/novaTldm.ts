@@ -16,7 +16,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { coderCall, isEngineModel, type CoderReply, type CoderToolCall } from "@/lib/openCoderStudio";
+import { coderCall, isEngineModel, type CoderMessage, type CoderReply, type CoderToolCall } from "@/lib/openCoderStudio";
 import { tldmOwnerDenyList } from "@/lib/tldmPolicy";
 
 /** The two Nova models that can carry a T-LDM head. Nova 1 = engine id `coder`; Nova 2 = engine id `nova2`. */
@@ -54,6 +54,31 @@ export function novaTldmNoFallback(model: NovaTldmModel): string {
 }
 
 export type NovaTldmReply = CoderReply & { tldmModel?: NovaTldmModel };
+
+/** Marks a tool call that came from the head, so its result is returned to the head (resumeTool) and not to the body. */
+export const TLDM_CALL_PREFIX = "tldm:";
+
+/** What the head needs from the conversation: the task (the last real user turn) and, when the last step was a tool the head asked for, that tool's result. The system prompt and tool texts are NOT sent (the head reads the task only). */
+export function tldmTurnFrom(messages: CoderMessage[]): { messages: NovaTldmMessage[]; resumeTool?: { requestId: string; name: string; arguments: Record<string, unknown>; result: string; error?: boolean } } {
+  let lastUser = -1;
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") { lastUser = i; break; }
+  const task = lastUser >= 0 ? String((messages[lastUser] as { content: string }).content || "") : "";
+  const out: { messages: NovaTldmMessage[]; resumeTool?: { requestId: string; name: string; arguments: Record<string, unknown>; result: string; error?: boolean } } = { messages: [{ role: "user", content: task }] };
+  const last = messages[messages.length - 1];
+  if (last && last.role === "tool" && last.tool_call_id?.startsWith(TLDM_CALL_PREFIX)) {
+    for (let i = messages.length - 2; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "assistant") continue;
+      const call = (m.tool_calls || []).find((c) => c.id === last.tool_call_id);
+      if (!call) break;
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* keep {} */ }
+      out.resumeTool = { requestId: String(last.tool_call_id).slice(TLDM_CALL_PREFIX.length), name: call.function.name, arguments: args, result: String(last.content || ""), error: /^\s*(error|denied|not permitted|⚠️|❌)/i.test(String(last.content || "")) };
+      break;
+    }
+  }
+  return out;
+}
 
 /** The T-LDM `messages` shape the Studio endpoint expects. Kept local so Nova does not import Sham's types. */
 export type NovaTldmMessage = { role: "user" | "assistant"; content: string };
@@ -112,6 +137,22 @@ export async function novaGenerateTldm(
   const out = await coderCall("generate_tldm", payload, timeoutMs, sid);
   if (!out.reply) {
     return { type: "error", text: novaTldmNoFallback(model), error: out.failure || "no-reply", reason: "no-fallback" } as NovaTldmReply;
+  }
+  // The Studio answers a T-LDM turn as {type:"text", text} (the head wrote the reply, or ran its commands inside the Studio loop). The agent loop reads a finished
+  // model turn as {type:"done", job, text, tool_calls}: without this mapping a successful head answer had no `job` and the loop treated it as "model server unreachable".
+  const raw = out.reply as unknown as { type?: string; text?: string; tool_calls?: CoderToolCall[]; error?: string };
+  if (raw.type === "text") {
+    return { type: "done", job: `tldm-${Date.now().toString(36)}`, text: String(raw.text || ""), tool_calls: [], finish_reason: "stop", tldmModel: model } as NovaTldmReply;
+  }
+  const req = out.reply as unknown as { type?: string; tool_name?: string; tool_arguments?: Record<string, unknown>; tool_request_id?: string };
+  if (req.type === "tool_request" && req.tool_name && req.tool_request_id) {
+    // the head asked for one of Nova's tools: it becomes an ordinary tool call of the agent loop (Nova's own confirmations apply); the result comes back through resumeTool
+    return { type: "done", job: `tldm-${req.tool_request_id}`, text: "", finish_reason: "tool_calls", tldmModel: model,
+      tool_calls: [{ id: TLDM_CALL_PREFIX + req.tool_request_id, type: "function", function: { name: req.tool_name, arguments: JSON.stringify(req.tool_arguments || {}) } }] } as NovaTldmReply;
+  }
+  if (raw.type === "body") return { type: "done", job: "", text: "", tldmModel: model, error: "body" } as NovaTldmReply;   // the head has nothing for this task: Nova's OWN body answers (same model)
+  if (raw.type === "confirm") {
+    return { type: "error", text: `مسار T-LDM لـ${model === "nova2" ? "Nova 2" : "Nova"} طلب موافقة بصيغة غير مدعومة. لم يُستخدم نموذج آخر.`, error: "unsupported-step", reason: "no-fallback" } as NovaTldmReply;
   }
   return { ...out.reply, tldmModel: model } as NovaTldmReply;
 }

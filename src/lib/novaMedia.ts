@@ -1,7 +1,6 @@
 // Nova's media Studio (ai-system/modelscope-media): a picture, Arabic speech or a real text-to-video clip (never stitched stills) made on a free CPU Studio.
 //   POST {base}/gradio_api/call/v2/<api> {body: "<json>"} -> {event_id};  GET {base}/gradio_api/call/<api>/<event_id> -> `data: ["<json>"]`
 // Env: NOVA_MEDIA_STUDIO_URL (off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio).
-import { pressureOn, pressureMedia } from "@/lib/pressureMode";
 import { vetMedia } from "@/lib/mediaQuality";
 import { secretCached } from "@/lib/hostedSecrets";
 export type MediaReply = { type: string; b64?: string; text?: string; reason?: string };
@@ -80,7 +79,7 @@ export async function novaMakeMedia(
 ): Promise<MediaReply | null> {
   // a picture the gate refuses (black / constant / noise) is retried with a different seed on the same Studio before an honest error is returned
   const attempts = Math.max(1, Math.min(3, opts.attempts ?? (kind === "image" ? 3 : 1)));
-  const requestedSeconds = kind === "video" ? Number(opts.seconds ?? pressureMedia().videoSeconds) : undefined;
+  const requestedSeconds = kind === "video" ? Number(opts.seconds ?? 10) : undefined;
   const videoSeconds = requestedSeconds;
   if (kind === "video" && ![6, 10, 15, 30, 60, 120].includes(videoSeconds as number)) {
     return { type: "error", reason: "unsupported_duration", text: "اختر مدة فيديو مدعومة: 6 أو 10 أو 15 أو 30 أو 60 أو 120 ثانية." };
@@ -236,7 +235,7 @@ async function novaMakeMediaOnce(
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
   const scenes = Array.isArray(opts.scenes) ? opts.scenes.map((x) => String(x).slice(0, 300)).filter(Boolean).slice(0, 6) : [];
   const payload =
-    kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: Number(opts.seconds ?? pressureMedia().videoSeconds), seed };   // modelscope-media/app.py api_video reads "prompt"
+    kind === "image" ? { prompt: prompt.slice(0, 400), seed, } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: Number(opts.seconds ?? 10), seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = mediaToken(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;

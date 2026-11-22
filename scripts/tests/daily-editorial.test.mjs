@@ -375,3 +375,27 @@ test("news and article detail pages label publication dates explicitly", () => {
   assert.match(arabicUpcoming, /الأحداث الجارية والقادمة/);
   assert.match(englishUpcoming, /Current and upcoming/);
 });
+
+test("Riemann hypothesis Lean proof briefing is bilingual and preserves verification scope and unfinished checks", () => {
+  const slug = "riemann-hypothesis-lean-verification-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Riemann briefing is missing");
+  assert.ok(english, "English Riemann briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-22");
+  assert.equal(english.date, "22 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("alpo.ge/remark.pdf")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("leanprover-community.github.io")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("math.mit.edu/~drew/grh")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com/technology/2026/nov/21")));
+  assert.match(arabic.contextDateLabel, /16:20 UTC/);
+  assert.match(english.contextDateLabel, /17:55 UTC/);
+  assert.match(arabic.paragraphs.join(" "), /لا ينبغي القول إن كل فحص طويل الأمد انتهى/);
+  assert.match(english.body.join(" "), /should not be described as finished/i);
+  assert.match(arabic.paragraphs.join(" "), /Dirichlet L-functions/);
+  assert.match(english.body.join(" "), /not Dedekind zeta functions/i);
+  assert.doesNotMatch(arabic.title, /جائزة معهد كلاي/);
+  assert.doesNotMatch(english.title, /Clay Mathematics Institute/i);
+});

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 
 import torch
 
@@ -59,9 +60,22 @@ def _on(name: str) -> bool:
     return os.environ.get(name, "1").strip().lower() not in ("0", "off", "false", "no", "")
 
 
+_DATE_ASK = re.compile(r"تاريخ|في أي (سنة|شهر|يوم)|ما (هو )?اليوم|أي يوم|what (is the )?(date|day|year|month)|today'?s date|\bwhat day\b", re.I)
+
+
+def asks_date(prompt: str) -> bool:
+    """True when the question is about the date/day/year/month (the only questions the chat training ever put the date line in front of)."""
+    return bool(_DATE_ASK.search(prompt or ""))
+
+
 def build_user_text(prompt: str, today: datetime.date | None = None) -> str:
-    """The user's turn: the date line (unless switched off) and the question."""
-    if not _on("SHAM_STUDIO_DATE"):
+    """The user's turn. The date line goes in front ONLY of date questions (and the empty prompt the search flow uses to read the line): in training the line
+    precedes nothing else, and putting it before every question made the published head answer EVERYTHING with a date (live suite 2026-11-21: «اليوم الجمعة...» to
+    'what is the capital of Egypt', 1/16 tasks). SHAM_STUDIO_DATE=0 switches the line off; =always restores the old every-question behaviour."""
+    mode = os.environ.get("SHAM_STUDIO_DATE", "1").strip().lower()
+    if mode in ("0", "off", "false", "no", ""):
+        return prompt
+    if mode != "always" and prompt and not asks_date(prompt):
         return prompt
     from sham_chat import date_context_line
     return date_context_line(today or datetime.datetime.now(datetime.timezone.utc).date()) + "\n" + prompt
@@ -456,9 +470,13 @@ if __name__ == "__main__":
             return "".join(chr(0x0621 + (i % 40)) for i in ids)
 
     d = _dt.date(2026, 10, 12)
+    assert build_user_text("ما تاريخ اليوم؟", d).startswith("التاريخ اليوم: 2026-10-12 (الاثنين)\n") and build_user_text("what is the date", d).startswith("التاريخ اليوم")
+    assert build_user_text("ما عاصمة مصر؟", d) == "ما عاصمة مصر؟" and build_user_text("مرحبا", d) == "مرحبا"     # the line only precedes date questions (as in training)
+    assert build_user_text("", d) == "التاريخ اليوم: 2026-10-12 (الاثنين)\n"                                       # the search flow reads the line from the empty prompt
+    os.environ["SHAM_STUDIO_DATE"] = "always"
     assert build_user_text("سؤال", d).startswith("التاريخ اليوم: 2026-10-12 (الاثنين)\n")
     os.environ["SHAM_STUDIO_DATE"] = "0"
-    assert build_user_text("سؤال", d) == "سؤال"
+    assert build_user_text("سؤال", d) == "سؤال" and build_user_text("ما تاريخ اليوم؟", d) == "ما تاريخ اليوم؟"
     os.environ.pop("SHAM_STUDIO_DATE")
     torch.manual_seed(0)
     cfg = ShamSmallConfig(vocab_size=SpecialTokens.RESULT_END + 8, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=1024)

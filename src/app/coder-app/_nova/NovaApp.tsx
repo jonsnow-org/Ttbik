@@ -241,34 +241,9 @@ function useBilling(on: boolean) {
   useEffect(() => { if (on) void load(); }, [on, load]);
   return { b, load };
 }
-/** The owner's load switch: media smaller, free-plan limits lower, visible queue, overflow Studios first (server: src/lib/pressureMode.ts). */
-function PressureCard({ n }: { n: NStr }) {
-  const [on, setOn] = useState<boolean | null>(null);
-  useEffect(() => { api<{ on: boolean }>("pressure", {}).then((d) => setOn(d.on)).catch(() => null); }, []);
-  return (
-    <Card>
-      <div className="n-token">
-        <div className="n-body"><div className="n-lbl">{n.pressureTitle}</div><div className="n-sub">{n.pressureDesc}</div></div>
-        <button type="button" className={`n-btn${on ? " n-on" : ""}`} aria-pressed={Boolean(on)} disabled={on === null} onClick={async () => { haptic("medium"); try { const d = await api<{ on: boolean }>("pressure", { on: !on }); setOn(d.on); haptic("success"); } catch { haptic("error"); } }}>{on ? n.pressureOn : n.pressureOff}</button>
-      </div>
-    </Card>
-  );
-}
 function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
   const { n, lang, owner } = c;
-  if (owner) {
-    return (
-      <>
-        <Card className="n-raise">
-          <div className="n-token">
-            <div className="n-body"><div className="n-lbl">{n.yourPlan}</div><div className="n-big"><span aria-hidden="true">∞</span>{n.unlimitedOwner}</div></div>
-            <span className="n-chip n-on">{n.ownerChip}</span>
-          </div>
-        </Card>
-        <PressureCard n={n} />
-      </>
-    );
-  }
+  if (owner) return null;      // the owner has no plan to show: the hero already carries the owner chip
   const u = b?.usage;
   return (
     <Card className="n-raise">
@@ -376,7 +351,6 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
           {me.features?.computer && <Row icon="💻" title={`${lang === "ar" ? "حاسوب" : "Computer of"} ${modelName(models, lang)}`} sub={c.bind.computer.home === "embedded"
             ? (lang === "ar" ? "الحاسوب الداخلي المدمج في هذا النموذج: سطح مكتب وملفات ومهام خاصة به" : "This model's own embedded computer: its desktop, files and jobs")
             : (lang === "ar" ? "حاسوب التطبيق المصغّر، بجلسة خاصة بهذا النموذج وحده" : "The Mini App computer, in a session private to this model")} onClick={() => go("computer")} />}
-          <Row icon="💬" title={fill(n.h_ask, { m: modelName(models, lang) })} sub={n.h_askSub} onClick={() => closeApp()} />
           {gh.linked
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
             : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}
@@ -838,14 +812,13 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
   useEffect(() => setS(me.settings), [me.settings]);                       // a model switch reloads `me`: show that model's own switches
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "tz" | "force" | "policy">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "tz">("");
   const isSham = c.bind.family === "sham";
   const [known, setKnown] = useState<Record<string, string> | null>(null);
   useEffect(() => {
     setKnown(null);
     if (isSham) void api<{ facts: Record<string, string> }>("sham_memory", { model: s.model }).then((d) => setKnown(d.facts)).catch(() => setKnown({}));
   }, [s.model, isSham]);
-  const mem = s.memory || { remember: true, recall: true, save: true };
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -867,9 +840,6 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
   const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
   const TZS = ["Asia/Damascus", "Asia/Riyadh", "Asia/Baghdad", "Asia/Amman", "Asia/Beirut", "Asia/Dubai", "Africa/Cairo", "Africa/Casablanca", "Europe/Istanbul", "UTC"];
   const tzItems = [...new Set([deviceTz, ...TZS].filter(Boolean))].map((z) => ({ id: z, label: z, sub: z === deviceTz ? (lang === "ar" ? "منطقة جهازك" : "Your device's zone") : undefined }));
-  const acc = s.accuracy || "balanced";
-  const pol = s.policy || (s.think ? "always" : "adaptive");     // the thinking policy of the selected model (src/lib/modes.ts)
-  const forcedNow = (s.forced || {})[s.model === "nova" ? "coder" : s.model] as "fast" | "balanced" | "precise" | undefined;   // the owner's forced mode for this model (all users), if any
   const themeLabel = { auto: n.th_auto, light: n.th_light, black: n.th_black, oled: n.th_oled }[mode];
   const planLabel = owner ? `∞ ${n.unlimitedOwner}` : b ? b.usage.plan.name[lang] : "…";
   const gh = me.connections.github;
@@ -878,29 +848,16 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
       <div className="n-ph" lang={lang}><h1>{n.navSettings}</h1></div>
       <Card title={`${n.s_forModel}: ${modelName(models, lang)}`}>
         <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
-        <Row icon="🧠" title={n.s_think} sub={t.thinkingHint} value={n[`pol_${pol}` as "pol_adaptive"]} onClick={() => setSheet("policy")} />
-        <Row icon="🎯" title={n.s_acc} value={tx(t, `acc_${acc}`)} onClick={() => setSheet("acc")} />
-        {owner && <Row icon="🔒" title={n.s_force} sub={n.s_forceSub} value={forcedNow ? tx(t, `acc_${forcedNow}`) : n.force_none} onClick={() => setSheet("force")} />}
         <Row icon="🛡️" title={n.s_policy} onClick={() => open({ k: "policy" })} />
       </Card>
+      {isSham && (
       <Card title={`${n.m_title}: ${modelName(models, lang)}`}>
-        <Row icon="🧬" title={n.m_remember} sub={n.m_rememberSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.remember} aria-label={n.m_remember} onChange={(e) => set({ memory: { ...mem, remember: e.currentTarget.checked } })} /></span>} />
-        <Row icon="📖" title={n.m_recall} sub={n.m_recallSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.recall} aria-label={n.m_recall} onChange={(e) => set({ memory: { ...mem, recall: e.currentTarget.checked } })} /></span>} />
-        <Row icon="💾" title={n.m_save} sub={n.m_saveSub} after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={mem.save} aria-label={n.m_save} onChange={(e) => set({ memory: { ...mem, save: e.currentTarget.checked } })} /></span>} />
-        {isSham && (
-          <>
+        <>
             <Row icon="🧾" title={n.m_known} chevron={false} sub={known ? (Object.keys(known).length ? Object.entries(known).map(([k, v]) => `${k}: ${v}`).join(" · ") : n.m_none) : "…"} />
             <Row icon="🗑" title={n.m_forget} sub={n.m_forgetQ} tone="var(--n-danger)" chevron={false}
               onClick={async () => { if (!(await guard(n.m_forget))) return; await api("sham_memory", { model: s.model, forget: true }); haptic("success"); setKnown({}); }} />
-          </>
-        )}
+        </>
       </Card>
-      {me.features?.tldm && c.bind.tldm && (                                             /* T-LDM belongs to Sham Pro: shown only while it is the selected model */
-        <Card title={lang === "ar" ? "T-LDM لشام برو" : "T-LDM for Sham Pro"}>
-          <Row icon="⚡" title={lang === "ar" ? "تفعيل T-LDM" : "Enable T-LDM"}
-            sub={lang === "ar" ? "على حاسوب شام برو الداخلي، في مساحتك المعزولة. الأوامر الحساسة تنتظر موافقتك. قائمة منع المالك تنطبق ولا يمكن تجاوزها." : "On Sham Pro's internal computer, in your isolated workspace. Sensitive commands wait for your approval. The owner's deny list applies and cannot be overridden."}
-            after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={Boolean(s.tldm)} aria-label="T-LDM" onChange={(e) => set({ tldm: e.currentTarget.checked, for: "sham_v2" } as Partial<Me["settings"]> & { tldm?: boolean; for?: string })} /></span>} />
-        </Card>
       )}
       <Card title={n.g_profile}>
         {c.bind.memory === "memories" && <Row icon="👤" title={fill(n.s_mem, { m: modelName(models, lang) })} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />}
@@ -930,13 +887,6 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
         items={THEME_MODES.map((m) => ({ id: m, icon: { auto: "🌓", light: "☀️", black: "🌌", oled: "⚫" }[m], label: { auto: n.th_auto, light: n.th_light, black: n.th_black, oled: n.th_oled }[m], sub: { auto: n.th_autoSub, light: n.th_lightSub, black: n.th_blackSub, oled: n.th_oledSub }[m] }))} />
       <Options open={sheet === "lang"} title={n.s_lang} value={lang} onClose={closeSheet} onPick={(v) => set({ lang: v })}
         items={[{ id: "ar" as Lang, label: "العربية" }, { id: "en" as Lang, label: "English" }]} />
-      <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
-        items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
-      <Options open={sheet === "policy"} title={n.s_think} value={pol} onClose={closeSheet} onPick={(v) => set({ policy: v as "adaptive" | "always" | "never", think: v === "always" })}
-        items={(["adaptive", "always", "never"] as const).map((x) => ({ id: x as string, label: n[`pol_${x}` as "pol_adaptive"], sub: n[`pol_${x}Sub` as "pol_adaptiveSub"] }))} />
-      <Options open={sheet === "force"} title={n.s_force} value={forcedNow || ""} onClose={closeSheet}
-        onPick={async (v) => { try { const d = await api<{ forced: Record<string, string> }>("mode_force", { for: s.model, mode: v || "" }); setS({ ...s, forced: d.forced }); haptic("success"); } catch { haptic("error"); } }}
-        items={[{ id: "", label: n.force_none, sub: n.force_noneSub }, ...(["fast", "balanced", "precise"] as const).map((a) => ({ id: a as string, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))]} />
       <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || deviceTz} onClose={closeSheet} onPick={(v) => set({ tz: String(v) })} items={tzItems} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} modelsError={modelsError} modelsLoading={modelsLoading} onRetry={() => { void reloadModels(); }} onPicked={async () => {
         const ok = await reloadModels();

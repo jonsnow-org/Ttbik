@@ -24,7 +24,7 @@ HELDOUT2 = [
     ("اعرض آخر سطرين من السجل", "tail -n 2 app.log"),
 ]
 
-_SHOW = ["show", "list", "display", "print", "give me", "output", "let me see"]
+_SHOW = ["show", "list", "display", "print", "give me", "output", "let me see", "get", "pull up", "bring up", "tell me", "i want to see"]
 _AR_SHOW = ["اعرض", "أظهر", "أرني", "اطبع"]
 GRAMMAR = {
     "ls": [(_SHOW, ["the files", "files", "the folder contents", "the directory listing", "what is in this folder", "the contents of the directory"]),
@@ -57,8 +57,8 @@ GRAMMAR = {
     "grep INFO app.log": [(_SHOW, ["INFO lines", "the info lines of the log", "INFO entries in app.log"]), (["find", "grep"], ["INFO in the log", "info lines in app.log"])],
     "grep ERROR app.log | wc -l": [(["count", "how many"], ["the errors in the log", "ERROR lines are in app.log", "errors are there"]), (["كم"], ["خطأ في السجل", "عدد الأخطاء"])],
 }
-_PRE = ["", "", "", "please ", "can you ", "now "]
-_POST = ["", "", "", " please", " now", " for me"]
+_PRE = ["", "", "", "please ", "can you ", "now ", "could you ", "go ahead and ", "hey, ", "i need you to "]
+_POST = ["", "", "", " please", " now", " for me", " quickly", " thanks"]
 
 
 def _words(s: str) -> set:

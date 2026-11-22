@@ -153,10 +153,9 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(r).toMatchObject({ mode: "precise", auto: false, think: true });
     expect(p({ model: "nova", force: "precise", thinkSwitch: true, text: "مرحبا" }).think).toBe(false);          // …but a greeting still never thinks
   });
-  it("pictures: always ONE step (SDXS is a one-step model: more steps are noise), the side grows with the mode, pressure mode shrinks it", () => {
+  it("pictures: always ONE step (SDXS is a one-step model: more steps are noise), the side grows with the mode", () => {
     expect(p({ model: "sham_v2", pref: "precise", auto: false, text: "x" }).image).toEqual({ size: 640, steps: 1 });
     expect(p({ model: "sham_v2", pref: "fast", auto: false, text: "x" }).image).toEqual({ size: 512, steps: 1 });
-    expect(p({ model: "sham_v2", pressure: true, text: "x" }).image).toEqual({ size: 384, steps: 1 });
   });
 });
 
@@ -203,21 +202,21 @@ describe("Nova's real loop uses the profile", () => {
     expect(c[0].body.think).toBe("1"); expect(c[0].body.max_tokens).toBe(0);
     expect(c[1].body.think).toBe("");
   });
-  it("agent work with the 'deeper thinking' switch (policy always): every step thinks", async () => {
+  it("a stored 'always' policy (the old deeper-thinking switch) is ignored: the request class decides, as for everyone", async () => {
     const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };
     const calls = studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }, { type: "done", job: "j2", text: "انتهيت.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", perModel: { coder: { policy: "always" } }, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", perModel: { coder: { policy: "always" } }, accuracy: "balanced", messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2a", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
     const c = chats(calls);
-    expect(c[0].body.think).toBe("1"); expect(c[1].body.think).toBe("1");
+    expect(c[0].body.think).toBe("1"); expect(c[1].body.think).toBe("");      // exactly the automatic behaviour above
   });
-  it("policy never: no thought even for agent work", async () => {
+  it("a stored 'never' policy is ignored too: agent work still thinks on its planning step", async () => {
     const calls = studio([{ type: "done", job: "j1", text: "تم.", tool_calls: [] }]);
     const db = memDb(); const { bot } = fakeBot();
-    await saveState(CHAT, { mode: "coder", think: false, perModel: { coder: { policy: "never" } }, messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2c", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
+    await saveState(CHAT, { mode: "coder", think: false, perModel: { coder: { policy: "never" } }, messages: [{ role: "user", content: "اقرأ ملف README في مستودع a/b ولخصه" }], notes: "", inbox: [], run: { id: "r2b", chain: "c", sent: 0, step: 0, lease: Date.now() } } as any, db);
     await drive(bot, botRow, CHAT, "c", db, 40000);
-    expect(chats(calls)[0].body.think).toBe("");
+    expect(chats(calls)[0].body.think).toBe("1");
   });
   it("fast / balanced chat never thinks and is capped; the owner's force changes it for everyone", async () => {
     let calls = studio([{ type: "done", job: "j1", text: "باريس.", tool_calls: [] }]);
@@ -255,19 +254,16 @@ describe("defaults and Auto: measured request parameters (no separate Auto switc
     expect(r.greeting.think).toBe(""); expect(r.question.think).toBe("");
     expect(r.code.think).toBe("1"); expect(r.plan.think).toBe("1");
   });
-  it("balanced vs fast vs precise on a CODE request: the temperature sent differs (0.7 / 0.6 / 0.2) and the thought cap differs", async () => {
+  it("a stored accuracy (fast / precise) is ignored on a CODE request: everyone is on balanced (0.6) with the same thought cap", async () => {
     const out: any = {};
     for (const a of ["fast", "balanced", "precise"]) out[a] = await params("اكتب دالة بايثون تعكس النص", { perModel: { coder: { accuracy: a } } }, "c_" + a);
-    console.log("MEASURED accuracy (code request)", JSON.stringify(out));
-    expect([out.fast.temperature, out.balanced.temperature, out.precise.temperature]).toEqual([0.7, 0.6, 0.2]);
-    expect([out.fast.think, out.balanced.think, out.precise.think]).toEqual(["1:500", "1", "1:3000"]);   // the thought cap differs too
+    expect([out.fast.temperature, out.balanced.temperature, out.precise.temperature]).toEqual([0.6, 0.6, 0.6]);
+    expect([out.fast.think, out.balanced.think, out.precise.think]).toEqual(["1", "1", "1"]);
   });
-  it("the accuracy setting changes what is sent: fast / balanced / precise differ in temperature, answer cap and thinking", async () => {
+  it("a stored accuracy is ignored on a plain question too: nothing a user once stored changes what is sent", async () => {
     const out: any = {};
     for (const a of ["fast", "balanced", "precise"]) out[a] = await params("ما هي عاصمة فرنسا؟", { perModel: { coder: { accuracy: a } }, accuracy: undefined, think: undefined }, "a_" + a);
-    console.log("MEASURED accuracy (plain question)", JSON.stringify(out));
-    expect(new Set(Object.values(out).map((v: any) => JSON.stringify(v))).size).toBeGreaterThan(1);
-    expect(out.precise.temperature).toBeLessThan(out.fast.temperature); expect(out.precise.max_tokens).toBeGreaterThan(out.fast.max_tokens);
+    expect(new Set(Object.values(out).map((v: any) => JSON.stringify(v))).size).toBe(1);
   });
 });
 
@@ -321,10 +317,10 @@ describe("owner override op", () => {
     const me: any = await appOp(user, "me", {}, { db: d, bot, botRow });
     expect(me.settings.forced).toEqual({ coder: "precise" });
     expect(await appOp(owner, "mode_force", { for: "sham_v2", mode: "fast" }, { db: d, bot, botRow })).toEqual({ forced: { coder: "precise", sham_v2: "fast" } });
-    expect(await appOp(owner, "mode_force", { for: "nova2", mode: "balanced" }, { db: d, bot, botRow })).toEqual({ forced: { coder: "precise", sham_v2: "fast", nova2: "balanced" } });
-    expect(forcedMode("nova2")).toBe("balanced");
+    expect(await appOp(owner, "mode_force", { for: "sham", mode: "balanced" }, { db: d, bot, botRow })).toEqual({ forced: { coder: "precise", sham_v2: "fast", sham: "balanced" } });
+    expect(forcedMode("sham")).toBe("balanced");
     expect(forcedMode("coder")).toBe("precise");
-    expect(await appOp(owner, "mode_force", { for: "coder", mode: "" }, { db: d, bot, botRow })).toEqual({ forced: { sham_v2: "fast", nova2: "balanced" } });
+    expect(await appOp(owner, "mode_force", { for: "coder", mode: "" }, { db: d, bot, botRow })).toEqual({ forced: { sham_v2: "fast", sham: "balanced" } });
   });
 });
 
@@ -350,5 +346,17 @@ describe("media intent: every spelling the owner types, and no invented 'owners 
     expect(stripOwnersExcuse("هذه الميزة للمالك فقط، مقطع الفيديو")).toBe("هذه الميزة للمالك فقط، مقطع الفيديو");
     expect(stripOwnersExcuse("هذا المستودع للمالك فقط")).toBe("هذا المستودع للمالك فقط");        // not about media: untouched
     expect(stripOwnersExcuse("تم إنشاء الفيديو.")).toBe("تم إنشاء الفيديو.");
+  });
+});
+
+describe("run-on-the-computer requests are agentic (live Nova suite 2026-11-22)", () => {
+  it("«اكتب برنامج بايثون … ونفّذه على حاسوبك» is not plain chat", () => {
+    expect(classifyRequest("اكتب برنامج بايثون يطبع مربعات الأعداد من 1 إلى 5 ونفّذه على حاسوبك وأخبرني بالناتج.")).toBe("agentic");
+    expect(classifyRequest("شغّل الأمر echo ZX7Q-4821 على حاسوبك واذكر ناتجه حرفياً.")).toBe("agentic");
+    expect(classifyRequest("اكتب برنامج بايثون يطبع مربعات الأعداد")).toBe("code");
+  });
+  it("ordinary chat stays chat", () => {
+    expect(classifyRequest("ما هي عاصمة مصر؟")).toBe("chat");
+    expect(classifyRequest("حدثني عن حاسوب الجيب القديم")).toBe("chat");
   });
 });

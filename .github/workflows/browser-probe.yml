@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "media Studio name under novaai2026, e.g. nova-media-server or lfm25-media-server"
+        description: "media Studio name under novaai2026, e.g. nova-media-server"
         required: true
         default: "nova-media-server"
       open_url:

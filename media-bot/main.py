@@ -899,7 +899,11 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ok, fid = await send_from_cache_or_file(context.bot, query.message.chat_id, cached, None, media_type, meta.get("title") or "cached")
         if ok:
             store.record_download(user_id)
-            await _maybe_publish_feed(user_id=user_id, file_id=fid or cached, media_type=media_type, title=meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail"), from_user=from_user)
+            feed_fid = get_cached_file_id(url, media_type, f"{quality}|stream") or fid or cached
+            if media_type not in ("audio", "voice") and not await _streamable(context.bot, feed_fid):
+                logger.info("cached clip is over the 20MB streaming limit and has no stream copy: not published to the feed (%s)", url[:60])
+            else:
+                await _maybe_publish_feed(user_id=user_id, file_id=feed_fid, media_type=media_type, title=meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail"), from_user=from_user, quality=quality)
             await _save(context.bot)
             await query.edit_message_text(f"✅ تم · {limit_msg}")
             return
@@ -945,6 +949,15 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 gc.collect()
             except Exception:
                 pass
+
+
+async def _streamable(bot, file_id: str) -> bool:
+    """True when Telegram will hand the file out to the Mini App (Bot API getFile works up to 20MB). Network trouble counts as streamable."""
+    try:
+        await bot.get_file(file_id)
+        return True
+    except Exception as e:
+        return "too big" not in str(e).lower()
 
 
 async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user, bot=None, local_path: str | None = None, quality: str = "") -> None:

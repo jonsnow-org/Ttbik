@@ -57,6 +57,8 @@ describe("Nova media Studio SSE streaming", () => {
 });
 
 describe("Nova media Studio busy / off", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // covers the opt-in progress card (default is live streaming, owner 2026-11-22)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   it("the picture: one message while waiting, the picture sent, the card gone, no excuse text", async () => {
     net([{ type: "image", b64: b64(await png("gradient", 256)) }]);
     const { bot, api, sent } = fakeBot();
@@ -64,7 +66,7 @@ describe("Nova media Studio busy / off", () => {
     const d: any = pgDb();
     await handleCoderSections(bot, botRow, say("قم بتوليد صورة اسد"), d);
     expect(sent.length).toBe(1);
-    expect(sent[0].text).toMatch(/^🕒 .*\n💬 /);                                  // the one message, at once (date + time, the received line; no canned echo)
+    expect(sent[0].text).toMatch(/^🕒 .*\n\n📋 التقدم/);                                  // the one message, at once (date + time, the received line; no canned echo)
     expect(sent[0].text).not.toMatch(/فهمت طلبك/);
     for (let i = 0; i < 100 && !(api as any).sendPhoto.mock.calls.length; i++) await wait(50);
     expect((api as any).sendPhoto).toHaveBeenCalledTimes(1);

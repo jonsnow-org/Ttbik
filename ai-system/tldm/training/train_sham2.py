@@ -343,6 +343,15 @@ def loop_data(tk_encode, cfg, episodes, seed=1, term_factory=None):
             dt, dh, slots = J.delex_view(task, hist, True)
             xs.append(loop_ids(tk_encode, dt, dh, n))
             ys.append(encode_bytes(AUG.apply_slots(tgt, slots), block))
+    # open-argument episodes (data/trajectories.make_open_episode): the head learns to copy tokens/files/numbers/repos from the task and to ask the read-only GitHub tool
+    orng = random.Random(seed + 101)
+    for _ in range(int(cfg.get("open_episodes", 0))):
+        task, plan, reply_t = J.make_open_episode(orng)
+        steps, _, _ = J.run_open_episode(task, plan, reply_t, term_factory)
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            xs.append(loop_ids(tk_encode, dt, dh, n))
+            ys.append(encode_bytes(AUG.apply_slots(tgt, slots), block))
     return xs, ys
 
 
@@ -421,7 +430,7 @@ def run_cached(body, encode, cfg, a, log=print):
         ident = identity_lora(body, ct, steps=int(a.identity_steps), log=log)
     reader = BodyReader(body, a.device, dtype)
     n = int(cfg["in_len"])
-    rows = list(T.TRAIN) + (RW.generate() if cfg.get("rewordings", False) else [])
+    rows = list(T.TRAIN) + (RW.generate(per_command=int(cfg.get("rewordings_per_command", 24))) if cfg.get("rewordings", False) else [])
     xs = [text_ids(encode, t, n) for t, _ in rows]
     ys = [encode_bytes(c, int(cfg["block"])) for _, c in rows]
     t0 = time.time()
@@ -559,7 +568,7 @@ def main(argv=None):
     model.core.to(a.device)
     rep = model.trainable_report()
     print("trainable:", rep, flush=True)
-    rows = list(T.TRAIN) + (RW.generate() if cfg.get("rewordings", False) else [])
+    rows = list(T.TRAIN) + (RW.generate(per_command=int(cfg.get("rewordings_per_command", 24))) if cfg.get("rewordings", False) else [])
     loss = train(model, encode, rows, cfg)
     after = body.state_dict()
     unchanged = all(torch.equal(donor_before[k], after[k]) for k in donor_before)

@@ -1,5 +1,5 @@
 // LIVE task-level evaluation + latency suite (run only by .github/workflows/task-suite-live.yml). It MEASURES, it produces no training data.
-// For each model SEPARATELY (coder = Nova, lfm25 = LFM2.5, sham = Sham v1, sham_v2 = Sham v2) it sends a fixed list of everyday tasks through the bot's own production entry
+// For each model SEPARATELY (coder = Nova, sham = Sham v1, sham_v2 = Sham v2) it sends a fixed list of everyday tasks through the bot's own production entry
 // points against the REAL Studios of that model (nothing is sent to Telegram) and prints one table row per task: pass/fail, seconds to the first visible message, total seconds, why.
 // A task passes only when a real final answer exists: not empty, no error notice, no raw tool-call markup shown as the answer, and the expected fact when there is one.
 import fs from "fs";
@@ -33,7 +33,7 @@ async function runTask(model: string, task: SuiteTask, db: any): Promise<{ first
   const sham = model === "sham" || model === "sham_v2";
   if (!task.keep) {
     await db.exec("DELETE FROM coder_tasks").catch(() => null);
-    await saveState(chat, { mode: sham ? "sham" : "coder", think: false, messages: [], notes: "", inbox: [], run: null, model } as any, db);
+    await saveState(chat, { mode: sham ? "sham" : "coder", think: false, messages: [], notes: "", inbox: [], run: null, model, ...(process.env.SUITE_TLDM === "1" ? { perModel: { [model]: { tldm: true } } } : {}) } as any, db);   // SUITE_TLDM=1: measure the model with its own T-LDM head on (the user setting; off by default in the app)
   }
   const { bot, sent } = fakeBot();
   const realFetch = global.fetch;
@@ -88,13 +88,19 @@ async function runTask(model: string, task: SuiteTask, db: any): Promise<{ first
     if (!sawTaskEvents && len > 0 && Date.now() - stableSince > (sham ? 20000 : 8000)) finished = true;
   }
   global.fetch = realFetch;
+  // diagnostics (owner 2026-11-22: "the models do not call their tools"): every task event and every message the bot sent, so a failure can be read, not guessed.
+  try {
+    const evs = (await db.query(`SELECT id, kind, text FROM coder_task_events WHERE id > $1 ORDER BY id`, startId).catch(() => [])) as any[];
+    for (const e of evs.slice(0, 60)) process.stderr.write(`SUITE_EVT | ${model} | ${task.id} | ${e.kind} | ${String(e.text || "").replace(/\s+/g, " ").slice(0, 200)}\n`);
+    for (const m of sent.slice(0, 40)) process.stderr.write(`SUITE_MSG | ${model} | ${task.id} | ${String((m as any).text || "").replace(/\s+/g, " ").slice(0, 200)}\n`);
+  } catch { /* diagnostics only */ }
   return { first, total: Math.round((Date.now() - t0) / 1000), reply: answers().map((s: any) => String(s.text)).join("\n"), finished, tools };
 }
 
 test("task suite: every model separately", async () => {
   process.env.SUPER_ADMIN_TELEGRAM_ID = "4242";
   process.env.CODER_TOKEN_KEY = "live-test";
-  const models = (process.env.SUITE_MODELS || "coder,lfm25,sham,sham_v2").split(",").map((x) => x.trim()).filter(Boolean);
+  const models = (process.env.SUITE_MODELS || "coder,sham,sham_v2").split(",").map((x) => x.trim()).filter(Boolean);
   const only = (process.env.SUITE_TASKS || "").split(",").map((x) => x.trim()).filter(Boolean);
   const tasks = TASKS.filter((t) => !only.length || only.includes(t.id));
   const rows: Record<string, unknown>[] = [];
