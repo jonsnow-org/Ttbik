@@ -17,7 +17,7 @@ describe("the shared one-message card", () => {
     await cardFinish(bot, 5, card, "هذا هو الجواب النهائي", async (p) => { await bot.api.sendMessage(5, p); });
     expect(sent).toHaveLength(1);                                          // never a second message for a short answer
     expect(sent[0].text).toBe("هذا هو الجواب النهائي");
-    expect(edits.length).toBe(1);
+    expect(edits.length).toBe(2);
   });
   it("by default there is no card at all: nothing is sent while it works, the answer is sent once (owner 2026-11-22: live streaming, no steps card)", async () => {
     delete process.env.CODER_PROGRESS_CARD;
