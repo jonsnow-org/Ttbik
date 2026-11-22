@@ -1595,10 +1595,12 @@ function cardText(run: Run): string {
   return renderTimeline({ startedAt: p.startedAt, ack: p.ack, steps: p.steps }, Date.now(), { tail: p.agents });
 }
 const cardGapMs = (): number => (process.env.CODER_CARD_GAP_MS !== undefined ? Number(process.env.CODER_CARD_GAP_MS) : 1200);
+/** The progress card (steps list) is OFF by default (owner 2026-11-22: live streaming instead). CODER_PROGRESS_CARD=on brings it back. */
+const cardOn = () => (process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "on";
 /** Edits the card from the run's steps; at most every cardGapMs() (Telegram rate limits: the next event or the 5 s refresh carries whatever was skipped). */
 async function pushCard(bot: TelegramBot, chatId: number, run: Run, force = false): Promise<void> {
   const p = run.progress;
-  if (!p || p.mode === "answer" || (process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
+  if (!p || p.mode === "answer" || !cardOn() || typeof (bot.api as any).editMessageText !== "function") return;
   if (!force && Date.now() - (p.cardAt || 0) < cardGapMs()) return;
   p.cardAt = Date.now();
   if (p.msgId) { await (bot.api as any).editMessageText(chatId, p.msgId, cardText(run)).catch(() => null); return; }
@@ -1607,7 +1609,7 @@ async function pushCard(bot: TelegramBot, chatId: number, run: Run, force = fals
 }
 /** A real phase of the model (thinking, writing, queued, reading the prompt…): a state the Studio reported. The same key only refreshes its label. */
 async function refreshCard(bot: TelegramBot, chatId: number, run: Run, key: string, label: string): Promise<void> {
-  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") return;
+  if (!cardOn() || typeof (bot.api as any).editMessageText !== "function") return;
   const p = (run.progress ||= { lines: [] });
   if (p.mode === "answer") return;                                      // the message is already the live answer: never put the progress card over it
   p.startedAt ||= Date.now(); p.steps ||= [];
@@ -1618,10 +1620,7 @@ async function refreshCard(bot: TelegramBot, chatId: number, run: Run, key: stri
 
 /** A tool step the agent really started (label = what it does, with the path / command): it stays running until progressDone. */
 async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: string): Promise<void> {
-  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") {
-    await send(bot, chatId, line);
-    return;
-  }
+  if (!cardOn() || typeof (bot.api as any).editMessageText !== "function") return;     // owner 2026-11-22: no progress card and no per-step messages: the model's own words stream live instead
   const p = (run.progress ||= { lines: [] });
   if (p.mode === "answer") { run.progress = { lines: [] }; return progressLine(bot, chatId, run, line); }   // a tool step after an answer: a fresh card (the answer stays as it was)
   p.startedAt ||= Date.now(); p.steps ||= [];
@@ -1651,7 +1650,7 @@ export function stripForeignScript(text: string, _userText: string): string { re
 // ---- ONE message per request (owner 2026-10-28): it opens within seconds with "فهمت طلبك …" + the progress block, and the SAME message is edited into the live streaming
 // answer (the card disappears when the answer starts). Never an understanding message plus a separate progress message. Edits are throttled (EDIT_EVERY_MS) for Telegram's
 // rate limits; only a long FINAL answer overflows into follow-up messages; media is sent separately.
-const singleMessageOn = () => (process.env.CODER_SINGLE_MESSAGE || "").toLowerCase() !== "off" && (process.env.CODER_PROGRESS_CARD || "").toLowerCase() !== "off";
+const singleMessageOn = () => (process.env.CODER_SINGLE_MESSAGE || "").toLowerCase() !== "off";
 const EDIT_EVERY_MS = 2000;
 const TG_MAX = 4096;
 
@@ -1681,6 +1680,8 @@ export async function openCard(bot: TelegramBot, chatId: number, run: Run, reque
   const p = (run.progress ||= { lines: [] });
   if (p.msgId) return;
   p.startedAt = Date.now(); p.steps = [];
+  // owner 2026-11-22: no card at all by default (neither "received" nor steps): the reply streams live into one message as the model writes it (deliverSingle / writeLive).
+  if (!cardOn()) return;
   beginStep({ startedAt: p.startedAt, steps: p.steps }, "phase", "received", "استلام الطلب", p.startedAt);
   const m = await bot.api.sendMessage(chatId, cardText(run)).catch(() => null);
   p.msgId = (m as any)?.message_id || undefined;

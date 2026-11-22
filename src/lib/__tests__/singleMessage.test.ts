@@ -3,19 +3,30 @@ import { fakeBot, fakeDb } from "./coderFakes";
 import { openCard, cardNote, cardFinish, understoodLine } from "@/lib/singleMessage";
 
 describe("the shared one-message card", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // these tests cover the progress card, now an opt-in (owner 2026-11-22: live streaming is the default)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   it("opens at once with the understood request + progress block, and the final answer is edited INTO it", async () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "قم بتوليد تقرير عن المشروع");
-    expect(sent).toHaveLength(1);
-    expect(sent[0].text).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n\n📋 التقدم/);              // date + time, the neutral "received" line (the model's own line comes in later)
-    expect(sent[0].text).not.toMatch(/قم بتوليد تقرير/);                     // never an echo of the request
-    expect(sent[0].text).toMatch(/📋 التقدم/);
+    expect(sent).toHaveLength(1);                                           // card opt-in: opens at once
     await cardNote(bot, 5, card, "قراءة الملفات", true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n\n📋 التقدم/);
+    expect(sent[0].text).not.toMatch(/قم بتوليد تقرير/);                     // never an echo of the request
     expect(sent[0].text).toMatch(/▶️ \d{1,2}:\d\d:\d\d [صم] {2}قراءة الملفات/);
     await cardFinish(bot, 5, card, "هذا هو الجواب النهائي", async (p) => { await bot.api.sendMessage(5, p); });
     expect(sent).toHaveLength(1);                                          // never a second message for a short answer
     expect(sent[0].text).toBe("هذا هو الجواب النهائي");
     expect(edits.length).toBe(2);
+  });
+  it("by default there is no card at all: nothing is sent while it works, the answer is sent once (owner 2026-11-22: live streaming, no steps card)", async () => {
+    delete process.env.CODER_PROGRESS_CARD;
+    const { bot, sent } = fakeBot();
+    const card = await openCard(bot, 5, "طلب");
+    await cardNote(bot, 5, card, "قراءة الملفات", true);
+    expect(sent).toHaveLength(0);
+    await cardFinish(bot, 5, card, "الجواب", async (p) => { await bot.api.sendMessage(5, p); });
+    expect(sent.map((m) => m.text)).toEqual(["الجواب"]);
   });
   it("a very long final answer overflows into follow-up messages only, each under 4096", async () => {
     const { bot, sent } = fakeBot();
@@ -70,14 +81,11 @@ describe("Nova: one message per request", () => {
     const { bot, sent, edits } = fakeBot();
     const db = fakeDb();
     await handleCoderSections(bot, botRow, { message: { chat: { id: 6161 }, text: "اكتب دالة بايثون تعكس النص" } }, db);
-    expect(sent).toHaveLength(1);                                        // opened by the time the webhook returns: the instant line
-    expect(sent[0].text).toMatch(/^🕒 /);
-    expect(sent[0].text).not.toMatch(/فهمت طلبك|اكتب دالة بايثون/);       // no canned echo
-    expect(sent[0].text).toMatch(/📋 التقدم/);
+    expect(sent.every((m) => !/استلام الطلب|فهمت طلبك|اكتب دالة بايثون/.test(m.text))).toBe(true);   // owner 2026-11-22: no "received" card, no canned echo
     for (let i = 0; i < 80 && !/وتنتهي هنا/.test(sent[0]?.text || ""); i++) await new Promise((r) => setTimeout(r, 100));
-    expect(sent).toHaveLength(1);                                        // ONE message the whole time
+    expect(sent).toHaveLength(1);                                        // ONE message the whole time (created at the first real event or the answer)
     expect(sent[0].text).toMatch(/الإجابة تبدأ هنا وتنتهي هنا/);
-    expect(sent[0].text).not.toMatch(/📋|🕒/);                           // the card is gone: it IS the answer now
-    expect(edits.length).toBeGreaterThan(0);
+    expect(sent[0].text).not.toMatch(/📋|🕒/);                           // no card at any moment: the message IS the answer
+    expect(edits.length).toBeGreaterThanOrEqual(0);
   });
 });
