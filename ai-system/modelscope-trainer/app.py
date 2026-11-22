@@ -1396,12 +1396,6 @@ def main() -> None:
     threading.Thread(target=heartbeat_loop, daemon=True, name="sham-heartbeat").start()
     if settings()["job"] in LIVE_JOBS:
         threading.Thread(target=checkpoint_upload_loop, daemon=True, name="sham-ckpt-upload").start()
-    try:                                                   # watch the other trainer Studios and sham-runner-1 (both sites): any one that sleeps or dies is started again
-        sys.path.insert(0, str(HERE))
-        import studio_guard
-        studio_guard.start_thread()
-    except Exception as exc:  # noqa: BLE001
-        print(f"studio guard not started: {type(exc).__name__}: {exc}", flush=True)
     with gr.Blocks(title="Sham trainer") as demo:
         gr.Markdown("Sham live trainer — status only (the work runs in the background).")
         out = gr.Textbox(label="status", interactive=False)
