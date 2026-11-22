@@ -50,6 +50,11 @@ jobs:
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          # 2026-11-22: the last two scheduled runs died at ~13 GB of the runner's 16 GB ("received a shutdown signal"; log: process 13.0 GB, 1.9 GB free). The same fix as the Studio trainer (#1167):
+          # glibc keeps one malloc arena per thread and never gives freed pages back, so 8 worker threads over big tensors/bytes balloon. Two arenas + early trimming; 4 workers.
+          MALLOC_ARENA_MAX: "2"
+          MALLOC_TRIM_THRESHOLD_: "131072"
+          MALLOC_MMAP_THRESHOLD_: "131072"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}   # يخفّف حدود معدل Hugging Face (429)
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.AI_TELEGRAM_BOT_TOKEN }}
@@ -60,7 +65,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, sham_live
-          res = sham_live.run(hours=5.3, name="gh", source_set="gh", video=True, workers=8)
+          res = sham_live.run(hours=5.3, name="gh", source_set="gh", video=True, workers=4)
           print(res)
           try:
               from telegram_report import send_training_report
