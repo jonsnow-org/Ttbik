@@ -1,5 +1,6 @@
 // The execution gate (coderFinishGate.execNudge) must be reached in the real chat loop: a request «…ونفّذه على حاسوبك…» answered with text and no tool call is sent back to work.
 import { handleCoderSections } from "@/lib/coderSections";
+import { listTasks } from "@/lib/coderTasks";
 import { fakeBot } from "./coderFakes";
 import { pgDb, resetPg } from "./pgDb";
 
@@ -36,4 +37,6 @@ it("a run request that was answered with text only is sent back to work (the har
   const ok = await until(() => bodies.some((b) => b.includes("[harness] The user asked you to RUN")));
   if (!ok) console.log("STUDIO CALLS", bodies.length, bodies.map((b) => b.slice(0, 200)));
   expect(ok).toBe(true);
-}, 40000);
+  // let the run finish BEFORE the test ends: a run still querying a closed database killed the whole jest process with EPIPE in CI (#1159 first attempt)
+  expect(await until(async () => { const t = (await listTasks(FREE, { limit: 5 }, db()))[0]; return !!t && ["done", "failed"].includes(String(t.status)); }, 30000)).toBe(true);
+}, 70000);
