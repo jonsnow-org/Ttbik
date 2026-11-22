@@ -19,7 +19,10 @@ let refusedAt = 0;                        // a refusal that looks like "not supp
 const RETRY_AFTER_MS = 3600_000;
 
 export type RichMode = "off" | "owner" | "all";
+let override: RichMode | null = null;       // the owner's switch in the control panel (src/lib/tgFeatures.ts) wins over the env default
+export const setRichOverride = (m: RichMode | null): void => { override = m; };
 export function richMode(): RichMode {
+  if (override) return override;
   const v = (process.env.TG_RICH || "owner").trim().toLowerCase();
   return v === "off" || v === "all" ? v : "owner";
 }
@@ -28,7 +31,7 @@ export function richOnFor(isOwnerChat: boolean): boolean {
   if (m === "off" || Date.now() - refusedAt < RETRY_AFTER_MS) return false;
   return m === "all" || isOwnerChat;
 }
-export const _resetRichRefusal = (): void => { refusedAt = 0; };
+export const _resetRichRefusal = (): void => { refusedAt = 0; override = null; };
 
 export const isArabicText = (t: string): boolean => /[؀-ۿ]/.test(t);
 /** A GitHub-style Markdown table: the case HTML mode cannot draw. */

@@ -195,6 +195,28 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         events: EVENT_TYPES,
       };
     }
+    case "tg_features": {
+      // the Telegram tab of the control panel: what is switched on now (our stored switches + what Telegram itself reports for the bot)
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const F = await import("@/lib/tgFeatures");
+      const cur = await F.refreshTgFeatures(db, true);
+      let info: Awaited<ReturnType<typeof F.readBotInfo>> | null = null;
+      let error = "";
+      try { info = await F.readBotInfo(deps.bot.api as never); } catch (e) { error = String((e as Error)?.message || e).slice(0, 200); }
+      const R = await import("@/lib/telegramRich");
+      return { rich: cur.rich || R.richMode(), guestMode: cur.guest, info, invite: F.inviteLink(info?.username || ""), error };
+    }
+    case "tg_set": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const F = await import("@/lib/tgFeatures");
+      const key = String(body.key || "");
+      try {
+        if (key === "rich") await F.setTgAudience("tg_rich", String(body.value) as never, db);
+        else if (key === "guest") await F.setGuestMode(deps.bot.api as never, String(body.value) as never, db);
+        else await F.setTelegramSetting(deps.bot.api as never, key, Boolean(body.value));
+      } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
+      return { ok: true };
+    }
     case "mesh_flag": {
       // every user's Mini App polls this: the owner's one switch decides whether devices join the mesh (default off)
       const M = await import("@/lib/meshPolicy");
