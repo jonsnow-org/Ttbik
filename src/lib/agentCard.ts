@@ -166,8 +166,8 @@ export function renderTimeline(tl: Timeline, now = Date.now(), opts: { maxSteps?
     return `${running ? ICON_RUN : s.ok === false ? ICON_FAIL : ICON_DONE} ${clock}  ${body}${running && !/[.…]$/.test(body) && s.kind === "phase" ? "…" : ""}${dur}`;
   });
   const head = `🕒 ${dateAt(tl.startedAt)} · ${clockAt(tl.startedAt)}`;
-  const ack = `💬 ${tl.ack || NEUTRAL_ACK}`;
+  const ack = tl.ack ? `\n💬 ${tl.ack}` : "";      // owner 2026-11-22: no fixed "received" sentence; the first row is the real "استلام الطلب" step
   const mid = hidden ? `… ${hidden} خطوات سابقة\n` : "";
-  const text = `${head}\n${ack}\n\n📋 التقدم · ${fmtDur(now - tl.startedAt)}\n${mid}${rows.length ? rows.join("\n") : `${ICON_RUN} ${clockAt(tl.startedAt)}  استلام الطلب…`}${opts.tail?.length ? `\n${opts.tail.join("\n")}` : ""}`;
+  const text = `${head}${ack}\n\n📋 التقدم · ${fmtDur(now - tl.startedAt)}\n${mid}${rows.length ? rows.join("\n") : `${ICON_RUN} ${clockAt(tl.startedAt)}  استلام الطلب…`}${opts.tail?.length ? `\n${opts.tail.join("\n")}` : ""}`;
   return text.slice(0, 4000);
 }

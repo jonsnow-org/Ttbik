@@ -50,3 +50,14 @@ export function rescueXmlToolCalls(text: string): { text: string; calls: CoderTo
   out = out.replace(/<\/?(?:tool_call|function|parameter)?[^>\n]{0,12}$/g, "").replace(/\n{3,}/g, "\n\n").trim();
   return { text: out, calls };
 }
+
+/** What may be shown to the user while the model is still writing: everything before the first tool-call markup (a complete one, or the start of one
+ *  such as "<tool_c" cut mid-token). Live 2026-11-22: Nova 2's call was streamed to Telegram as raw "<tool_call><function=delegate>…" before it was rescued and run. */
+export function hideToolMarkup(text: string): string {
+  const i = text.search(/<tool_call>|<function=/);
+  let out = i >= 0 ? text.slice(0, i) : text;
+  const tail = /<[a-z_/=]{0,11}$/.exec(out);
+  let cut = i >= 0;
+  if (tail && ("<tool_call>".startsWith(tail[0]) || "<function=".startsWith(tail[0]))) { out = out.slice(0, tail.index); cut = true; }
+  return cut ? out.trimEnd() : out;
+}

@@ -45,7 +45,7 @@ describe("Sham media fast lane", () => {
     expect(calls.some((c) => c.m === "sendPhoto")).toBe(false);                 // the webhook returned; the leg does the work
     const msgs = calls.filter((c) => c.m === "sendMessage");
     expect(msgs).toHaveLength(1);                                              // the ONE message: the card (opened at once, with date + time)
-    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n💬 /);
+    expect(msgs[0].a[1]).toMatch(/^🕒 .*\d{1,2}:\d\d:\d\d [صم]\n\n📋 التقدم/);
   });
 
   it("the media leg writes the English prompt, generates the picture and delivers it (no caption)", async () => {
