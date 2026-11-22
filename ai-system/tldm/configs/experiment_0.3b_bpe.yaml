@@ -1,0 +1,14 @@
+# Same decisive experiment, but the writer writes TOKENS (the book's unit) instead of bytes: BPE trained on the training tasks only.
+d: 640
+layers: 8
+latents: 16
+think_steps: 5
+block: 24
+in_len: 32
+writer_layers: 3
+heads: 4
+bitnet: false
+bpe_merges: 160
+steps: 600
+lr: 0.001
+diffusion_steps: 10

@@ -4,7 +4,7 @@ import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
 import EditorialHubNav from "@/components/editorial/EditorialHubNav";
-import { EVENT_EXTRAS } from "@/lib/eventsExtra";
+import { EVENT_EXTRAS, isEventCurrent } from "@/lib/eventsExtra";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -43,10 +43,12 @@ export default function EventsHubPage() {
     .filter((e, i, all) => all.findIndex((x) => x.slug === e.slug) === i)
     .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
   const featured =
-    byDate.find((e) => e.dateIso === today && !e.slug.includes("microsoft")) ||
+    byDate.find((e) => isEventCurrent(e, today) && !e.slug.includes("microsoft")) ||
     byDate.find((e) => !e.slug.includes("microsoft")) ||
     byDate[0];
   const isToday = featured?.dateIso === today;
+  const isCurrent = featured ? isEventCurrent(featured, today) : false;
+  const featuredLabel = isToday ? "حدث اليوم" : isCurrent ? "حدث جارٍ" : featured && featured.dateIso > today ? "الحدث القادم" : "أحدث حدث";
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
@@ -70,7 +72,7 @@ export default function EventsHubPage() {
             </div>
           )}
           <div className="p-5 sm:p-6">
-            <p className="text-[11px] font-black tracking-wide text-indigo-600">{isToday ? "حدث اليوم" : "أحدث حدث"}</p>
+            <p className="text-[11px] font-black tracking-wide text-indigo-600">{featuredLabel}</p>
             <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
               <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">{featured.title}</Link>
             </h2>
@@ -91,7 +93,7 @@ export default function EventsHubPage() {
             title={e.title}
             blurb={e.blurb}
             dateLabel={e.dateLabel}
-            badge={e.dateIso === today ? "اليوم" : e.category === "حدث اليوم" ? "فضاء" : e.category || "حدث"}
+            badge={isEventCurrent(e, today) ? (e.dateIso === today ? "اليوم" : "جارٍ") : e.dateIso > today ? "قادم" : e.category === "حدث اليوم" ? "فضاء" : e.category || "حدث"}
             badgeTone="indigo"
             imageUrl={e.imageUrl}
             imageAlt={e.title}

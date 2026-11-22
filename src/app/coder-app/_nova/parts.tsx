@@ -3,10 +3,11 @@
 // the earlier native screens (events timeline, confirmations, schedule form, memory, connectors, confirmation policy, billing, owner panel),
 // kept here in the Nova interface (the earlier native screens were removed 2026-11-09). Same server API, every call signed with
 // initData and checked on the server. They render inside Nova's AppRoot, so telegram-ui picks up Nova's palette from the --tgui--* variables.
+import ComputerHandoffBar from "./ComputerHandoffBar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Avatar, Badge, Banner, Button, ButtonCell, Caption, Cell, Chip, IconContainer, Input, List, Modal, Navigation, Placeholder,
-  Progress, Section, SegmentedControl, Select, Spinner, Switch, Textarea, Timeline, Title,
+  Progress, Section, SegmentedControl, Select, Spinner, Switch, Textarea, Title,
 } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "./OwnerModelsPanel";
@@ -15,11 +16,11 @@ import { bindBack, bindMain, getLaunch, guard, haptic, openExternal, payInvoice,
 export type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 export type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
 export type Ev = { id: number; run_id: string; kind: string; text: string; created_at: string };
-export type Pending = { runId: string; nonce: string; reason: string; summary: string; tool: string; categories: string[]; title: string; slot: string; at: number | null; secret?: { name: string } };
+export type Pending = { runId: string; nonce: string; reason: string; summary: string; tool: string; categories: string[]; title: string; slot: string; at: number | null; secret?: { name: string }; handoff?: { kind: string; reason: string; model: string } };
 export type Rule = { category: string; repo: string; context: string; policy: "ask" | "allow" | "deny" };
 export type Cat = { id: string; label: { ar: string; en: string }; tierDefault: "ask" | "run" };
 export type Accuracy = "fast" | "balanced" | "precise";
-export type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean; computer?: boolean }; settings: { model: string; think: boolean; policy?: "adaptive" | "always" | "never"; accuracy?: Accuracy; auto?: boolean; forced?: Record<string, string>; media?: boolean; memory?: { remember: boolean; recall: boolean; save: boolean }; perModel?: Record<string, { think: boolean; accuracy: Accuracy; media: boolean; memory?: { remember: boolean; recall: boolean; save: boolean } }>; lang: Lang; tz: string; repo: string }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
+export type Me = { tier: "owner" | "user"; features?: { sham: boolean; ownerTools: boolean; terminal?: boolean; computer?: boolean; tldm?: boolean }; settings: { model: string; think: boolean; policy?: "adaptive" | "always" | "never"; accuracy?: Accuracy; auto?: boolean; forced?: Record<string, string>; media?: boolean; memory?: { remember: boolean; recall: boolean; save: boolean }; tldm?: boolean; tldmOpen?: boolean; perModel?: Record<string, { think: boolean; accuracy: Accuracy; media: boolean; memory?: { remember: boolean; recall: boolean; save: boolean } }>; lang: Lang; tz: string; repo: string }; tldmPolicy?: { open?: boolean; deny?: string[] }; connections: { github: { linked: boolean; login?: string; source?: string } }; oauth: boolean; prefs: { rules: Rule[]; categories: Cat[] }; events: string[] };
 export type Sched = { id: string; title: string; prompt: string; kind: "cron" | "event"; cron: string | null; tz: string; repo: string | null; events: string[]; paused: boolean; next_run_at: string | null; last_run_at: string | null; last_status: string | null; hook_id: number | null; describe: string };
 export type Repo = { full_name: string; private: boolean; default_branch: string; pushed_at: string | null; description: string };
 export type ConnView = { id: string; name: string; desc: { ar: string; en: string }; color: string; status: "connected" | "available" | "setup"; oauth: boolean; token?: { create: string; help: { ar: string; en: string }; placeholder: string }; setup?: { create: string; callback: string; env: string[]; scope: string }; label?: string; source?: "owner-env" | "user-link" };
@@ -77,8 +78,6 @@ export function fmtTime(iso: string | null, tz: string, lang: Lang): string {
   }
 }
 export const tx = (t: Str, k: string) => ((t as any)[k] as string) || k;
-export const STATUS_MODE: Record<string, "primary" | "critical" | "secondary" | "gray"> = { running: "primary", waiting: "critical", done: "secondary", failed: "critical", stopped: "gray", ceiling: "gray", limited: "gray" };
-export const StatusBadge = ({ s, t }: { s: string; t: Str }) => <Badge type="number" mode={STATUS_MODE[s] || "gray"}>{tx(t, `status_${s}`)}</Badge>;
 export const Emoji = ({ c }: { c: string }) => <IconContainer><span style={{ fontSize: 18, lineHeight: 1 }} aria-hidden="true">{c}</span></IconContainer>;
 export const Loading = () => <div style={{ display: "grid", placeItems: "center", padding: 32 }}><Spinner size="m" /></div>;
 export function Fail({ t, msg, retry }: { t: Str; msg: string; retry: () => void }) {
@@ -101,54 +100,6 @@ export function useMain(on: boolean, text: string, cb: () => void, enabled = tru
   useEffect(() => (on ? bindMain(text, () => ref.current(), { enabled, loading }) : undefined), [on, text, enabled, loading]);
 }
 export const inTg = () => getLaunch().inTelegram;
-// ---------------------------------------------------------------- tasks
-export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; live: boolean; t: Str; last?: number }) {
-  const [evs, setEvs] = useState<Ev[] | null>(null);
-  const after = useRef(0);
-  useEffect(() => {
-    let stop = false;
-    after.current = 0;
-    setEvs(null);
-    let inFlight = false;
-    const pull = async () => {
-      // A slow response must not overlap the next poll: overlapping requests can return the
-      // same cursor and append duplicate events to the timeline.
-      if (stop || inFlight || document.visibilityState !== "visible") return;
-      inFlight = true;
-      try {
-        const d = await api<{ events: Ev[] }>("events", { runId, after: after.current });
-        if (stop) return;
-        const events = Array.isArray(d.events) ? d.events.filter((e) => Number.isFinite(e.id) && e.id > after.current) : [];
-        if (events.length) {
-          after.current = events[events.length - 1].id;
-          setEvs((x) => [...(x || []), ...events]);
-        } else setEvs((x) => x || []);
-      } catch {
-        setEvs((x) => x || []);
-      } finally {
-        inFlight = false;
-      }
-    };
-    void pull();
-    const id = live ? setInterval(pull, 1500) : null;
-    return () => { stop = true; if (id) clearInterval(id); };
-  }, [runId, live]);
-  if (!evs) return <Loading />;
-  const shown = last ? evs.slice(-last) : evs;
-  if (!shown.length) return <Cell multiline><Caption>{live ? "…" : "—"}</Caption></Cell>;
-  return (
-    <div style={{ padding: "8px 16px" }}>
-      <Timeline active={live ? shown.length - 1 : shown.length}>
-        {shown.map((e) => (
-          <Timeline.Item key={e.id} header={tx(t, `ev_${e.kind}`)}>
-            <span dir="auto" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{e.kind === "text" ? e.text : e.text.slice(0, 400)}</span>
-          </Timeline.Item>
-        ))}
-      </Timeline>
-    </div>
-  );
-}
-
 /** The secure box: the model asked for a password / token. A masked field that goes straight to the server's vault; the chat, the history and the model never see the value. */
 function SecretBox({ p, lang, onDone }: { p: Pending; lang: Lang; onDone: () => void }) {
   const [value, setValue] = useState("");
@@ -186,6 +137,7 @@ export function PendingBanner({ p, t, cats, lang, onDone }: { p: Pending; t: Str
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   if (p.secret) return <SecretBox p={p} lang={lang} onDone={onDone} />;
+  if (p.handoff) return <ComputerHandoffBar offer={{ model: p.handoff.model, handoff: p.handoff, resume: "run", runId: p.runId, slot: p.slot }} ar={lang === "ar"} onDone={onDone} />;
   const label = (p.categories || []).map((c) => cats.find((x) => x.id === c)?.label[lang]).filter(Boolean).join(" · ") || p.reason;
   const act = async (answer: "yes" | "all" | "no") => {
     if (busy) return;
@@ -725,16 +677,12 @@ export function PanelPage({ lang }: { lang: Lang }) {
       {tab === "models" && <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />}
       {tab === "training" && (<>
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
-        {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · Nova 1 ${g.novaHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
-        <Cell multiline subtitle={nova?.request?.not_before ? `${ar ? "يبدأ بعد" : "Starts after"} ${trt(nova.request.not_before)}` : undefined}
-          after={<Button size="s" mode="bezeled" loading={busy.startsWith("nova")} onClick={() => act(nova?.paused ? "nova_resume" : "nova_pause")}>{nova?.paused ? "▶️" : "⏸"}</Button>}>
-          {`Nova 1: ${nova?.request?.enabled ? (nova.paused ? (ar ? "موقوف (لا جلسات جديدة)" : "paused (no new sessions)") : (ar ? "مفعّل" : "on")) : (ar ? "غير مفعّل" : "off")}`}
-        </Cell>
+        {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
         <Cell multiline subtitle={tr?.monitor ? `${trt(tr.monitor.at)} · ${tr.monitor.conclusion}` : "—"}
           after={<Button size="s" mode="bezeled" loading={busy === "monitor_run"} onClick={() => act("monitor_run")}>🛰</Button>}>
           {ar ? "مراقب كاكل" : "Kaggle monitor"}
         </Cell>
-        {(tr?.monitorLines || []).filter((l: string) => l.startsWith("دفتر") || l.startsWith("Nova 1:")).slice(0, 8).map((l: string, i: number) => <Cell key={i} multiline>{l}</Cell>)}
+        {(tr?.monitorLines || []).filter((l: string) => l.startsWith("دفتر")).slice(0, 8).map((l: string, i: number) => <Cell key={i} multiline>{l}</Cell>)}
         {(tr?.inspectorLines || []).filter((l: string) => l.startsWith("status:") || l.startsWith("=====")).slice(0, 10).map((l: string, i: number) => <Cell key={"i" + i} multiline>{l}</Cell>)}
         {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
@@ -766,7 +714,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
         <Cell after={String(d.health?.live?.ctx ?? "—")}>{ar ? "سياق النموذج (رمز)" : "Model context (tokens)"}</Cell>
         <Cell after={String(d.health?.live?.historyChars ?? "—")}>{ar ? "نافذة المحادثة (حرف)" : "History window (chars)"}</Cell>
         <Cell after={d.health?.live?.quickLane ? "✅" : "—"}>{ar ? "الرد السريع بسطر واحد" : "Quick one-line reply"}</Cell>
-        <Cell after={d.health?.nova1Studio ? "✅" : "—"}>Nova 1 Studio</Cell>
+        <Cell after={d.health?.nova1Studio ? "✅" : "—"}>{ar ? "استوديو نوفا (35B)" : "Nova Studio (35B)"}</Cell>
       </Section>
       <Section header={ar ? "التنفيذ والبحث (بدائل)" : "Sandbox & search (fallbacks)"}>
         <Cell after={d.health?.oracle ? "✅" : "—"}>{ar ? "خادم Oracle (تشغيل الكود)" : "Oracle host (code runner)"}</Cell>

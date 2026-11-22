@@ -1,24 +1,27 @@
-import { browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply } from "@/lib/browserComputer";
+import { DEFAULT_NOVA2_COMPUTER_STUDIO_URL, browserDo, browserStudioFor, cleanBrowserArgs, renderBrowserReply, studioToken } from "@/lib/browserComputer";
 import { COMPUTER_MODEL_OPTIONS } from "@/lib/computerModels";
 
 describe("the model's own browser", () => {
-  test("all supported models use the dedicated computer hub with isolated user+model sessions", () => {
-    const prior = process.env.COMPUTER_STUDIO_URL;
-    process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
+  test("one Nova: its own hub default is the international hub; the international hub takes the international token; COMPUTER_STUDIO_URL / off override", () => {
+    const prior = { hub: process.env.COMPUTER_STUDIO_URL, own: process.env.NOVA2_COMPUTER_STUDIO_URL, tok: process.env.NOVA2_STUDIO_TOKEN };
     try {
-      const modelIds = COMPUTER_MODEL_OPTIONS.map(({ id }) => id);
-      expect(modelIds).toEqual(expect.arrayContaining(["lfm25", "sham"]));
-      expect(new Set(modelIds).size).toBe(modelIds.length);
-      const bases = modelIds.map((m) => browserStudioFor(m));
-      expect(new Set(bases).size).toBe(1);
-      expect(bases.every((base) => base === "https://computer-hub.example.test")).toBe(true);
+      delete process.env.COMPUTER_STUDIO_URL; delete process.env.NOVA2_COMPUTER_STUDIO_URL;
+      expect(browserStudioFor("coder")).toBe(DEFAULT_NOVA2_COMPUTER_STUDIO_URL);
+      process.env.NOVA2_STUDIO_TOKEN = "ai-token";
+      expect(studioToken(DEFAULT_NOVA2_COMPUTER_STUDIO_URL)).toBe("ai-token");
+      process.env.COMPUTER_STUDIO_URL = "https://computer-hub.example.test";
+      expect(browserStudioFor("coder")).toBe("https://computer-hub.example.test");
+      process.env.COMPUTER_STUDIO_URL = "off";
+      expect(browserStudioFor("coder")).toBeNull();
+      process.env.NOVA2_COMPUTER_STUDIO_URL = "off";
+      expect(browserStudioFor("nova2")).toBeNull();
       for (const other of ["", undefined, "../x", "nova"]) expect(browserStudioFor(other as string | undefined)).toBeNull();
     } finally {
-      if (prior === undefined) delete process.env.COMPUTER_STUDIO_URL;
-      else process.env.COMPUTER_STUDIO_URL = prior;
+      if (prior.hub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = prior.hub;
+      if (prior.own === undefined) delete process.env.NOVA2_COMPUTER_STUDIO_URL; else process.env.NOVA2_COMPUTER_STUDIO_URL = prior.own;
+      if (prior.tok === undefined) delete process.env.NOVA2_STUDIO_TOKEN; else process.env.NOVA2_STUDIO_TOKEN = prior.tok;
     }
   });
-
   test("only known actions and bounded fields reach the Studio", () => {
     expect(cleanBrowserArgs({ action: "open", url: "example.com" })).toEqual({ action: "open", url: "example.com" });
     expect(cleanBrowserArgs({ action: "rm -rf" })).toBeNull();
@@ -54,11 +57,11 @@ describe("the model's own browser", () => {
       if (url.endsWith("/gradio_api/call/browser_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, url: "https://a.test/", title: "A", text: "Hi", elements: "" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await browserDo("lfm25", "42:lfm25", { action: "open", url: "a.test" }, fetchImpl);
+    const out = await browserDo("coder", "42:coder", { action: "open", url: "a.test" }, fetchImpl);
     expect(out).toContain("PAGE TEXT:\nHi");
-    expect(calls[0].url).toContain("nova-inference-server");
+    expect(calls[0].url).toContain("sham-trainer-2");
     expect(calls[0].body.data[0]).toMatch(/^b64:/);
-    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:lfm25" });
+    expect(JSON.parse(Buffer.from(calls[0].body.data[0].slice(4), "base64").toString("utf8"))).toEqual({ action: "open", url: "a.test", session: "42:coder" });
     // Sham and Sham v2 have no browser Studio: their browser runs inside the model's own loop (owner 2026-11-08), so nothing is sent
     const before = calls.length;
     expect(await browserDo("sham", "1:sham", { action: "look" }, fetchImpl)).toMatch(/no browser Studio/);

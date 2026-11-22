@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ANNOUNCEMENT_MAX_AGE_MS, MAX_BROADCASTS_PER_RUN } from "@/lib/announcementLimits";
 
 // Owner directive, 2026-09-22: after a real bot update ships, the bot
 // itself should tell its users -- automatically, not the owner pressing
@@ -9,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 // this cron (see vercel.json) picks up every row still unsent and
 // delivers it, no manual send action required.
 export const maxDuration = 60;
+
 
 async function sendToNovaUsers(text: string): Promise<number> {
   const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT" }, orderBy: { created_at: "asc" } });
@@ -66,7 +68,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const pending = await prisma.botUpdateAnnouncement.findMany({ where: { sentAt: null }, orderBy: { createdAt: "asc" } });
+  const all = await prisma.botUpdateAnnouncement.findMany({ where: { sentAt: null }, orderBy: { createdAt: "asc" } });
+  const now = Date.now();
+  const stale = all.filter((a) => now - new Date(a.createdAt).getTime() > ANNOUNCEMENT_MAX_AGE_MS);
+  const pending = all.filter((a) => !stale.includes(a)).slice(0, MAX_BROADCASTS_PER_RUN);
+  for (const ann of stale) await prisma.botUpdateAnnouncement.update({ where: { id: ann.id }, data: { sentAt: new Date(), sentCount: 0 } });
   const results: { id: string; template: string; sent: number }[] = [];
 
   for (const ann of pending) {
@@ -75,5 +81,5 @@ export async function GET(req: NextRequest) {
     results.push({ id: ann.id, template: ann.template, sent });
   }
 
-  return NextResponse.json({ ok: true, processed: results.length, results });
+  return NextResponse.json({ ok: true, processed: results.length, skippedStale: stale.length, results });
 }

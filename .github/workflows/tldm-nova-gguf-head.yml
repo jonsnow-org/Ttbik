@@ -1,0 +1,80 @@
+name: "T-LDM head on a GGUF reader (Nova route, CPU, no secrets)"
+# Question answered with numbers: can a T-LDM head sit on Nova's quantised GGUF (llama.cpp, no PyTorch body) and pass the held-out gate?
+# llama-server runs in embedding mode (--embeddings --pooling none) on the same Q4_K_M file Nova serves; its per-token final-layer vectors are the head's features;
+# the same recipe/tasks/seeds as Sham 2 train and score the head. Manual, or on the first push of this file. Touches no Studio, no model, no Nova/Sham deployment.
+on:
+  push:
+    branches: [claude/continue-2026-11-21]
+    paths: [".github/workflows/tldm-nova-gguf-head.yml"]
+  workflow_dispatch:
+    inputs:
+      gguf_repo:
+        description: "ModelScope repo with the GGUF"
+        default: "unsloth/Qwen3.5-4B-GGUF"
+      gguf_pattern:
+        description: "file pattern"
+        default: "*Qwen3.5-4B-Q4_K_M.gguf"
+      tokenizer_repo:
+        description: "repo with the donor tokenizer.json (the GGUF's vocabulary)"
+        default: "Qwen/Qwen3.5-4B"
+      config:
+        description: "config under ai-system/tldm/configs/"
+        default: "nova1.yaml"
+      seeds:
+        description: "seeds"
+        default: "3"
+permissions:
+  contents: read
+jobs:
+  head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Python packages
+        run: |
+          python -m pip install numpy tokenizers modelscope
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - name: Build llama-server
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp "$RUNNER_TEMP/llama.cpp"
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DLLAMA_CURL=OFF > /tmp/cmake.log 2>&1
+          cmake --build "$RUNNER_TEMP/llama.cpp/build" --config Release -j"$(nproc)" --target llama-server > /tmp/build.log 2>&1
+          ls -la "$RUNNER_TEMP/llama.cpp/build/bin/llama-server"
+      - name: Download the GGUF and the tokenizer
+        env:
+          GGUF_REPO: ${{ inputs.gguf_repo || 'unsloth/Qwen3.5-4B-GGUF' }}
+          GGUF_PATTERN: ${{ inputs.gguf_pattern || '*Qwen3.5-4B-Q4_K_M.gguf' }}
+          TOK_REPO: ${{ inputs.tokenizer_repo || 'Qwen/Qwen3.5-4B' }}
+        run: |
+          python - <<'PY'
+          import os
+          from modelscope import snapshot_download as s
+          print("gguf", s(os.environ["GGUF_REPO"], allow_patterns=[os.environ["GGUF_PATTERN"]], local_dir="/tmp/gguf"))
+          print("tokenizer", s(os.environ["TOK_REPO"], allow_patterns=["tokenizer.json"], local_dir="/tmp/tok"))
+          PY
+          ls -la /tmp/gguf /tmp/tok
+      - name: Serve the GGUF in embedding mode
+        run: |
+          GGUF=$(ls /tmp/gguf/*.gguf | head -1)
+          nohup "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" -m "$GGUF" --embeddings --pooling none -c 512 -ngl 0 -t "$(nproc)" --host 127.0.0.1 --port 8099 > /tmp/llama_server.log 2>&1 &
+          for _ in $(seq 1 120); do curl -s http://127.0.0.1:8099/health | grep -q '"ok"' && break; sleep 2; done
+          curl -s http://127.0.0.1:8099/health; echo
+          curl -s -X POST http://127.0.0.1:8099/embeddings -H 'Content-Type: application/json' -d '{"input":[1,2,3]}' | python -c "import json,sys; r=json.load(sys.stdin); e=r[0]['embedding']; print('probe: tokens', len(e), 'width', len(e[0]) if isinstance(e[0], list) else 'POOLED')"
+      - name: Train and score the head on the GGUF features
+        run: |
+          set -o pipefail
+          cd ai-system/tldm
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova1.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json 2>&1 | tee /tmp/gguf_head.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gguf-head
+          path: |
+            /tmp/gguf_head.json
+            /tmp/gguf_head.log
+            /tmp/llama_server.log
+          if-no-files-found: warn

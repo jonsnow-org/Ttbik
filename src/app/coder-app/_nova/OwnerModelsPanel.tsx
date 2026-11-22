@@ -3,6 +3,7 @@
 // (src/lib/coderModels.ts modelUsableBy); (2) WHICH media engine makes image / speech / video for each model, with the live health of every Studio behind it
 // (src/lib/mediaEngines.ts). Shared by the Nova UI and the telegram-ui screens. Server decides; the owner is checked on every call.
 import { useCallback, useEffect, useState } from "react";
+import { MESH_URL, MODEL_MESH } from "@/lib/meshNode";
 import { Button, Caption, Cell, Input, Section, Select, Spinner, Switch } from "@telegram-apps/telegram-ui";
 
 type Api = <T = any>(op: string, body?: Record<string, unknown>) => Promise<T>;
@@ -27,6 +28,11 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
   const [photoWeights, setPhotoWeights] = useState<PhotoWeight[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
+  const [tldmOpen, setTldmOpen] = useState(false);
+  const [meshOn, setMeshOn] = useState<boolean | null>(null);
+  const [meshNodes, setMeshNodes] = useState<Record<string, number>>({});
+  const [denyText, setDenyText] = useState("");
+  const [denySaved, setDenySaved] = useState("");
   const name = (m: { id: string; name?: { ar: string; en: string } }) => (m.name && (ar ? m.name.ar : m.name.en)) || m.id;
   const mediaName = (id: string) => name(models.find((x) => x.id === id) || { id });
   const loadMedia = useCallback(async () => {
@@ -36,6 +42,21 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
     setBusy("");
   }, [api]);
   useEffect(() => { void loadMedia(); }, [loadMedia]);
+  useEffect(() => { void api<{ settings?: { tldm?: boolean; tldmOpen?: boolean }; tldmPolicy?: { open?: boolean; deny?: string[] } }>("me").then((r) => {
+    setTldmOpen(Boolean(r.tldmPolicy?.open ?? r.settings?.tldmOpen));
+    const d = (r.tldmPolicy?.deny || []).join("\n");
+    setDenyText(d); setDenySaved(d);
+  }).catch(() => null); }, [api]);
+  // the owner's ONE switch for users' devices in the terminal mesh (src/lib/meshPolicy.ts); users never see anything about it
+  const loadMesh = useCallback(async () => {
+    try { setMeshOn(Boolean((await api<{ on?: boolean }>("mesh_devices")).on)); } catch { setMeshOn(null); }
+    const out: Record<string, number> = {};
+    await Promise.all(Object.entries(MODEL_MESH).map(async ([, mesh]) => {
+      try { const r = await fetch(`${MESH_URL}/m/${mesh}/health`, { cache: "no-store" }); out[mesh] = Number((await r.json()).nodes_online) || 0; } catch { out[mesh] = -1; }
+    }));
+    setMeshNodes(out);
+  }, [api]);
+  useEffect(() => { void loadMesh(); const id = setInterval(() => void loadMesh(), 20000); return () => clearInterval(id); }, [loadMesh]);
   const setVisible = async (m: OwnerModel, visible: boolean) => {
     setBusy("vis-" + m.id);
     try { await api("model_update", { id: m.id, visible }); haptic("success"); await reload(); } catch (e: any) { setErr(String(e?.message || e)); haptic("error"); }
@@ -64,6 +85,48 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
               onBlur={async (e) => { try { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); } catch { haptic("error"); } }} />
           </div>
         ))}
+      </Section>
+      <Section
+        header={ar ? "🕸 شبكة الأجهزة" : "🕸 Device mesh"}
+        footer={ar
+          ? "مفتاح واحد لكل المستخدمين، مطفأ افتراضيًا. عند تشغيله ينضم جهاز كل مستخدم أثناء فتح التطبيق إلى شبكة النموذج الذي اختاره فقط، بصمت ودون أي إشعار. الجهاز لا ينفّذ أوامر لأحد، يقدّم حوسبة قابلة للتحقق ودروسًا موثّقة فقط، ولا يشارك بيانات شخصية، وقائمة المنع تنطبق. عند إطفائه تغادر الأجهزة خلال نصف دقيقة."
+          : "One switch for all users, off by default. When on, each user's device joins the mesh of the model they selected while the app is open, silently with no notice. A device never runs commands for anyone, offers only verifiable compute and verified lessons, shares no personal data, and the deny list applies. When off, devices leave within half a minute."}
+      >
+        <Cell Component="label" multiline
+          subtitle={Object.entries(meshNodes).map(([m, c]) => `${m}: ${c < 0 ? "?" : c}`).join(" · ") || "…"}
+          after={<Switch checked={Boolean(meshOn)} disabled={meshOn === null || busy === "mesh"} onChange={async (e) => {
+            const on = e.currentTarget.checked; setBusy("mesh"); setErr("");
+            try { const r = await api<{ on?: boolean }>("mesh_devices", { on }); setMeshOn(Boolean(r.on)); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy(""); void loadMesh();
+          }} />}>
+          {ar ? (meshOn ? "أجهزة المستخدمين: مشاركة" : "أجهزة المستخدمين: متوقفة") : (meshOn ? "Users' devices: sharing" : "Users' devices: off")}
+        </Cell>
+      </Section>
+      <Section
+        header={ar ? "⚡ T-LDM لشام برو" : "⚡ T-LDM for Sham Pro"}
+        footer={ar
+          ? "المفتاح الأول يفتح المسار لكل المستخدمين (نفس معنى SHAM_TLDM_OPEN). في وقت العمل: بحث وتصفح وتنفيذ حر داخل مساحة كل مستخدم المعزولة على حاسوب شام برو الداخلي؛ المستخدم يوافق على أوامره الحساسة؛ الكتابة تبقى في مساحته؛ قائمة المنع أدناه تنطبق على الجميع ولا يمكن تجاوزها. تفعيله لحسابك أنت في الإعدادات عند اختيار شام برو. إن لم يكن رأس التدريب جاهزًا تظهر رسالة خطأ واضحة، ولن يُستخدم شام 1."
+          : "The first switch opens the path to every user (same meaning as SHAM_TLDM_OPEN). At work time: free search, browsing and execution inside each user's isolated workspace on Sham Pro's existing internal computer; that user approves their own sensitive commands; writes stay in their workspace; the deny list below applies to everyone and cannot be overridden. Turn it on for your own account in Settings while Sham Pro is selected. If the trained head is missing, a clear error is shown and Sham 1 is never used."}
+      >
+        <Cell Component="label" multiline
+          subtitle={ar ? (tldmOpen ? "مفتوح للجميع: كل مستخدم يستطيع تفعيل T-LDM لنفسه" : "مغلق: المسار للمالك فقط في هذه المرحلة") : (tldmOpen ? "Open to everyone: each user can enable T-LDM for themselves" : "Closed: owner-only during this testing phase")}
+          after={<Switch checked={tldmOpen} disabled={busy === "tldm-open"} onChange={async (e) => {
+            const on = e.currentTarget.checked; setBusy("tldm-open"); setErr("");
+            try { const r = await api<{ policy?: { open?: boolean } }>("tldm_policy", { open: on }); setTldmOpen(Boolean(r.policy?.open ?? on)); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy("");
+          }} />}>
+          {ar ? "فتح T-LDM لجميع المستخدمين" : "Open T-LDM to all users"}
+        </Cell>
+        <Input header={ar ? "قائمة منع المالك (سطر لكل نمط، أو re:تعبير). لا يمكن لأي مستخدم تجاوزها." : "Owner deny list (one pattern per line, or re:regex). Users cannot override it."}
+          value={denyText} onChange={(e) => setDenyText(e.currentTarget.value)}
+          after={<Button size="s" mode="bezeled" loading={busy === "tldm-deny"} disabled={denyText === denySaved} onClick={async () => {
+            setBusy("tldm-deny"); setErr("");
+            try { const r = await api<{ policy?: { deny?: string[] } }>("tldm_policy", { deny: denyText }); const d = (r.policy?.deny || []).join("\n"); setDenyText(d); setDenySaved(d); haptic("success"); }
+            catch (err: any) { setErr(String(err?.message || err)); haptic("error"); }
+            setBusy("");
+          }}>{ar ? "حفظ المنع" : "Save list"}</Button>} />
       </Section>
       <Section
         header={ar ? "🎨 ماذا يستخدم كل نموذج لتوليد الوسائط؟" : "🎨 What does each model use to make media?"}
@@ -98,7 +161,7 @@ export default function OwnerModelsPanel({ ar, api, haptic, models, reload }: { 
             const hash = w.checkpointSha256 ? w.checkpointSha256.slice(0, 12) + "…" : (ar ? "لا توجد بصمة" : "no checkpoint hash");
             const detail = w.detail ? " · " + w.detail : "";
             const subtitle = w.sourceModel + " · " + w.modelRepo + " · " + hash + memory + detail;
-            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham v2" };
+            const labels: Record<string, string> = { coder: "Nova", sham_v2: "Sham Pro" };
             return <Cell key={w.modelId} multiline after={w.ready ? "✅" : "❌"} subtitle={subtitle}>
               {(ar ? (labels[w.modelId] || w.displayName) : w.displayName) + " — " + (ar ? (w.ready ? "جاهز" : "غير جاهز") : w.phase)}
             </Cell>;

@@ -98,6 +98,8 @@ _SEQ = itertools.count()
 
 
 def _job_key(job: dict) -> float:
+    if job.get("warm"):
+        return float(job.get("created", 0)) + 1e10                 # a background warm-up never stands in front of a person's request
     return float(job.get("created", 0)) - (PRIORITY_BOOST_S if job.get("priority") else 0.0)
 
 
@@ -208,6 +210,26 @@ def _wait_health(timeout: float = 900) -> bool:
 
 
 _SPEC = {"on": False, "bad": False}
+_LOCK = {"on": False, "bad": False, "mode": "", "refused": False, "log_at": 0}
+
+
+def _load_mode(model: Path) -> str:
+    """llama.cpp's --load-mode for this box. A model that fills most of the memory (Nova 2: a 12.3 GiB file on a 15.35 GiB Studio) is locked in RAM.
+    Measured 2026-11-18 (nova-speed run 44258832132, Studio 16): with plain mmap llama-server took ~2,000 major page faults per short request and its resident
+    size fell 12.89 -> 12.09 GB (weights evicted and read back from disk), and the Studio wrote 2-3 tok/s / read 7-8 tok/s against 5.0 / 15.3 for the same file
+    on 2 runner cores. CODER_LOAD_MODE overrides it (auto | none | mmap | mlock | mmap+mlock | off); a server that does not start with it is restarted without it."""
+    want = os.environ.get("CODER_LOAD_MODE", "auto").strip().lower()
+    if want in ("", "off", "default"):
+        return ""
+    if want != "auto":
+        return want
+    try:
+        total = int(next(l for l in open("/proc/meminfo") if l.startswith("MemTotal")).split()[1]) * 1024
+        if model.stat().st_size <= 0.6 * total:
+            return ""
+        return "none" if _LOCK["refused"] else "mmap+mlock"      # mlock refused by the box: read the weights into the process's own memory instead (no page cache to evict them from)
+    except Exception:
+        return ""
 # Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
 # A Studio is a vision Studio when the deploy put a `vision.on` file next to app.py (deploy-modelscope-coder.yml, from ai-system/modelscope-coder/VISION_STUDIOS) or CODER_VISION=on.
 # If the server does not come up with it, or it dies while it is on (memory), the next start goes without it (_VIS["bad"]) so a picture never takes a Studio down for good.
@@ -247,18 +269,20 @@ def _start_server(model: Path, bindir: Path) -> None:
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
            "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
-    if "lfm" in model.name.lower():       # LFM thinks by default: all of a short answer's tokens went to reasoning and the text came back empty (measured 2026-11-02); the app turns thinking on per request itself
-        cmd += ["--reasoning-budget", "0"]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
     # Measured 2026-11-12 (nova-decode-bench.yml, same llama.cpp build and model, 2 cores): ngram-mod writes a file edit / code at 9.3 tokens/s against 3.6 without it (2.6x), free prose
-    # is unchanged (3.9), no extra RAM, no draft model; flash attention, a q8 KV cache and bigger batches gave nothing. So it is ON by default, except for LFM (a recurrent hybrid)
-    # and a Studio that loads the vision file. CODER_SPEC overrides it ("off" turns it off); a server that does not start with it is restarted without it (the _SPEC["bad"] path below).
+    # is unchanged (3.9), no extra RAM, no draft model; flash attention, a q8 KV cache and bigger batches gave nothing. So it is ON by default, except for a Studio that loads the vision file. CODER_SPEC overrides it ("off" turns it off); a server that does not start with it is restarted without it (the _SPEC["bad"] path below).
     spec = os.environ.get("CODER_SPEC", "").strip()
-    if not spec and "lfm" not in model.name.lower() and not _vision_wanted():
+    if not spec and not _vision_wanted():
         spec = "--spec-type ngram-mod"
     if spec.lower() == "off":
         spec = ""
+    lm = "" if _LOCK["bad"] else _load_mode(model)
+    if lm:
+        cmd += ["--load-mode", lm]
+    _LOCK.update(on=bool(lm), mode=lm)
+    STATE["load_mode"] = lm or "default"
     if spec and not _SPEC["bad"]:
         cmd += spec.split()
         _SPEC["on"] = True
@@ -275,6 +299,10 @@ def _start_server(model: Path, bindir: Path) -> None:
             _VIS["bad"] = True
     STATE["vision"] = bool(_VIS["on"])
     _PATHS.update(model=str(model), bindir=str(bindir))
+    try:
+        _LOCK["log_at"] = (HERE / "_llama_server.log").stat().st_size
+    except OSError:
+        _LOCK["log_at"] = 0
     log = open(HERE / "_llama_server.log", "ab")
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
@@ -287,6 +315,9 @@ def _supervisor() -> None:
                 if _PROC["p"] is not None and _VIS["on"]:
                     _VIS["bad"] = True                    # the server died while the vision file was loaded (most likely memory): start again without it
                     _log("server exited with vision on; restarting without it")
+                if _PROC["p"] is not None and _LOCK["on"]:
+                    _LOCK["bad"] = True                   # the server died with the weights locked in RAM (most likely memory): start again with the plain loading
+                    _log("server exited with load mode", _LOCK["mode"], "; restarting without it")
                 STATE.update(phase="loading", error="")
                 bindir = _llama_dir()
                 model = _download_model()
@@ -299,12 +330,29 @@ def _supervisor() -> None:
                     except Exception:
                         pass
                     raise RuntimeError("llama-server did not become healthy: " + tail)
+                if _LOCK["mode"] == "mmap+mlock" and not _LOCK["refused"]:
+                    try:
+                        with open(HERE / "_llama_server.log", "rb") as fh:
+                            fh.seek(_LOCK["log_at"])
+                            refused = b"failed to mlock" in fh.read()
+                    except OSError:
+                        refused = False
+                    if refused:                           # llama.cpp only warns: the weights stay evictable. Start once more reading them into its own memory
+                        _LOCK["refused"] = True
+                        _log("mlock refused; restarting with --load-mode none")
+                        _PROC["p"].kill()
+                        _PROC["p"].wait(30)
+                        _PROC["p"] = None                 # a deliberate restart, not a death: the "died with the load mode" fallback must not fire
+                        continue
                 STATE.update(phase="ready", detail="", ready_at=time.time())
                 _log("ready", STATE["model_repo"], STATE["model"], "ctx", CTX, "threads", THREADS)
         except Exception as exc:
             if _VIS["on"]:
                 _VIS["bad"] = True
                 _log("vision failed to start; restarting without it")
+            if _LOCK["on"]:
+                _LOCK["bad"] = True                      # the weights could not be locked in RAM: next start goes with the plain loading, at once
+                _log("load mode", _LOCK["mode"], "failed; restarting without it")
             if _SPEC["on"]:
                 _SPEC["bad"] = True                      # the experimental flags were on: next start goes without them, at once
                 _log("speculative flags failed; restarting without them")
@@ -314,7 +362,7 @@ def _supervisor() -> None:
             if p is not None and p.poll() is None:
                 p.kill()
             _PROC["p"] = None
-            time.sleep(5 if _SPEC["bad"] and _SPEC["on"] else 60)
+            time.sleep(5 if (_SPEC["bad"] and _SPEC["on"]) or (_LOCK["bad"] and _LOCK["on"]) else 60)
             continue
         time.sleep(10)
 
@@ -329,7 +377,26 @@ SLOTS_ON = os.environ.get("CODER_SLOTS", "on").strip().lower() not in ("0", "off
 SLOT_KEEP = max(1, int(os.environ.get("CODER_SLOT_KEEP", "3") or 3))                 # conversations kept on disk
 SLOT_MIN_TOKENS = max(200, int(os.environ.get("CODER_SLOT_MIN_TOKENS", "1500") or 1500))     # shorter ones are cheap to read again
 SLOT_MAX_MB = max(100, int(os.environ.get("CODER_SLOT_MAX_MB", "1500") or 1500))     # a state bigger than this is not kept (disk)
-_LAST = {"conv": ""}                                                                 # whose state is in the slot now
+_LAST = {"conv": "", "start": ""}                                                    # whose state is in the slot now, and the start it begins with
+# 2026-11-16 (nova-base-state-probe.yml, this model, 2 cores): the SHARED START (system + tools, 4.2k tokens in the probe) read from zero takes 346 s; the state saved once (349 MB, 0.1 s) and
+# restored into a NEW process lets a DIFFERENT conversation read only its own 19 tokens (2.9 s). So the shared start is kept in its own file, keyed by the hash of the system text + the tool list
+# (a different tool list is a different file, never a stale one), and restored first when a fresh server gets a conversation that has no file of its own.
+# 2026-11-18: the short "lite" start (greetings: ~300 tokens, no tools) is kept too. Measured (nova-speed.yml, Nova 1 Studio 2) it was read from zero on EVERY greeting: 304 tokens, 14 s
+# before the first word (the 35B Nova 2 reads ~9 tokens/s: ~35 s). Restoring a saved state takes ~0.1 s. Starts in use: full / full+GitHub / lite English / lite Arabic, per model.
+START_KEEP = max(1, int(os.environ.get("CODER_START_KEEP", "6") or 6))                # shared-start files kept (one per tool list / start text in use)
+START_MIN_TOKENS = max(200, int(os.environ.get("CODER_START_MIN_TOKENS", "250") or 250))     # a shorter start is cheap to read again
+
+
+def _start_key(msgs, tools) -> str:
+    sysm = next((m.get("content", "") for m in msgs if isinstance(m, dict) and m.get("role") == "system"), "")
+    sysm = sysm if isinstance(sysm, str) else " ".join(str(x.get("text", "")) for x in sysm if isinstance(x, dict))
+    import hashlib
+    spec = json.dumps(tools or [], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1((sysm[:8000] + "\n" + spec).encode("utf-8", "ignore")).hexdigest()[:20]
+
+
+def _start_file(key: str):
+    return SLOT_DIR / f"_start_{key}.bin"
 
 
 def _conv_key(msgs) -> str:
@@ -355,41 +422,71 @@ def _slot_call(action: str, filename: str) -> bool:
 
 def _slot_prune() -> None:
     try:
-        files = sorted(SLOT_DIR.glob("*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+        files = sorted((f for f in SLOT_DIR.glob("*.bin") if not f.name.startswith("_start_")), key=lambda f: f.stat().st_mtime, reverse=True)
         for f in files[SLOT_KEEP:]:
+            f.unlink(missing_ok=True)
+        starts = sorted(SLOT_DIR.glob("_start_*.bin"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in starts[START_KEEP:]:
             f.unlink(missing_ok=True)
     except Exception:
         pass
+
+
+def _conv_file(job: dict):
+    # the conversation's state file carries its start key too: a conversation saved under an OLDER tool list / system text is never restored for a newer one
+    # (measured 2026-10-26: such a restore threw the shared start away, 0 of 11,169 tokens reusable)
+    conv, start = job.get("conv") or "", job.get("start") or ""
+    return SLOT_DIR / (f"{conv}-{start}.bin" if start else f"{conv}.bin")
 
 
 def _slot_before(job: dict) -> None:
     conv = job.get("conv") or ""
     if not (SLOTS_ON and conv) or _LAST["conv"] == conv:
         return
-    # Only on a fresh server (nothing has run since it started) the saved state comes back. Once something has run, the live prompt cache already holds the start every conversation shares
-    # (measured 2026-10-26: a restore of a conversation saved under an OLDER tool list threw that start away, 0 of 11,169 tokens reusable, the whole start read again). CODER_SLOT_RESTORE=always = the earlier behaviour.
-    if _LAST["conv"] and os.environ.get("CODER_SLOT_RESTORE", "fresh") != "always":
-        return
-    f = SLOT_DIR / f"{conv}.bin"
+    start = job.get("start") or ""
+    # The live slot already begins with this job's start (system + tools): llama-server's prompt cache reuses it, nothing to restore.
+    # Before 2026-11-18 a saved state came back ONLY on a fresh server. Measured that day (nova-speed.yml, Nova 1 Studio 2, 38 h up): once the slot held a DIFFERENT
+    # start (a greeting on the short "lite" text, or another chat's tool list), the next full request read its whole 9,074-token start again: 253 s before the first token,
+    # against 8 s when the start is shared. So now the saved state is restored whenever the slot holds another start, not only after a restart.
+    # This conversation's own saved state (same start, its own turns) always beats the live slot, which holds another conversation.
+    f = _conv_file(job)
     if f.is_file() and _slot_call("restore", f.name):
         job["slot_restored"] = True
+        _LAST.update(conv=conv, start=start)
         _log("slot restored", conv)
+        return
+    if _LAST["conv"] and _LAST.get("start") == start:
+        return
+    if start and _start_file(start).is_file() and _slot_call("restore", _start_file(start).name):       # a conversation never seen here: it still begins with the shared start
+        job["slot_restored"] = "start"
+        _LAST.update(conv="", start=start)
+        _log("shared start restored", start)
 
 
 def _slot_after(job: dict) -> None:
     conv = job.get("conv") or ""
     if not (SLOTS_ON and conv):
         return
-    _LAST["conv"] = conv
+    _LAST.update(conv=conv, start=job.get("start") or "")
     total = int((job.get("prefill") or {}).get("total") or 0)
-    if job.get("cancel") or job.get("status") == "error" or total < SLOT_MIN_TOKENS:
+    if job.get("cancel") or job.get("status") == "error" or total < min(SLOT_MIN_TOKENS, START_MIN_TOKENS):
         return
     SLOT_DIR.mkdir(parents=True, exist_ok=True)
-    f = SLOT_DIR / f"{conv}.bin"
+    f = _conv_file(job)
     if _slot_call("save", f.name):
         if f.is_file() and f.stat().st_size > SLOT_MAX_MB * 1048576:
             f.unlink(missing_ok=True)                     # too big for this disk: not kept
         else:
+            start = job.get("start") or ""
+            if start and total >= START_MIN_TOKENS and f.is_file() and not _start_file(start).is_file():
+                try:
+                    import shutil
+                    shutil.copyfile(f, _start_file(start))      # the saved state begins with the shared start; a different conversation reuses that common part (probe, case 6)
+                    _log("shared start kept", start, f"{f.stat().st_size // 1048576} MB")
+                except Exception as exc:
+                    _log("shared start not kept:", type(exc).__name__, str(exc)[:100])
+            if total < SLOT_MIN_TOKENS:
+                f.unlink(missing_ok=True)                 # a short conversation is cheap to read again: only its start is kept
             _slot_prune()
 
 
@@ -412,6 +509,8 @@ def _abandoned(job: dict) -> bool:
 def _stale(job: dict) -> bool:
     """No heartbeat (poll) within HEARTBEAT_S, cancelled, or abandoned: not a live job."""
     now = time.time()
+    if job.get("warm"):                                           # nobody polls a warm-up: only a cancel or the job time limit stop it
+        return bool(job.get("cancel")) or bool(job.get("started") and now - job["started"] > JOB_MAX_S)
     return bool(job.get("cancel")) or _abandoned(job) or now - job.get("seen", job.get("created", now)) > HEARTBEAT_S
 
 
@@ -436,6 +535,27 @@ def _gc() -> None:
 # answer; with thinking OFF the same question took 23 s. So thinking is bounded: when a step's reasoning passes this many characters with no answer yet, the step
 # is stopped and asked again with thinking off (the prompt is already in the Studio's cache, so the second try only writes the answer).
 THINK_CAP_CHARS = max(300, int(os.environ.get("CODER_THINK_CAP_CHARS", "1200") or 1200))
+
+
+def _llama_faults() -> dict:
+    """llama-server's major page faults (model pages read back from disk) and resident size: a box short of memory re-reads the mmapped weights on every token."""
+    p = _PROC.get("p")
+    out = {}
+    try:
+        f = open(f"/proc/{p.pid}/stat").read().rsplit(")", 1)[1].split()
+        out["majflt"] = int(f[9])                                   # field 12 of /proc/<pid>/stat
+        out["rss_gb"] = round(int(open(f"/proc/{p.pid}/statm").read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2 ** 30, 2)
+    except Exception:
+        pass
+    for name, path in (("cg_max_gb", "/sys/fs/cgroup/memory.max"), ("cg_now_gb", "/sys/fs/cgroup/memory.current"),
+                       ("cg_max_gb", "/sys/fs/cgroup/memory/memory.limit_in_bytes"), ("cg_now_gb", "/sys/fs/cgroup/memory/memory.usage_in_bytes")):
+        try:
+            v = open(path).read().strip()
+            if v.isdigit() and name not in out:
+                out[name] = round(int(v) / 2 ** 30, 2)
+        except Exception:
+            pass
+    return out
 
 
 def _stream(job: dict) -> None:
@@ -500,6 +620,8 @@ def _stream_once(job: dict) -> None:
                 job["prefill"] = {k: pp.get(k) for k in ("total", "cache", "processed", "time_ms")}
             for ch in ev.get("choices") or []:
                 d = ch.get("delta") or {}
+                if not job.get("first_at") and (d.get("content") or d.get("reasoning_content") or d.get("tool_calls")):
+                    job["first_at"] = time.time()                    # time to first token, measured here (the speed probe and the bot read it)
                 if d.get("content"):
                     job["text"] += d["content"]
                 if d.get("reasoning_content"):
@@ -519,7 +641,7 @@ def _stream_once(job: dict) -> None:
             if job.get("think_cut"):
                 break                                                # leave the stream: closing the connection stops llama-server's generation
             if ev.get("timings"):
-                job["timings"] = {k: ev["timings"].get(k) for k in ("prompt_n", "predicted_n", "predicted_per_second")}
+                job["timings"] = {k: ev["timings"].get(k) for k in ("prompt_n", "prompt_ms", "prompt_per_second", "cache_n", "predicted_n", "predicted_ms", "predicted_per_second")}
     except (OSError, http.client.HTTPException):
         if not job.get("cancel"):
             raise
@@ -547,8 +669,12 @@ def _runner() -> None:
             continue
         job.update(status="running", started=time.time())
         _slot_before(job)
+        f0 = _llama_faults().get("majflt")
         try:
             _stream(job)
+            f1 = _llama_faults().get("majflt")
+            if f0 is not None and f1 is not None:
+                job["majflt"] = f1 - f0                              # weight pages read back from disk during this job (0 = the model stayed in memory)
             job.update(status="cancelled" if job.get("cancel") else "done", finished=time.time())
             _slot_after(job)
         except Exception as exc:
@@ -583,6 +709,15 @@ def _view(jid: str, offset: int = 0) -> dict:
         out.update(type="cancelled")
     else:
         out.update(type="error", error=job.get("error", ""))
+    # extra facts only: they never change the type above (2026-11-18: a slot/timing block placed inside this chain turned every pending/done answer into type "error")
+    if job.get("started"):
+        out["wait_s"] = round(job["started"] - job.get("created", job["started"]), 1)       # queued behind other jobs (or the model loading)
+        if job.get("first_at"):
+            out["ttft_s"] = round(job["first_at"] - job["started"], 1)                       # prompt reading until the first token
+    if job.get("slot_restored"):
+        out["restored"] = job["slot_restored"]
+    if job.get("majflt") is not None:
+        out["majflt"] = job["majflt"]
     return out
 
 
@@ -611,11 +746,14 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     except Exception as exc:
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
     jid = uuid.uuid4().hex
-    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs),
+    job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs), "start": _start_key(msgs, tls),
            "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time(),
            "priority": 1 if _num(priority, 0) > 0 else 0}
     with JOBS_LOCK:
         JOBS[jid] = job
+        for w in JOBS.values():                                    # a warm-up of ANOTHER start must not hold a person's request; one of the SAME start is kept (the request reuses it)
+            if w.get("warm") and w["status"] in ("queued", "running") and w.get("start") != job["start"]:
+                w["cancel"] = True
     enqueue(jid)
     deadline = time.time() + max(0.0, min(50.0, _num(wait_s, 20)))
     while time.time() < deadline and job["status"] in ("queued", "running"):
@@ -635,6 +773,33 @@ def cancel(job_id: str) -> str:
     if job:
         job["cancel"] = True
     return json.dumps({"type": "cancelled" if job else "gone", "job": job_id})
+
+
+# ---------------------------------------------------------------- warm-up of a shared start (system + tools) while the Studio is idle
+# The Studio's disk is new after every restart (the 12 GB model is downloaded again: run log 2026-11-18), so the saved starts are gone and the first request of every
+# conversation reads its whole start again: 9,074 tokens = 253 s on Nova 1 (2 cores, 4B), and ~16 min on Nova 2 (35B, ~9 tokens/s). The bot sends its CURRENT start here
+# when the Studio does not hold it (status -> starts); the Studio reads it in the background, at the back of the queue, and saves it. A request with the same start
+# waits for it and then reads only its own tokens; a request with another start cancels it (a person never waits behind a warm-up).
+def warm(messages: str, tools: str = "") -> str:
+    try:
+        msgs = json.loads(messages) if isinstance(messages, str) else messages
+        tls = json.loads(tools) if isinstance(tools, str) and tools.strip() else (tools or [])
+        assert isinstance(msgs, list) and msgs
+    except Exception as exc:
+        return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
+    key = _start_key(msgs, tls)
+    if _start_file(key).is_file() or (_LAST.get("start") == key and STATE["phase"] == "ready"):
+        return json.dumps({"type": "ready", "start": key})
+    with JOBS_LOCK:
+        for jid, j in JOBS.items():
+            if j.get("start") == key and j["status"] in ("queued", "running") and not j.get("cancel"):
+                return json.dumps({"type": "warming", "start": key, "job": jid})
+        jid = uuid.uuid4().hex
+        JOBS[jid] = {"messages": msgs, "tools": tls, "max_tokens": 1, "think": False, "think_cap": 0, "conv": _conv_key(msgs), "start": key, "temperature": 0.2,
+                     "status": "queued", "text": "", "reasoning": "", "created": time.time(), "priority": 0, "warm": True}
+    enqueue(jid)
+    _log("warm-up queued", key)
+    return json.dumps({"type": "warming", "start": key, "job": jid})
 
 
 def _bench_once(bindir: str, model: str, label: str) -> str:
@@ -685,10 +850,10 @@ def bench() -> str:
 def status() -> str:
     _purge()
     with JOBS_LOCK:
-        q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running") and not j.get("cancel"))
+        q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running") and not j.get("cancel") and not j.get("warm"))
         now_t = time.time()
         # what is in the queue right now (no text, only facts): lets the bot say WHO is ahead of a step instead of guessing
-        active = [dict(status=j["status"], age_s=int(now_t - j.get("created", now_t)), think=bool(j.get("think")), cancelled=bool(j.get("cancel")), prompt_chars=len(json.dumps(j.get("messages", []), ensure_ascii=False)),
+        active = [dict(status=j["status"], age_s=int(now_t - j.get("created", now_t)), think=bool(j.get("think")), warm=bool(j.get("warm")), cancelled=bool(j.get("cancel")), prompt_chars=len(json.dumps(j.get("messages", []), ensure_ascii=False)),
                        max_tokens=j.get("max_tokens", 0)) for j in JOBS.values() if j["status"] in ("queued", "running")][:8]
     mem = {}
     try:      # the box's real memory, so the context size can be checked against it (kB -> GB)
@@ -702,6 +867,12 @@ def status() -> str:
         mem["disk"] = {"total_gb": round(du.total / 2 ** 30, 2), "used_gb": round(du.used / 2 ** 30, 2), "free_gb": round(du.free / 2 ** 30, 2)}
     except Exception:
         pass
+    try:      # the shared starts this Studio can restore at once (the bot warms its current one when it is missing)
+        mem["starts"] = sorted(f.name[len("_start_"):-len(".bin")] for f in SLOT_DIR.glob("_start_*.bin"))
+    except Exception:
+        mem["starts"] = []
+    mem["slot_start"] = _LAST.get("start", "")
+    mem["llama"] = _llama_faults()
     return json.dumps(dict(STATE, queue=q, active=active, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 
@@ -721,8 +892,9 @@ def build_ui():
         gr.Interface(cancel, [gr.Textbox(label="job_id")], gr.Textbox(label="json"), api_name=f"{PREFIX}cancel", flagging_mode="never"),
         gr.Interface(status, None, gr.Textbox(label="status"), api_name=f"{PREFIX}status", flagging_mode="never"),
         gr.Interface(bench, None, gr.Textbox(label="bench"), api_name=f"{PREFIX}bench", flagging_mode="never"),
+        gr.Interface(warm, [gr.Textbox(label="messages"), gr.Textbox(label="tools")], gr.Textbox(label="json"), api_name=f"{PREFIX}warm", flagging_mode="never"),
     ]
-    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench"], title="coder")
+    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench", "warm"], title="coder")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { NEWS_ITEMS, getNewsItem } from "@/lib/newsItems";
+import { EN_NEWS, bySlug } from "@/lib/enDesk";
 import { LIVE_DESKS } from "@/lib/newsLive";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -27,7 +28,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: item.title,
     description: item.description,
-    alternates: { canonical: url },
+    alternates: { canonical: url, ...(bySlug(EN_NEWS, item.slug) ? { languages: { ar: url, en: `${SITE}/en/news/${item.slug}` } } : {}) },
     openGraph: {
       title: item.title,
       description: item.description,
@@ -100,7 +101,10 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
             <img src={image} alt={item.title} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
           </div>
           <div className="p-5">
-            <p className="mb-1 text-xs font-bold text-indigo-700">خبر اليوم · {item.dateLabel}</p>
+            <p className="mb-1 text-xs font-bold text-indigo-700">تاريخ النشر · {item.dateLabel}</p>
+            {item.contextDateLabel ? (
+              <p className="mb-3 text-xs leading-6 text-slate-500">تاريخ الحدث أو الوثيقة · {item.contextDateLabel}</p>
+            ) : null}
             <h1 className="mb-4 text-2xl font-extrabold text-slate-900">{item.title}</h1>
             {item.paragraphs.map((p) => (
               <p key={p.slice(0, 28)} className="mb-3 text-sm leading-7 text-slate-700">

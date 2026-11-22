@@ -6,10 +6,25 @@ import { rawInitData } from "../_tma/sdk";
 import { desktopPoint, screenSizeOf } from "@/lib/desktopCoordinates";
 import { desktopStreamMode, type DesktopStreamMode } from "@/lib/desktopStream";
 
-const mono = { font: "13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace", direction: "ltr" as const, textAlign: "left" as const };
 
 // The page draws only the screen. The apps are a real taskbar INSIDE the Linux desktop (tint2 on the hub), so tapping them is
 // tapping the screen; nothing here sits beside it (owner's order 2026-11-09).
+
+function computerPlace(model: string, ar: boolean): string {
+  if (model === "sham_v2") return ar ? "استوديو شام برو" : "Sham Pro's own Studio";
+  if (model === "sham") return ar ? "استوديو شام" : "Sham's own Studio";
+  if (model === "nova2") return ar ? "حاسوب نوفا 2 الخاص" : "Nova 2's own computer";
+  return ar ? "الحاسوب المركزي المشترك" : "the shared computer hub";
+}
+
+const SITES = [
+  { url: "https://www.youtube.com/", ar: "يوتيوب", en: "YouTube" },
+  { url: "https://www.google.com/", ar: "بحث", en: "Search" },
+  { url: "https://www.wikipedia.org/", ar: "ويكيبيديا", en: "Wikipedia" },
+  { url: "https://maps.google.com/", ar: "خرائط", en: "Maps" },
+  { url: "https://translate.google.com/", ar: "ترجمة", en: "Translate" },
+];
+
 export default function GraphicalDesktop({ model, ar }: { model: string; ar: boolean }) {
   const [status, setStatus] = useState<any>(null);
   const [frame, setFrame] = useState("");
@@ -29,7 +44,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   const screenRef = useRef<{ w: number; h: number } | null>(null);
   const running = status?.phase === "running";
   const preparing = status?.phase === "installing" || status?.phase === "starting";
-  const available = typeof status?.available_mb === "number" ? status.available_mb + " MB" : (ar ? "غير معروف" : "unknown");
+  const availableMb = model === "sham_v2" && typeof status?.free_mb === "number" ? status.free_mb : status?.available_mb;
+  const available = typeof availableMb === "number" ? availableMb + " MB" : (ar ? "غير معروف" : "unknown");
   // The live stream reconnects every ~20 s; a plain `streaming` flag made this line blink. The mode keeps it steady.
   // It is computed in an effect (a ref and the clock are read there, not during render).
   const [mode, setMode] = useState<DesktopStreamMode>("stopped");
@@ -44,7 +60,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
   // The desktop is created in the shape of the page's own screen area (a phone is tall), so the picture fills it
   // instead of leaving a black band below a short landscape screen.
   const desktopSize = () => {
-    const width = 640;       // phone-sized: the picture is shown at about half size, so the hub draws everything bigger and a fingertip can hit it
+    const width = 720;       // still under 800, so the desktop keeps large icons a fingertip can hit
     const frameWidth = frameBox.current?.getBoundingClientRect().width || 340;
     const room = Math.max(420, (typeof window !== "undefined" ? window.innerHeight : 800) - 230);
     return { width, height: Math.max(700, Math.min(1200, Math.round((width * room) / frameWidth))) };
@@ -72,7 +88,8 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     void (async () => {
       try {
         const first = await call({ action: "status" });
-        const roomy = typeof first?.available_mb !== "number" || first.available_mb >= 3072;
+        const availableMb = model === "sham_v2" && typeof first?.free_mb === "number" ? first.free_mb : first?.available_mb;
+        const roomy = typeof availableMb !== "number" || availableMb >= 3072;
         if (!cancelled && first?.ok !== false && first?.phase === "stopped" && roomy && autoStarted.current !== model) {
           autoStarted.current = model;
           await call({ action: "start", ...desktopSize() });
@@ -183,7 +200,10 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             const message = String(e?.message || e);
             setError(message);
             const transient = /\b(?:402|408|409|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
-            if (!transient) break;
+            const transient412 = model === "sham_v2"
+              && /\b412\b/.test(message)
+              && /deploy(?:ing|ment)|starting|warming(?: up)?|temporarily unavailable|runtime not ready|studio not ready|retry-after/i.test(message);
+            if (!transient && !transient412) break;
             const delay = Math.min(8000, 1000 * (2 ** Math.min(retryAttempt, 3)));
             retryAttempt = Math.min(retryAttempt + 1, 4);
             await pause(delay);
@@ -233,13 +253,6 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     if (item.type !== undefined) {
       if (!drainTimer.current) drainTimer.current = setTimeout(() => { drainTimer.current = null; void drain(); }, 140);
     } else { if (drainTimer.current) { clearTimeout(drainTimer.current); drainTimer.current = null; } void drain(); }
-  };
-  const keyName = (event: React.KeyboardEvent): string | null => {
-    const names: Record<string, string> = { " ": "space", "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right", "Delete": "Delete", "Tab": "Tab" };
-    const key = names[event.key] || event.key;
-    const modifiers = [event.ctrlKey ? "ctrl" : "", event.altKey ? "alt" : "", event.shiftKey ? "shift" : ""].filter(Boolean);
-    const mapped = [...modifiers, key].join("+");
-    return /^[A-Za-z0-9_+ -]{1,40}$/.test(mapped) ? mapped.replace(/ /g, "") : null;
   };
   const [kbOn, setKbOn] = useState(false);
   const typeRef = useRef<HTMLInputElement>(null);
@@ -413,7 +426,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
     const stamps: number[] = [];
     const measure = () => {
       const availW = el.clientWidth || 320;
-      const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 230 : 320));
+      const availH = fullscreen ? Math.max(160, el.clientHeight) : Math.max(260, (vvh || window.innerHeight) - (kbOn ? 278 : 368));
       const w = Math.floor(Math.min(availW, availH * (sw / sh)));
       setFit((prev) => {
         if (prev && Math.abs(prev.w - w) < 6) return prev;
@@ -464,7 +477,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       </div>
       {!running ? (
         <div className="n-meta" style={{ marginBottom: 8 }}>
-          {ar ? "الذاكرة المتاحة في الحاسوب المركزي: " + available + ". يتطلب البدء 3072 MB على الأقل." : "Computer hub memory available: " + available + ". Start requires at least 3072 MB."}
+          {ar ? "الذاكرة المتاحة في " + computerPlace(model, ar) + ": " + available + ". يتطلب البدء 3072 MB على الأقل." : "Memory available in " + computerPlace(model, ar) + ": " + available + ". Start requires at least 3072 MB."}
           {status?.packages?.ready === false ? (ar ? " ستُثبّت مكونات X11 عند التشغيل الأول." : " X11 components will be installed on first start.") : null}
         </div>
       ) : null}
@@ -488,7 +501,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <div className="n-meta">
             {preparing
               ? (ar ? "يتم تجهيز خادم الشاشة ومدير النوافذ والطرفية. ستظهر الشاشة عند اكتمال التشغيل." : "Preparing the display server, window manager and terminal. The screen appears when startup completes.")
-              : (ar ? "هذا سطح مكتب Linux رسومي على الحاسوب المركزي؛ لكل مستخدم ونموذج جلسة وملفات منفصلة. شغّله لعرض الشاشة والتحكم بها." : "This is a graphical Linux session on the shared computer hub, isolated by user and selected model. Start it to view and control the screen.")}
+              : (ar ? "هذا سطح مكتب Linux رسومي على " + computerPlace(model, ar) + ". الجلسة والملفات تخص هذا النموذج فقط، ولا تُفتح على حاسوب نموذج آخر. شغّله لعرض الشاشة والتحكم بها." : "This graphical Linux desktop runs on " + computerPlace(model, ar) + ". The session and files belong to this model only and are not opened on another model's computer. Start it to view and control the screen.")}
           </div>
         </div>
       )}
@@ -499,7 +512,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <input ref={typeRef} aria-label={ar ? "اكتب هنا ليصل النص إلى الشاشة" : "Type here to send text to the screen"} placeholder={ar ? "اكتب هنا — يصل إلى الشاشة فورًا" : "Type here — goes to the screen at once"}
             dir="auto" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="send"
             onChange={(e) => onTypeInput(e.currentTarget.value)} onKeyDown={typeKey}
-            style={{ flex: 1, minWidth: 0, height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid #5eead4", background: "#0b1220", color: "#fff", font: "15px system-ui" }} />
+            style={{ flex: 1, minWidth: 0, height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid #5eead4", background: "#0b1220", color: "#fff", font: "16px system-ui" }} />
           <button type="button" style={btn()} onClick={() => { enqueue({ key: "Return" }); if (typeRef.current) typeRef.current.value = ""; typed.current = ""; }}>↵</button>
           <button type="button" style={btn()} onClick={() => setKbOn(false)} aria-label={ar ? "إغلاق" : "Close"}>✕</button>
         </div>
@@ -523,9 +536,15 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           <div style={bar} role="toolbar" aria-label={ar ? "طريقة اللمس والتطبيقات" : "Touch mode and apps"}>
             {tools.map(([id, icon, label]) => <button key={id} type="button" style={btn(tool === id)} onClick={() => setTool(id)}>{icon} {label}</button>)}
             <span style={{ flex: "0 0 1px", background: "#8885" }} />
+            <button type="button" style={btn()} aria-label={ar ? "الشاشة الرئيسية" : "Show desktop"} onClick={() => key("super+d")}>🏠 {ar ? "الرئيسية" : "Desktop"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "terminal" })}>🖥 {ar ? "طرفية" : "Terminal"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "browser" })}>🌐 {ar ? "متصفح" : "Browser"}</button>
             <button type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "files" })}>📁 {ar ? "ملفات" : "Files"}</button>
+          </div>
+          <div style={bar} role="toolbar" aria-label={ar ? "تطبيقات الشاشة" : "Desktop apps"}>
+            {SITES.map((site) => (
+              <button key={site.url} type="button" style={btn()} onClick={() => void perform({ action: "launch", app: "browser", url: site.url })}>{ar ? site.ar : site.en}</button>
+            ))}
           </div>
           <div className="n-meta" style={{ fontSize: 11 }}>
             {ar ? "نقرة قصيرة = نقر، لمسة طويلة = زر يمين، سحب بإصبعين = تكبير وتحريك، سحب بإصبع = تمرير (أو سحب العناصر في وضع السحب)." : "Short tap = click, long press = right click, two fingers = zoom and pan, one finger = scroll (or drag items in Drag mode)."}

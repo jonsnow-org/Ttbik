@@ -12,7 +12,7 @@ const importsOf = (f: string): string[] => {
   for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\(\s*)["']([^"']+)["']/g)) out.push(m[1]);
   return out;
 };
-const isNova = (f: string) => /^(coder[A-Z0-9]\w*|coder|openCoderStudio|novaMedia|novaMediaRoutes)\.tsx?$/.test(f);
+const isNova = (f: string) => /^(coder[A-Z0-9]\w*|coder|openCoderStudio|novaMedia|novaMediaRoutes|novaTldm)\.tsx?$/.test(f);
 const isSham = (f: string) => /^sham[A-Z]\w*\.tsx?$/.test(f) || f === "sham.ts";
 
 describe("Nova <-> Sham boundary", () => {

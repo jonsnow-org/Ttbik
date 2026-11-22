@@ -71,5 +71,47 @@ class ToolCoverageTests(unittest.TestCase):
             self.assertIn("_tools", src, f"{path.name} builds tool batches but does not interleave them")
 
 
+class AgentTraceTests(unittest.TestCase):
+    """Real executed agent traces (UltraData, mapped to Sham's own computer tools) are part of the v1 tool mix: calls learned, results masked, a cut trace ends after its last result."""
+
+    def test_the_real_traces_file_is_there_and_uses_only_sham_tool_names(self):
+        import gzip
+        from sham_tools_data import AGENT_TRACES
+        self.assertTrue(AGENT_TRACES.is_file(), "agent_traces_v1.jsonl.gz must ship with the code (the Studios receive only this folder)")
+        names = set()
+        with gzip.open(AGENT_TRACES, "rt", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                r = json.loads(line)
+                names |= {st[0] for st in r["steps"]}
+                if i > 400:
+                    break
+        self.assertTrue(names <= {"computer_run", "computer_read", "computer_search"}, names)
+
+    def test_a_trace_without_an_answer_masks_results_and_has_no_eos(self):
+        from sham_tools_data import IGNORE, build_tool_example, examples_from_agent_traces, AGENT_TRACES
+        ids, labels = build_tool_example(_fake, "fix the bug", [("computer_run", {"command": "ls"}, "a.py\nb.py")], "")
+        self.assertEqual(len(ids), len(labels))
+        self.assertTrue(any(x != IGNORE for x in labels) and labels[-1] == IGNORE and ids[-1] != labels[-1] or labels[-1] == IGNORE)
+        ex = examples_from_agent_traces(AGENT_TRACES, _fake, limit=5)
+        self.assertEqual(len(ex), 5)
+        for i, l in ex:
+            self.assertEqual(len(i), len(l))
+            self.assertTrue(any(x != IGNORE for x in l))
+
+    def test_the_tool_mix_takes_a_share_from_the_traces_and_can_be_switched_off(self):
+        import os
+        os.environ["SHAM_TOOLS_MIX"] = "0.3"
+        try:
+            on = tool_examples(_fake, random.Random(1), 60, max_len=0)
+            os.environ["SHAM_AGENT_TRACES"] = "0"
+            off = tool_examples(_fake, random.Random(1), 60, max_len=0)
+        finally:
+            os.environ.pop("SHAM_TOOLS_MIX", None)
+            os.environ.pop("SHAM_AGENT_TRACES", None)
+        self.assertEqual(len(on), 60)
+        self.assertEqual(len(off), 60)
+        self.assertNotEqual(on, off)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,30 @@
+{"task": "list files", "command": "ls", "result": "README.md\na.txt\napp.log\nb.jpg\nc.txt\nd.jpg\ne.png\nnames.txt\norganize.py", "success": true}
+{"task": "show the current folder", "command": "pwd", "result": "/tmp/tldm_term_795b5u1z", "success": true}
+{"task": "how many files are here", "command": "ls | wc -l", "result": "9", "success": true}
+{"task": "show the readme", "command": "cat README.md", "result": "SHAM T-LDM demo folder\nthis folder is a small test bed\nit has a log and a names list\nand mixed files\nto organize", "success": true}
+{"task": "first 3 lines of the log", "command": "head -n 3 app.log", "result": "INFO start\nINFO load config\nERROR disk almost full", "success": true}
+{"task": "last 2 lines of the log", "command": "tail -n 2 app.log", "result": "ERROR timeout\nINFO done", "success": true}
+{"task": "count the lines in the log", "command": "wc -l app.log", "result": "6 app.log", "success": true}
+{"task": "find the errors in the log", "command": "grep ERROR app.log", "result": "ERROR disk almost full\nERROR timeout", "success": true}
+{"task": "sort the names", "command": "sort names.txt", "result": "ali\nali\nnoor\nomar\nomar\nsara", "success": true}
+{"task": "unique names", "command": "sort names.txt | uniq", "result": "ali\nnoor\nomar\nsara", "success": true}
+{"task": "create a backup folder", "command": "mkdir backup", "result": "", "success": true}
+{"task": "create an empty file notes.txt", "command": "touch notes.txt", "result": "", "success": true}
+{"task": "write hello to hello.txt", "command": "echo hello > hello.txt", "result": "", "success": true}
+{"task": "what is the date", "command": "date", "result": "Tue Nov 17 18:36:14 UTC 2026", "success": true}
+{"task": "count from 1 to 5", "command": "seq 1 5", "result": "1\n2\n3\n4\n5", "success": true}
+{"task": "Organize files", "command": "python3 organize.py", "result": "moved README.md -> md/\nmoved a.txt -> txt/\nmoved app.log -> log/\nmoved b.jpg -> jpg/\nmoved c.txt -> txt/\nmoved d.jpg -> jpg/\nmoved e.png -> png/\nmoved names.txt -> txt/", "success": true}
+{"task": "count the words in the readme", "command": "wc -w README.md", "result": "24 README.md", "success": true}
+{"task": "add up 1 to 100", "command": "python3 -c \"print(sum(range(1,101)))\"", "result": "5050", "success": true}
+{"task": "show lines with INFO", "command": "grep INFO app.log", "result": "INFO start\nINFO load config\nINFO retry\nINFO done", "success": true}
+{"task": "how many errors are in the log", "command": "grep ERROR app.log | wc -l", "result": "2", "success": true}
+{"task": "اعرض الملفات", "command": "ls", "result": "README.md\na.txt\napp.log\nb.jpg\nc.txt\nd.jpg\ne.png\nnames.txt\norganize.py", "success": true}
+{"task": "اعرض المجلد الحالي", "command": "pwd", "result": "/tmp/tldm_term_e19_euun", "success": true}
+{"task": "اعرض ملف readme", "command": "cat README.md", "result": "SHAM T-LDM demo folder\nthis folder is a small test bed\nit has a log and a names list\nand mixed files\nto organize", "success": true}
+{"task": "رتب الاسماء", "command": "sort names.txt", "result": "ali\nali\nnoor\nomar\nomar\nsara", "success": true}
+{"task": "نظم الملفات", "command": "python3 organize.py", "result": "moved README.md -> md/\nmoved a.txt -> txt/\nmoved app.log -> log/\nmoved b.jpg -> jpg/\nmoved c.txt -> txt/\nmoved d.jpg -> jpg/\nmoved e.png -> png/\nmoved names.txt -> txt/", "success": true}
+{"task": "كم سطرا في السجل", "command": "wc -l app.log", "result": "6 app.log", "success": true}
+{"task": "ابحث عن الاخطاء في السجل", "command": "grep ERROR app.log", "result": "ERROR disk almost full\nERROR timeout", "success": true}
+{"task": "أنشئ ملف todo.txt", "command": "touch todo.txt", "result": "", "success": true}
+{"task": "ما هو التاريخ", "command": "date", "result": "Tue Nov 17 18:36:14 UTC 2026", "success": true}
+{"task": "اكتب مرحبا في greet.txt", "command": "echo marhaba > greet.txt", "result": "", "success": true}

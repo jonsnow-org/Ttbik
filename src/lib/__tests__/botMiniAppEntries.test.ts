@@ -9,7 +9,7 @@ const mediaFile = (file: string) => fs.readFileSync(path.join(__dirname, "..", "
 describe("Mini App entry points are visible and actionable in their owning bots", () => {
   it("ads & earn bot: the user and owner menus expose the app and its label opens the signed Web App button", () => {
     const src = lib("adBotLogic.ts");
-    expect(src.match(/\.text\(REMIT_BUTTON\)\.text\(APP_BUTTON\)/g)).toHaveLength(2);
+    expect(src.match(/\.text\(t\(lang, "btnAccounts"\)\)\.text\(APP_BUTTON\)/g)).toHaveLength(2);
     expect(src).toContain("    APP_BUTTON,");
     expect(src).toMatch(/if \(text === APP_BUTTON \|\| isServicesRequest\(text\)\)[\s\S]*?new InlineKeyboard\(\)\.webApp\(APP_BUTTON/);
     expect(src).toMatch(/const updated = await setBotAppMenu\([\s\S]*?if \(updated\) botAppMenuDone\.add\(botRow\.id\)/);
@@ -24,7 +24,7 @@ describe("Mini App entry points are visible and actionable in their owning bots"
 
   it("daily chains bot: its reply button, app sections and retry-on-failure remain available", () => {
     const src = lib("streakBotLogic.ts");
-    expect(src).toMatch(/kb\.text\(CONTEST_BUTTON\)\.text\(APP_BUTTON\)/);
+    expect(src).toMatch(/CONTEST_BUTTON, APP_BUTTON/);
     expect(src).toContain('appUrlFor(botRow, "khatma")');
     expect(src).toContain('appUrlFor(botRow, "contests")');
     expect(src).toMatch(/const updated = await setBotAppMenu\([\s\S]*?if \(updated\) appMenuDone\.add\(botRow\.id\)/);

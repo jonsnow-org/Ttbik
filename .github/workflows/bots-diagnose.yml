@@ -1,0 +1,29 @@
+name: bots-diagnose
+# Manual, read-only: prints the live state of every hosted bot (template, @username, active, token ok, webhook ok, pending updates,
+# last Telegram delivery error) from /api/ops/bots-health through the gate. No secrets are printed. Use it when a bot or its Mini App
+# does not answer: an inactive row or a webhook error shows here at once.
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: the bots, one line each
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 90 -o bots.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/bots-health" || echo 000)
+          echo "HTTP ${code}"
+          [ "${code}" = "200" ] || { head -c 300 bots.json; exit 1; }
+          python3 - <<'PY'
+          import json
+          d = json.load(open("bots.json"))
+          print(f"checked={d['checked']} bad={d['bad']}")
+          print(f"{'template':<22}{'username':<24}{'active':<8}{'token':<7}{'webhook':<9}{'pending':<9}last error")
+          for b in sorted(d["bots"], key=lambda x: (x["template"], str(x["username"]))):
+              print(f"{b['template']:<22}{str(b['username']):<24}{str(b['active']):<8}{str(b['tokenValid']):<7}{str(b['webhookOk']):<9}{str(b['pending']):<9}{(b['lastError'] or '-')[:70]} ({b['lastErrorAgoMin']} min ago)" if b["lastError"] else f"{b['template']:<22}{str(b['username']):<24}{str(b['active']):<8}{str(b['tokenValid']):<7}{str(b['webhookOk']):<9}{str(b['pending']):<9}-")
+          PY

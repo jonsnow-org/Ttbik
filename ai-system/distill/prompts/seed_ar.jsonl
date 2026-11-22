@@ -1,0 +1,28 @@
+{"prompt": "مرحبا", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "السلام عليكم", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "صباح الخير", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "كيف حالك اليوم؟", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "مساء الخير، هل يمكنك مساعدتي؟", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "شكرًا جزيلًا لك", "task": "natural_sft", "topic": "greeting", "accept": "first"}
+{"prompt": "اشرح مفهوم الجاذبية ببساطة.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "ما الفرق بين الطقس والمناخ؟", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "كيف تعمل الخلية الشمسية؟", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "ما هو الإنترنت وكيف يعمل؟", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا السماء زرقاء؟", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "ما هي الفوتوسنثيس؟", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "اشرح معنى الاقتصاد لطفل.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "ما عاصمة فرنسا؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما أطول نهر في العالم؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "كم عدد أيام السنة الكبيسة؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "من اخترع المصباح الكهربائي؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما أكبر كوكب في المجموعة الشمسية؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما عاصمة اليابان؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "اكتب دالة بايثون تعكس نصًا.", "task": "natural_sft", "topic": "code", "accept": "first"}
+{"prompt": "ما الفرق بين القائمة والمجموعة في بايثون؟", "task": "natural_sft", "topic": "code", "accept": "first"}
+{"prompt": "اكتب استعلام SQL لجلب أعلى 5 رواتب.", "task": "natural_sft", "topic": "code", "accept": "first"}
+{"prompt": "كيف أقرأ ملفًا نصيًا في بايثون؟", "task": "natural_sft", "topic": "code", "accept": "first"}
+{"prompt": "اشرح ما هي الدالة العودية بمثال.", "task": "natural_sft", "topic": "code", "accept": "first"}
+{"prompt": "كيف أنظم وقتي للدراسة؟", "task": "natural_sft", "topic": "advice", "accept": "first"}
+{"prompt": "أعطني نصائح لتعلم لغة جديدة.", "task": "natural_sft", "topic": "advice", "accept": "first"}
+{"prompt": "كيف أكتب سيرة ذاتية جيدة؟", "task": "natural_sft", "topic": "advice", "accept": "first"}
+{"prompt": "كيف أتعامل مع التوتر قبل الامتحان؟", "task": "natural_sft", "topic": "advice", "accept": "first"}

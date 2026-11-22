@@ -1,8 +1,8 @@
 # Notice to every AI session working in this repository (Claude, Grok, Codex, any other)
 
 > ## ابدأ من هنا / START HERE
-> **اقرأ [`docs/START_HERE.md`](./docs/START_HERE.md) أولًا** (محدَّث 2026-11-08): كيف يعمل كل شيء، حالة شام وNova وfree i، الأسرار، ما ينتظر المالك، ودروس تعلّمناها. ثم هذا الملف (أوامر المالك الثابتة).
-> قواعد قصيرة: **أثر ممنوع اللمس** · لا أسرار في المستودع ولا في الرسائل · CPU فقط ومجاني · ردود عربية قصيرة وصادقة ولا «تم» قبل التحقق.
+> **اقرأ [`docs/START_HERE.md`](./docs/START_HERE.md) أولًا** (محدَّث 2026-11-17): كيف يعمل كل شيء، حالة نوفا وشام والاستوديوهات، **الحوسبة المجانية الجديدة ودفتر GPU وقرار نوفا ([`docs/FREE_COMPUTE.md`](./docs/FREE_COMPUTE.md))**، الأسرار، ما ينتظر المالك، ودروس تعلّمناها. ثم [`docs/WORK_BOARD.md`](./docs/WORK_BOARD.md) (الحالة وقائمة العمل). ثم هذا الملف (أوامر المالك الثابتة).
+> قواعد قصيرة: **أثر ممنوع اللمس** · لا أسرار في المستودع ولا في الرسائل · CPU فقط ومجاني · ردود عربية قصيرة وصادقة ولا «تم» قبل التحقق. · **مرحلة القياس والاختبار أُغلقت (أمر المالك 2026-11-17): نفّذ** · **لا دمج ولا نشر أثناء مهمة نوفا حية** · لا تلمس مركز الحاسوب 16 GB (`nova-inference-server`).
 
 ## Branch model (owner's order, 2026-11-09: this replaces every older statement below about `main` and sync PRs)
 - The protected default branch `claude/free-services-marketplace-h6rwk2` is the **canonical code branch**: every PR (any session) targets it and is squash-merged there after green CI.

@@ -78,7 +78,7 @@ describe("Nova in the chat: 'قم بتوليد صورة فرس ابيض' makes a
     expect((api as any).sendPhoto.mock.calls[0][2]?.caption).toBeUndefined();                       // never the raw (English) prompt as a caption
     expect(urls.filter((u) => u.includes("/gradio_api/call/image ")).some((u) => /white horse/.test(u))).toBe(true);   // the Studio got the English prompt
     expect(sent.some((s) => /غير متاح|unavailable/.test(s.text))).toBe(false);
-    for (let i = 0; i < 100; i++) { const x = await loadState(FREE, db()); if ((await listTasks(FREE, { limit: 5 }, db()))[0]?.status === "done" && x.messages.length >= 2) break; await new Promise((r) => setTimeout(r, 50)); }   // the picture goes first, the thread turn is saved a moment later
+    for (let i = 0; i < 100; i++) { const x = await loadState(FREE, db()); if ((await listTasks(FREE, { limit: 5 }, db()))[0]?.status === "done" && x.messages.length >= 2 && x.run === null) break; await new Promise((r) => setTimeout(r, 50)); }   // the picture goes first, the thread turn is saved a moment later
     const t = (await listTasks(FREE, { limit: 5 }, db()))[0];
     expect(t.status).toBe("done");
     const st = await loadState(FREE, db());
@@ -199,10 +199,10 @@ describe("the Chats tab shows the open conversation, and Home's running list cle
     const d = db();
     const { bot } = fakeBot();
     for (const id of ["sham-1-a", "sham-2-b", "sham-3-c"]) await taskStart(OWNER, { runId: id, slot: "sham", source: "interactive", title: id }, d);
-    const one: any = await appOp(user, "task_stop", { runId: "sham-1-a" }, { db: d, bot, botRow });
+    const one: any = await appOp(user, "task_stop", { model: "sham", runId: "sham-1-a" }, { db: d, bot, botRow });
     expect(one.stopped).toBe(1);
     expect((await listTasks(OWNER, { active: true, limit: 20 }, d)).length).toBe(2);
-    const all: any = await appOp(user, "stop_all", {}, { db: d, bot, botRow });
+    const all: any = await appOp(user, "stop_all", { model: "sham" }, { db: d, bot, botRow });
     expect(all.stopped).toBe(2);
     expect((await listTasks(OWNER, { active: true, limit: 20 }, d)).length).toBe(0);
   });

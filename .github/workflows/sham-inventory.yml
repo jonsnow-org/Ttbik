@@ -38,13 +38,14 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle six datasets soundfile imageio-ffmpeg av
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle six datasets soundfile imageio-ffmpeg av modelscope
       - name: Inventory
         working-directory: ai-system/colab/sham_small
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}   # the cn trainers publish to a private ModelScope model repo (Kaggle uploads from cn fail)
           SHAM_INV_SOURCES: ${{ inputs.sources }}
         run: python sham_inventory.py
       - name: Keep the result

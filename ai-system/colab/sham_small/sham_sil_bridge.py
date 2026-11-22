@@ -4,8 +4,10 @@ The lab stays standalone (stdlib only, imports nothing from Sham). This module i
 Shams already train on (v1: sham_chat._chat_plan source "sil"; v2: sham_v2_train.arabic_replay_pairs). What passes through, and what does not:
 
   * only synthetic records the lab's own verifier PASSED (an arithmetic/evidence/repair answer is checked, not trusted);
-  * teacher records are NEVER used here (owner's data policy: no training on commercial-model outputs; the lab quarantines them anyway) unless SHAM_SIL_ALLOW_TEACHER=1 AND the
-    record is reviewed=true and verification_status=passed;
+  * the lab's own teacher records are held back unless SHAM_SIL_ALLOW_TEACHER=1 AND the record is reviewed=true and verification_status=passed (quality gate: an unchecked answer can
+    teach a tiny model to sound sure and be wrong);
+  * the owner's own teacher pool (the Kaggle dataset `distill-teacher-records`, or the JSONL named by SHAM_TEACHER_JSONL) is read by `teacher_pairs`: records the owner accepted
+    (metadata reviewed=true, verification_status passed | owner_accepted), at most SHAM_TEACHER_SHARE (default 0.5) of the pairs; SHAM_TEACHER_DATASET=off turns it off;
   * plain arithmetic direct-answer pairs are skipped by default (sham_reasoning_data already teaches worked arithmetic with steps; an answer-only pair would teach guessing):
     SHAM_SIL_ARITH=1 brings them back; `uncertainty` pairs wait for the owner's wording review (SHAM_SIL_TASKS=reasoning,evidence,repair,uncertainty);
   * a FIXED held-out set (FROZEN_SEED) is generated once and never trained on: every training pair whose prompt is in it is dropped, so the set stays a yardstick (`heldout_rows`).
@@ -13,6 +15,7 @@ SHAM_SIL=0 turns the whole bridge off.
 """
 from __future__ import annotations
 
+import json
 import os
 import random
 import sys
@@ -66,6 +69,60 @@ def heldout_rows(count_per_task: int = 100) -> list[dict]:
     return out
 
 
+OWNER_STATUSES = {"passed", "owner_accepted"}
+_TEACHER_CACHE: dict = {}
+
+
+def _teacher_rows() -> list[dict]:
+    """Accepted records of the owner's teacher pool: a local JSONL (SHAM_TEACHER_JSONL) or the latest version of the Kaggle dataset distill-teacher-records."""
+    path = os.environ.get("SHAM_TEACHER_JSONL", "").strip()
+    name = os.environ.get("SHAM_TEACHER_DATASET", "distill-teacher-records").strip()
+    key = path or name
+    if key in _TEACHER_CACHE:
+        return _TEACHER_CACHE[key]
+    files: list[Path] = [Path(path)] if path else []
+    if not path and name and name.lower() not in ("off", "none", "0"):
+        try:
+            import sham_inputs
+            d = sham_inputs.fetch_dataset(name)
+            files = sorted(Path(d).rglob("*.jsonl")) if d else []
+        except Exception as exc:  # noqa: BLE001 - no credentials / no dataset yet: simply no pool
+            print(f"SIL bridge: teacher pool not read ({type(exc).__name__})", flush=True)
+    rows: list[dict] = []
+    for f in files:
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            md = r.get("metadata") or {}
+            if isinstance(r.get("prompt"), str) and isinstance(r.get("target"), str) and r["prompt"].strip() and r["target"].strip() \
+                    and md.get("reviewed") is True and md.get("verification_status") in OWNER_STATUSES:
+                rows.append(r)
+    _TEACHER_CACHE[key] = rows
+    return rows
+
+
+def teacher_pairs(n: int, seed: int, frozen: set[str] | None = None) -> list[tuple[str, str]]:
+    """Up to n pairs from the owner's teacher pool: deterministic for a seed, never a held-out prompt, no duplicates."""
+    if n <= 0:
+        return []
+    frozen = frozen or set()
+    seen, out = set(), []
+    for r in _teacher_rows():
+        k = _key(r["prompt"])
+        if k in frozen or k in seen:
+            continue
+        seen.add(k)
+        out.append((r["prompt"].strip(), r["target"].strip()))
+    random.Random(seed).shuffle(out)
+    return out[:n]
+
+
 def train_pairs(n: int, seed: int, count_per_task: int = 300) -> list[tuple[str, str]]:
     """Up to n (question, answer) pairs for training; deterministic for a seed; [] when the bridge is off or the lab is missing."""
     if not enabled() or n <= 0:
@@ -86,7 +143,12 @@ def train_pairs(n: int, seed: int, count_per_task: int = 300) -> list[tuple[str,
             seen.add(k)
             pairs.append((ex.prompt.strip(), ex.target.strip()))
         random.Random(seed).shuffle(pairs)
-        return pairs[:n]
+        try:
+            share = min(0.9, max(0.0, float(os.environ.get("SHAM_TEACHER_SHARE", "0.5"))))
+        except ValueError:
+            share = 0.5
+        mine = teacher_pairs(int(n * share), seed, frozen)               # the owner's teacher pool takes up to `share` of the pairs
+        return (mine + pairs)[:n] if mine else pairs[:n]
     except Exception as exc:  # noqa: BLE001 - a missing lab must never stop a training run
         print(f"SIL bridge: skipped ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
         return []

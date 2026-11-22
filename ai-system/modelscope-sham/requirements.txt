@@ -23,5 +23,7 @@ transformers
 accelerate
 safetensors
 piper-tts
+# pure-python GGUF writer for the llama.cpp decode copy (sham_gguf.py; llama-cpp-python itself is installed at run time)
+gguf
 # each Sham's own embedded browser (browser_computer.py); Chromium itself is fetched on first use
 playwright>=1.50,<2

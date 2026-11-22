@@ -265,7 +265,24 @@ def panel_config(buttons: list[tuple[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _launcher_script(session: str, app: str) -> str | None:
+def _site_url(url: str) -> str:
+    """A built-in https address only. Quoted into the launcher; never resolved here."""
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~:/?&=%+-]*)?", url):
+        raise ValueError("site url")
+    return url
+
+
+# Home-screen icons. The taskbar stays Browser / Terminal / Files so a phone-width desktop does not overflow.
+SITES = (
+    ("youtube", "YouTube", "https://www.youtube.com/"),
+    ("search", "Search", "https://www.google.com/"),
+    ("wiki", "Wikipedia", "https://www.wikipedia.org/"),
+    ("maps", "Maps", "https://maps.google.com/"),
+    ("translate", "Translate", "https://translate.google.com/"),
+)
+
+
+def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | None:
     """The shell script a taskbar button runs: the same command the Mini App's launch action uses (the browser is looked up when clicked, because Chromium may be installed after the desktop started)."""
     if app == "browser":
         import browser_computer
@@ -274,7 +291,7 @@ def _launcher_script(session: str, app: str) -> str | None:
         flags = " ".join(shlex.quote(f) for f in [
             "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking", "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
-            f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank"])
+            f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
         return f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nexec "$C" {flags}\n'
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
@@ -294,8 +311,9 @@ def _write_launchers(session: str, uid: int) -> dict[str, str]:
     folder = box.session_home(session) / ".desktop" / "panel"
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, str] = {}
-    for app, _label in APPS:
-        script = _launcher_script(session, app)
+    jobs = [(app, "about:blank") for app, _label in APPS] + [(key, url) for key, _label, url in SITES]
+    for app, url in jobs:
+        script = _launcher_script(session, "browser" if app not in ("terminal", "files") else app, url)
         if not script:
             continue
         path = folder / (app + ".sh")
@@ -318,6 +336,23 @@ def _make_icon(kind: str, path: Path, size: int = 64) -> None:
         d.ellipse((20, 6, 44, 58), outline=(255, 255, 255, 255), width=2)
         d.line((6, 32, 58, 32), fill=(255, 255, 255, 255), width=2)
         d.arc((10, 14, 54, 50), 200, 340, fill=(255, 255, 255, 255), width=2)
+    elif kind == "youtube":
+        d.rounded_rectangle((6, 14, 58, 50), radius=10, fill=(220, 38, 38, 255))
+        d.polygon([(26, 22), (26, 42), (44, 32)], fill=(255, 255, 255, 255))
+    elif kind == "search":
+        d.ellipse((10, 8, 40, 38), outline=(37, 99, 235, 255), width=5)
+        d.line((36, 34, 54, 54), fill=(37, 99, 235, 255), width=6)
+    elif kind == "wiki":
+        d.rounded_rectangle((6, 6, 58, 58), radius=12, fill=(17, 24, 39, 255))
+        d.line((18, 46, 26, 18, 32, 36), fill=(255, 255, 255, 255), width=4)
+        d.line((32, 36, 38, 18, 46, 46), fill=(255, 255, 255, 255), width=4)
+    elif kind == "maps":
+        d.ellipse((16, 8, 48, 40), fill=(14, 165, 164, 255))
+        d.polygon([(32, 58), (18, 34), (46, 34)], fill=(14, 165, 164, 255))
+        d.ellipse((24, 16, 40, 32), fill=(255, 255, 255, 255))
+    elif kind == "translate":
+        d.rounded_rectangle((6, 14, 36, 40), radius=6, fill=(37, 99, 235, 255))
+        d.rounded_rectangle((28, 26, 58, 52), radius=6, fill=(13, 148, 136, 255))
     elif kind == "terminal":
         d.rounded_rectangle((4, 8, 60, 56), radius=7, fill=(17, 24, 39, 255), outline=(94, 234, 212, 255), width=3)
         d.line((14, 22, 26, 32, 14, 42), fill=(94, 234, 212, 255), width=4)
@@ -338,7 +373,8 @@ def write_desktop_assets(home: Path, scripts: dict[str, str]) -> Path:
     icons = home / ".desktop" / "icons"
     desktop.mkdir(parents=True, exist_ok=True)
     icons.mkdir(parents=True, exist_ok=True)
-    for app, label in APPS:
+    entries = list(APPS) + [(key, label) for key, label, _url in SITES]
+    for app, label in entries:
         if app not in scripts:
             continue
         icon = icons / (app + ".png")
@@ -543,9 +579,9 @@ def _spawn_desktop(session: str) -> None:
             processes.append(panel)
             time.sleep(0.4)
 
-        if not icons_started:
-            # no desktop icons (pcmanfm missing): fall back to the old start screen, a terminal showing what the model does
-            processes.append(_spawn(_terminal_command(), env, "terminal"))
+        # The "Model Computer" window is part of the screen at every start (owner 2026-11-16: the live view of the model's work belongs ON the computer's screen):
+        # it tails ~/.activity.log, where the hub writes every command, read, edit and test of the model. The icons / taskbar stay around it.
+        processes.append(_spawn(_terminal_command(), env, "terminal"))
 
         # A stop may arrive while packages or X11 are starting. Publish the
         # process handles only if the caller still owns this exact session.
@@ -666,6 +702,24 @@ def _run_input(args: list[str]) -> None:
         raise RuntimeError((result.stderr or result.stdout or "Desktop input failed.")[-180:])
 
 
+def _xdo_text(args: list[str]) -> str:
+    result = subprocess.run(["xdotool", *args], env=_ENV, capture_output=True, text=True, timeout=5, preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
+    return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+
+def text_state() -> dict:
+    """What the screen holds, as TEXT: the visible windows, the focused one, the pointer and the screen size. A text-only model cannot read pixels; this is what it reads
+    (the same view Sham's embedded desktop gives its model). Best effort: a failing X query gives an empty field, never an exception."""
+    if not _ENV:
+        return {}
+    try:
+        ids = _xdo_text(["search", "--onlyvisible", "--name", "."]).split()[:30]
+        windows = [n for n in (_xdo_text(["getwindowname", i]) for i in ids) if n]
+        return {"windows": windows, "focused": _xdo_text(["getwindowfocus", "getwindowname"]), "pointer": _xdo_text(["getmouselocation"]), "screen": f"{DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}"}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 _LAST_FRAME = {"hash": "", "raw": b""}
 
 
@@ -779,7 +833,7 @@ def api_desktop_do(body: str) -> str:
         action = str(job.get("action") or "").lower()
         if not session or len(session) > 240:
             return json.dumps({"ok": False, "error": "a valid session is required"})
-        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer"}:
+        if action not in INPUT_ACTIONS | {"status", "start", "stop", "frame", "launch", "pointer", "state"}:
             return json.dumps({"ok": False, "error": "unknown desktop action"})
         if action == "status":
             return json.dumps(_desktop_status(session), ensure_ascii=False)
@@ -800,6 +854,8 @@ def api_desktop_do(body: str) -> str:
             return json.dumps({"ok": True, "phase": "running", **shot, **({"activity": extra.get("activity", []), "activity_seq": extra.get("seq", 0), "running_jobs": extra.get("running_jobs", [])} if extra else {})}, ensure_ascii=False)
         _check_live(session)
         _touch()
+        if action == "state":
+            return json.dumps({"ok": True, "phase": "running", **text_state()}, ensure_ascii=False)
         if action == "pointer":                       # where the pointer is (the live view draws it; the smoke test checks clicks land exactly)
             got = subprocess.run(["xdotool", "getmouselocation", "--shell"], env=_ENV, capture_output=True, text=True, timeout=5,
                                  preexec_fn=box._child_setup(int(_UID or 0), box.is_root(), 10))
@@ -821,6 +877,9 @@ def api_desktop_do(body: str) -> str:
         wait = SETTLE.get(action)
         if job.get("nopic") and action in ("type", "key", "scroll"):
             wait = None          # the live view already streams frames: typing does not wait for a picture (that wait made every keystroke batch feel slow)
+        if wait is not None and reply.get("ok", True) and action in ("launch", "click", "dblclick", "key", "drag") and not job.get("nopic"):
+            time.sleep(wait)
+            reply.update(text_state())                  # the text view beside the picture: a text-only model reads the windows, a multimodal one reads both
         if wait is not None and reply.get("ok", True) and "screenshot_b64" not in reply:
             # one round trip per action: the reply carries the picture after the screen had a moment to react (the gateway costs ~2.5 s a call,
             # so a separate "frame" call doubled every tap; and the model's tool says "inspect the returned screenshot")

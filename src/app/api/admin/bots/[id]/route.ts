@@ -38,9 +38,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
 
 export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const bot = await prisma.bot.findUnique({ where: { id: params.id }, select: { id: true, token: true } });
+  const bot = await prisma.bot.findUnique({ where: { id: params.id }, select: { id: true, token: true, template: true } });
   if (!bot) return NextResponse.json({ error: "بوت غير موجود" }, { status: 404 });
-  await fetch(`https://api.telegram.org/bot${bot.token}/deleteWebhook`, { method: "POST" }).catch(() => null);
+  // A legacy SITE_BANNER_ADMIN row may share the site bot's token: never unbind its webhook (the site bot lives outside the Bot table).
+  if (bot.template !== "SITE_BANNER_ADMIN") await fetch(`https://api.telegram.org/bot${bot.token}/deleteWebhook`, { method: "POST" }).catch(() => null);
   await prisma.$executeRaw`DELETE FROM "AdClick" WHERE "adId" IN (SELECT id FROM "Ad" WHERE "botId" = ${bot.id})`.catch(() => null);
   await prisma.$executeRaw`DELETE FROM "Ad" WHERE "botId" = ${bot.id}`.catch(() => null);
   await prisma.$executeRaw`DELETE FROM "BotVisit" WHERE "botId" = ${bot.id}`.catch(() => null);

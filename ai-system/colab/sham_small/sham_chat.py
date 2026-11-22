@@ -89,6 +89,42 @@ def build_date_example(text_ids_fn, rng: random.Random, today=None) -> tuple[lis
     return build_chat_example(text_ids_fn(date_context_line(d) + "\n" + q), text_ids_fn(a))
 
 
+# ---- plain conversation (owner's sanity check 2026-11-15 on the published head: «السلام عليكم» and «كيف حالك؟» were answered with a <tool_call> JSON, «مرحبا» with a news
+# sentence, «من أنت؟» with noise). Tool examples use the same plain layout (<BOS><USER> q <SHAM>) as every chat turn, and the dialogue sources hold almost no greetings, so
+# a greeting was ambiguous and the model guessed the tool format. These few hundred short exchanges (greeting, how are you, thanks, goodbye, who are you) give the
+# plain layout its own answers. Wording is Sham's own (no commercial-model output).
+SMALLTALK = [
+    (["مرحبا", "مرحباً", "أهلاً", "أهلا وسهلا", "هلا", "هاي", "السلام عليكم", "السلام عليكم ورحمة الله", "صباح الخير", "مساء الخير", "مساء النور"],
+     ["مرحباً بك! كيف يمكنني مساعدتك؟", "أهلاً وسهلاً! تفضّل، بماذا أساعدك؟", "أهلاً بك. أنا شام، كيف أخدمك اليوم؟", "مرحباً! أنا هنا للمساعدة، ماذا تريد أن نفعل؟"],
+     {"السلام عليكم": "وعليكم السلام ورحمة الله وبركاته! كيف يمكنني مساعدتك؟", "السلام عليكم ورحمة الله": "وعليكم السلام ورحمة الله وبركاته. تفضّل، كيف أساعدك؟",
+      "صباح الخير": "صباح النور! كيف أساعدك اليوم؟", "مساء الخير": "مساء النور! تفضّل، بماذا أساعدك؟", "مساء النور": "مساء الخير! كيف يمكنني مساعدتك؟"}),
+    (["كيف حالك؟", "كيف حالك", "شلونك؟", "كيفك؟", "كيف الحال؟", "كيف أحوالك؟", "عامل إيه؟", "كيف تشعر اليوم؟"],
+     ["أنا بخير، شكراً لسؤالك. وأنت، كيف حالك؟", "بخير والحمد لله، شكراً لك. كيف أستطيع مساعدتك؟", "أنا بخير، وجاهز لمساعدتك. ما الذي تحتاجه؟"], {}),
+    (["من أنت؟", "من انت", "ما اسمك؟", "عرّفني بنفسك", "ما هو اسمك؟", "من أنت وماذا تفعل؟"],
+     ["أنا شام، نموذج ذكاء اصطناعي عربي. أتحدث معك وأجيب عن أسئلتك بقدر ما أعرف.", "اسمي شام، مساعد ذكاء اصطناعي يتحدث العربية. تفضّل بسؤالك.",
+      "أنا شام، نموذج ذكاء اصطناعي مستقل. أحادثك بالعربية وأحاول مساعدتك."], {}),
+    (["هل أنت نوفا؟", "أنت نوفا؟", "هل أنت نوفا أم شام؟"],
+     ["لا، أنا شام. نوفا مساعد آخر منفصل عني.", "أنا شام وليس نوفا؛ لكل منا مساره الخاص."], {}),
+    (["شكراً", "شكرا لك", "شكراً جزيلاً", "يعطيك العافية", "جزاك الله خيراً", "ممتن لك"],
+     ["العفو! سعيد بمساعدتك.", "على الرحب والسعة، أنا هنا متى احتجت.", "لا شكر على واجب. هل تحتاج شيئاً آخر؟"], {}),
+    (["مع السلامة", "إلى اللقاء", "وداعاً", "تصبح على خير", "سلام", "أراك لاحقاً"],
+     ["مع السلامة! أتمنى لك يوماً سعيداً.", "إلى اللقاء، وأنا في خدمتك متى شئت.", "في أمان الله! عد متى احتجت."], {}),
+    (["ماذا تستطيع أن تفعل؟", "بماذا تستطيع مساعدتي؟", "ما هي قدراتك؟", "كيف تساعدني؟"],
+     ["أستطيع الحديث معك بالعربية والإجابة عن أسئلتك، وأحاول وصف الصور ورسم صور بسيطة. قد أخطئ أحياناً، فتحقّق من المعلومات المهمة.",
+      "أحادثك وأجيب عن أسئلتك بقدر علمي، وأساعد في الكتابة وفي الأمور اليومية. اسألني ما شئت."], {}),
+    (["هل تسمعني؟", "هل أنت هنا؟", "هل أنت موجود؟", "ألو"],
+     ["نعم، أنا هنا. تفضّل.", "أسمعك جيداً، تفضّل بما تريد."], {}),
+]
+
+
+def build_smalltalk_example(text_ids_fn, rng: random.Random) -> tuple[list[int], list[int]]:
+    """One plain exchange from SMALLTALK (a fixed reply for the few greetings that have one, else a random one of the group)."""
+    questions, answers, fixed = rng.choice(SMALLTALK)
+    q = rng.choice(questions)
+    a = fixed.get(q) or rng.choice(answers)
+    return build_chat_example(text_ids_fn(q), text_ids_fn(a))
+
+
 def build_chat_example(
     user_ids: list[int], answer_ids: list[int], max_len: int = 512, max_user: int = 192,
 ) -> tuple[list[int], list[int]]:
@@ -303,6 +339,12 @@ def _chat_plan(extra: bool = True):
     # Not part of the merge gate's yardstick (extra=False returned above). SHAM_SIL=0 removes it.
     if os.environ.get("SHAM_SIL", "1").strip().lower() not in ("0", "off", "false", "no"):
         plan.append(("sil", lambda: __import__("sham_sil_bridge").chat_source(), "prompt", "target", None, False))
+    # 2026-11-21 (owner: use the new data for the original Sham too): real Arabic web text, a span and the NEXT span of the same document (HuggingFaceFW/fineweb-2 arb_Arab, ODC-By; held-out
+    # documents by id never used). Streamed. Not part of the yardstick (extra=False returned above). SHAM_FINEWEB_AR=0 removes it.
+    import sham_extra_sources
+    if sham_extra_sources.enabled():
+        for _key in sham_extra_sources.SOURCES:
+            plan.append((_key, (lambda k=_key: sham_extra_sources.source(k)), "prompt", "target", None, True))
     return plan
 
 
@@ -312,6 +354,14 @@ CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618, "glaive_code": 200_000, "smoltalk
 CHAT_SOURCE_WEIGHTS = {"cidar": 1.5, "aya_ar": 1.5, "alpaca_gpt4_ar": 1.5, "openhermes_ar": 1.5,
                        "magicoder": 1.0, "codefeedback": 1.0, "self_oss_instruct": 0.75, "glaive_code": 0.75,
                        "smoltalk": 1.0, "ultrachat": 0.75, "metamath": 0.5, "sil": 0.5}
+
+
+try:                                    # the extra Arabic sources bring their own wrap-around sizes and shares
+    import sham_extra_sources as _X
+    CHAT_SOURCE_SIZES.update(_X.SOURCE_SIZES)
+    CHAT_SOURCE_WEIGHTS.update({k: v[2] for k, v in _X.SOURCES.items()})
+except Exception:                       # never let an optional module stop the trainer
+    pass
 
 
 def _wants(plan, max_examples: int) -> list[int]:
@@ -339,12 +389,19 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
     pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
     shares = _wants(plan, max_examples) if plan else []
+    import time as _time
+    deadline = _time.time() + float(os.environ.get("SHAM_CHAT_DEADLINE") or 600)   # all sources together: a throttled mirror must not hold a cycle for an hour
     for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
+        if _time.time() > deadline and pairs:
+            print(f"⏱ انتهت مهلة جمع الحوارات ({len(pairs):,} زوجًا): تُترك المصادر المتبقية لهذه الجلسة")
+            break
         want = min(shares[n] if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
         if want <= 0:
             break
         try:
-            ds = loader()
+            # hf-mirror answers 429 and huggingface_hub then waits 200 s x 5 retries per dataset: a trainer sat 174 minutes without a line right here (cn, 2026-11-13)
+            from sham_data_sources import _bounded
+            ds = _bounded(loader, float(os.environ.get("SHAM_SOURCE_OPEN_TIMEOUT") or 150))
             if keep is not None:
                 ds = ds.filter(keep)
         except Exception as exc:  # one source down must not stop the run
@@ -358,6 +415,12 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
         end = min(size, start + want) if size else start + want
         rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
         got = 0
+        try:        # reading the rows of a STREAMING source goes through hf-mirror too (429 + long retries): bound it like the opening (cn trainer silent for 20+ minutes after self_oss_instruct, 2026-11-13)
+            from sham_data_sources import _bounded
+            rows = _bounded(lambda: list(rows), float(os.environ.get("SHAM_SOURCE_ITER_TIMEOUT") or 240))
+        except Exception as exc:
+            print(f"⚠ تعذّرت قراءة {key} في المهلة: {type(exc).__name__}")
+            continue
         for row in rows:
             q, a = ((row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()) if q_col else _conversation_pair(row)
             norm_q = " ".join(q.split())
@@ -619,6 +682,13 @@ if __name__ == "__main__":
     assert len(days) > 3                                              # random days: not one memorised date
     dated = build_search_example(cap, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng, date_line=date_context_line(datetime.date(2026, 1, 5)))
     assert seen[-4].startswith("التاريخ اليوم: 2026-01-05") and dated[0].count(SpecialTokens.SEARCH_START) == 1
+    # plain conversation: the prompt is masked, only the reply and its <EOS> are learned, and a greeting never gets a tool-call answer
+    st_seen = []
+    cap2 = lambda t: (st_seen.append(t), fake(t))[1]
+    st_ids, st_lab = build_smalltalk_example(cap2, random.Random(3))
+    assert st_lab[0] == IGNORE and st_lab[-1] == SpecialTokens.EOS and any(l != IGNORE for l in st_lab), st_lab
+    assert not any("tool_call" in a for _q, answers, fx in SMALLTALK for a in list(answers) + list(fx.values()))
+    assert len({tuple(build_smalltalk_example(lambda t: [len(t)], random.Random(k))[0]) for k in range(40)}) > 5      # variety, not one memorised line
     tr, ho = split_holdout(list(range(100)))
     assert len(ho) == 5 and not set(tr) & set(ho)
     # multi-turn: every turn, labels only on Sham's answers, oldest turns dropped first, one turn == build_chat_example
@@ -652,7 +722,7 @@ if __name__ == "__main__":
     for _n in (800, 3000, 4000):
         _w = _wants(_full, _n)
         assert sum(_w) == _n and min(_w) >= 1, _w
-        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil"))   # the Intelligence Lab's pairs are Arabic prompts
+        _ar = sum(w for p, w in zip(_full, _w) if p[0] in ("cidar", "aya_ar", "alpaca_gpt4_ar", "openhermes_ar", "sil") or p[0].startswith("fineweb2_ar"))   # the Intelligence Lab's pairs are Arabic prompts
         assert _ar >= _n * 0.5 and sum(_w[4:8]) >= _n * 0.25, (_n, _w)                              # Arabic >= half, code >= a quarter
         _b = _wants(_base, _n)
         assert _b == [_n // 4] * 4, _b                                                                # the gate's four sets give exactly what they did before

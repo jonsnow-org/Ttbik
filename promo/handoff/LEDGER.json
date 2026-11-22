@@ -1,0 +1,1 @@
+{"_":"Ledger of manual posts. Supervisors append one entry per post: {id, platform, date (YYYY-MM-DD), url, by}. handoff.mjs uses it to show what to post next.","entries":[]}

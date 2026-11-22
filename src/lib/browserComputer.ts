@@ -1,7 +1,12 @@
 // The free headless browser and all computer tools run only on the reserved private 16 GB computer Studio.
 // The execution host is shared, but each user+model gets a distinct BrowserContext, cookies and persistent directory.
-export const DEFAULT_COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
+/** Nova 2's own computer: the hub on the international Studio (open internet; the cn hub cannot reach GitHub, live 2026-11-22). NOVA2_COMPUTER_STUDIO_URL overrides it; "off" disables it. */
+export const DEFAULT_NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai";
+export const nova2ComputerUrl = (): string => (process.env.NOVA2_COMPUTER_STUDIO_URL || "").trim() || DEFAULT_NOVA2_COMPUTER_STUDIO_URL;
+export const DEFAULT_COMPUTER_STUDIO_URL = DEFAULT_NOVA2_COMPUTER_STUDIO_URL;      // Nova 1 was removed (2026-11-22): the one Nova works on the international hub (the cn hub could not reach GitHub)
 import { COMPUTER_MODEL_IDS } from "@/lib/computerModels";
+import { secretCached } from "@/lib/hostedSecrets";
+import { nova2Urls } from "@/lib/openCoderStudio";
 
 const COMPUTER_MODELS = new Set<string>(COMPUTER_MODEL_IDS);
 
@@ -11,16 +16,36 @@ export type BrowserArgs = {
 
 const ACTIONS = new Set(["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria"]);
 
-/** All supported models use the dedicated computer-only hub Studio.
- * The user+model session key still isolates each model's files, browser cookies and desktop. */
+/** Each model uses its own computer endpoint. Nova 2 is unavailable until a dedicated computer Studio exists. */
 export function browserStudioFor(modelId: string | undefined): string | null {
   if (!modelId || !COMPUTER_MODELS.has(modelId)) return null;
+  if (modelId === "sham" || modelId === "sham_v2") return null;
+  if (modelId === "nova2") {
+    const configured = nova2ComputerUrl();
+    if (!configured || /^(off|none|0)$/i.test(configured) || !/^https:\/\//i.test(configured)) return null;
+    const base = configured.replace(/\/+$/, "");
+    const separateMediaStudios = [
+      process.env.NOVA2_MEDIA_STUDIO_URL || "",
+      process.env.NOVA_MEDIA_STUDIO_URL || "",
+      process.env.NOVA_IMAGE_STUDIO_URL || "",
+      process.env.SHAM_V2_URL || process.env.SHAM_MODELSCOPE_URL || "",
+      process.env.SHAM_MEDIA_STUDIO_URL || "",
+      process.env.SHAM_V2_MEDIA_STUDIO_URL || "",
+    ].map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
+    if (nova2Urls().includes(base) || separateMediaStudios.includes(base) || /nova-inference-server|coder-inference-server|nova-media-server|epicrealism-image-test|sham(?!-trainer)/i.test(base)) return null;
+    return base;
+  }
   const configured = (process.env.COMPUTER_STUDIO_URL || "").trim();
   if (/^(off|none|0)$/i.test(configured)) return null;
   return (configured || DEFAULT_COMPUTER_STUDIO_URL).replace(/\/+$/, "");
 }
 
-export function studioToken(): string {
+export function studioToken(base?: string): string {
+  const n2 = nova2ComputerUrl().replace(/\/+$/, "");
+  if (base && n2 && base.replace(/\/+$/, "") === n2) {
+    return (process.env.NOVA2_COMPUTER_STUDIO_TOKEN || process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_COMPUTER_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
+  }
+  if (base && /\.modelscope\.ai(\/|$)/i.test(base)) return (process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim();   // an international Studio takes the international account's token
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
 
@@ -143,7 +168,8 @@ async function studioCallPlain(base: string, api: string, wire: string, headers:
   return (await readComplete(done)) as Record<string, any>;
 }
 export async function studioCall(base: string, api: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = globalThis.fetch, readMs = 100_000): Promise<Record<string, any>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const token = studioToken(base);
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) };
   // The Studio gateway's request filter answers 403 to some command text (`echo a; echo b`): the computer / browser jobs travel as base64 (the Studio decodes "b64:"). An older Studio answers "bad request": send it plain then.
   const encode = api === "box_do" || api === "browser_do" || api === "desktop_do" || api === "computer_view" || api === "computer_changes";
   let wire = encode ? "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64") : JSON.stringify(payload);
@@ -182,6 +208,7 @@ async function liveStreamFetch(
   api: string,
   stage: string,
   fetchImpl: typeof fetch,
+  retryTransient412 = false,
 ): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -195,8 +222,10 @@ async function liveStreamFetch(
       continue;
     }
     if (response.ok) return response;
+    const retryAfter = response.headers.get("retry-after");
     const detail = await studioHttpError(response, api, stage);
-    if (!TRANSIENT_LIVE_HTTP_STATUSES.has(response.status) || attempt === 2) throw new Error(detail);
+    const transient412 = retryTransient412 && response.status === 412 && isTransientStudio412(detail, retryAfter);
+    if ((!TRANSIENT_LIVE_HTTP_STATUSES.has(response.status) && !transient412) || attempt === 2) throw new Error(detail);
     lastError = new Error(detail);
     await new Promise((resolve) => setTimeout(resolve, process.env.NODE_ENV === "test" ? 0 : 300 * (attempt + 1)));
   }
@@ -210,8 +239,10 @@ export async function studioStream(
   payload: Record<string, unknown>,
   fetchImpl: typeof fetch = globalThis.fetch,
   readMs = 40_000,
+  retryTransient412 = false,
 ): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(studioToken() ? { Authorization: "Bearer " + studioToken() } : {}) };
+  const token = studioToken(base);
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) };
   const wire = "b64:" + Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
   // The live endpoint only streams frames/activity; retrying its submit after a
   // transient gateway error cannot repeat a desktop input or mutate the session.
@@ -221,7 +252,7 @@ export async function studioStream(
       method: "POST", headers, cache: "no-store", signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({ data: [wire] }),
     }),
-    api, "submit", fetchImpl,
+    api, "submit", fetchImpl, retryTransient412,
   );
   const { event_id } = (await start.json()) as { event_id?: string };
   if (!event_id) throw new Error("the Studio gave no live-stream request id");
@@ -230,7 +261,7 @@ export async function studioStream(
     () => ({
       headers, cache: "no-store", signal: AbortSignal.timeout(Math.max(5_000, Math.min(45_000, readMs))),
     }),
-    api, "stream", fetchImpl,
+    api, "stream", fetchImpl, retryTransient412,
   );
   if (!stream.body) throw new Error("the Studio returned an empty live stream");
   return stream;

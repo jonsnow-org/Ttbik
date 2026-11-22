@@ -12,23 +12,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: deploy/hosting/site.json
-      - name: the site's public address (deploy/hosting/site.json)
-        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+          sparse-checkout: |
+            deploy/hosting/site.json
+            scripts/hosting/select-site-base.sh
+      - name: select public origin (Gate first, Oracle fallback)
+        run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
       - name: expire, close and refund Athar Stars orders
         run: |
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
-          # The gateway sometimes answers 530 (origin unreachable) for a minute: retry, then try the Vercel standby. The sweep is idempotent.
-          VERCEL_BASE=$(jq -r '.vercelUrl // empty' deploy/hosting/site.json)
-          code=000
-          for base in "${SITE_BASE}" "${SITE_BASE}" "${VERCEL_BASE}"; do
-            [ -n "${base}" ] || continue
-            code=$(curl -sS -m 60 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${base}/api/cron/athar-stars" || echo 000)
-            echo "HTTP ${code} (${base})"
-            [ "${code}" -lt 500 ] && [ "${code}" != "000" ] && break
-            sleep 20
-          done
+          code=$(curl -sS --connect-timeout 8 --max-time 60 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/athar-stars" || true)
+          echo "HTTP ${code} (${SITE_BASE_SOURCE})"
           cat body.json 2>/dev/null | head -c 400; echo
-          [ "${code}" -lt 500 ] && [ "${code}" != "000" ]
+          [[ "${code}" =~ ^2[0-9][0-9]$ ]]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

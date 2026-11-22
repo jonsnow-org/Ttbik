@@ -260,14 +260,23 @@ def media_prompts(kind: str, caption_ids: list[int], tokenizer, chat: bool) -> t
 
 # ------------------------------------------------------------ learned search
 def web_search_text(query: str, max_results: int = 3, max_chars: int = 600) -> str:
-    """Short snippets for a query (DuckDuckGo, same provider web_access.py uses)."""
+    """Short snippets for a query: DuckDuckGo first (short timeout), then Bing's page. From the ModelScope Studio every DuckDuckGo host is blocked
+    (measured by the worker's own network probe, 2026-11-16: duckduckgo/wikipedia/searx blocked, cn.bing.com 200), so the learned search used to
+    come back empty and the model continued from «لا توجد نتائج»; web_access.bing_search is the fallback that already serves ask_web."""
+    hits: list = []
     try:
         from ddgs import DDGS
-        with DDGS() as d:
+        with DDGS(timeout=6) as d:
             hits = list(d.text(query, region="xa-ar", max_results=max_results))
     except Exception as exc:
         print(f"search failed ({exc})")
-        return ""
+    if not any((h.get("body") or "").strip() for h in hits):
+        try:
+            from web_access import bing_search
+            hits = bing_search(query, max_results)
+        except Exception as exc:
+            print(f"bing fallback failed ({exc})")
+            return ""
     return " ".join(h.get("body", "") for h in hits)[:max_chars]
 
 

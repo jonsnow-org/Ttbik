@@ -1,0 +1,34 @@
+name: youtube-link
+# Manual. Re-links YouTube publishing WITHOUT the owner ever handling CRON_SECRET (it stays in repo secrets).
+#   Run 1: leave `url` empty  -> the log prints the Google consent link (not secret). Open it, approve, copy the http://localhost/?code=... address.
+#   Run 2: paste that address into `url` -> the refresh token is stored in the database (never printed). It is valid ~15 minutes and works once.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Empty on the first run. Second run: the full http://localhost/?code=... address from the browser"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: link
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PASTED: ${{ github.event.inputs.url }}
+        run: |
+          base="https://ttbik-gate.jonsnowx1r.workers.dev/api/youtube/oauth"
+          if [ -z "${PASTED}" ]; then
+            loc=$(curl -sS -m 60 -o /dev/null -w '%{redirect_url}' -H "Authorization: Bearer ${CRON_SECRET}" "${base}")
+            if [ -z "${loc}" ]; then echo "no consent link returned (keys missing on the serving server?)"; exit 1; fi
+            echo "OPEN THIS LINK, approve, then copy the localhost address from the browser:"
+            echo "${loc}"
+          else
+            curl -sS -m 60 -o out.html -w 'HTTP %{http_code}\n' -H "Authorization: Bearer ${CRON_SECRET}" --data-urlencode "url=${PASTED}" "${base}"
+            sed -e 's/<[^>]*>/ /g' out.html | head -c 600; echo
+            grep -q "✅" out.html
+          fi

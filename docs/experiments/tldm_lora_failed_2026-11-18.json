@@ -1,0 +1,111 @@
+{
+ "ckpt": "checkpoints/loop/final.pt",
+ "args": {
+  "ckpt": null,
+  "pool": 300,
+  "tries": 8,
+  "temperature": 0.8,
+  "lora_steps": 200,
+  "rank": 4,
+  "seed": 11,
+  "replay": 150,
+  "json": null
+ },
+ "pool": {
+  "A_failed": 14,
+  "B_failed": 8,
+  "C_right": 11
+ },
+ "failed_task_examples": [
+  "count the errors in the log and save the number to answer.txt",
+  "count the errors in the log and save the number to number.txt",
+  "count the errors in the log and save the number to size.txt",
+  "count the errors in the log and save the number to summary.txt",
+  "count the errors in the log and save the number to tally.txt",
+  "count the files here and write the number in answer.txt",
+  "count the files here and write the number in number.txt",
+  "count the files here and write the number in size.txt",
+  "count the files here and write the number in summary.txt",
+  "count the files here and write the number in tally.txt",
+  "how many errors are in app.log? write the count in answer.txt",
+  "how many errors are in app.log? write the count in number.txt"
+ ],
+ "before": {
+  "A": {
+   "solved": 0,
+   "of": 14,
+   "rate": 0.0
+  },
+  "B": {
+   "solved": 0,
+   "of": 8,
+   "rate": 0.0
+  },
+  "C": {
+   "solved": 11,
+   "of": 11,
+   "rate": 1.0
+  },
+  "eval60_778": {
+   "episode_success": 0.75,
+   "final_state_correct": 0.767,
+   "episodes_per_s": 8.19
+  }
+ },
+ "self_evolution": {
+  "retries_verified_success": 0,
+  "of_failed": 14,
+  "training_pairs": 0
+ },
+ "reference_corrections": {
+  "training_pairs": 38,
+  "after": {
+   "A": {
+    "solved": 11,
+    "of": 14,
+    "rate": 0.786
+   },
+   "B": {
+    "solved": 0,
+    "of": 8,
+    "rate": 0.0
+   },
+   "C": {
+    "solved": 2,
+    "of": 11,
+    "rate": 0.182
+   },
+   "eval60_778": {
+    "episode_success": 0.333,
+    "final_state_correct": 0.9,
+    "episodes_per_s": 4.61
+   }
+  }
+ },
+ "reference_corrections_plus_replay": {
+  "training_pairs": 691,
+  "after": {
+   "A": {
+    "solved": 8,
+    "of": 14,
+    "rate": 0.571
+   },
+   "B": {
+    "solved": 0,
+    "of": 8,
+    "rate": 0.0
+   },
+   "C": {
+    "solved": 11,
+    "of": 11,
+    "rate": 1.0
+   },
+   "eval60_778": {
+    "episode_success": 0.8,
+    "final_state_correct": 0.85,
+    "episodes_per_s": 6.08
+   }
+  }
+ },
+ "secs": 178
+}

@@ -169,6 +169,28 @@ class Desktop(unittest.TestCase):
         self.assertFalse(box._ACTIVE_DESKTOPS)
         self.assertEqual(desktop._PROCESSES, [])
 
+    def test_text_state_lists_windows_focus_and_pointer_as_text_for_text_only_models(self):
+        answers = {"search": "11 12", "getwindowname": None, "getwindowfocus": "Terminal", "getmouselocation": "x:5 y:6 screen:0 window:1"}
+        names = {"11": "Terminal", "12": "Files"}
+
+        def fake(args, **kw):
+            if args[1] == "getwindowname" and len(args) == 3 and args[2] in names:
+                out = names[args[2]]
+            elif args[1] == "getwindowfocus":
+                out = "Terminal"
+            else:
+                out = answers.get(args[1], "")
+            return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+        with patch.object(desktop.subprocess, "run", side_effect=fake), patch.object(desktop.box, "_child_setup", return_value=None):
+            desktop._ENV = {"DISPLAY": ":1"}
+            got = desktop.text_state()
+        self.assertEqual(got["windows"], ["Terminal", "Files"])
+        self.assertEqual(got["focused"], "Terminal")
+        self.assertIn("x:5", got["pointer"])
+        desktop._ENV = {}
+        self.assertEqual(desktop.text_state(), {})                    # no display: empty, never an exception
+
 
 if __name__ == "__main__":
     unittest.main()

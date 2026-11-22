@@ -2,7 +2,6 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
 import { SERVICE_LINKS, chainsBotLink } from "@/config/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
 import { migrateLegacyFollowIds } from "@/lib/mediaFollowMigration";
@@ -19,7 +18,6 @@ type Notif = { id: string; type: "follow" | "like" | "comment" | "reply" | "post
 type CommentRow = { id: string; post_id: string; parent_id: string | null; from_id: string; from_name: string; body: string; created_at: number };
 type Relations = { following: string[]; mutes: string[]; blocks: string[]; blockedBy: string[] };
 type Report = { id: string; post_id: string; post_title: string; post_owner_id: string; reporter_id: string; reporter_name: string; reason: string; reason_label: string; details: string; status: string; created_at: number };
-type MiniPlayerFrame = { mode: "anchor"; top: number; left: number; width: number; height: number } | { mode: "dock" };
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
@@ -136,11 +134,20 @@ function CommentThread({ comment, all, depth, onReply, onOpenProfile }: { commen
 // image (owner report 2026-09-24: TikTok previews looked empty).
 function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: number) => void }) {
   const [failed, setFailed] = useState(false);
+  const [frameFailed, setFrameFailed] = useState(false);
   const p = platformOf(item.url);
   if (item.thumbnail && !failed) {
     return (
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
         <img src={item.thumbnail} alt="" loading="lazy" decoding="async" fetchPriority="low" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
+      </div>
+    );
+  }
+  // Signed Facebook/Instagram thumbnail links expire (403 within days): show the clip's own first frame instead (works for files Telegram can stream, i.e. up to 20MB).
+  if (!frameFailed && item.media_type !== "audio" && item.media_type !== "voice") {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-slate-900">
+        <video src={mediaStreamUrl(item.id, false, item.squad_code) + "#t=0.5"} muted playsInline preload="metadata" onError={() => setFrameFailed(true)} onLoadedMetadata={(e) => onRatio?.(e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full object-cover" />
       </div>
     );
   }
@@ -197,7 +204,7 @@ export default function MiniAppPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [adNonce, setAdNonce] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [playerFrame, setPlayerFrame] = useState<MiniPlayerFrame | null>(null);
+  const soundOnRef = useRef(false);
   const autoplayVideoRef = useRef<HTMLVideoElement | null>(null);
   const autoPreviewAttempts = useRef<Record<string, number>>({});
   const [playError, setPlayError] = useState<string | null>(null);
@@ -235,8 +242,6 @@ export default function MiniAppPage() {
   const seenRef = useRef<Set<string>>(new Set());
   const itemsRef = useRef<FeedItem[]>([]);
   itemsRef.current = items;
-  const activePlayerItem = playingId ? items.find((item) => item.id === playingId) || null : null;
-  const activePlayerIsVideo = !!activePlayerItem && activePlayerItem.media_type !== "audio" && activePlayerItem.media_type !== "voice";
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
@@ -724,10 +729,17 @@ export default function MiniAppPage() {
     const THRESHOLD = 70;
     const setPull = (v: number) => { pullYRef.current = v; setPullY(v); };
     function onStart(e: TouchEvent) {
+      const reel = document.querySelector(".media-reels");
+      if (reel && reel.contains(e.target as Node)) {
+        pullStartRef.current = reel.scrollTop <= 0 && !refreshingRef.current ? e.touches[0].clientY : null;
+        return;
+      }
       pullStartRef.current = window.scrollY <= 0 && !refreshingRef.current ? e.touches[0].clientY : null;
     }
     function onMove(e: TouchEvent) {
       if (pullStartRef.current == null) return;
+      const reel = document.querySelector(".media-reels");
+      if (reel && reel.contains(e.target as Node) && reel.scrollTop > 0) { pullStartRef.current = null; setPull(0); return; }
       if (window.scrollY > 0) { pullStartRef.current = null; setPull(0); return; }
       const dy = e.touches[0].clientY - pullStartRef.current;
       setPull(dy > 0 ? Math.min(dy * 0.5, 90) : 0);
@@ -869,10 +881,6 @@ export default function MiniAppPage() {
         const isAudio = current?.media_type === "audio" || current?.media_type === "voice";
         return isAudio ? null : cur;
       });
-      if (playingId || !autoplay) {
-        setAutoId(null);
-        return;
-      }
       let best: string | null = null;
       let bestR = 0.6;
       autoRatios.forEach((r, id) => {
@@ -881,6 +889,15 @@ export default function MiniAppPage() {
           bestR = r;
         }
       });
+      if (soundOnRef.current) {
+        if (best) setPlayingId((cur) => (cur === best ? cur : best));
+        setAutoId(null);
+        return;
+      }
+      if (playingId || !autoplay) {
+        setAutoId(null);
+        return;
+      }
       setAutoId((prev) => (prev === best ? prev : best));
     }, { threshold: [0, 0.15, 0.35, 0.5, 0.6, 0.8, 1] });
     document.querySelectorAll<HTMLElement>("article[data-feed-id]").forEach((el) => obs.observe(el));
@@ -909,56 +926,29 @@ export default function MiniAppPage() {
     return () => { video.pause(); };
   }, [autoId, autoplay, playingId, onAutoPreviewError]);
 
-  // Keep a single real video element in a portal. It overlays the card while visible and
-  // docks above the navigation bar when scrolled away, without losing playback position.
   useEffect(() => {
-    if (!playingId || !activePlayerIsVideo) {
-      setPlayerFrame(null);
-      return;
-    }
-    let frame = 0;
-    const update = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(() => {
-        frame = 0;
-        const article = Array.from(document.querySelectorAll<HTMLElement>("article[data-feed-id]"))
-          .find((node) => node.dataset.feedId === playingId);
-        const anchor = article?.querySelector<HTMLElement>("[data-player-anchor]");
-        const rect = anchor?.getBoundingClientRect();
-        if (!rect || rect.width <= 0 || rect.height <= 0) {
-          setPlayerFrame({ mode: "dock" });
-          return;
-        }
-        const nav = document.querySelector<HTMLElement>(".media-mini-app-nav");
-        const navHeight = nav?.getBoundingClientRect().height || 68;
-        const usableBottom = window.innerHeight - navHeight - 8;
-        const visibleHeight = Math.max(0, Math.min(rect.bottom, usableBottom) - Math.max(rect.top, 4));
-        const visibleRatio = visibleHeight / rect.height;
-        const fits = visibleRatio >= 0.62 && rect.top >= 4 && rect.bottom <= usableBottom && rect.height <= window.innerHeight * 0.82;
-        if (fits) {
-          const next: MiniPlayerFrame = { mode: "anchor", top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-          setPlayerFrame((previous) => previous?.mode === "anchor"
-            && Math.abs(previous.top - next.top) < 1 && Math.abs(previous.left - next.left) < 1
-            && Math.abs(previous.width - next.width) < 1 && Math.abs(previous.height - next.height) < 1
-            ? previous : next);
-        } else {
-          setPlayerFrame((previous) => previous?.mode === "dock" ? previous : { mode: "dock" });
-        }
-      });
-    };
-    update();
-    window.addEventListener("scroll", update, { passive: true, capture: true });
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("scroll", update);
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", update, true);
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("scroll", update);
-    };
-  }, [playingId, activePlayerIsVideo]);
+    if (!soundOnRef.current || !playingId) return;
+    const card = Array.from(document.querySelectorAll<HTMLElement>("article[data-feed-id]")).find((n) => n.dataset.feedId === playingId);
+    const video = card?.querySelector("video");
+    if (!video) return;
+    video.muted = false;
+    const started = video.play();
+    if (started && typeof started.catch === "function") started.catch(() => {});
+  }, [playingId]);
+
+  // A playing video lives only inside its own card (no floating window): scrolling it away stops it.
+  useEffect(() => {
+    if (!playingId || typeof IntersectionObserver === "undefined") return;
+    const card = Array.from(document.querySelectorAll<HTMLElement>("article[data-feed-id]")).find((n) => n.dataset.feedId === playingId);
+    const video = card?.querySelector("video");
+    if (!card || !video) return;
+    const obs = new IntersectionObserver((entries) => {
+      // only stop THIS card: in the reel the next card may already have taken over playingId
+      if (entries.some((e) => !e.isIntersecting)) setPlayingId((cur) => (cur === playingId ? null : cur));
+    }, { threshold: 0.05 });
+    obs.observe(card);
+    return () => obs.disconnect();
+  }, [playingId]);
 
   // Hard-stop every media element that is not the active full player or the
   // single muted autoplay card — prevents stacked audio after React unmount lag.
@@ -968,7 +958,6 @@ export default function MiniAppPage() {
         const card = media.closest("article[data-feed-id]") as HTMLElement | null;
         const id = card?.dataset.feedId;
         if (!id) {
-          if (media.dataset.miniPlayer === "true" && media.dataset.playerId === playingId) return;
           try {
             media.pause();
           } catch {
@@ -1133,8 +1122,8 @@ export default function MiniAppPage() {
       });
   };
   const playItem = (item: FeedItem) => {
+    soundOnRef.current = item.media_type !== "audio" && item.media_type !== "voice";
     setPlayError(null);
-    setPlayerFrame(item.media_type === "audio" || item.media_type === "voice" ? null : { mode: "dock" });
     setPlayingId(item.id);
     track("play", { post_id: item.id, type: item.media_type });
   };
@@ -1256,13 +1245,14 @@ export default function MiniAppPage() {
   const viewedIsMuted = !!profileTargetId && relations.mutes.includes(profileTargetId);
   const viewedBlockedMe = !!profileTargetId && relations.blockedBy.includes(profileTargetId);
   const overlayOpen = showNotifs || showInbox || showComments;
+  const reelsMode = tab === "trending" && trendKind === "video" && !showProfile && !viewUserId && !search.trim() && !searchOpen && !showNotifs && !showInbox;
 
   const emptyText = tab === "following" && !showProfile
     ? (socialReady === false ? "ميزة «تتابعه» بانتظار تفعيلها من المالك" : relations.following.length ? "لم يحمّل من تتابعهم شيئاً بعد" : "لا تتابع أحداً بعد — افتح ملف أي مستخدم من «رائج» واضغط «متابعة»")
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="media-mini-app-shell bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200">
+    <div className={`media-mini-app-shell ${reelsMode ? "media-reels-open" : ""} bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200`}>
       
       {showTopBtn && (
         <button
@@ -1276,7 +1266,7 @@ export default function MiniAppPage() {
       )}
 
       <MonetagSdkLoader />
-      <nav aria-label="التنقل" className="media-mini-app-nav fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl">
+      <nav aria-label="التنقل" className={`media-mini-app-nav fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl ${reelsMode ? "media-reels-hide" : ""}`}>
         <div className="mx-auto flex max-w-xl items-stretch justify-around">
           {tabs.map((t) => { const active = !viewUserId && tab === t.id; return (
             <button key={t.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); window.scrollTo({ top: 0 }); }} className="relative flex flex-1 flex-col items-center gap-0.5 py-1 transition active:scale-90">
@@ -1286,7 +1276,7 @@ export default function MiniAppPage() {
             </button>); })}
         </div>
       </nav>
-      <header className="sticky top-0 z-20 border-b border-white/70 bg-white/75 px-4 pb-1.5 pt-1.5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] backdrop-blur-2xl">
+      <header className={`sticky top-0 z-20 border-b border-white/70 bg-white/75 px-4 pb-1.5 pt-1.5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] backdrop-blur-2xl ${reelsMode ? "media-reels-hide" : ""}`}>
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
@@ -1329,7 +1319,7 @@ export default function MiniAppPage() {
       {searchOpen && <div className="px-3 pt-2"><input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>}
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
-      {!overlayOpen && tab !== "admin" && <TopBannerAd reloadKey={adNonce} />}
+      {!overlayOpen && tab !== "admin" && !reelsMode && <TopBannerAd reloadKey={adNonce} />}
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-xl">
@@ -1359,7 +1349,7 @@ export default function MiniAppPage() {
       )}
 
       {showComments && commentsPost && (
-        <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-xl">
+        <div className={`${reelsMode ? "media-reel-sheet " : "relative z-10 mx-3 mt-3 "}overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-xl`}>
           <div className="flex items-center justify-between border-b border-amber-100 bg-amber-50 px-4 py-3">
             <p className="truncate text-sm font-black text-amber-800">💬 تعليقات · {commentsPost.title}</p>
             <button type="button" onClick={() => setShowComments(false)} className="shrink-0 text-xs font-bold text-slate-500">إغلاق</button>
@@ -1635,24 +1625,54 @@ export default function MiniAppPage() {
         {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
-          <div className="space-y-4">{visible.map((item, idx) => {
+          <>
+          {reelsMode && (
+            <div className="media-reel-chrome">
+              <div className="media-reel-top">
+                <span className="rounded-full bg-black/50 px-3 py-1 text-[11px] font-black text-white">فيديو</span>
+                <button type="button" onClick={() => { haptic(); setTrendKind("audio"); setPlayingId(null); setAutoId(null); }} className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-black text-slate-700">صوت</button>
+                <button type="button" onClick={() => { haptic(); setSearchOpen(true); }} className="ms-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white">🔍</button>
+                <button type="button" onClick={() => { haptic(); setShowNotifs(true); void loadNotifs(); }} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white">🔔</button>
+              </div>
+              <div className="media-reel-tabs">
+                {tabs.map((tb) => (
+                  <button key={tb.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab(tb.id); setPlayingId(null); setAutoId(null); }} className={`media-reel-tab${tab === tb.id ? " is-on" : ""}`}>{tb.icon}<span className="mt-0.5 block">{tb.label}</span></button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className={reelsMode ? "media-reels" : "space-y-4"}>{visible.map((item, idx) => {
             const isAudio = item.media_type === "audio" || item.media_type === "voice";
             const isLiked = !!liked[item.id];
             const p = platformOf(item.url);
             const mine = !!userId && item.sharer_id === userId;
             return (
-              <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200">
-                <div data-player-anchor={playingId === item.id && !isAudio ? item.id : undefined} onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
+              <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar} plain={reelsMode}>
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className={reelsMode ? "overflow-hidden bg-black" : "fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200"}>
+                <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${reelsMode ? "media-reel-stage" : isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
-                    : (<div className="media-mini-app-player-placeholder flex h-full w-full items-center justify-center bg-black text-white/80"><span className="rounded-full bg-black/60 px-3 py-2 text-xs font-bold">▶ يعمل في المشغّل المثبّت</span></div>)
+                    : (<video
+                        key={item.id + "-" + (viaVercel[item.id] ? "vercel" : "worker")}
+                        src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)}
+                        poster={item.thumbnail || undefined}
+                        controls={!reelsMode}
+                        autoPlay
+                        playsInline
+                        preload="auto"
+                        onClick={reelsMode ? (e) => { const v = e.currentTarget; if (v.paused) { soundOnRef.current = true; v.muted = false; void v.play(); } else v.pause(); } : undefined}
+                        onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
+                        onError={() => onPlayError(item.id)}
+                        onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }}
+                        onEnded={() => markViewed(item, 99, true)}
+                        className={"h-full w-full bg-black " + (reelsMode && (ratios[item.id] || 0.6) <= 1 ? "object-cover" : "object-contain")}
+                      />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video ref={autoplayVideoRef} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onAutoPreviewError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
-                      <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
+                      <video ref={autoplayVideoRef} src={mediaStreamUrl(item.id, !!viaVercel[item.id], item.squad_code)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className={"h-full w-full bg-black " + (reelsMode && (ratios[item.id] || 0.6) > 1 ? "object-contain" : "object-cover")} onError={() => onAutoPreviewError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
+                      {!reelsMode && <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>}
                     </button>
                   ) : (
                     <button type="button" onClick={() => playItem(item)} className="group relative block h-full w-full">
@@ -1660,8 +1680,26 @@ export default function MiniAppPage() {
                       <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-transparent to-transparent"><span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-2xl text-slate-800 shadow-xl transition group-active:scale-90">▶</span></span>
                     </button>
                   )}
-                  <span className={`absolute left-2 top-2 rounded-full ${isAudio ? "bg-indigo-500" : p.badge} px-2.5 py-0.5 text-[10px] font-black text-white shadow`}>{isAudio ? "صوت" : p.label}</span>
-                  <button type="button" aria-label="المزيد" onClick={() => { haptic(); setMenuItem(item); }} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-lg font-black leading-none text-white backdrop-blur">⋮</button>
+                  {!reelsMode && <span className={`absolute left-2 top-2 rounded-full ${isAudio ? "bg-indigo-500" : p.badge} px-2.5 py-0.5 text-[10px] font-black text-white shadow`}>{isAudio ? "صوت" : p.label}</span>}
+                  {!reelsMode && <button type="button" aria-label="المزيد" onClick={(e) => { e.stopPropagation(); haptic(); setMenuItem(item); }} className="absolute right-2 top-2 z-[4] flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-lg font-black leading-none text-white backdrop-blur">⋮</button>}
+                  {reelsMode && !isAudio && (
+                    <>
+                      <div className="media-reel-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                        <a href={cloneHref(item.id)} onClick={() => { haptic(); track("download_intent", { post_id: item.id, method: "telegram-bot" }); }} aria-label="استلام الوسائط عبر البوت">⚡</a>
+                        <button type="button" onClick={() => toggleLike(item)} aria-label="إعجاب">{isLiked ? "❤️" : "🤍"}</button>
+                        <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} aria-label="تعليق">💬</button>
+                        <a href={item.url || "#"} target="_blank" rel="noreferrer" aria-label="المصدر">🌐</a>
+                        <button type="button" onClick={() => void forwardInTelegram(item)} aria-label="إرسال">↪️</button>
+                        <button type="button" onClick={() => { haptic(); setMenuItem(item); }} aria-label="المزيد">⋮</button>
+                      </div>
+                      <div className="media-reel-meta">
+                        {playingId !== item.id && <p className="mb-1 text-[11px] font-bold">اضغط للصوت</p>}
+                        <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="text-sm font-black">{item.sharer_name || "مستخدم"}</button>
+                        {!!p.name && <p className="text-[11px] font-bold opacity-80">{p.name}</p>}
+                        <p className="mt-1 line-clamp-2 text-[13px] font-semibold">{displayTitle(item)}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 {playError === item.id && (
                   <div role="status" className="flex items-center gap-2 border-t border-rose-100 bg-gradient-to-l from-rose-50 to-orange-50 px-3.5 py-2.5">
@@ -1670,7 +1708,7 @@ export default function MiniAppPage() {
                     <button type="button" onClick={() => { playErrorAttempts.current[item.id] = 0; setViaVercel((v) => ({ ...v, [item.id]: false })); setPlayError(null); setPlayingId(item.id); }} className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 shadow-sm ring-1 ring-rose-200">إعادة المحاولة</button>
                   </div>
                 )}
-                <div className="p-3.5">
+                {!reelsMode && <div className="p-3.5">
                   <h3 className="line-clamp-2 text-[15px] font-extrabold text-slate-800">{displayTitle(item)}</h3>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                     <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="rounded-full bg-teal-50 px-2 py-0.5 font-semibold text-teal-700 ring-1 ring-teal-100">👤 {item.sharer_name || "مستخدم"}{item.sharer_id && followingSet.has(item.sharer_id) ? " 💜" : ""}</button>
@@ -1689,14 +1727,15 @@ export default function MiniAppPage() {
                   {mine && showProfile && isOwnProfile && (
                     <button type="button" onClick={() => void deletePost(item)} className="mt-2 w-full rounded-xl bg-rose-50 py-2 text-[11px] font-bold text-rose-600 ring-1 ring-rose-100">🗑 حذف المنشور</button>
                   )}
-                </div>
+                </div>}
               </article>
               </FeedAdBefore>
             );
           })}
-          {nextOffset != null && <LoadMoreSentinel onVisible={() => void loadMore()} loading={loadingMore} />}
-          {nextOffset == null && visible.length > 5 && <p className="py-4 text-center text-[11px] font-bold text-slate-400">— وصلت إلى النهاية —</p>}
+          {nextOffset != null && <div className={reelsMode ? "media-reel-more" : undefined}><LoadMoreSentinel onVisible={() => void loadMore()} loading={loadingMore} /></div>}
+          {nextOffset == null && visible.length > 5 && <p className={`py-4 text-center text-[11px] font-bold ${reelsMode ? "text-white/70" : "text-slate-400"}`}>— وصلت إلى النهاية —</p>}
           </div>
+          </>
         ))}
       </div>
 
@@ -1768,34 +1807,6 @@ export default function MiniAppPage() {
         </div>
       )}
 
-      {activePlayerItem && activePlayerIsVideo && playerFrame && typeof document !== "undefined" && createPortal(
-        <div
-          className={"media-mini-app-player-float " + (playerFrame.mode === "dock" ? "media-mini-app-player-float--dock" : "media-mini-app-player-float--anchor")}
-          style={playerFrame.mode === "anchor" ? { top: playerFrame.top, left: playerFrame.left, width: playerFrame.width, height: playerFrame.height } : undefined}
-          aria-label={"مشغّل الفيديو: " + displayTitle(activePlayerItem)}
-        >
-          <video
-            key={activePlayerItem.id + "-" + (viaVercel[activePlayerItem.id] ? "vercel" : "worker")}
-            data-mini-player="true"
-            data-player-id={activePlayerItem.id}
-            src={mediaStreamUrl(activePlayerItem.id, !!viaVercel[activePlayerItem.id], activePlayerItem.squad_code)}
-            poster={activePlayerItem.thumbnail || undefined}
-            controls
-            autoPlay
-            playsInline
-            preload="auto"
-            onLoadedMetadata={(e) => setRatio(activePlayerItem.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
-            onError={() => onPlayError(activePlayerItem.id)}
-            onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(activePlayerItem, t); }}
-            onEnded={() => markViewed(activePlayerItem, 99, true)}
-          />
-          <div className="media-mini-app-player-float-tools">
-            <span title={displayTitle(activePlayerItem)}>▶ {displayTitle(activePlayerItem)}</span>
-            <button type="button" aria-label="إغلاق مشغّل الفيديو" onClick={() => { setPlayingId(null); setPlayerFrame(null); }}>×</button>
-          </div>
-        </div>,
-        document.body
-      )}
       {toast && <div role="status" aria-live="polite" className="media-mini-app-toast fixed left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-slate-900/90 px-4 py-2.5 text-center text-xs font-bold text-white shadow-xl">{toast}</div>}
     </div>
   );
@@ -1815,13 +1826,14 @@ function SheetButton({ icon, label, hint, color, onClick }: { icon: string; labe
 
 // Every 5th post is preceded by one in-feed ad card (300×250), mounted only
 // when it scrolls near the screen so ads don't slow the first load.
-function FeedAdBefore({ index, createdAt, onOpenAthar, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; children: React.ReactNode }) {
+function FeedAdBefore({ index, createdAt, onOpenAthar, plain, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; plain?: boolean; children: React.ReactNode }) {
   // every 5th post is preceded by a card: an ad, and in between (5th, 15th, 25th ...) Athar's card for the post's own day;
-  // when Athar does not answer that slot shows the usual ad
+  // when Athar does not answer that slot shows the usual ad. Reels use their own full-screen ad card (ReelAd) every 6th reel.
   return (
     <>
-      {index > 0 && index % 10 === 0 && <LazyFeedAd />}
-      {index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
+      {plain && index > 0 && index % 6 === 0 && <ReelAd />}
+      {!plain && index > 0 && index % 10 === 0 && <LazyFeedAd />}
+      {!plain && index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
       {children}
     </>
   );
@@ -1840,6 +1852,19 @@ function TopBannerAd({ reloadKey }: { reloadKey: number }) {
         onEmpty={() => setEmpty(true)}
       />
     </div>
+  );
+}
+/** One full-screen ad between reels (every 6th); vanishes when the network has nothing to show, so a swipe never lands on an empty card. */
+function ReelAd() {
+  const [empty, setEmpty] = useState(false);
+  if (empty) return null;
+  return (
+    <section className="media-reel-ad" aria-label="إعلان">
+      <p className="mb-2 text-[11px] font-bold text-white/60">إعلان · اسحب للمتابعة ↑</p>
+      <div className="overflow-hidden rounded-2xl bg-white/5 p-2">
+        <AdsterraBanner adKey="3ee970813986977775e962f26938d143" width={300} height={250} onEmpty={() => setEmpty(true)} />
+      </div>
+    </section>
   );
 }
 function LazyFeedAd() {

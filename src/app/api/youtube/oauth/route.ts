@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const html = (m: string, s = 200) => new NextResponse(`<meta charset=utf-8><meta name=viewport content="width=device-width"><body style="font:16px system-ui;padding:24px;direction:rtl">${m}</body>`, { status: s, headers: { "content-type": "text/html; charset=utf-8" } });
-  const authed = Boolean(process.env.CRON_SECRET) && q.get("secret") === process.env.CRON_SECRET;
+  const bearer = req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
+  const authed = Boolean(process.env.CRON_SECRET) && (bearer || q.get("secret") === process.env.CRON_SECRET);
   if (q.get("status") && authed) return html((await youtubeReady()) ? "✅ الربط جاهز: يوجد رمز محفوظ ومفاتيح العميل مضبوطة." : "⛔ غير جاهز بعد: " + (youtubeKeysPresent() ? "لا يوجد رمز محفوظ." : "مفاتيح العميل غير مضافة في هذا النشر."));
   const pasted = q.get("url");
   if (pasted) {   // never exchange on GET: browsers prefetch links and the code works once. Show a button that POSTs instead.
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
     return html(why === null ? "✅ تم الربط: سيُنشر الفيديو الترويجي على يوتيوب تلقائياً." : `⚠️ فشل الربط.<br><code dir=ltr>${why.replace(/[<>&]/g, "")}</code>`);
   }
   if (q.get("error")) return html("رُفض الإذن: " + q.get("error"), 400);
-  if (!process.env.CRON_SECRET || q.get("secret") !== process.env.CRON_SECRET) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!authed) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const url = consentUrl();
   if (!url) return html(youtubeKeysPresent() ? "تعذر البدء." : "ضع YOUTUBE_CLIENT_ID و YOUTUBE_CLIENT_SECRET في متغيرات Vercel أولاً.", 503);
   return NextResponse.redirect(url);
@@ -39,7 +40,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const f = await req.formData().catch(() => null);
   const html = (m: string, st = 200) => new NextResponse(`<meta charset=utf-8><meta name=viewport content="width=device-width"><body style="font:16px system-ui;padding:24px;direction:rtl">${m}</body>`, { status: st, headers: { "content-type": "text/html; charset=utf-8" } });
-  if (!process.env.CRON_SECRET || f?.get("secret") !== process.env.CRON_SECRET) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const okHeader = req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
+  if (!process.env.CRON_SECRET || !(okHeader || f?.get("secret") === process.env.CRON_SECRET)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   let u: URL | null = null;
   try { u = new URL(String(f?.get("url") || "").trim()); } catch { /* handled below */ }
   const code = u?.searchParams.get("code");

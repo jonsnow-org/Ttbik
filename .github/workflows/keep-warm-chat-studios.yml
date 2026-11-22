@@ -5,11 +5,17 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+  # GitHub drops many scheduled runs in this repo (gaps of 2-3 h seen 2026-11-18), so also run after every Studio deploy and every merge to the default branch
+  workflow_run:
+    workflows: ["Deploy the Sham live-trainer Studio (free ModelScope CPU, GPU if the Studio has one)", "Deploy the sham-runner Studio (GitHub self-hosted runner `studio` + the notebook's data, modelscope.ai)"]
+    types: [completed]
+  push:
+    branches: [claude/free-services-marketplace-h6rwk2]
 permissions:
   contents: read
 concurrency:
   group: keep-warm-chat-studios
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   ping:
     runs-on: ubuntu-latest
@@ -23,6 +29,41 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "$n HTTP $code"
           done
+      - name: Ping the Sham trainer Studios
+        # A Studio nobody calls goes to sleep: the pinged ones stayed Running and the un-pinged ones slept (read 2026-11-17).
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
+          for n in sham-trainer-1 sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_CN" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
+            echo "cn $n HTTP $code"
+          done
+          for n in sham-trainer-1 sham-trainer-tools coder-inference-server-16 sham-trainer-2 sham-runner-1; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
+            echo "ai $n HTTP $code"
+          done
+      - name: Wake the international Nova 2 Studio if it fell asleep
+        # A plain HTTP ping does not wake a sleeping free Studio (checked for media Studios, same file).
+        # Nova 2 lives only on Jonjithup/coder-inference-server-16 (modelscope.ai, 16 GB). This starts it when
+        # Sleeping; a running or building one is never touched. The cn Nova 4B Studios are unchanged.
+        env:
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          MS: https://www.modelscope.ai
+          OWNER: Jonjithup
+        run: |
+          echo "::add-mask::$T_AI"
+          n=coder-inference-server-16
+          state=$(curl -sS --connect-timeout 8 --max-time 25 -H "Authorization: Bearer $T_AI" "$MS/openapi/v1/studios/$OWNER/$n" | python3 -c 'import json,sys; d=json.load(sys.stdin); d=d.get("data") or d.get("Data") or d; print((d.get("runtime") or {}).get("status") or d.get("status") or "")' 2>/dev/null || true)
+          if [ "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" = "sleeping" ]; then
+            code=$(curl -sS --connect-timeout 8 --max-time 30 -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $T_AI" "$MS/openapi/v1/studios/$OWNER/$n/deploy" || echo 000)
+            echo "ai $OWNER/$n was Sleeping -> deploy HTTP $code"
+          else
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_AI" "https://studio-jonjithup-$n.api-inference.modelscope.ai/" || echo 000)
+            echo "ai $OWNER/$n state=${state:-unknown} ping HTTP $code"
+          fi
+
       - name: Wake each live media Studio if it fell asleep
         # A plain HTTP request does NOT wake a sleeping free Studio (checked 2026-11-11: after an image request every media Studio was still
         # "Sleeping" and every image failed with HTTP 404). Only ModelScope's deploy call starts it again, from the code it already holds.

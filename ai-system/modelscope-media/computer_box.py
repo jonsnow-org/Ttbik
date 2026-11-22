@@ -31,7 +31,11 @@ ROOT = Path(os.environ.get("BOX_STORE", "/mnt/workspace/computer"))
 MAX_OUT = 12000                     # characters returned from one command
 HEAD_OUT = 3000
 DEFAULT_TIMEOUT = 60
-MAX_TIMEOUT = 90                    # longer work belongs in a background job: the Studio gateway cuts long answers
+MAX_TIMEOUT = 300                   # total life of one command; only the first FG_SECONDS are waited for in the call (see run_command)
+# MEASURED 2026-11-14 (computer_latency_probe on the live hub): a call whose answer takes longer than ~20 s comes back EMPTY (null) through the Studio gateway
+# (sleep 15 ok, sleep 22/28/40 all failed), whatever the hub's own timeout says. So a command that is still running after FG_SECONDS is not waited for and not
+# killed: it becomes a background job and the call answers at once with `running: true` and the job id.
+FG_SECONDS = max(3, int(os.environ.get("COMPUTER_FG_SECONDS", "15")))
 MAX_READ = 60000
 MAX_WRITE = 1_000_000
 MAX_JOBS = 4                       # per-session ceiling
@@ -210,6 +214,13 @@ def session_home(session: str) -> Path:
     return session_root(session) / "home"
 
 
+FAST_ROOT = Path(os.environ.get("BOX_FAST", "/tmp/computer-fast"))     # LOCAL disk: the persistent mount costs ~25-50 ms per file, so a checkout lives here and the home folder holds a symlink to it
+
+
+def fast_home(session: str) -> Path:
+    return FAST_ROOT / digest(session)[:24]
+
+
 def session_uid(session: str) -> int:
     """Return a collision-free, persistent unprivileged UID for this session.
 
@@ -269,16 +280,46 @@ def safe_path(session: str, rel: str) -> Path:
         text = text[2:]
     target = (home / text.lstrip("/")) if text.startswith("/") else (home / text)
     real_home = Path(os.path.realpath(home))
+    real_fast = Path(os.path.realpath(fast_home(session)))          # the session's own local-disk folder (checkouts are symlinked here)
     real = Path(os.path.realpath(target))
-    if real != real_home and real_home not in real.parents:
+    if all(real != base and base not in real.parents for base in (real_home, real_fast)):
         raise ValueError("path leaves your computer's home folder")
     return target
+
+
+_CALL = threading.local()          # per-call extras: the OWNER's GitHub credentials, handed over by the app for the length of one request
+_SECRETS: dict = {}                # session -> values to hide in everything that session's commands print
+
+
+def owner_env(raw) -> dict:
+    """Owner order 2026-11-14 ("full control, no restriction on the token"): the app may hand GH_TOKEN / GITHUB_TOKEN for ONE call; git and gh then work
+    from the shell. Only those two names, token-shaped values; git is wired through an extra header so `git clone/push https://github.com/...` just works."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in ("GH_TOKEN", "GITHUB_TOKEN"):
+        v = str(raw.get(k) or "").strip()
+        if re.fullmatch(r"[A-Za-z0-9_\-]{20,300}", v):
+            out[k] = v
+    if out:
+        tok = next(iter(out.values()))
+        import base64
+        b64 = base64.b64encode(f"x-access-token:{tok}".encode()).decode()
+        out.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}", "GIT_TERMINAL_PROMPT": "0"})
+    return out
+
+
+def mask_secrets(session: str, text: str) -> str:
+    for v in _SECRETS.get(session, ()):
+        if v and v in text:
+            text = text.replace(v, "***")
+    return text
 
 
 def clean_env(session: str) -> dict:
     """Only what a shell needs. The Studio's own environment (tokens, secrets, API keys) never reaches a command."""
     home = str(session_home(session))
-    return {
+    env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": home, "USER": "model", "LOGNAME": "model", "SHELL": "/bin/bash",
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm", "TMPDIR": home + "/.tmp",
@@ -289,6 +330,10 @@ def clean_env(session: str) -> dict:
         "PIP_TRUSTED_HOST": "mirrors.aliyun.com", "PIP_DEFAULT_TIMEOUT": "20",
         "npm_config_registry": os.environ.get("COMPUTER_NPM_REGISTRY", "https://registry.npmmirror.com"),
     }
+    extra = getattr(_CALL, "env", None)
+    if extra:
+        env.update(extra)
+    return env
 
 
 def clip(text: str, limit: int = MAX_OUT) -> str:
@@ -304,17 +349,20 @@ def valid_job_id(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9]{6,12}", str(value or "")))
 
 
-def dir_size(path: Path, cap_files: int = 200000) -> int:
+def _walk_size(path: Path, cap_files: int = 200000, deadline: float | None = None) -> tuple[int, bool]:
+    """(bytes under path, finished). `deadline` is a time.monotonic() value: the walk stops there and says it did not finish."""
     total = 0
     seen = 0
     stack = [str(path)]
     while stack:
+        if deadline is not None and time.monotonic() > deadline:
+            return total, False
         try:
             with os.scandir(stack.pop()) as it:
                 for entry in it:
                     seen += 1
                     if seen > cap_files:
-                        return total
+                        return total, True
                     try:
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(entry.path)
@@ -324,7 +372,51 @@ def dir_size(path: Path, cap_files: int = 200000) -> int:
                         pass
         except OSError:
             pass
-    return total
+    return total, True
+
+
+def dir_size(path: Path, cap_files: int = 200000) -> int:
+    return _walk_size(path, cap_files)[0]
+
+
+# MEASURED 2026-11-14: the session folder lives on the persistent mount, where each file costs ~25-50 ms. The disk-quota check walked the WHOLE folder before every
+# run, write and job start (and in `status`), so a session holding a cloned repository (thousands of files) spent 25-30 s per call and then lost the answer at the
+# ~20 s gateway limit (workflow check: status 27 s, repo 28 s, search 33 s, changes 30 s, all empty). The size is now cached per session folder, measured within a
+# short time box, and refreshed by a background walk; writes add their own bytes to the cached value.
+QUOTA_TTL = 90.0
+QUOTA_BUDGET = 1.5
+_QUOTA: dict[str, dict] = {}
+
+
+def session_size(home: Path) -> int:
+    key = str(home)
+    now = time.time()
+    with _LOCK:
+        entry = _QUOTA.get(key)
+        if entry and now - entry["t"] < QUOTA_TTL:
+            return entry["size"]
+        previous = entry["size"] if entry else 0
+    size, finished = _walk_size(home, deadline=time.monotonic() + QUOTA_BUDGET)
+    size = max(size, previous) if not finished else size           # an unfinished walk only knows a lower bound
+    with _LOCK:
+        _QUOTA[key] = {"t": time.time(), "size": size, "refreshing": False}
+        start = not finished
+        if start:
+            _QUOTA[key]["refreshing"] = True
+    if start:
+        def refresh() -> None:
+            full, _ = _walk_size(home)
+            with _LOCK:
+                _QUOTA[key] = {"t": time.time(), "size": full, "refreshing": False}
+        threading.Thread(target=refresh, daemon=True, name="quota-refresh").start()
+    return size
+
+
+def note_written(home: Path, delta: int) -> None:
+    with _LOCK:
+        entry = _QUOTA.get(str(home))
+        if entry:
+            entry["size"] += max(0, int(delta))
 
 
 # ---------------------------------------------------------------- running as the session's own user
@@ -378,8 +470,43 @@ def welcome(session: str) -> str:
     return PLAYBOOK
 
 
+# MEASURED 2026-11-14 (server_ms + setup_ms of the live probe): `ensure_home` cost 8-13 s on EVERY call (quota 0 ms, egress 0 ms after the quota cache). It ran
+# mkdir x4, chmod x2 and a full os.walk with a stat per entry over the session folder on the persistent mount (~2 ms per entry), although it says "cheap after the
+# first call". A session's files stay owned by its own user (commands run as that user; server-side writes chown what they write), so the repair walk is done once per
+# session per process (again every HOME_RECHECK seconds), time-boxed, and an unfinished walk continues in the background.
+HOME_RECHECK = 1800.0
+HOME_BUDGET = 2.0
+_HOME_READY: dict[str, float] = {}
+
+
+def _fix_owner(home: Path, uid: int, deadline: float | None = None) -> bool:
+    """Gives everything under home to the session's user. True when the walk finished (False: the deadline came first)."""
+    try:
+        for base, dirs, files in os.walk(home):
+            if deadline is not None and time.monotonic() > deadline:
+                return False
+            if os.stat(base).st_uid != uid:
+                os.chown(base, uid, uid)
+            for name in dirs + files:
+                p = os.path.join(base, name)
+                if os.lstat(p).st_uid != uid:
+                    os.chown(p, uid, uid, follow_symlinks=False)
+            if base == str(home):
+                os.chmod(home, 0o700)
+            if len(files) > 5000:
+                break
+    except OSError:
+        pass
+    return True
+
+
 def ensure_home(session: str) -> Path:
     home = session_home(session)
+    key = str(home)
+    with _LOCK:
+        last = _HOME_READY.get(key)
+    if last is not None and time.time() - last < HOME_RECHECK and home.is_dir():
+        return home
     for sub in ("", ".tmp", ".jobs", "repos"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     if is_root():
@@ -387,19 +514,17 @@ def ensure_home(session: str) -> Path:
         try:
             os.chmod(ROOT, 0o711)
             os.chmod(session_root(session), 0o711)         # others may traverse to their own home, nothing more
-            for base, dirs, files in os.walk(home):        # only what is not already ours (cheap after the first call)
-                if os.stat(base).st_uid != uid:
-                    os.chown(base, uid, uid)
-                for name in dirs + files:
-                    p = os.path.join(base, name)
-                    if os.lstat(p).st_uid != uid:
-                        os.chown(p, uid, uid, follow_symlinks=False)
-                if base == str(home):
-                    os.chmod(home, 0o700)
-                if len(files) > 5000:
-                    break
         except OSError:
             pass
+        try:
+            FAST_ROOT.mkdir(parents=True, exist_ok=True)
+            os.chmod(FAST_ROOT, 0o1777)                    # each session makes its own 0700 folder inside
+        except OSError:
+            pass
+        if not _fix_owner(home, uid, time.monotonic() + HOME_BUDGET):
+            threading.Thread(target=_fix_owner, args=(home, uid), daemon=True, name="home-owner").start()
+    with _LOCK:
+        _HOME_READY[key] = time.time()
     return home
 
 
@@ -521,7 +646,7 @@ def _run_lock(session: str) -> threading.Lock:
 
 
 def over_quota(session: str) -> bool:
-    return dir_size(session_home(session)) > QUOTA_BYTES
+    return session_size(session_home(session)) > QUOTA_BYTES
 
 
 def _mem_available_mb() -> int | None:
@@ -598,15 +723,74 @@ def _capacity_reason_locked(session: str) -> str:
     return ""
 
 
-def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT) -> dict:
+def _promote_to_job(session: str, home: Path, proc, chunks: list, reader, command: str, started: float, timeout: int, workdir: Path,
+                    max_output: int) -> dict:
+    """A command that outlived the foreground wait keeps running as a background job (same table as job_start): the call answers now with what it printed so
+    far and the job id; the model reads the rest with computer_job action=log. The process is stopped `timeout` seconds after it started, like before."""
+    job_id = hashlib.sha256(f"{time.time()}{command}".encode()).hexdigest()[:8]
+    jobs_dir = home / ".jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    log = jobs_dir / f"{job_id}.log"
+    done = threading.Event()
+
+    def pump() -> None:
+        index = 0
+        stopped = False
+        try:
+            with open(log, "wb") as fh:
+                while True:
+                    count = len(chunks)
+                    if count > index:
+                        fh.write(b"".join(chunks[index:count]))
+                        fh.flush()
+                        index = count
+                    if proc.poll() is not None and not reader.is_alive():
+                        break
+                    if not stopped and time.time() - started > timeout:
+                        stopped = True
+                        _kill_group(proc.pid)
+                        fh.write(f"\n[stopped after {timeout} s]\n".encode())
+                        fh.flush()
+                    time.sleep(0.2)
+                count = len(chunks)
+                if count > index:
+                    fh.write(b"".join(chunks[index:count]))
+        except Exception:                                      # noqa: BLE001
+            pass
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:                                  # noqa: BLE001
+                pass
+            done.set()
+
+    thread = threading.Thread(target=pump, daemon=True)
+    with _LOCK:
+        _jobs(session)[job_id] = {"proc": proc, "log": log, "command": command[:300], "name": "auto: " + command[:50], "started": started,
+                                  "exit_code": None, "pump": thread, "done": done}
+    thread.start()
+    partial = b"".join(chunks[-64:]).decode("utf-8", "replace")
+    reply = {"ok": True, "running": True, "id": job_id, "job": job_id, "exit_code": None, "output": clip(partial, max_output),
+             "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else ".",
+             "hint": f"still running after {FG_SECONDS} s (an answer that takes longer than ~20 s is lost): it continues in the background and is stopped "
+                     f"{timeout} s after it started. Read the rest with computer_job action=log id={job_id}"}
+    _log_activity(home, command, reply)
+    return reply
+
+
+def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAULT_TIMEOUT, max_output: int = MAX_OUT, promote: bool = True) -> dict:
     command = str(command or "").strip()
     if not command:
         return {"ok": False, "error": "empty command"}
     timeout = max(1, min(MAX_TIMEOUT, int(timeout or DEFAULT_TIMEOUT)))
+    t0 = time.monotonic()
     home = ensure_home(session)
+    t1 = time.monotonic()
     if over_quota(session):
         return {"ok": False, "error": f"your computer's disk is full ({QUOTA_BYTES // 1024 ** 3} GB); delete files first"}
+    t2 = time.monotonic()
     install_egress_rules()
+    t3 = time.monotonic()
     try:
         workdir = safe_path(session, cwd)
     except ValueError as exc:
@@ -643,9 +827,13 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
                     pass
             reader = threading.Thread(target=_reader, daemon=True)
             reader.start()
+            foreground = min(timeout, FG_SECONDS)
             try:
-                proc.wait(timeout=timeout)
+                proc.wait(timeout=foreground)
             except subprocess.TimeoutExpired:
+                if promote and timeout > foreground:
+                    # still running after the foreground wait: keep it alive as a background job (answers over ~20 s are lost at the gateway)
+                    return _promote_to_job(session, home, proc, chunks, reader, command, started, timeout, workdir, max_output)
                 timed_out = True
                 _kill_group(proc.pid)
                 try:
@@ -662,7 +850,8 @@ def run_command(session: str, command: str, cwd: str = ".", timeout: int = DEFAU
         with _LOCK:
             _ACTIVE_COMMANDS.discard(reservation)
     out = raw.decode("utf-8", "replace") if raw else ""
-    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else "."}
+    reply = {"ok": True, "exit_code": proc.returncode, "output": clip(out, max_output), "seconds": round(time.time() - started, 1), "cwd": str(workdir.relative_to(home)) if workdir != home else ".",
+             "setup_ms": {"home": round((t1 - t0) * 1000), "quota": round((t2 - t1) * 1000), "egress": round((t3 - t2) * 1000)}}
     if timed_out:
         reply["timed_out"] = True
         reply["hint"] = f"stopped after {timeout} s: run long work with computer_job (it keeps running between calls)"
@@ -854,6 +1043,7 @@ def write_file(session: str, path: str, content: str) -> dict:
         return {"ok": False, "error": "that path is a directory or a link"}
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(data, encoding="utf-8")
+    note_written(session_home(session), len(data.encode("utf-8")))
     if is_root():
         uid = session_uid(session)
         for p in (target.parent, target):
@@ -954,6 +1144,8 @@ def job_log(session: str, job_id: str, tail: int = 60) -> dict:
         if not job:
             return {"ok": False, "error": "no such job (a restart of the Studio ends running jobs)"}
         _refresh(job)
+    if job.get("done") is not None and job["exit_code"] is not None:
+        job["done"].wait(timeout=3)                            # a promoted command: let its log writer finish so the last lines are there
     return {"ok": True, "id": job_id, "running": job["exit_code"] is None, "exit_code": job["exit_code"],
             "seconds": round((job.get("ended") or time.time()) - job["started"], 1), "output": clip(_tail(job["log"], tail))}
 
@@ -1076,7 +1268,7 @@ def collect_changes(session: str, repo: str, folder: str = "") -> dict:
         safe_path(session, folder)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
-    out = run_command(session, "python3 -c " + shell_quote(COLLECT_SCRIPT), folder, 60, 6_000_000)
+    out = run_command(session, "python3 -c " + shell_quote(COLLECT_SCRIPT), folder, 60, 6_000_000, promote=False)
     if not out.get("ok") or out.get("exit_code") != 0:
         return {"ok": False, "error": "could not read the changes: " + str(out.get("error") or out.get("output") or "")[:300]}
     try:                                             # stderr is merged into the output: read only what follows the marker
@@ -1114,7 +1306,21 @@ def repo_summary_command(folder: str) -> str:
     )
 
 
-def repo_fetch(session: str, url: str, ref: str = "") -> dict:
+# Measured 2026-11-15 (live check): a fresh checkout of a 3,000-file repository took 4-6 minutes on the persistent mount (~25-55 ms per file, three times: the
+# extraction, the loose git objects of the baseline commit, the index). It is now built on the LOCAL disk (seconds), packed into one git pack, and only then copied
+# into the home folder with many parallel `cp` (the mount is latency-bound, not bandwidth-bound).
+PUBLISH_LOCAL_SH = (
+    # A checkout is built on the local disk and STAYS there ($FAST/<dst>, one rename); the home folder only gets a symlink to it. Copying thousands of files
+    # (or deleting the old tree) on the persistent mount took minutes (live check 2026-11-15: the clone job outlived a 200 s wait) and raced on mkdir.
+    'publish_local() { src="$1"; dst="$2"; D="$(pwd)/$dst"; F="${FAST:-$(pwd)/../.fast}/$dst"; '
+    'mkdir -p "$(dirname "$F")" "$(dirname "$D")" || return 1; chmod 700 "${FAST:-$(pwd)/../.fast}" 2>/dev/null; '
+    'rm -rf "$F.new"; mv "$src" "$F.new" || return 1; rm -rf "$F"; mv "$F.new" "$F" || return 1; '
+    'if [ -L "$D" ]; then rm -f "$D"; elif [ -e "$D" ]; then mv "$D" "$D.old.$$" && { nohup rm -rf "$D.old.$$" >/dev/null 2>&1 & }; fi; '
+    'ln -s "$F" "$D"; }; '
+)
+
+
+def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> dict:
     """Public GitHub repository -> ~/repos/<owner>-<name> in ONE call (shallow clone; tarball when git is blocked). Private repositories are not fetched here:
     no GitHub token is ever put in this computer."""
     parsed = parse_repo_url(url)
@@ -1132,17 +1338,23 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
     tar_url = shell_quote(f"https://codeload.github.com/{owner}/{name}/tar.gz/{tar_ref}")
     marker = re.sub(r"[^A-Za-z0-9_.-]", "_", tar_ref)[:100]          # a snapshot of THIS ref fetched minutes ago is reused (the Studio's GitHub link is slow)
     api_url = shell_quote(f"https://api.github.com/repos/{owner}/{name}/tarball/{tar_ref}")
+    signed = str(signed_url or "").strip()       # a PRIVATE repository: the app asked GitHub for a short-lived download address with its own token and passes only that address (the token itself never comes here)
+    if signed:
+        if not re.fullmatch(r"https://codeload\.github\.com/[A-Za-z0-9_./?=&%~+-]{1,1500}", signed):
+            return {"ok": False, "error": "bad download address"}
+        tar_url = api_url = shell_quote(signed)
     # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
     # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
     # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
     # publish still see what the model edits).
-    t_dir, g_dir = shell_quote(folder + ".tar.part"), shell_quote(folder + ".git.part")
+    t_dir, g_dir = '"$L/t"', '"$L/g"'               # on the LOCAL disk (see PUBLISH_LOCAL_SH)
     script = (
-        f"set -e; mkdir -p repos; "
-        f"if [ -d {q}/.git ] && git -C {q} remote get-url origin >/dev/null 2>&1; then cd {q} && git fetch --depth 1 origin {shell_quote(ref or 'HEAD')} && git reset --hard FETCH_HEAD; "
-        f"elif [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
-        f"else rm -rf {q} {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; mkdir -p {t_dir}; set +e; "
-        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz --no-same-permissions --no-same-owner -C {t_dir} --strip-components=1; }}; "
+        f"set -e; mkdir -p repos; FAST={shell_quote(str(fast_home(session)))}; L=$(mktemp -d /tmp/crepo.XXXXXX); trap 'rm -rf \"$L\"' EXIT; {PUBLISH_LOCAL_SH}"
+        # (2026-11-14 live check: `git fetch` inside an existing checkout on the persistent mount died with "Failed to checksum .git/objects/pack/tmp_pack" and left no folder;
+        #  an older checkout is therefore replaced by a fresh tarball/clone download, as a missing one is)
+        f"if [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
+        f"else mkdir -p {t_dir}; set +e; "
+        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
         f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
         f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; fetch_tar {api_url} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
         f"( git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone -q --depth 1 --single-branch {branch}{shell_quote(clone_url)} {g_dir} && touch {g_dir}.ok || echo \"git clone failed at ${{SECONDS}}s\" ) & pg=$!; "
@@ -1150,11 +1362,12 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
         f"if [ -f {t_dir}.ok ]; then win=tar; break; fi; if [ -f {g_dir}.ok ]; then win=git; break; fi; "
         f"if ! kill -0 $pt 2>/dev/null && ! kill -0 $pg 2>/dev/null; then [ -f {t_dir}.ok ] && win=tar; [ -f {g_dir}.ok ] && win=git; break; fi; sleep 0.5; done; "
         f"killtree $pt; killtree $pg; wait 2>/dev/null; set -e; "
-        f"if [ \"$win\" = tar ]; then mv {t_dir} {q}; echo \"fetched (tarball) in ${{SECONDS}}s\"; "
-        f"(cd {q} && git init -q && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1 || true); echo \"git baseline at ${{SECONDS}}s\"; "
-        f"elif [ \"$win\" = git ]; then mv {g_dir} {q}; echo \"fetched (git clone) in ${{SECONDS}}s\"; "
-        f"else rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
-        f"rm -rf {t_dir} {g_dir} {t_dir}.ok {g_dir}.ok; touch {q}/.git/FETCHED_{marker}; fi; "
+        f"if [ \"$win\" = tar ]; then echo \"downloaded (tarball) in ${{SECONDS}}s\"; "
+        f"(cd {t_dir} && git init -q && git remote add origin {shell_quote(clone_url)} && git add -A && git -c user.name=computer -c user.email=computer@local commit -qm {shell_quote('snapshot ' + (ref or 'HEAD'))} >/dev/null 2>&1; git repack -adq >/dev/null 2>&1; git prune-packed >/dev/null 2>&1 || true); echo \"git baseline (local) at ${{SECONDS}}s\"; "
+        f"publish_local {t_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
+        f"elif [ \"$win\" = git ]; then echo \"downloaded (git clone) in ${{SECONDS}}s\"; (cd {g_dir} && git gc -q >/dev/null 2>&1 || true); publish_local {g_dir} {q}; echo \"copied into the home folder at ${{SECONDS}}s\"; "
+        f"else echo \"every source failed at ${{SECONDS}}s\"; exit 1; fi; "
+        f"touch {q}/.git/FETCHED_{marker}; fi; "
         f"{repo_summary_command(folder)}"
     )
     # a big repository (tar + git baseline commit) used to starve the 2 vCPUs so that the Studio answered the next calls with nothing: run it at the lowest priority
@@ -1176,11 +1389,11 @@ def repo_fetch(session: str, url: str, ref: str = "") -> dict:
 
 
 def search_command(pattern: str, path: str = ".", glob: str = "") -> str:
-    """ripgrep when installed, grep otherwise; line-numbered, bounded."""
+    """ripgrep when installed, grep otherwise; line-numbered, bounded. Symlinks are followed: a checkout lives on the local disk and the home folder only holds a link to it, so a search from the home folder (`.`) found nothing without -L / -R (Nova run 6dde88f5, 2026-11-16: «no matches» for a word in 10 files)."""
     g = f"-g {shell_quote(glob)} " if glob else ""
     inc = f"--include={shell_quote(glob)} " if glob else ""              # the grep fallback (before ripgrep is installed) must honour the file filter too
-    return (f"if command -v rg >/dev/null; then rg -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
-            f"else grep -rIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
+    return (f"if command -v rg >/dev/null; then rg -L -j 32 -n --no-heading -S --max-columns 200 -m 20 {g}-e {shell_quote(pattern)} {shell_quote(path)}; "
+            f"else grep -RIn --max-count=20 --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.cache {inc}-E -e {shell_quote(pattern)} {shell_quote(path)}; fi | head -n 120")
 
 
 def search_files(session: str, pattern: str, path: str = ".", glob: str = "") -> dict:
@@ -1190,9 +1403,11 @@ def search_files(session: str, pattern: str, path: str = ".", glob: str = "") ->
         safe_path(session, path)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
-    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 40)
+    out = run_command(session, search_command(str(pattern)[:300], str(path or ".")[:300], str(glob or "")[:100]), ".", 60)
     if not out.get("ok"):
         return out
+    if out.get("running"):                      # a slow search keeps running as a job; what it found so far is returned at once
+        return {"ok": True, "running": True, "id": out["id"], "matches": out["output"] or "(nothing yet)", "seconds": out["seconds"], "hint": out["hint"]}
     return {"ok": True, "matches": out["output"] or "(no matches)", "seconds": out["seconds"]}
 
 
@@ -1216,7 +1431,7 @@ def status(session: str = "") -> dict:
                       and available_mb is not None and available_mb >= MIN_AVAILABLE_MB)
     reply = {"ok": True, "isolation": "private unprivileged user, no new privileges, memory/process/file limits, clean environment" if is_root() else "same user as the Studio (not root): environment cleaned, limits applied",
              "persistent": str(ROOT).startswith("/mnt/workspace"), "store": str(ROOT), "disk": disk, "tools": tools,
-             "limits": {"command_seconds": MAX_TIMEOUT, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
+             "limits": {"command_seconds": MAX_TIMEOUT, "foreground_seconds": FG_SECONDS, "jobs_per_session": MAX_JOBS, "global_jobs": MAX_GLOBAL_JOBS,
                         "disk_gb": QUOTA_BYTES // 1024 ** 3, "memory_gb": round(MEMORY_KILL / 1024 ** 3, 2),
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
@@ -1224,7 +1439,7 @@ def status(session: str = "") -> dict:
              "egress": STATE["egress"], "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:
         home = session_home(session)
-        reply["your_disk_mb"] = round(dir_size(home) / 1024 ** 2, 1) if home.exists() else 0
+        reply["your_disk_mb"] = round(session_size(home) / 1024 ** 2, 1) if home.exists() else 0
         reply["jobs_running"] = sum(1 for j in _jobs(session).values() if j.get("exit_code") is None)
     return reply
 
@@ -1255,7 +1470,7 @@ def patch_files(session: str, diff: str, cwd: str = ".") -> dict:
            "git apply --check --recount --whitespace=nowarn \"$P\" && git apply --recount --whitespace=nowarn -v \"$P\" 2>&1 && echo PATCH_OK via git; "
            "else for n in 1 0; do if patch -p$n --dry-run --forward -s < \"$P\" >/dev/null 2>&1; then patch -p$n --forward < \"$P\" && echo PATCH_OK via patch -p$n; exit 0; fi; done; "
            "patch -p1 --dry-run --forward < \"$P\"; exit 1; fi")
-    out = run_command(session, cmd, cwd, 60)
+    out = run_command(session, cmd, cwd, 60, promote=False)
     if not out.get("ok"):
         return out
     applied = "PATCH_OK" in str(out.get("output", ""))
@@ -1277,7 +1492,7 @@ def run_tests(session: str, cwd: str = ".", command: str = "") -> dict:
     unless `command` is given. Returns a job id to read with job_log."""
     cmd = str(command or "").strip()
     if not cmd:
-        found = run_command(session, TEST_DETECT, cwd, 15)
+        found = run_command(session, TEST_DETECT, cwd, 15, promote=False)
         if not found.get("ok"):
             return found
         lines = str(found.get("output") or "").strip().splitlines()
@@ -1345,7 +1560,7 @@ def _dispatch_inner(session: str, action: str, job: dict) -> dict:
     elif action == "changes":
         out = collect_changes(session, job.get("repo", ""), job.get("dir", ""))
     elif action == "repo":
-        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""))
+        out = repo_fetch(session, job.get("url", ""), job.get("ref", ""), job.get("signed_url", ""))
     elif action == "search":
         out = search_files(session, job.get("pattern", ""), job.get("path", "."), job.get("glob", ""))
     elif action == "status":
@@ -1370,12 +1585,47 @@ def _dispatch(session: str, action: str, job: dict) -> dict:
     entry = note_activity(session, "shell", action, _act_detail(action, job))
     _LIVE_ENTRY[threading.get_ident()] = entry
     out: dict = {}
+    _screen_line(session, action, job, None)
     try:
         out = _dispatch_inner(session, action, job)
         return out
     finally:
         _LIVE_ENTRY.pop(threading.get_ident(), None)
         finish_activity(entry, out if isinstance(out, dict) else {})
+        _screen_line(session, action, job, out if isinstance(out, dict) else {})
+
+
+# What the model does must be visible ON the computer's own screen (owner 2026-11-16: not in a panel under it). The desktop's "Model Computer" window tails
+# ~/.activity.log; commands already write their output there (_log_activity), so every OTHER action (read, search, edit, write, test, fetch, publish) adds one short line.
+_SCREEN_SKIP = {"run", "status", "activity", "job_list", "shot", "frame"}
+
+
+def _screen_line(session: str, action: str, job: dict, out: dict | None) -> None:
+    """One line per action in the session's ~/.activity.log: '▶ read path' when it starts, '   ✔ …' / '   ✖ …' when it ends. Never fails the action."""
+    if action in _SCREEN_SKIP:
+        return
+    try:
+        detail = _act_detail(action, job)
+        if out is None:
+            text = f"\n▶ {action}" + (f"  {detail}" if detail else "") + "\n"
+        else:
+            ok = bool(out.get("ok")) and out.get("exit_code") in (None, 0)
+            note = out.get("error") or out.get("message") or out.get("summary") or ""
+            if not note and isinstance(out.get("output"), str):
+                note = out["output"].strip().splitlines()[-1] if out["output"].strip() else ""
+            if not note and isinstance(out.get("content"), str):
+                note = f"{len(out['content'])} characters"
+            text = ("   ✔ " if ok else "   ✖ ") + str(note)[:160].replace("\n", " ") + "\n"
+        home = session_home(session)
+        if not home.is_dir():              # the very first action of a session creates the home itself: nothing to write into yet
+            return
+        path = home / ".activity.log"
+        if path.exists() and path.stat().st_size > 300_000:
+            path.write_text("", encoding="utf-8")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
+    except Exception:                                          # noqa: BLE001
+        pass
 
 
 def run_batch(session: str, steps) -> dict:
@@ -1409,6 +1659,7 @@ def run_batch(session: str, steps) -> dict:
 
 
 def api_box_do(body: str) -> str:
+    started_at = time.monotonic()
     try:
         job = json.loads(unwrap_body(body) or "{}")
         if not isinstance(job, dict):
@@ -1419,10 +1670,16 @@ def api_box_do(body: str) -> str:
     if not session:
         return json.dumps({"ok": False, "error": "no session"})
     action = str(job.get("action") or "")
+    extra = owner_env(job.get("env"))
+    if extra:
+        _SECRETS[session] = {v for k, v in extra.items() if k in ("GH_TOKEN", "GITHUB_TOKEN")} | {extra["GIT_CONFIG_VALUE_0"].rsplit(" ", 1)[-1]}
+    _CALL.env = extra
     try:
         out = run_batch(session, job.get("steps")) if action == "batch" else _dispatch(session, action, job)
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
+    finally:
+        _CALL.env = None
     if out.get("ok") and action in ("run", "repo", "read", "write", "edit", "job_start", "patch", "test", "batch"):
         try:
             tips = welcome(session)                        # once per session, never repeated
@@ -1430,4 +1687,6 @@ def api_box_do(body: str) -> str:
             tips = ""
         if tips:
             out["tips"] = tips
-    return json.dumps(out, ensure_ascii=False)
+    if isinstance(out, dict):
+        out["server_ms"] = round((time.monotonic() - started_at) * 1000)     # time INSIDE the handler: the rest of what a client waits is queue/gateway (live probe 2026-11-14: ~10 s per call, unexplained)
+    return mask_secrets(session, json.dumps(out, ensure_ascii=False))

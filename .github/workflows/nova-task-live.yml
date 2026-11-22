@@ -37,6 +37,8 @@ jobs:
         env:
           MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
+          # GitHub for the throw-away owner chat: the owner's own token if the repository secret CODER_GITHUB_TOKEN exists (so private repositories are reachable), else this workflow's read-only token
+          PROBE_GH_TOKEN: ${{ secrets.CODER_GITHUB_TOKEN || github.token }}
           PROBE_TEXT: ${{ inputs.text }}
           PROBE_MODEL: ${{ inputs.model }}
           PROBE_DROP_CONTINUE: ${{ inputs.drop_continue }}

@@ -50,4 +50,4 @@ You may, without asking: fix bugs, add tests, improve copy, add small features a
 ## 6. Coordination
 - Roll call and message bus: `docs/AGENT_BUS.md` (PR #2 comments tagged `🤖 GROK:` / `🔵 CLAUDE:` for the Athar session). Do not spam it.
 - Other supervisors: if you find a problem in another section, open one issue labelled `supervisor-<that section>` and describe it; do not fix it yourself.
-- Existing automation you must not fight: hourly `error-triage` creates `auto-error` issues (the "Auto-fix site errors" routine fixes them); `promo-supervisor` writes the daily promo report; `znbt-guard` watches the coin's frozen items every hour.
+- Existing automation you must not fight: the ONE hourly `monitor` workflow (since 2026-11-14 it replaced section-supervisors, promo-supervisor, error-triage, oracle-freshness and stale-issues) edits a single issue "Monitoring: all systems" in place and opens an `auto-error` issue only for an error that repeated 10+ times (the "Auto-fix site errors" routine fixes those); `znbt-guard` watches the coin's frozen items every hour.

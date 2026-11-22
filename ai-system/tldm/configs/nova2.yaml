@@ -1,0 +1,33 @@
+# Nova 2 on T-LDM — Sham 2's technique on Nova 2's OWN body (Qwen3.6-35B-A3B), never Sham's and never Nova 1's.
+#
+# Same code path as Nova 1 (`training/train_sham2.py --cached`) and the same recipe, but a SEPARATE config, head file, work folder
+# and head repo (`nova2-tldm-head`). A Nova 2 cycle can never read, train or publish Nova 1's head, and the reverse.
+#
+#   python training/train_sham2.py --config configs/nova2.yaml --donor <copy of Qwen/Qwen3.6-35B-A3B> --tokenizer <its tokenizer.json> \
+#          --gate gate/tldm_heldout_gate_2026-11-18.json --cached --dtype bf16 --seeds 3 --loop --identity \
+#          --out <nova2_heads.pt> --json <nova2_results.json>
+#   (the trainer Studio job does exactly this: SHAM_TRAINER_JOB=tldm SHAM_TRAINER_NAME=nova2-*)
+#
+# Reality note (owner reads Arabic; this is English for the code): Nova 2's body is a 35B MoE. `--cached` reads it once per text
+# in bf16, which is the only way this fits a free CPU Studio; the head itself is small (d=256), exactly like Sham 2's. The body
+# stays frozen; only the head trains. `NOVA2_SEEDS`/`NOVA2_DTYPE` override seeds/dtype from the trainer env.
+latents: 16
+think_steps: 5
+block: 48
+writer_layers: 3
+heads: 4
+adapter_rank: 16
+in_len: 64
+steps: 600
+batch: 32
+lr: 0.001
+diffusion_steps: 10
+rewordings: true
+gate_heldout: 0.6
+head_d: 256
+confident: 0.9
+loop_in_len: 96
+loop_block: 64
+loop_episodes: 500
+loop_steps: 900
+loop_batch: 64

@@ -3,6 +3,7 @@
 // Env: NOVA_MEDIA_STUDIO_URL (off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio).
 import { pressureOn, pressureMedia } from "@/lib/pressureMode";
 import { vetMedia } from "@/lib/mediaQuality";
+import { secretCached } from "@/lib/hostedSecrets";
 export type MediaReply = { type: string; b64?: string; text?: string; reason?: string };
 
 /** Nova's own media Studio. The env var overrides it ("off" switches media off); without it the known Studio is used, so a runtime that lacks the variable (2026-10-28 15:33: Nova said
@@ -123,9 +124,16 @@ export const MEDIA_ERR = {
 type CallOut = { reply: MediaReply | null } | { error: MediaReply; status?: number };
 
 /** The auth headers of the media Studio (shared by the one-shot call and the background clip job). */
-function mediaHeaders(): Record<string, string> {
+function mediaToken(base: string): string {
+  const n2 = (process.env.NOVA2_MEDIA_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  if (n2 && n2 === base.replace(/\/+$/, "")) {
+    return (process.env.NOVA2_MEDIA_STUDIO_TOKEN || secretCached("AI_NOVA2_MEDIA_TOKEN") || secretCached("AI_NOVA2_TOKEN") || "").trim();
+  }
+  return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
+}
+function mediaHeaders(base: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
+  const tok = mediaToken(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   return headers;
 }
@@ -136,11 +144,11 @@ export async function novaVideoStart(
   prompt: string, seconds: number,
   opts: { base?: string; fetchImpl?: typeof fetch; seed?: number } = {},
 ): Promise<{ job: string } | MediaReply> {
-  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();
+  const base = opts.base !== undefined ? String(opts.base).replace(/\/+$/, "") : novaMediaUrl();
   if (!base) return { type: "error", reason: "studio_off", text: MEDIA_ERR.unreachable };
   const f = opts.fetchImpl || fetch;
   const seed = Number.isInteger(opts.seed) ? Number(opts.seed) : Math.floor(Math.random() * 2000000000);
-  const start = await gradioCall(base, "video_start", { prompt: String(prompt || "").slice(0, 800), seconds, seed }, mediaHeaders(), f, Date.now() + 120000, 30000, 30000);
+  const start = await gradioCall(base, "video_start", { prompt: String(prompt || "").slice(0, 800), seconds, seed }, mediaHeaders(base), f, Date.now() + 120000, 30000, 30000);
   if ("error" in start) return start.status === 404 ? { type: "error", reason: "no_job_api", text: MEDIA_ERR.unreachable } : start.error;
   const s = start.reply as (MediaReply & { job?: string }) | null;
   if (s && s.type === "job" && s.job) return { job: s.job };
@@ -151,10 +159,11 @@ export async function novaVideoStart(
 export async function novaVideoJob(
   job: string, opts: { base?: string; fetchImpl?: typeof fetch; waitS?: number; bypassContentHeuristics?: boolean } = {},
 ): Promise<MediaReply> {
-  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();
+  const base = opts.base !== undefined ? String(opts.base).replace(/\/+$/, "") : novaMediaUrl();
+  if (!base) return { type: "error", reason: "studio_off", text: MEDIA_ERR.unreachable };
   const f = opts.fetchImpl || fetch;
   const wait = Math.max(0, Math.min(5, opts.waitS ?? 5));
-  const poll = await gradioCall(base, "job", { job, wait }, mediaHeaders(), f, Date.now() + 40000, 30000, (wait + 20) * 1000);
+  const poll = await gradioCall(base, "job", { job, wait }, mediaHeaders(base), f, Date.now() + 40000, 30000, (wait + 20) * 1000);
   if ("error" in poll) return poll.error;
   const r = poll.reply;
   if (!r) return { type: "error", reason: "studio_unreadable", text: MEDIA_ERR.unreadable };
@@ -221,7 +230,7 @@ async function novaMakeMediaOnce(
   opts: { scenes?: unknown; narration?: unknown; seconds?: number; timeoutMs?: number; fetchImpl?: typeof fetch; base?: string; bypassContentHeuristics?: boolean },
   seed = 0,
 ): Promise<MediaReply | null> {
-  const base = (opts.base || "").replace(/\/+$/, "") || novaMediaUrl();          // a candidate passes ITS OWN media Studio here (never Nova's)
+  const base = opts.base !== undefined ? String(opts.base).replace(/\/+$/, "") : novaMediaUrl();
   if (!base) return null;
   const f = opts.fetchImpl || fetch;
   const api = kind === "image" ? "image" : kind === "audio" ? "speech" : "video";
@@ -229,7 +238,7 @@ async function novaMakeMediaOnce(
   const payload =
     kind === "image" ? { prompt: prompt.slice(0, 400), seed, ...(pressureOn() ? { size: pressureMedia().imageSize } : {}) } : kind === "audio" ? { text: prompt.slice(0, 1500) } : { prompt: (prompt.trim() || scenes[0] || "").slice(0, 800), seconds: Number(opts.seconds ?? pressureMedia().videoSeconds), seed };   // modelscope-media/app.py api_video reads "prompt"
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tok = (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || "").trim();
+  const tok = mediaToken(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
   const timeoutMs = opts.timeoutMs ?? 240000;
   const deadline = Date.now() + timeoutMs;

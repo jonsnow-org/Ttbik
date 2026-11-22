@@ -1,7 +1,13 @@
 import Link from "next/link";
 import CoverImage from "@/components/CoverImage";
+import { SITE_URL } from "@/lib/siteUrl";
 
 const COVERS: Record<string, string> = {
+  "china-mexico-cooperation-apec-2026": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
+  "us-remote-ai-chip-controls-2026": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
+  "openai-for-chile-public-sector-ai-2026": "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80",
+  "government-ai-partnership-checklist": "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80",
+  "apec-economic-leaders-meeting-shenzhen-2026": "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=1200&q=80",
   "why-gold-and-the-dollar-move-opposite": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
   "five-forces-that-move-exchange-rates": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
   "news-analysis-opinion-how-to-tell-apart": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
@@ -25,7 +31,7 @@ const COVERS: Record<string, string> = {
 };
 
 export function englishCover(slug: string) {
-  return COVERS[slug];
+  return COVERS[slug] || `${SITE_URL}/og/news.jpg`;
 }
 
 export default function EnglishStoryCard({

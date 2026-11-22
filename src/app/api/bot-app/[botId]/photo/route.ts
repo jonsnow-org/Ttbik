@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ botId: st
     if (paths.size > 2000) paths.clear();
   }
   const file = await fetch(`https://api.telegram.org/file/bot${botRow.token}/${p.path}`, { signal: AbortSignal.timeout(15000) }).catch(() => null);
-  if (!file?.ok || !file.body) return new NextResponse(null, { status: 502 });
+  if (!file?.ok || !file.body) return new NextResponse(null, { status: 424 });
   const type = /\.png$/i.test(p.path) ? "image/png" : /\.webp$/i.test(p.path) ? "image/webp" : "image/jpeg";
   return new NextResponse(file.body, { status: 200, headers: { "content-type": type, "cache-control": "public, max-age=86400, immutable", "x-content-type-options": "nosniff" } });
 }

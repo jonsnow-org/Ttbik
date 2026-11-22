@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { ARTICLE_ITEMS, getArticle } from "@/lib/articlesIndex";
+import { EN_ARTICLES, bySlug } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -24,7 +25,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: a.title,
     description: a.description,
-    alternates: { canonical: `${SITE}/articles/${a.slug}` },
+    alternates: { canonical: `${SITE}/articles/${a.slug}`, ...(bySlug(EN_ARTICLES, a.slug) ? { languages: { ar: `${SITE}/articles/${a.slug}`, en: `${SITE}/en/articles/${a.slug}` } } : {}) },
     openGraph: {
       title: a.title,
       description: a.description,
@@ -81,7 +82,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
             <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-emerald-800 ring-1 ring-emerald-100">
               {a.category}
             </span>
-            <span className="text-slate-500">{a.dateLabel}</span>
+            <span className="text-slate-500">تاريخ النشر · {a.dateLabel}</span>
             <span className="text-slate-400">· {a.readMinutes} د قراءة</span>
           </div>
           <h1 className="text-2xl font-black leading-10 text-slate-900 sm:text-[1.7rem]">{a.title}</h1>

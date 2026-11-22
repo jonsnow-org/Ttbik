@@ -3,7 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
 import EnglishStoryCard from "@/components/EnglishStoryCard";
-import { EN_EVENTS } from "@/lib/enDesk";
+import { EN_EVENTS, isUpcomingDate } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const revalidate = 300;
@@ -21,7 +21,7 @@ function istanbulToday() {
 
 export default function Page() {
   const today = istanbulToday();
-  const upcoming = EN_EVENTS.filter((item) => item.date > today).sort((a, b) => a.date.localeCompare(b.date));
+  const upcoming = EN_EVENTS.filter((item) => isUpcomingDate(item, today)).sort((a, b) => a.date.localeCompare(b.date));
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
       <EnglishDeskNav />
@@ -30,7 +30,7 @@ export default function Page() {
       <div className="mt-6"><AdSlot position="in-content" label="English upcoming" /></div>
       <div className="mt-6 grid gap-4">
         {upcoming.map((item) => (
-          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} badge="Upcoming" />
+          <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.dateLabel ?? (item.endDate && item.endDate !== item.date ? `${item.date} – ${item.endDate}` : item.date)} badge={item.date <= today ? "In progress" : "Upcoming"} />
         ))}
       </div>
       <p className="mt-6 text-sm"><Link href="/en/events" className="font-bold text-sky-800">All dates</Link> · <Link href="/events/upcoming" className="font-bold text-sky-800">Arabic upcoming</Link></p>

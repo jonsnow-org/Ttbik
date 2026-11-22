@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Top, KindBadge, ton, useApi } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
 import Features from "@/components/Features";
@@ -10,7 +11,11 @@ type Season = { specials?: number; configured: boolean; deployed?: boolean; stat
 
 export default function Home() {
   const { t, dateLabel } = useI18n();
-  const now = new Date(), todayIdx = indexOf(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  // "Today" is the visitor's own calendar day, known only in the browser. The page is prerendered at build time, so reading the clock during render
+  // gave the server HTML the build day and made React throw hydration error #418 on every later day; set it after mount instead.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => { setNow(new Date()); }, []);
+  const todayIdx = now ? indexOf(now.getFullYear(), now.getMonth() + 1, now.getDate()) : null;
   const { data: s } = useApi<Season>("/api/season", 15000);
   const live = s?.configured && s.deployed && s.status === 1;
   const steps = [["home.s1t", "home.s1d"], ["home.s2t", "home.s2d"], ["home.s3t", "home.s3d"]] as const;
@@ -28,9 +33,9 @@ export default function Home() {
 
       <div className="card" style={{ textAlign: "center" }}>
         <h3>{t("home.today")}</h3>
-        <img src={`/api/img/${todayIdx}.svg?live=1`} alt="" style={{ width: "50%", maxWidth: 200, borderRadius: 20, margin: "8px auto", display: "block" }} />
-        <p className="muted">{dateLabel(now.getFullYear(), now.getMonth() + 1, now.getDate())}</p>
-        <Link href={`/date?i=${todayIdx}`} className="btn gold">{t("home.todayCta")}</Link>
+        {todayIdx !== null && <img src={`/api/img/${todayIdx}.svg?live=1`} alt="" style={{ width: "50%", maxWidth: 200, borderRadius: 20, margin: "8px auto", display: "block" }} />}
+        <p className="muted" style={{ minHeight: "1.4em" }}>{now ? dateLabel(now.getFullYear(), now.getMonth() + 1, now.getDate()) : ""}</p>
+        <Link href={todayIdx !== null ? `/date?i=${todayIdx}` : "/date"} className="btn gold">{t("home.todayCta")}</Link>
       </div>
 
       <Features />

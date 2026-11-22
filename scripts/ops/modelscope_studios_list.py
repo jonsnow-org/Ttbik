@@ -59,10 +59,17 @@ def main() -> int:
         owners = sorted(set(owners))[:2]
     print(f"site {site}: owners {owners}")
     for o in owners:
-        c, d = call(base, f"/openapi/v1/studios?owner={o}&status=all", token)
-        studios = (((d or {}).get("data") or {}).get("studios") or []) if isinstance(d, dict) else []
+        studios, seen, c = [], set(), 0
+        for page in range(1, 11):             # the API answers 10 per page by default: a list without paging hid every Studio after the tenth (found 2026-11-15, Sham v1's Studio)
+            c, d = call(base, f"/openapi/v1/studios?owner={o}&status=all&page_number={page}&page_size=50&page={page}&pageNumber={page}&pageSize=50", token)
+            batch = (((d or {}).get("data") or {}).get("studios") or []) if isinstance(d, dict) else []
+            fresh = [x for x in batch if (x.get("id") or x.get("name")) not in seen]
+            if not fresh:
+                break
+            seen.update(x.get("id") or x.get("name") for x in fresh)
+            studios += fresh
         print(f"{o}: HTTP {c}, {len(studios)} Studios")
-        for s in studios[:60]:
+        for s in studios[:120]:
             sid = s.get("id") or s.get("name")
             c2, d2 = call(base, f"/openapi/v1/studios/{sid}", token)
             data = ((d2 or {}).get("data") or {}) if isinstance(d2, dict) else {}

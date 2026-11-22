@@ -106,6 +106,9 @@ type AdminBotRow = {
 
 export async function GET() {
   const bots = (await prisma.bot.findMany({
+    // The site bot (@Admen10bot) is not a builder bot: it runs from env SITE_BOT_TOKEN / table site_bot, never from a Bot row.
+    // A legacy SITE_BANNER_ADMIN row is dead data and must not appear next to builder bots.
+    where: { template: { not: "SITE_BANNER_ADMIN" } },
     orderBy: { created_at: "desc" },
     select: {
       id: true,

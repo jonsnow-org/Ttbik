@@ -1,0 +1,74 @@
+{
+ "episodes": 60,
+ "distinct_tasks": 21,
+ "pass0_memory_off": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 130,
+  "recalls": 0,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 14.05
+ },
+ "exit_code_only_UNSAFE_pass1": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 47,
+  "recalls": 39,
+  "recall_wrong": 5,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 28.86
+ },
+ "exit_code_only_UNSAFE_pass2": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 0,
+  "recalls": 60,
+  "recall_wrong": 15,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 62.33
+ },
+ "verified_pass1": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 62,
+  "recalls": 34,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 18.46
+ },
+ "verified_pass2": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 43,
+  "recalls": 45,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 31.17
+ },
+ "no_verifier_pass1": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 130,
+  "recalls": 0,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 14.85
+ },
+ "no_verifier_pass2": {
+  "episode_success": 0.75,
+  "final_state_correct": 0.767,
+  "model_calls": 130,
+  "recalls": 0,
+  "recall_wrong": 0,
+  "partial_recalls": 0,
+  "lessons": 0,
+  "episodes_per_s": 14.32
+ }
+}

@@ -306,6 +306,31 @@ jobs:
                 ;;
               *)
                 # Includes starting/loading/queued and temporary status API failures.
+                # live 2026-11-17 (run 44093204286): OpenAPI stayed "Building" after the new
+                # app was already phase=ready with ctx=4096, and the job failed. Probe Gradio
+                # during Building, but accept ONLY a matching BUILD_STAMP (never the old container,
+                # and never redeploy just because the previous app is still answering).
+                if [ "$status" = "Building" ] || [ "$status" = "building" ] || [ "$status" = "Deploying" ] || [ "$status" = "deploying" ]; then
+                  event_code=$(curl -sS --connect-timeout 5 --max-time 12                     -o status-event.json -w '%{http_code}' -X POST                     -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}'                     "$API/gradio_api/call/v2/status" || true)
+                  event_id=""
+                  if [ "$event_code" = "200" ]; then
+                    event_id=$(python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" < status-event.json 2>/dev/null || true)
+                  fi
+                  if [ -n "$event_id" ]; then
+                    result_code=$(curl -sS --connect-timeout 5 --max-time 20                       -o status-result.txt -w '%{http_code}'                       -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                    response=$(cat status-result.txt 2>/dev/null || true)
+                    echo "building-status API HTTP $result_code: $(echo "$response" | head -c 400)"
+                    ctx=$(echo "$response" | grep -oE '\?"context_tokens\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
+                    built=$(echo "$response" | grep -oE '\?"build\?"[[:space:]]*:[[:space:]]*\?"[0-9a-f]*' | grep -oE '[0-9a-f]+$' | head -1 || true)
+                    if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"|phase[^,]*ready'; then
+                      if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && [ "$built" = "${GITHUB_SHA::12}" ]; then
+                        echo "Sham v2 Studio model server is ready during Building (context_tokens=$ctx, build=$built)."
+                        exit 0
+                      fi
+                      echo "Building, live status ready but build=${built:-none} != pushed ${GITHUB_SHA::12} (old container still answering; waiting for the new app)"
+                    fi
+                  fi
+                fi
                 ;;
             esac
             sleep 20
@@ -322,5 +347,13 @@ jobs:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
         run: |
+          set +e
           python ai-system/supervision/sham_v2_chat_smoke.py
+          chat=$?
           python ai-system/supervision/sham_v2_media_smoke.py
+          media=$?
+          set -e
+          if [ "$chat" -ne 0 ]; then echo "chat smoke failed (exit $chat)"; fi
+          if [ "$media" -ne 0 ]; then echo "media smoke failed (exit $media)"; fi
+          if [ "$media" -ne 0 ]; then exit "$media"; fi
+          if [ "$chat" -ne 0 ]; then exit "$chat"; fi

@@ -6,8 +6,13 @@ import { useMemo, useState } from "react";
 
 type Expense = { id: number; title: string; amount: number; payer: string; people: string[] };
 
-const money = (n: number, currency: string) =>
-  new Intl.NumberFormat("ar", { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
+const money = (n: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat("ar", { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
+  } catch {
+    return `${n.toLocaleString("ar")} ${currency}`;
+  }
+};
 
 export default function SharedCosts() {
   const [namesText, setNamesText] = useState("أحمد\nسارة\nمحمد");
@@ -74,7 +79,14 @@ export default function SharedCosts() {
     <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6" dir="rtl">
       <div>
         <label className="mb-2 block text-sm font-bold text-slate-800" htmlFor="shared-names">أسماء المشاركين — اسم في كل سطر</label>
-        <textarea id="shared-names" value={namesText} onChange={(e)=>{setNamesText(e.target.value);setIncluded([]);setError("");}} rows={3} className="w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder={"أحمد\nسارة\nمحمد"} />
+        <textarea id="shared-names" value={namesText} onChange={(e)=>{
+          const next = e.target.value;
+          const nextPeople = [...new Set(next.split(/[\n,،]+/).map((n) => n.trim()).filter(Boolean))];
+          setNamesText(next);
+          setIncluded(nextPeople);
+          setPayer((current) => (nextPeople.includes(current) ? current : nextPeople[0] || ""));
+          setError("");
+        }} rows={3} className="w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder={"أحمد\nسارة\nمحمد"} />
         <p className="mt-1 text-xs text-slate-500">يمكنك الفصل بين الأسماء بأسطر أو بفواصل. الأسماء لا تغادر متصفحك.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

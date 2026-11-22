@@ -8,7 +8,9 @@
 // A write to the user's repository (push, open / merge a pull request) ends the round with kind "confirm": the user taps before anything runs.
 import type { ShamMessage as CoderMessage, ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
 import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamTools, type ShamCtx } from "@/lib/shamExec";
-import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamModeCtx, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
+import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
+import { shamAdminNotice } from "@/lib/shamAdminNotice";
 import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
@@ -65,6 +67,7 @@ export async function shamAgentRun(opts: {
   resume?: CoderMessage[];                  // the earlier legs' conversation (tool calls and results so far)
   onEvent?: (kind: "tool" | "info" | "text" | "screen", text: string) => void;   // what the terminal shows of this run (the shared task log)
   onDelta?: (text: string) => void;         // each streamed piece of the direct-chat answer as the model writes it (live view)
+  onReplace?: (text: string) => void;       // replace the typist with a retried answer (never append a stale stream)
   onStep?: (e: ShamStepEvent) => void;      // REAL events for the Telegram card: the model is thinking / a tool starts / a tool ended (ok or failed)
   askMs?: number;                           // the longest wait for one Studio answer (default 30 s inside the webhook; the background legs wait much longer)
   queueNote?: (attempt: number) => Promise<string | null>;   // the line shown while every Studio is busy with others (queue position / estimate)
@@ -124,6 +127,127 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
+  // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
+  // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
+  if (v2 && shamTldmOn()) {
+    const session = shamTldmSessionId(opts.ctx.chatId);
+    const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
+    const chatMessages = messages
+      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
+        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
+    if (await isStopped()) return { kind: "stopped", used, steps: 0 };
+    let direct = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner) }));
+    let tldmSteps = 1;
+    const tldmReadTools = new Set(["web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    // GitHub read tools return whole files / trees: the T-LDM head decided to ask for them (trained: data/trajectories.make_open_episode), and Sham Pro's own BODY writes the answer
+    // from the FULL result (a 4.5M head cannot summarise a file). Web tools keep the head's own loop.
+    const bodyAnswers = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci"]);
+    let bodyAnswer: { name: string; args: Record<string, unknown>; result: string } | null = null;
+    while (direct?.type === "tool_request" && tldmSteps < 7 && left() > 2500) {
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      const toolName = String(direct.tool_name || "");
+      const rawArgs = direct.tool_arguments && typeof direct.tool_arguments === "object" ? direct.tool_arguments as Record<string, unknown> : {};
+      const available = tldmReadTools.has(toolName) && opts.tools.some((item) => item.function?.name === toolName);
+      const call: CoderToolCall = {
+        id: "tldm-tool-" + tldmSteps,
+        type: "function",
+        function: { name: toolName, arguments: JSON.stringify(rawArgs) },
+      };
+      let result = "";
+      if (!available || shamNeedsOk(call)) {
+        result = "error: T-LDM requested an unavailable or non-read-only tool: " + (toolName || "(missing name)");
+      } else {
+        used.push(toolName);
+        opts.onEvent?.("tool", toolName + " " + JSON.stringify(rawArgs).slice(0, 200));
+        opts.onStep?.({ type: "tool_start", name: toolName, args: JSON.stringify(rawArgs) });
+        try { result = await exec(call, opts.ctx); }
+        catch (e) { result = "error: " + String((e as Error)?.message || e).slice(0, 300); }
+        opts.onStep?.({ type: "tool_end", name: toolName, ok: !/^error/i.test(result) });
+        opts.onEvent?.("info", clip(result, 300));
+      }
+      if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+      if (available && bodyAnswers.has(toolName) && result && !/^error/i.test(result)) { bodyAnswer = { name: toolName, args: rawArgs, result }; break; }
+      const previousBase = String(direct.tldmBase || "");
+      const requestId = String(direct.tool_request_id || "");
+      tldmSteps++;
+      direct = await shamTldmSession.run(session, () => shamGenerateTldm(
+        chatMessages,
+        session,
+        Math.max(1000, Math.min(timeout, left() - 1000)),
+        {
+          bypassContentHeuristics: Boolean(opts.ctx.owner),
+          owner: Boolean(opts.ctx.owner),
+          resumeTool: {
+            requestId,
+            name: toolName,
+            arguments: rawArgs,
+            result: String(result || "").slice(0, 7000),
+            error: /^error/i.test(result),
+            routeBase: previousBase,
+          },
+        },
+      ));
+    }
+    if (await isStopped()) return { kind: "stopped", used, steps: tldmSteps };
+    if (bodyAnswer) {
+      const last = chatMessages.length ? chatMessages[chatMessages.length - 1] : null;
+      const asked = last && last.role === "user" ? last.content : String(opts.text || "");
+      const handed = [
+        ...chatMessages.slice(0, -1),
+        { role: "user" as const, content: `${asked}\n\n[نتيجة الأداة ${bodyAnswer.name} ${JSON.stringify(bodyAnswer.args).slice(0, 200)}]\n${bodyAnswer.result.slice(0, 6000)}\n\nأجب عن طلبي أعلاه اعتمادًا على هذه النتيجة وحدها، بالعربية وباختصار.` },
+      ];
+      const written = await shamGenerateChat(handed, 640, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+      const text = written?.type === "text" ? String(written.text || "").trim() : "";
+      if (text) return { kind: "text", text, used, steps: tldmSteps + 1 };
+      // the body could not answer: hand the result back to the head, as before (the same model, never another one)
+      const resumed = await shamTldmSession.run(session, () => shamGenerateTldm(chatMessages, session, Math.max(1000, Math.min(timeout, left() - 1000)), {
+        bypassContentHeuristics: Boolean(opts.ctx.owner), owner: Boolean(opts.ctx.owner),
+        resumeTool: { requestId: String(direct?.tool_request_id || ""), name: bodyAnswer.name, arguments: bodyAnswer.args, result: bodyAnswer.result.slice(0, 7000), error: false, routeBase: String(direct?.tldmBase || "") },
+      }));
+      if (resumed?.type === "text" && String(resumed.text || "").trim()) return { kind: "text", text: String(resumed.text).trim(), used, steps: tldmSteps + 1 };
+      return { kind: "text", text: "قرأتُ النتيجة لكن تعذّرت صياغة الجواب الآن. أعد إرسال الطلب.", used, steps: tldmSteps + 1 };
+    }
+    if (direct?.type === "tool_request") {
+      return { kind: "text", text: "لم تكتمل خطوات البحث في الوقت المتاح. أعد إرسال الطلب لمتابعته.", used, steps: tldmSteps };
+    }
+    if (direct?.type === "confirm") {
+      const command = String(direct.command || "");
+      return {
+        kind: "confirm",
+        call: { id: "tldm-confirm", type: "function", function: { name: "tldm_confirm", arguments: JSON.stringify({ command, session: String(direct.session || session), question: String(direct.text || command) }) } },
+        used,
+        steps: tldmSteps,
+      };
+    }
+    if (direct?.type === "text") {
+      // commands the model ran on its OWN computer inside the Studio (T-LDM's computer is a shell): shown as computer_run steps, like every other tool the app sees
+      const ran = Array.isArray(direct.computer_steps) ? direct.computer_steps.slice(0, 8) : [];
+      for (const step of ran) {
+        const command = String(step?.command || "").slice(0, 300);
+        if (!command) continue;
+        used.push("computer_run");
+        opts.onEvent?.("tool", "computer_run " + command.slice(0, 200));
+        opts.onStep?.({ type: "tool_start", name: "computer_run", args: JSON.stringify({ command }) });
+        opts.onStep?.({ type: "tool_end", name: "computer_run", ok: step?.ok !== false });
+        opts.onEvent?.("info", clip(String(step?.result || ""), 300));
+      }
+      const answer = String(direct.text || "").trim();
+      // The head decided: no command, no tool. A plain conversation is then spoken by Sham Pro's BODY (the 4.5M head writes short command lines, not conversation: live 2026-11-22
+      // its greeting came out doubled and cut mid-word, «...والبحثمرحبا! أنا شام برو...»). Same model, same Studio; the head's text stays the fallback.
+      if (!ran.length && !used.length && tldmSteps === 1 && chatMessages.length) {
+        const spoken = await shamGenerateChat(chatMessages, 768, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+        const said = spoken?.type === "text" ? String(spoken.text || "").trim() : "";
+        if (said) return { kind: "text", text: said, used, steps: tldmSteps + 1 };
+      }
+      return answer ? { kind: "text", text: answer, used, steps: tldmSteps } : { kind: "none", used, steps: tldmSteps };
+    }
+    if (direct && direct.type !== "busy" && direct.type !== "loading") return { kind: "reply", reply: direct, used, steps: tldmSteps };
+    if (opts.continuable) return { kind: "more", messages, used, steps: tldmSteps };
+    return { kind: "none", used, steps: tldmSteps };
+  }
+
   // Ordinary Sham v2 chat sends native user/assistant roles. No hidden system prompt,
   // prompt rewriting, echo detector, content-triggered retry or canned answer is applied.
   // Tool/code/fresh-fact work stays in the separate permission-checked agent route.
@@ -144,19 +268,19 @@ export async function shamAgentRun(opts: {
   const directChatIntent = !requiresWorkspaceAgent &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
   if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
-    const chatMessages = messages
-      .filter((message): message is CoderMessage & { role: "user" | "assistant"; content: string } =>
-        (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
-      .slice(-12)
-      .map((message) => ({ role: message.role, content: message.content }));
+    const chatMessages = shamDirectChatMessages(opts.history, opts.text);
+    if (lastUserContent(chatMessages) !== opts.text) {
+      chatMessages.push({ role: "user", content: opts.text });
+    }
     const timeout = Math.min(opts.askMs ?? 90000, Math.max(1000, left() - 1000));
     // Streaming is v2-only (its Studio has the endpoint); v1 has no stream, so it must still take the one-shot chat.
     const stream = variant === "v2" ? opts.onDelta : undefined;
-    const directAsk = () => opts.ask
-      ? ask(opts.text, maxNew, timeout)
-      : shamModeCtx.run(effMode, () => stream
-        ? shamGenerateChatStream(chatMessages, maxNew, timeout, stream, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
-        : shamGenerateChat(chatMessages, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const runDirect = (turns: typeof chatMessages, onDelta = stream) => opts.ask
+      ? ask(turns[turns.length - 1]?.content || opts.text, maxNew, timeout)
+      : shamModeCtx.run(effMode, () => onDelta
+        ? shamGenerateChatStream(turns, maxNew, timeout, onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
+        : shamGenerateChat(turns, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+    const directAsk = () => runDirect(chatMessages);
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
     if (await isStopped()) return { kind: "stopped", used, steps: 1 };
@@ -172,7 +296,30 @@ export async function shamAgentRun(opts: {
     }
     if (await isStopped()) return { kind: "stopped", used, steps: 1 + waited };
     if (direct?.type === "text") {
-      const answer = String(direct.text || "").trim();
+      let answer = String(direct.text || "").trim();
+      const prior = [...(opts.history || []), ...historyFromTurns(chatMessages.slice(0, -1))];
+      const stale = isTrainingStatusReply(answer) || isEchoedPriorReply(answer, prior);
+      if (stale && answer && left() > 8000) {
+        // The new user turn was ignored (copied previous reply) or the body recited a training report.
+        // Retry once with only this question so a cached/truncated prompt cannot be reused.
+        opts.onEvent?.("info", isTrainingStatusReply(answer) ? "dropped a training-status reply; retrying the current question only" : "dropped a copied previous reply; retrying the current question only");
+        if (isTrainingStatusReply(answer)) void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        const retry = await runDirect([{ role: "user", content: opts.text }], undefined);
+        const again = String(retry?.type === "text" ? retry.text || "" : "").trim();
+        if (again && !isTrainingStatusReply(again) && !isEchoedPriorReply(again, prior)) {
+          // Do not stream(again) through onDelta: that callback appends, so the typist would
+          // show the copied first answer plus the retry. Replace the live text instead.
+          if (opts.onReplace) opts.onReplace(again);
+          else if (stream) stream(again);
+          answer = again;
+        } else {
+          if (isTrainingStatusReply(again)) void shamAdminNotice(again, opts.ctx.chatId).catch(() => null);
+          answer = STALE_REPLY_USER;
+        }
+      } else if (isTrainingStatusReply(answer)) {
+        void shamAdminNotice(answer, opts.ctx.chatId).catch(() => null);
+        answer = STALE_REPLY_USER;
+      }
       return answer
         ? { kind: "text", text: answer, used, steps: 1 + waited }
         : { kind: "none", used, steps: 1 + waited };
@@ -364,6 +511,21 @@ export async function shamAgentRun(opts: {
       }
       V.requestSecret(opts.ctx.chatId, nm, why);
       return { kind: "ask", question: `🔐 ${why || nm}\n\nافتح «الخانة الآمنة» في التطبيق المصغر وأدخل القيمة هناك (لا تكتبها في المحادثة). اسمها: ${nm}`, used, steps: steps + 1 };
+    }
+    const handed = valid.find((c) => c.function.name === "computer_handoff");
+    if (handed) {
+      // the user takes over Sham's own screen (sign-in, code, captcha): the Mini App opens it with the control bar; Done continues the chat with a short follow-up
+      const H = await import("@/lib/computerHandoff");
+      let raw: unknown = {};
+      try { raw = JSON.parse(handed.function.arguments || "{}"); } catch { /* checked below */ }
+      const h = H.cleanHandoff(raw);
+      if (!h) {
+        messages.push({ role: "assistant", content: p.text, tool_calls: [handed] } as CoderMessage);
+        messages.push({ role: "tool", name: "computer_handoff", tool_call_id: handed.id, content: "error: give kind and a short reason (what the user should do on the screen)" } as CoderMessage);
+        continue;
+      }
+      opts.onEvent?.("screen", H.handoffEvent(opts.ctx.modelId, h, "chat"));
+      return { kind: "ask", question: H.handoffChatText(h, opts.ctx.modelId === "sham_v2" ? "شام برو" : "شام"), used: [...used, "computer_handoff"], steps: steps + 1 };
     }
     const asked = valid.find((c) => c.function.name === "ask_user");
     if (asked) {

@@ -12,13 +12,16 @@ describe("task suite verdicts", () => {
     expect(judge(t("greeting"), "sham", "تعذّر توليد الرد الآن.", true).why).toMatch(/error notice/);
     expect(judge(t("fact-egypt"), "sham", "اليوم الأحد، 2026-11-11؟", true).why).toMatch(/expected fact/);
   });
-  it("fails raw tool-call markup shown as the answer (LFM2.5, run 43106500355)", () => {
-    expect(judge(t("repo-read"), "lfm25", '<｜DSML｜function_calls><｜DSML｜invoke name="web_search">', true).why).toMatch(/markup/);
+  it("fails raw tool-call markup shown as the answer (run 43106500355)", () => {
+    expect(judge(t("repo-read"), "coder", '<｜DSML｜function_calls><｜DSML｜invoke name="web_search">', true).why).toMatch(/markup/);
     expect(judge(t("repo-read"), "sham", '<tool_call>{"name":"x"}</tool_call>', true).why).toMatch(/markup/);
   });
   it("checks each model's OWN name", () => {
     expect(judge(t("identity"), "sham_v2", "أنا مساعد ذكاء اصطناعي تطوعي واسمي مساعد الذكاء الاصطناعي", true).why).toMatch(/own name/);
-    expect(judge(t("identity"), "sham_v2", "أنا شام، مساعد ذكاء اصطناعي.", true).pass).toBe(true);
+    expect(judge(t("identity"), "sham_v2", "أنا شام برو، مساعد ذكاء اصطناعي.", true).pass).toBe(true);
+    expect(judge(t("identity"), "sham_v2", "مرحباً، أنا Sham Pro مساعدك.", true).pass).toBe(true);
+    expect(judge(t("identity"), "sham_v2", "أنا شام، مساعد ذكاء اصطناعي.", true).why).toMatch(/own name/);
+    expect(judge(t("identity"), "sham_v2", "أنا شام برو، مبني على Qwen من Alibaba.", true).why).toMatch(/donor/);
     expect(judge(t("identity"), "coder", "أنا نوفا، مساعدك البرمجي.", true).pass).toBe(true);
   });
   it("no answer and unfinished tasks fail with the reason", () => {
@@ -35,7 +38,17 @@ describe("task suite verdicts", () => {
     expect(judge(run, "coder", "الناتج: ZX7Q-4821", true, ["computer_run {\"command\":\"echo ZX7Q-4821\"}"]).pass).toBe(true);
     expect(judge(run, "coder", "الناتج: ZX7Q-4821", true, []).why).toMatch(/did not come from the tool/);   // guessed the fact without running anything
     expect(judge(t("desktop"), "sham_v2", "حالته: يعمل", true, ["desktop {\"action\":\"start\"}"]).pass).toBe(true);
-    expect(judge(t("browser"), "lfm25", "عنوانها Example Domain", true, ["browser {}"]).pass).toBe(true);
+    expect(judge(t("browser"), "coder", "عنوانها Example Domain", true, ["browser {}"]).pass).toBe(true);
     expect(TASKS.map((x) => x.id)).toEqual(expect.arrayContaining(["computer-run", "computer-file", "code-run", "browser", "desktop", "github-list"]));
+  });
+});
+
+describe("the judge accepts Nova's Arabic step labels as tool calls (live run 2026-11-21)", () => {
+  const run = (id: string) => TASKS.find((x) => x.id === id)!;
+  it("computer-run / computer-file / code-run with the labels from toolLabel()", () => {
+    expect(judge(run("computer-run"), "coder", "نتيجة الأمر: ZX7Q-4821", true, ["▶️ تشغيل أمر — echo ZX7Q-4821"]).pass).toBe(true);
+    expect(judge(run("computer-file"), "coder", "المحتوى QW9-5503", true, ["📝 كتابة ملف — note.txt", "📖 قراءة ملف — note.txt"]).pass).toBe(true);
+    expect(judge(run("code-run"), "coder", "الناتج 1 4 9 16 25", true, ["▶️ تشغيل أمر — python3 sq.py"]).pass).toBe(true);
+    expect(judge(run("computer-run"), "coder", "الناتج ZX7Q-4821", true, []).pass).toBe(false);   // still fails with no tool call at all
   });
 });

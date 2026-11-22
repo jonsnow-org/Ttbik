@@ -189,8 +189,29 @@ def _load(model_dir: Path) -> None:
     if STATE["phase"] != "ready":
         STATE.update(phase="loading")                              # a hot swap of a newer checkpoint keeps serving the old one meanwhile
     _say(f"loading the model into memory ({ckpt.stat().st_size // 2**20} MB file)")
+    head = None
+    if _V2:
+        # Sham 2 only: the published T-LDM head file also carries the identity LoRA (Sham Pro / «شام برو»). Missing head = the body
+        # serves as it is (tldm stays off); this never falls back to Sham 1 and never rewrites an answer.
+        try:
+            import sham_tldm_serve as _tldm
+            head = _tldm.download_head(_token())
+        except Exception as exc:
+            print(f"Sham 2 head not fetched ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
     with _LOCK:
         serve.load_model(checkpoint_path=str(ckpt), tokenizer_path=str(tok))
+        if _V2:
+            try:
+                import sham_tldm_serve as _tldm
+                if os.environ.get("SHAM_IDENTITY_LORA", "1").strip().lower() in ("0", "off", "false", "no"):
+                    ident = {"identity_lora": False, "identity_lora_why": "off (SHAM_IDENTITY_LORA=0)"}
+                else:
+                    ident = _tldm.apply_identity(serve._state["model"], head)
+            except Exception as exc:
+                ident = {"identity_lora": False, "identity_lora_why": f"{type(exc).__name__}: {str(exc)[:120]}"}
+            STATE["identity_lora"] = bool(ident.get("identity_lora"))
+            _say("identity LoRA (Sham Pro) applied to the body for every chat" if ident.get("identity_lora")
+                 else f"identity LoRA not applied: {ident.get('identity_lora_why') or 'no head'}")
     if _V2:
         model = serve._state.get("model")
         cfg = getattr(model, "cfg", None)
@@ -210,7 +231,7 @@ def _load(model_dir: Path) -> None:
     _say("ready: the model is loaded")
     # Sham v2 (1.7B) builds its llama.cpp copy only when SHAM_GGUF_V2=1: on this 2-CPU Studio the export competes with the replies for minutes (owner's "مرحبا" went to the background leg right
     # after the first GGUF-enabled deploy, 2026-11-09), so it stays off until it is measured on the live Studio. Sham v1 keeps its copy as before.
-    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or os.environ.get("SHAM_GGUF_V2", "0") == "1"):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
+    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or (os.environ.get("SHAM_GGUF_V2", "0") == "1" and not STATE.get("identity_lora"))):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
         def _prepare_fast():
             try:
                 try:
@@ -218,7 +239,9 @@ def _load(model_dir: Path) -> None:
                 except Exception:
                     pass
                 from sham_gguf import fast_model
-                fast_model(serve._state["model"])
+                # Sham v1 (a ~100M model) decodes through the 8-bit copy by default: the 4-bit copy (q4_k_m) agreed with PyTorch on only 4 of 6 test prompts in the live Studio log (2026-11-15) and costs ~3% loss;
+                # q8_0 costs ~0.3% and must agree on 6/6, otherwise PyTorch itself decodes. SHAM_GGUF_KIND=q4_k_m brings the old format back.
+                fast_model(serve._state["model"], None if _V2 else (os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0"))      # v2 keeps its own default
             except Exception as exc:
                 print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
         threading.Thread(target=_prepare_fast, daemon=True).start()
@@ -323,6 +346,13 @@ def status() -> str:
         msg["bank"] = {"passages": len(b) if b is not None else 0, "sha": _BANK["sha"][:12], "built": (b.manifest.get("built") if b is not None else ""), "error": _BANK["error"], "repo": BANK_ID}
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
+    if _V2:
+        try:
+            import sham_tldm_serve as _tldm
+            msg.update(_tldm.status_fields())
+        except Exception as exc:
+            msg["tldm"] = False
+            msg["tldm_error"] = type(exc).__name__
     return json.dumps(msg, ensure_ascii=False)
 
 
@@ -421,8 +451,73 @@ def _chat_params(messages_json: str, max_new_tokens: float, temperature: float, 
     return clean, n, temp, thought
 
 
+
+def _tldm_user_text(messages_json: str) -> str:
+    messages = json.loads(messages_json or "[]")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages_json must be a non-empty list")
+    last = messages[-1]
+    if not isinstance(last, dict) or last.get("role") != "user" or not isinstance(last.get("content"), str):
+        raise ValueError("the final message must be a user turn")
+    return last["content"]
+
+
+def generate_tldm(
+    messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1,
+    confirm_cmd: str = "", confirm_ok: float = 0, deny_list: str = "", owner: float = 0,
+    resume_tool_name: str = "", resume_tool_arguments_json: str = "", resume_tool_result: str = "",
+    resume_tool_error: float = 0, resume_tool_request_id: str = "",
+) -> str:
+    """Sham 2 T-LDM path: hidden terminal + the model's existing embedded computer. Sham 1 is never used.
+
+    Public generate_chat never enters this path. The owner-gated client calls this endpoint
+    (later, SHAM_TLDM_OPEN may allow every user). confirm_cmd/confirm_ok resume a paused
+    sensitive command after that chat's allow/deny tap; the command still runs on model_computer.
+    """
+    if not _V2:
+        return json.dumps({"type": "error", "text": "generate_tldm is available only on Sham 2.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    import sham_tldm_serve as tldm
+    if not tldm.requested(bool(float(tldm_flag or 0))):
+        return tldm.error_json("مسار T-LDM لشام 2 غير مفعّل. لم يُستخدم شام 1، ولا يوجد تحويل صامت.")
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    try:
+        text = _tldm_user_text(messages_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        return json.dumps({"type": "error", "text": str(exc)[:240], "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        return tldm.respond(
+            serve._state["model"],
+            serve._state["text_tokenizer"],
+            str(session or "default"),
+            text,
+            confirm_cmd=str(confirm_cmd or ""),
+            confirm_ok=bool(float(confirm_ok or 0)),
+            deny_list="" if owner else str(deny_list or ""),
+            owner=bool(float(owner or 0)),
+            resume_tool_name=str(resume_tool_name or ""),
+            resume_tool_arguments_json=str(resume_tool_arguments_json or ""),
+            resume_tool_result=str(resume_tool_result or ""),
+            resume_tool_error=bool(float(resume_tool_error or 0)),
+            resume_tool_request_id=str(resume_tool_request_id or ""),
+        )
+    except Exception as exc:
+        print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return tldm.error_json(tldm.load_fail_message(f"{type(exc).__name__}: {exc}"))
+    finally:
+        _LOCK.release()
+
+
 def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: float = 0.6, think_tokens: float = 0) -> str:
-    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions."""
+    """Native Qwen3 user/assistant messages. Plain chat has no injected identity or answer instructions.
+
+    T-LDM never auto-routes through generate_chat, even if SHAM_TLDM=1 is set on the Studio:
+    Sham 2 is public, and every ordinary chat (including non-owners) must stay on donor chat.
+    The T-LDM path is only generate_tldm, called by the owner-gated client.
+    """
     if not _V2:
         return json.dumps({"type": "error", "text": "generate_chat is available only on Sham v2."}, ensure_ascii=False)
     if STATE["phase"] != "ready":
@@ -441,6 +536,9 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
         return json.dumps({"type": "text", "text": answer}, ensure_ascii=False)
     except Exception as exc:
         print(f"generate_chat failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        _m = sys.modules.get("model")      # 2026-11-11 diagnostics: which model module is loaded and the full stack of the failure
+        print("generate_chat traceback:", traceback.format_exc()[-3000:], "| model module:", getattr(_m, "__file__", None),
+              "has MOTION_VOCAB_BASE:", hasattr(_m, "MOTION_VOCAB_BASE"), "| sys.path:", sys.path[:6], flush=True)
         return json.dumps({"type": "error", "text": "Sham v2 chat generation failed: " + str(exc)[:180]}, ensure_ascii=False)
     finally:
         _LOCK.release()
@@ -765,6 +863,24 @@ def understand_media(kind: str, b64: str, question: str = "", teach: str = "", n
         _LOCK.release()
 
 
+def coordinate_start(goal: str, session: str = "", owner: float = 0) -> str:
+    """Sham Pro's coordinator (sham_pro_coordinator.py): plan and run a multi-step task (see / hear / write / make / shell / files) in the background. Owner-only; v2 only.
+    Returns the task record at once; poll coordinate_status."""
+    if not _V2:
+        return json.dumps({"type": "error", "text": "coordinate_start is available only on Sham v2."}, ensure_ascii=False)
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import sham_pro_coordinator as coord
+    return json.dumps(coord.start(goal, session, {"understand_media": understand_media, "generate_chat": generate_chat, "generate_media": generate_media}, bool(owner)), ensure_ascii=False)
+
+
+def coordinate_status(task_id: str, session: str = "", file: str = "") -> str:
+    if not _V2:
+        return json.dumps({"type": "error", "text": "coordinate_status is available only on Sham v2."}, ensure_ascii=False)
+    import sham_pro_coordinator as coord
+    return json.dumps(coord.status(task_id, session, file), ensure_ascii=False)
+
+
 def ask_web(question: str, max_new_tokens: float = 60) -> str:
     """The engineer's live web answer (self_learn.ask_web_generate: sources in the prompt), now on the Studio too, and — exactly like serve.py's
     /ask/web — the turn is kept as an experience for the guarded learning round. JSON {"type": "text", "text", "hits", "queued", ...}."""
@@ -883,6 +999,26 @@ def build_ui():
             gr.Textbox(label="native Qwen3 chat result"), api_name="generate_chat", flagging_mode="never")
         interfaces.insert(1, native_chat)
         labels.insert(1, "محادثة Qwen3 منظّمة")
+        tldm_chat = gr.Interface(
+            generate_tldm,
+            [gr.Textbox(label="messages_json"), gr.Textbox(label="session", value=""),
+             gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
+             gr.Textbox(label="confirm_cmd", value=""), gr.Number(label="confirm_ok", value=0),
+             gr.Textbox(label="deny_list", value=""), gr.Number(label="owner", value=0),
+             gr.Textbox(label="resume_tool_name", value=""), gr.Textbox(label="resume_tool_arguments_json", value="{}"),
+             gr.Textbox(label="resume_tool_result", value=""), gr.Number(label="resume_tool_error", value=0),
+             gr.Textbox(label="resume_tool_request_id", value="")],
+            gr.Textbox(label="Sham Pro T-LDM result"), api_name="generate_tldm", flagging_mode="never")
+        interfaces.insert(1, tldm_chat)
+        labels.insert(1, "محادثة T-LDM (شام برو)")
+        coord_start = gr.Interface(coordinate_start, [gr.Textbox(label="goal"), gr.Textbox(label="session", value=""), gr.Number(label="owner", value=0)],
+                                   gr.Textbox(label="coordinator task"), api_name="coordinate_start", flagging_mode="never")
+        coord_status = gr.Interface(coordinate_status, [gr.Textbox(label="task_id"), gr.Textbox(label="session", value=""), gr.Textbox(label="file", value="")],
+                                    gr.Textbox(label="coordinator status"), api_name="coordinate_status", flagging_mode="never")
+        interfaces.insert(1, coord_start)
+        labels.insert(1, "منسّق شام برو (بدء)")
+        interfaces.insert(1, coord_status)
+        labels.insert(1, "منسّق شام برو (حالة)")
     # the live (token-by-token) chat is exposed by BOTH Shams now: v2 streams Qwen3, the legacy Sham streams its own chat path (owner 2026-11-08)
     chat_stream = gr.Interface(
         generate_chat_stream,

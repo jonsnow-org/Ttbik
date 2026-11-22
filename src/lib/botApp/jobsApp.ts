@@ -9,7 +9,7 @@ import type { Bot as BotRow, JobsProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 import {
-  PROFESSIONAL_CATEGORIES, ROLES, acceptOfferCore, adminMessageCore, blockUser, chargeJobsUser, confirmReceivedCore, contactUrlOf, counterOfferCore,
+  PROFESSIONAL_CATEGORIES, ROLES, acceptOfferCore, adminMessageCore, blockUser, chargeJobsUser, confirmReceivedCore, contactUrlOf, counterOfferCore, jobsStoreCommission, jobsStoreCommissionPercent,
   createJobPostingCore, createOfferCore, deleteListingCore, deleteWantedCore, isBlocked, openDisputeCore, otherPartyOf, rejectOfferCore, reportCore,
   saveListingCore, saveProfileCore, saveWantedCore, searchJobPostings, searchListings, searchProfessionals, searchWanted, submitDisputeCore,
   toggleListingCore, toggleProfilePause, toggleWantedCore, type StoreFilters,
@@ -97,7 +97,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       ? await Promise.all([
           prisma.storeOffer.findMany({ where: { status: "PENDING", OR: [{ buyerId: uid }, { sellerId: uid }] }, select: { lastOfferBy: true } }).then((r) => r.filter((o) => o.lastOfferBy !== uid).length),
           prisma.storeOrder.count({ where: { status: "ESCROWED", OR: [{ buyerId: uid }, { sellerId: uid }] } }),
-          prisma.storeListing.count({ where: { sellerId: uid, status: "ACTIVE" } }),
+          prisma.storeListing.count({ where: { sellerId: uid, status: "ACTIVE", paymentMethod: "ESCROW" } }),
         ])
       : [0, 0, 0];
     return {
@@ -105,6 +105,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       user: { id: uid, firstName: tg.firstName || "", username: tg.username || "" }, bot: { username }, profile: profileView(profile),
       balance: user.balance, counts: { offersWaiting, ordersOpen, active }, categories: PROFESSIONAL_CATEGORIES, roles: ROLES.map((r) => ({ id: r, label: roleLabel(r) })),
       durations: Object.entries(TENDER_DURATIONS).map(([label, hours]) => ({ label: label.replace("⏱ ", ""), hours })), maxOpenTenders: TENDER_MAX_OPEN,
+      commissionPercent: jobsStoreCommissionPercent(),
       feature: { price: FEATURE_PRICE_USD, days: FEATURE_DAYS },
     };
   }
@@ -157,6 +158,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       if (!l) return fail("هذا المنتج غير موجود.", "gone");
       const isOwner = l.sellerId === uid;
       if (!isOwner && (await isBlocked(uid, l.sellerId))) return fail("🚫 غير متاح.", "blocked");
+      if (!isOwner && l.paymentMethod !== "ESCROW") return fail("🔒 هذا المنتج قديم ولم يُفعّل الحجز الآمن بعد. على البائع تعديله وإعادة نشره.", "escrow_required");
       if (!isOwner && l.status !== "ACTIVE" && l.status !== "SOLD") return fail("لم يعد هذا المنتج متاحاً.", "gone");
       const [seller, fu, slugRow, pending] = await Promise.all([
         prisma.jobsProfile.findUnique({ where: { userId: l.sellerId } }),
@@ -165,7 +167,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
         isOwner ? Promise.resolve(0) : prisma.storeOffer.count({ where: { listingId: l.id, buyerId: uid, status: "PENDING" } }),
       ]);
       return {
-        ok: true, listing: { ...listingView(l, uid, new Set(fu ? [l.id] : [])), featuredUntil: fu ? fu.toISOString() : null },
+        ok: true, listing: { ...listingView(l, uid, new Set(fu ? [l.id] : [])), featuredUntil: fu ? fu.toISOString() : null, commissionPercent: jobsStoreCommissionPercent() },
         seller: { id: isOwner ? null : l.sellerId, name: seller?.name || "تاجر", place: [seller?.city, seller?.governorate].filter(Boolean).join("، "), shop: slugRow[0]?.slug || null },
         myPendingOffers: pending, share: username ? botLink(username, itemStart(l.id)) : null,
       };
@@ -177,7 +179,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       if (!isOwner && (await isBlocked(uid, w.buyerId))) return fail("🚫 غير متاح.", "blocked");
       if (!isOwner && w.status !== "ACTIVE") return fail("لم يعد هذا الطلب متاحاً.", "gone");
       const buyer = await prisma.jobsProfile.findUnique({ where: { userId: w.buyerId } });
-      return { ok: true, wanted: { id: w.id, title: w.title, description: w.description || "", budget: w.budget, status: w.status, mine: isOwner, at: w.created_at.toISOString() }, buyer: { id: isOwner ? null : w.buyerId, name: buyer?.name || "", place: [buyer?.city, buyer?.governorate].filter(Boolean).join("، "), contact: isOwner ? null : contactUrlOf(buyer) } };
+      return { ok: true, wanted: { id: w.id, title: w.title, description: w.description || "", budget: w.budget, status: w.status, mine: isOwner, at: w.created_at.toISOString() }, buyer: { id: isOwner ? null : w.buyerId, name: buyer?.name || "", place: [buyer?.city, buyer?.governorate].filter(Boolean).join("، "), contact: null } };
     }
     case "listing_save": {
       if (!rateLimit(`japp-ls:${uid}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
@@ -270,24 +272,28 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
     // ---------------------------------------------------------------- 📂 طلباتي (orders, buyer and seller)
     case "orders": {
       const rows = await prisma.storeOrder.findMany({ where: { OR: [{ buyerId: uid }, { sellerId: uid }] }, orderBy: { created_at: "desc" }, take: 60 });
-      const [ls, ds, ps] = await Promise.all([
+      const [ls, ds, ps, fees] = await Promise.all([
         rows.length ? prisma.storeListing.findMany({ where: { id: { in: rows.map((o) => o.listingId) } }, select: { id: true, title: true, photoFileIds: true } }) : [],
         rows.length ? prisma.jobsDispute.findMany({ where: { orderId: { in: rows.map((o) => o.id) } } }) : [],
         rows.length ? prisma.jobsProfile.findMany({ where: { userId: { in: rows.map((o) => (o.buyerId === uid ? o.sellerId : o.buyerId)) } } }) : [],
+        rows.length ? prisma.jobsTransaction.findMany({ where: { txHash: { in: rows.map((o) => o.id) }, type: { in: ["PLATFORM_FEE_PENDING", "PLATFORM_FEE"] } } }) : [],
       ]);
       const lm = new Map(ls.map((l) => [l.id, l]));
       const dm = new Map(ds.map((d) => [d.orderId, d]));
       const pm = new Map(ps.map((p) => [p.userId, p]));
+      const fm = new Map(fees.map((f) => [f.txHash, Number(f.amount) || 0]));
       return {
-        ok: true, autoReleaseDays: 7,
+        ok: true, autoReleaseDays: 7, commissionPercent: jobsStoreCommissionPercent(),
         orders: rows.map((o) => {
           const l = lm.get(o.listingId);
           const d = dm.get(o.id);
           const role = o.buyerId === uid ? "buyer" : "seller";
+          const storedFee = fm.get(o.id);
+          const platformFee = o.status === "REFUNDED" ? 0 : storedFee ?? 0;
           const other = pm.get(role === "buyer" ? o.sellerId : o.buyerId);
           const myStatement = d ? (role === "buyer" ? d.buyerStatement : d.sellerStatement) : null;
           return {
-            id: o.id, short: o.id.slice(-6), role, amount: o.amount, status: o.status, shipping: o.deliveryMethod === "SHIPPING", title: l?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null,
+            id: o.id, short: o.id.slice(-6), role, amount: o.amount, platformFee, sellerNet: o.status === "REFUNDED" ? 0 : o.amount - platformFee, status: o.status, shipping: o.deliveryMethod === "SHIPPING", title: l?.title || "—", photo: l ? photosOf(l.photoFileIds)[0] || null : null,
             at: o.created_at.toISOString(), escrowedAt: o.escrowedAt?.toISOString() || null, releasedAt: o.releasedAt?.toISOString() || null,
             other: other ? { name: other.name, city: other.city, contact: o.status === "ESCROWED" ? contactUrlOf(other) : null } : null,
             dispute: d ? { status: d.status, resolution: d.resolution, mine: !!myStatement, opener: d.openedBy === uid } : null,
@@ -299,8 +305,8 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
       if (!rateLimit(`japp-or:${uid}`, 10, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const r = await confirmReceivedCore(uid, id(body?.id));
       if (!r.ok) return fail(r.error);
-      await notifyReceived(bot, r.order);
-      return { ok: true };
+      await notifyReceived(bot, { ...r.order, sellerNet: r.sellerNet, platformFee: r.platformFee });
+      return { ok: true, sellerNet: r.sellerNet, platformFee: r.platformFee };
     }
     case "order_dispute": {
       if (!rateLimit(`japp-od:${uid}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
@@ -453,7 +459,7 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
 
     // ---------------------------------------------------------------- 💰 رصيدي وإيداع
     case "wallet": {
-      const txs = await prisma.jobsTransaction.findMany({ where: { userId: uid }, orderBy: { created_at: "desc" }, take: 20 });
+      const txs = await prisma.jobsTransaction.findMany({ where: { userId: uid, type: { notIn: ["PLATFORM_FEE_PENDING", "PLATFORM_FEE", "PLATFORM_FEE_VOID"] } }, orderBy: { created_at: "desc" }, take: 20 });
       const ton = isNativeTonConfigured() ? { address: getMasterHotWalletAddress(), memo: await getOrCreateJobsTonMemo(uid) } : null;
       return {
         ok: true, balance: user.balance, starsPerUsd: STARS_PER_USD, tiers: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), ton,

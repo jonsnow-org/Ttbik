@@ -7,6 +7,8 @@ on:
     paths:
       - "scripts/promo/**"
       - "promo/projects.json"
+      - "promo/catalog.json"
+      - "promo/handoff/**"
       - ".github/workflows/promo-projects.yml"
   schedule:
     - cron: "40 3 * * 1"
@@ -32,14 +34,17 @@ jobs:
           node-version: 22
       - name: validate campaigns and generator syntax
         run: |
-          node --test scripts/promo/projects.test.mjs scripts/promo/copy.test.mjs
+          node --test scripts/promo/*.test.mjs
+          node --check scripts/promo/handoff.mjs
           node --check scripts/promo/make.mjs
           node --check scripts/promo/cards.mjs
           node --check scripts/promo/copy.mjs
-          python -m py_compile scripts/promo/tts.py
+          python -m py_compile scripts/promo/tts.py scripts/promo/remotion_publish.py
+          python -m unittest discover -s scripts/promo -p 'test_remotion_publish.py' -v
   make:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 provides Chromium builds for Ubuntu 24.04; ubuntu-latest moved to 26.04 and fails installation.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -77,4 +82,11 @@ jobs:
         with:
           name: promo-copy
           path: promo-copy/*
+          retention-days: 30
+      - name: supervisor handoff sheet (what to post by hand next, from promo/catalog.json + the ledger)
+        run: node scripts/promo/handoff.mjs --out promo-copy/HANDOFF.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-handoff
+          path: promo-copy/HANDOFF.md
           retention-days: 30

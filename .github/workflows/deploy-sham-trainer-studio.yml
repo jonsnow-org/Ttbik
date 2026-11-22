@@ -24,7 +24,7 @@ on:
         required: false
         default: "5"
       job:
-        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer) | motion (video motion tokenizer)"
+        description: "What this Studio trains: live (general) | images | audio | chat | tools | text | codec (HD image tokenizer) | motion (video motion tokenizer) | tldm (T-LDM writer experiments, CPU)"
         required: false
         default: "live"
 
@@ -88,14 +88,26 @@ jobs:
           git clone "https://oauth2:${T}@${MSHOST}/studios/${OWNER}/${REPO}.git" /tmp/studio 2>&1 | sed "s/${T}/***/g"
           cd /tmp/studio
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/app.py" app.py
+          cp "$GITHUB_WORKSPACE"/ai-system/modelscope-trainer/*.py .      # app.py + studio_guard.py (the cross-watch) + safe_evolve.py (imported by the tldm cycle)
           cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/requirements.txt" requirements.txt
+          cp "$GITHUB_WORKSPACE/ai-system/modelscope-trainer/safe_evolve.py" safe_evolve.py   # optional evolve / LoRA step (replay + no-regress gate)
+          test -f app.py && test -f safe_evolve.py
           mkdir sham_small
           # the training code only: notebooks, fixtures and caches stay out (the Studio repo has a size limit)
           rsync -a --exclude kaggle_notebooks --exclude colab_notebooks --exclude __pycache__ --exclude '*.ipynb' --exclude '*.pt' --exclude '*.zip' "$GITHUB_WORKSPACE/ai-system/colab/sham_small/" sham_small/
           # the supervision helpers that sham_live may import (kept next to the code)
           mkdir lightning
           rsync -a --exclude __pycache__ "$GITHUB_WORKSPACE/ai-system/lightning/" lightning/     # the codec job (tokenizer_job.py) lives here
+          if [ "${{ inputs.job || 'live' }}" = "tldm" ]; then
+            mkdir tldm
+            # the T-LDM tree only: checkpoints and caches stay out (the Studio repo has a size limit). The tree is copied as-is; this workflow does not edit it.
+            rsync -a --exclude __pycache__ --exclude checkpoints --exclude '*.pt' --exclude .gitignore "$GITHUB_WORKSPACE/ai-system/tldm/" tldm/
+            # train_0.3b imports terminal_tasks, which loads sandbox_terminal from the sibling ../terminal (and exec_verify from ../distill). Same layout as ai-system/.
+            mkdir terminal distill
+            rsync -a --exclude __pycache__ --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/terminal/" terminal/
+            rsync -a --exclude __pycache__ --exclude '*.pyc' "$GITHUB_WORKSPACE/ai-system/distill/" distill/
+            du -sh tldm terminal distill | cut -f1
+          fi
           du -sh sham_small | cut -f1
           git config user.name "Sham CI"; git config user.email "ci@sham.local"
           date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
@@ -106,6 +118,8 @@ jobs:
         env:
           T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
           KT: ${{ secrets.KAGGLE_API_TOKEN }}
+          TCN: ${{ secrets.MODELSCOPE_TOKEN }}
+          TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           NAME: ${{ inputs.name || 'ms1' }}
           HOURS: ${{ inputs.hours || '5' }}
           JOB: ${{ inputs.job || 'live' }}
@@ -121,12 +135,25 @@ jobs:
             [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Secret update failed for $1 (HTTP $code)"; exit 1; }
             echo "updated secret key: $1"
           }
+          set_secret MODELSCOPE_API_TOKEN "$T"      # 2026-11-13: lets the trainer read the account's PRIVATE model repo novaai2026/sham-merged (the head, fast on this network) instead of the slow Kaggle download
           set_secret KAGGLE_USERNAME jonsnowjonsnow
           set_secret KAGGLE_API_TOKEN "$KT"
           set_secret SHAM_TRAINER_NAME "$NAME"
           set_secret SHAM_TRAINER_HOURS "$HOURS"
           set_secret SHAM_TRAINER_JOB "$JOB"
           set_secret HF_ENDPOINT https://hf-mirror.com
+          set_secret SHAM_MS_OWNER "$OWNER"          # cn = novaai2026, ai = Jonjithup (publish_modelscope would otherwise default to novaai2026)
+          if [ "$SITE" = "ai" ]; then
+            set_secret MODELSCOPE_DOMAIN www.modelscope.ai   # HubApi must talk to the international hub (the .ai token is rejected on .cn)
+          fi
+          if [ "$JOB" = "tldm" ]; then
+            set_secret SHAM_TLDM_REPO tldm-writer-runs
+          fi
+          # 2026-11-18 cross-watch (ai-system/modelscope-trainer/studio_guard.py): every trainer wakes the other trainers and sham-runner-1 on BOTH sites, so it needs both tokens
+          echo "::add-mask::$TCN"; echo "::add-mask::$TAI"
+          [ -n "$TCN" ] && set_secret MS_GUARD_TOKEN_CN "$TCN"
+          [ -n "$TAI" ] && set_secret MS_GUARD_TOKEN_AI "$TAI"
+          set_secret SHAM_GUARD_SELF "$SITE/$OWNER/$REPO"
           rm -f secret.json secret-response.json
 
       - name: Deploy and wait until the app answers

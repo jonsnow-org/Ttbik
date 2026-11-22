@@ -1,18 +1,18 @@
-# The shared isolated graphical computer and distributed task workers
+# Isolated model computer endpoints and distributed task workers
 
 ## Architecture
 
-The application exposes one authenticated computer surface backed by the reserved, private 16 GB ModelScope computer hub (`nova-inference-server`). It is an execution host, not a language model or a media generator. Work is split between three different execution resources:
+The Mini App exposes one authenticated computer surface, but the selected model determines its backend. Nova 1 use the reserved private 16 GB ModelScope computer hub (nova-inference-server); Nova 2 is routed only to a separate NOVA2_COMPUTER_STUDIO_URL when provisioned; Sham/Sham Pro use the computer embedded in their serving Studios. These are execution hosts, not language models or media generators.
 
-1. **Dedicated ModelScope computer hub.** Terminal, persistent files, jobs, Chromium and the graphical desktop run here. Every session is isolated by verified user ID and selected model ID; users and models do not share home directories, browser cookies or desktop sessions.
-2. **Model-specific ModelScope inference and media Studios.** Nova, Sham v2 and each candidate retain their own inference and media weights. Image, speech and real video generation execute on the selected model's assigned media Studio, not on the computer hub.
+1. **Model-specific computer endpoints.** Nova 1 use the shared 16 GB hub; Nova 2 requires its own NOVA2_COMPUTER_STUDIO_URL; Sham/Sham Pro run inside their serving Studios. Every endpoint uses a verified user+model session; no model borrows another model's URL, workspace or weights.
+2. **Model-specific inference and media Studios.** Nova, Nova 2, Sham v2 and candidates retain their own inference and media weights. Image, speech and video generation execute on each model's media Studio, never on a computer endpoint.
 3. **Oracle Linux runner and GitHub Actions.** Oracle handles eligible task-scoped Linux work; GitHub Actions handles discrete CI/build/test/export jobs. Neither is presented as a persistent interactive desktop.
 
 The application may move a task between workers only after saving its files, logs and next step. A live process, browser window, in-memory state or open graphical session is never claimed to have migrated between hosts.
 
 ## Dedicated ModelScope computer
 
-All supported models use the same private computer-only Studio URL, but **not a shared workspace**. A session identifier is derived on the server from the verified user ID and selected model ID; the server does not trust an arbitrary client locator.
+Nova 1 share the private computer-only hub URL but not a workspace. Nova 2 is excluded from that hub and must use a separately provisioned computer-only Studio; until then its computer is unavailable. Sham/Sham Pro remain inside their own serving Studios. Session IDs are derived server-side from the verified user ID and selected model; arbitrary client locators are not trusted.
 
 ### Three interfaces backed by isolated sessions
 
@@ -71,7 +71,7 @@ It does not provide a permanent per-user home, a persistent browser session or a
 ## Routing and failover contract
 
 - Oracle receives new task-scoped Linux work first while its authenticated health and capacity gates pass.
-- The selected model's own ModelScope Studio is the Linux fallback. It never borrows another model's Studio or weights.
+- The selected model's own ModelScope computer Studio is the Linux fallback. Nova 2 is eligible only after its independent computer-only endpoint passes live acceptance checks; it never borrows Nova 1's hub or media weights.
 - GitHub Actions is selected for discrete artifact-based batch jobs, not as a generic terminal fallback.
 - The limited JavaScript runner is last for simple code that fits its restricted runtime.
 - Only files, logs, task metadata and the next action are checkpointed. No active process, browser tab, terminal process or X11 display is described as migrated.

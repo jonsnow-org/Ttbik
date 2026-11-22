@@ -1,17 +1,18 @@
-// Shared 16 GB computer-only Studio (ai-system/modelscope-media/computer_box.py): shell, persistent files and background jobs.
-// The host is common; the session key includes the verified user+model identity and the Studio gives every session a private UID/home.
+// ModelScope computer-only runtime (ai-system/modelscope-media/computer_box.py): shell, persistent files and jobs.
+// Nova 1 uses the shared hub; Nova 2 requires its own configured computer endpoint.
+// Every endpoint keys workspaces by verified user+model identity and keeps each session in its own UID/home.
 import { browserStudioFor, studioCall } from "@/lib/browserComputer";
 import { DEFAULT_URL, DEFAULT_V2_URL } from "@/lib/shamStudio";
 
-/** Where a model's terminal / files / jobs live. Sham and Sham v2 have NO computer Studio at all (owner's order 2026-11-08): their computer is part of the model's own loop and runs inside
- *  its serving code (sham_embedded_tools.py). The hub is Nova's only. */
+/** Where terminal/files/jobs live. Sham/Sham Pro use embedded serving tools; Nova 1 uses the shared hub;
+ *  Nova 2 resolves only to its own NOVA2_COMPUTER_STUDIO_URL endpoint. */
 export function boxStudioFor(modelId: string | undefined): string | null {
   if (modelId === "sham" || modelId === "sham_v2") return null;
   return browserStudioFor(modelId);
 }
 
 export type BoxArgs = {
-  action?: string; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
+  action?: string; signed_url?: string; env?: Record<string, string>; command?: string; cwd?: string; timeout?: number; path?: string; content?: string; id?: string; name?: string; tail?: number; since?: number; limit?: number; url?: string; ref?: string; pattern?: string; glob?: string; old?: string; new?: string; replace_all?: boolean; edits?: { old: string; new: string; replace_all?: boolean }[]; repo?: string; dir?: string; diff?: string; steps?: BoxArgs[]; continue_on_error?: boolean;
 };
 
 const ACTIONS = new Set(["run", "write", "read", "job_start", "job_log", "job_stop", "job_list", "repo", "search", "edit", "changes", "status", "activity", "patch", "test", "tools", "batch"]);
@@ -23,7 +24,7 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
   if (tool === "computer_write") return { action: "write", path: a.path as string, content: a.content as string };
   if (tool === "computer_read") return { action: "read", path: (a.path as string) || "." };
   if (tool === "computer_edit") return { action: "edit", path: a.path as string, old: a.old as string, new: a.new as string, replace_all: Boolean(a.replace_all), edits: Array.isArray(a.edits) ? (a.edits as any[]) : undefined };
-  if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string };
+  if (tool === "computer_repo") return { action: "repo", url: a.url as string, ref: a.ref as string, signed_url: a.signed_url as string };
   if (tool === "computer_search") return { action: "search", pattern: a.pattern as string, path: (a.path as string) || ".", glob: a.glob as string };
   if (tool === "computer_patch") return { action: "patch", diff: a.diff as string, cwd: (a.cwd as string) || "." };
   if (tool === "computer_test") return { action: "test", cwd: (a.cwd as string) || ".", command: (a.command as string) || "" };
@@ -47,14 +48,21 @@ export function boxActionFor(tool: string, a: Record<string, unknown>): BoxArgs 
 }
 
 /** Exactly the fields the Studio understands, bounded; anything else is dropped. */
+/** The hub's home folder is the working folder, so `~/repos/x` and `$HOME/repos/x` mean `repos/x`. The repo answer says "ready in ~/repos/x", and Nova used that spelling in a path: «No such file or directory», five wasted steps (2026-11-16). */
+export function homePath(p: unknown): string {
+  const t = String(p ?? "");
+  const m = /^(?:~|\$HOME|\$\{HOME\})(?:\/+(.*))?$/.exec(t);
+  return m ? (m[1] || ".") : t;
+}
+
 export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   const action = String(a.action || "").toLowerCase();
   if (!ACTIONS.has(action)) return null;
   const out: Record<string, unknown> = { action };
   if (a.command !== undefined) out.command = String(a.command).slice(0, 8000);
-  if (a.cwd !== undefined) out.cwd = String(a.cwd).slice(0, 300);
-  if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(90, Math.trunc(Number(a.timeout))));
-  if (a.path !== undefined) out.path = String(a.path).slice(0, 500);
+  if (a.cwd !== undefined) out.cwd = homePath(a.cwd).slice(0, 300);
+  if (a.timeout !== undefined && Number.isFinite(Number(a.timeout))) out.timeout = Math.max(1, Math.min(300, Math.trunc(Number(a.timeout))));
+  if (a.path !== undefined) out.path = homePath(a.path).slice(0, 500);
   if (a.content !== undefined) out.content = String(a.content).slice(0, 1_000_000);
   if (a.id !== undefined) out.id = String(a.id).slice(0, 20);
   if (a.name !== undefined) out.name = String(a.name).slice(0, 60);
@@ -63,6 +71,8 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.limit !== undefined && Number.isFinite(Number(a.limit))) out.limit = Math.max(1, Math.min(40, Math.trunc(Number(a.limit))));
   if (a.url !== undefined) out.url = String(a.url).slice(0, 300);
   if (a.ref !== undefined) out.ref = String(a.ref).slice(0, 100);
+  if (a.env && typeof a.env === "object" && typeof (a.env as any).GH_TOKEN === "string" && /^[A-Za-z0-9_-]{20,300}$/.test((a.env as any).GH_TOKEN)) out.env = { GH_TOKEN: (a.env as any).GH_TOKEN };
+  if (typeof a.signed_url === "string" && /^https:\/\/codeload\.github\.com\//.test(a.signed_url)) out.signed_url = a.signed_url.slice(0, 1500);
   if (a.pattern !== undefined) out.pattern = String(a.pattern).slice(0, 300);
   if (a.glob !== undefined) out.glob = String(a.glob).slice(0, 100);
   if (a.old !== undefined) out.old = String(a.old).slice(0, 200_000);
@@ -70,7 +80,7 @@ export function cleanBoxArgs(a: BoxArgs): Record<string, unknown> | null {
   if (a.replace_all) out.replace_all = true;
   if (Array.isArray(a.edits)) out.edits = a.edits.slice(0, 40).map((e) => ({ old: String(e?.old ?? "").slice(0, 200_000), new: String(e?.new ?? "").slice(0, 200_000), ...(e?.replace_all ? { replace_all: true } : {}) }));
   if (a.repo !== undefined) out.repo = String(a.repo).slice(0, 200);
-  if (a.dir !== undefined) out.dir = String(a.dir).slice(0, 300);
+  if (a.dir !== undefined) out.dir = homePath(a.dir).slice(0, 300);
   if (a.diff !== undefined) out.diff = String(a.diff).slice(0, 400_000);
   if (a.continue_on_error) out.continue_on_error = true;
   if (action === "batch") {
@@ -95,8 +105,10 @@ function renderBody(action: string, r: Record<string, any>): string {
     case "repo":
       return r.job ? String(r.message) : `repository ready in ~/${r.path} (${r.seconds}s)\n${r.summary}\nSearch it with computer_search, read files with computer_read.`;
     case "search":
+      if (r.running) return [`still searching in the background as job ${r.id} · ${r.seconds}s so far`, String(r.matches || "(nothing yet)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
       return String(r.matches || "(no matches)");
     case "run":
+      if (r.running) return [`still running in the background as job ${r.id} · ${r.seconds}s so far · in ${r.cwd}`, String(r.output || "(no output yet)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
       return [`exit ${r.exit_code}${r.timed_out ? " (stopped: too long)" : ""} · ${r.seconds}s · in ${r.cwd}`, String(r.output || "(no output)"), r.hint ? `\n${r.hint}` : ""].join("\n").trim();
     case "write":
       return `wrote ${r.path} (${r.bytes} bytes)`;
@@ -125,7 +137,7 @@ function renderBody(action: string, r: Record<string, any>): string {
 }
 
 export async function boxDo(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
-  const base = boxStudioFor(modelId);                 // the same per-model media Studio hosts the browser and the computer
+  const base = boxStudioFor(modelId);                 // this model's computer Studio, never its media Studio
   if (!base) return "error: this model has no computer Studio";
   const clean = cleanBoxArgs(args);
   if (!clean) return "error: unknown computer action";
@@ -171,7 +183,7 @@ async function waitJob(base: string, session: string, id: string, fetchImpl: typ
   return last;
 }
 
-/** Raw reply for the Mini App terminal/files screens: same shared hub and private user+model session; never a token. */
+/** Raw Mini App terminal/files reply: selected model's computer endpoint and private user+model session; never a token. */
 export async function boxRaw(modelId: string | undefined, session: string, args: BoxArgs, fetchImpl: typeof fetch = globalThis.fetch): Promise<Record<string, any>> {
   if (modelId === "sham" || modelId === "sham_v2") {
     // The owner's Mini App screen of a Sham's computer stays useful WITHOUT any command API: a READ-ONLY view (files, a file, jobs, a job log, what the model just did) served by the
@@ -199,7 +211,7 @@ export async function boxRaw(modelId: string | undefined, session: string, args:
 
 export type BoxChanges = { ok: true; repo: string; base: string; files: { path: string; content: string }[]; deleted: string[]; skipped: { path: string; why: string }[] } | { ok: false; error: string };
 
-/** Changed files are read from this user+model session on the computer hub. The GitHub token never goes there: the app commits what comes back. */
+/** Changed files are read from this user's selected-model computer session. GitHub credentials never enter the computer; the app commits returned changes. */
 export async function boxCollect(modelId: string | undefined, session: string, args: { repo: string; dir?: string }, fetchImpl: typeof fetch = globalThis.fetch): Promise<BoxChanges> {
   if (modelId === "sham" || modelId === "sham_v2") {
     // The Shams' computer is inside the model (no computer Studio). Publishing needs only the READ-ONLY list of changed files from the model's own serving app (computer_changes).
@@ -221,4 +233,14 @@ export async function boxCollect(modelId: string | undefined, session: string, a
   } catch (error) {
     return { ok: false, error: String((error as Error)?.message || error).slice(0, 240) };
   }
+}
+
+/** A private (or public) repository for the computer WITHOUT putting the GitHub token there: GitHub answers the tarball request with a redirect to a short-lived codeload address; only that address is handed to the computer. */
+export async function signedTarball(token: string, repo: string, ref: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<string | null> {
+  if (!token || !/^[A-Za-z0-9_-][\w.-]*\/(?!\.\.?$)[\w.-]+$/.test(repo)) return null;
+  try {
+    const r = await fetchImpl(`https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref || "HEAD")}`.replace("%2F", "/"), { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, redirect: "manual", signal: AbortSignal.timeout(8000) });
+    const loc = r.headers.get("location") || "";
+    return r.status >= 300 && r.status < 400 && /^https:\/\/codeload\.github\.com\//.test(loc) ? loc : null;
+  } catch { return null; }
 }

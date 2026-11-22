@@ -1,0 +1,775 @@
+#!/usr/bin/env python3
+"""python scripts/test_all.py -> every check of the checklist. PASS/FAIL per test; exit code 1 if any fails."""
+import importlib.util
+import os
+import sys
+import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import ROOT  # noqa: E402
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+from sham_tldm import (BitLinear, Compressor, LatentThinker, MambaBlock, DiffusionWriter, Sham1_TLDM, ShamBodyTLDM, encode_bytes, decode_bytes,  # noqa: E402
+                       pack_ternary, unpack_ternary, bitnet_size_bytes)
+import terminal_tasks as T  # noqa: E402
+
+TESTS = []
+
+
+def test(f):
+    TESTS.append(f)
+    return f
+
+
+@test
+def bitlinear_is_ternary_and_packs_to_a_fifth_of_a_byte():
+    layer = BitLinear(100, 50)
+    q, s = layer.ternary()
+    assert set(q.unique().tolist()) <= {-1, 0, 1}
+    blob = pack_ternary(q)
+    assert torch.equal(unpack_ternary(blob, q.numel(), q.shape), q.to(torch.int8)), "pack/unpack must round-trip"
+    assert abs(len(blob) / q.numel() - 0.2) < 0.01, len(blob) / q.numel()
+    y = layer(torch.randn(3, 100)); y.sum().backward()
+    assert layer.weight.grad is not None, "straight-through estimator must pass gradients"
+
+
+@test
+def mamba_parallel_scan_equals_token_by_token_recurrence():
+    torch.manual_seed(0)
+    b = MambaBlock(32, bitnet=False, chunk=8).eval()
+    x = torch.randn(2, 37, 32)
+    with torch.no_grad():
+        full = b(x)
+        h = torch.zeros(2, 32)
+        outs = []
+        for t in range(x.shape[1]):
+            y, h = b.step(x[:, t], h)
+            outs.append(y)
+    assert torch.allclose(full, torch.stack(outs, 1), atol=1e-4), (full - torch.stack(outs, 1)).abs().max()
+
+
+@test
+def compressor_compresses_long_input_and_does_not_expand_short_input():
+    c = Compressor(32, 12, pool_over=512)
+    assert c(torch.randn(1, 5000, 32)).shape == (1, 12, 32)
+    assert c(torch.randn(1, 7, 32)).shape == (1, 12, 32)
+
+
+@test
+def thinker_early_exit_stops_when_converged():
+    th = LatentThinker(32, steps=8)
+    z = torch.randn(1, 6, 32)
+    _, used_full = th(z)
+    for p in th.parameters():
+        p.data.zero_()                                    # a cell that changes nothing has converged at once
+    _, used = th(z, early_exit=True)
+    assert used_full == 8 and used < 8, (used_full, used)
+
+
+@test
+def writer_writes_the_block_in_the_requested_number_of_passes_and_is_deterministic():
+    w = DiffusionWriter(32, 48, vocab=257, layers=2)
+    calls = []
+    orig = w.logits
+    w.logits = lambda *a, **k: (calls.append(1), orig(*a, **k))[1]
+    z = torch.randn(2, 6, 32)
+    out = w.generate(z, steps=10)
+    assert out.shape == (2, 48) and len(calls) == 10, (out.shape, len(calls))
+    assert torch.equal(out, w.generate(z, steps=10))
+
+
+@test
+def model_learns_the_30_examples_gradients_everywhere_and_generation_depends_on_the_task():
+    # Pinned to one thread and 400 steps: with 250 steps the result depended on the thread count (2 threads, the GitHub runner's: 1/6 exact from seed 0; 1 thread: 6/6),
+    # which made the T-LDM workflow fail one run in two. Measured locally, 400 steps: 5-6/6 for seeds 0-2 at 1 and 2 threads.
+    threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        torch.manual_seed(0)
+        m = Sham1_TLDM(d=96, layers=2, latents=8, think_steps=3, block=48, heads=4, in_len=48)
+        rows = T.TRAIN[:6]
+        ids = torch.tensor([encode_bytes(t, 48) for t, _ in rows])
+        tgt = torch.tensor([encode_bytes(c, 48) for _, c in rows])
+        opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
+        first = None
+        for step in range(400):
+            opt.zero_grad(); l = m.loss(ids, tgt); l.backward(); opt.step()
+            first = first or l.item()
+        assert all(p.grad is not None for p in m.parameters()), "every parameter must receive a gradient"
+        assert l.item() < first * 0.3, (first, l.item())
+        m.eval()
+        out, _ = m.generate(ids, steps=10)
+        cmds = [decode_bytes(r) for r in out]
+        assert len(set(cmds)) > 1, "different tasks must give different commands"
+        assert sum(c == ref for c, (_, ref) in zip(cmds, rows)) >= 4, cmds
+    finally:
+        torch.set_num_threads(threads)
+
+def _tiny_sham_body():
+    d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
+    sys.path.insert(0, d)
+    spec = importlib.util.spec_from_file_location("sham_small_model", os.path.join(d, "model.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cfg = mod.ShamSmallConfig(vocab_size=400, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=64, adapter_rank=4)
+    return mod.ShamSmall(cfg)
+
+
+@test
+def sham_body_conversion_freezes_the_donor_and_trains_only_head_and_adapters():
+    torch.manual_seed(0)
+    body = _tiny_sham_body()
+    before = {k: v.clone() for k, v in body.state_dict().items() if "adapter" not in k}
+    m = ShamBodyTLDM(body, latents=8, think_steps=3, block=32, heads=4)
+    rep = m.trainable_report()
+    assert rep["trainable_pct"] < 100 and rep["new_head"] > 0, rep
+    assert not any(p.requires_grad for n, p in body.named_parameters() if "adapter" not in n), "donor weights must be frozen"
+    ids = torch.randint(0, 300, (2, 20))
+    tgt = torch.tensor([encode_bytes("ls", 32)] * 2)
+    opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=1e-2)
+    for _ in range(3):
+        opt.zero_grad(); m.loss(ids, tgt).backward(); opt.step()
+    after = body.state_dict()
+    assert all(torch.equal(before[k], after[k]) for k in before), "a training step changed donor weights"
+    out, info = m.generate(ids, steps=5)
+    assert out.shape == (2, 32) and info["latents"] == 8
+
+
+@test
+def sandbox_blocks_every_forbidden_command_and_path_escape():
+    t = T.fresh()
+    try:
+        for cmd in ("rm -rf /", "rm -rf .", "sudo ls", "passwd", "shutdown now", "curl http://x", "wget http://x", "cat /etc/passwd", "cat ../x", "ls /", "echo hi > /tmp/x", "ls; ls", "ls && ls", "pip install x", "git status", "bash -c ls"):
+            r = t.run(cmd, confirm=True)
+            assert not r.ok and (r.refused or r.out == ""), (cmd, r)
+        assert t.run("echo $HOME").out == "$HOME", "no shell expansion: a variable name stays a literal and no environment can leak"
+        assert t.run("mkdir backup").needs_confirmation, "mkdir must ask the human"
+        assert t.run("python3 -c \"import os\"").refused, "python code with os must be refused"
+    finally:
+        t.close()
+
+
+@test
+def trusted_script_runs_but_a_modified_one_is_refused():
+    t = T.fresh()
+    try:
+        assert t.run("python3 organize.py").ok
+        assert os.path.isdir(os.path.join(t.dir, "jpg")) and os.path.isdir(os.path.join(t.dir, "txt"))
+    finally:
+        t.close()
+    t = T.fresh()
+    try:
+        open(os.path.join(t.dir, "organize.py"), "a").write("\n# changed\n")
+        assert "sha256" in t.run("python3 organize.py").refused
+    finally:
+        t.close()
+
+
+@test
+def the_30_terminal_examples_all_run_and_are_logged():
+    rows = [r for r in (T.execute(c) for _, c in T.TRAIN)]
+    assert all(ok for ok, _, _ in rows), [c for (_, c), (ok, _, _) in zip(T.TRAIN, rows) if not ok]
+    assert len(T.TRAIN) == 30 and len(T.HELDOUT) >= 10
+
+
+@test
+def same_effect_masks_the_sandbox_folder_and_the_clock_but_still_tells_wrong_commands_apart():
+    assert T.same_effect("pwd", "pwd") and T.same_effect("date", "date")      # each run has its own temp folder / second
+    assert not T.same_effect("pwd", "ls") and not T.same_effect("date", "touch date.txt")
+    assert not T.same_effect("pwd", "echo '<sandbox>'"), "the mask must not be writable by the command itself"
+
+
+def _sham_computer(session):
+    d = os.path.join(os.path.dirname(ROOT), "colab", "sham_small")
+    sys.path.insert(0, d)
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    import sham_computer
+    import uuid
+    return sham_computer.Computer(session=session + "_" + uuid.uuid4().hex[:8])         # a fresh workspace per run: tests must not depend on earlier runs
+
+
+@test
+def one_body_per_model_the_terminal_works_through_the_models_own_computer():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from backends import ComputerBackend
+    comp = _sham_computer("tldm_test_one_body")
+    calls = []
+    orig = comp.execute
+    comp.execute = lambda name, args: (calls.append(name), orig(name, args))[1]
+    b = ComputerBackend(comp, policy="model_computer")
+    assert b.run("echo hello > made_by_terminal.txt").ok
+    assert "hello" in comp.execute("computer_read", {"path": "made_by_terminal.txt"}), "the model's own tools must see the terminal's file: one body"
+    assert set(calls) <= {"computer_run", "computer_read"}, calls                      # the terminal only ever calls the tool the model already has
+    assert b.run("echo $HOME").out.startswith("/"), "model_computer policy = the computer's own behaviour, unchanged (shell expansion works)"
+    assert b.run("false").ok is False
+
+
+@test
+def strict_policy_is_applied_before_the_command_reaches_the_computer():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from backends import ComputerBackend
+    comp = _sham_computer("tldm_test_strict")
+    calls = []
+    orig = comp.execute
+    comp.execute = lambda name, args: (calls.append((name, args.get("command"))), orig(name, args))[1]
+    b = ComputerBackend(comp, policy="strict")
+    for cmd in ("rm -rf /", "sudo ls", "curl http://x", "cat /etc/passwd", "ls; ls"):
+        r = b.run(cmd, confirm=True)
+        assert not r.ok and r.refused, cmd
+    assert calls == [], "a refused command must never reach the computer"
+    assert b.run("mkdir backup").needs_confirmation and calls == []
+    assert b.run("mkdir backup", confirm=True).ok and b.run("ls").out == "backup"
+    assert [c for c, _ in calls] == ["computer_run", "computer_run"]
+
+
+@test
+def sham_v1_and_v2_share_one_embedded_computer_today_and_the_terminal_is_visible_to_the_owner():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend, session_key
+    import sham_embedded_tools as tools
+    import uuid
+    s = "tldm_bind_test_" + uuid.uuid4().hex[:8]
+    b1, b2 = ShamEmbeddedBackend(s, "sham", separate=False), ShamEmbeddedBackend(s, "sham_v2", separate=False)
+    assert b1.key == b2.key == s and b1.computer is b2.computer, "today v1 and v2 share the computer, as the models themselves do"
+    assert b1.run("echo v1 > f.txt").ok and "v1" in tools.computer_for(s).execute("computer_read", {"path": "f.txt"}), "one body"
+    act = tools.view(s, "activity")["activity"]
+    assert act and act[-1]["tool"] == "computer_run" and "echo v1" in act[-1]["arguments"], "the owner's read-only Mini App screen must list the terminal's command"
+    # the future split: its own computer of the same class per model, by a switch, no code change
+    assert session_key(s, "sham", separate=True) == "sham:" + s and session_key(s, "sham_v2", separate=True) == "sham_v2:" + s
+    c1, c2 = ShamEmbeddedBackend(s, "sham", separate=True), ShamEmbeddedBackend(s, "sham_v2", separate=True)
+    assert c1.computer is not c2.computer and str(c1.computer.home) != str(c2.computer.home)
+    assert type(c1.computer) is type(b1.computer)
+    assert c2.run("ls").out == "", "a separated computer starts empty: nothing leaks from the other model"
+
+
+@test
+def hidden_terminal_the_user_sees_only_the_final_reply_and_the_flag_is_off_by_default():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend
+    import serve_adapter
+    assert serve_adapter.enabled() is False, "SHAM_TLDM must be off unless deliberately enabled"
+    script = iter(["$ echo 7 > n.txt", "$ cat n.txt", "The number is 7."])
+    seen = []
+    chat = serve_adapter.TLDMChat(lambda task, hist: (seen.append(list(hist)), next(script))[1], lambda session: ShamEmbeddedBackend("tldm_hidden_" + __import__("uuid").uuid4().hex[:8], "sham", separate=False))
+    reply, events = chat.respond("tldm_hidden", "save 7 and read it back")
+    assert reply == "The number is 7." and "$" not in reply
+    assert [e.out for e in events] == ["", "7"] and seen[2] == [("echo 7 > n.txt", ""), ("cat n.txt", "7")], "the terminal's result must come back to the model"
+
+
+@test
+def owner_policy_2026_11_18_shams_computer_plus_approval_before_a_sensitive_command():
+    sys.path.insert(0, os.path.join(os.path.dirname(ROOT), "terminal"))
+    from sham_binding import ShamEmbeddedBackend
+    import uuid
+    b = ShamEmbeddedBackend("tldm_policy_" + uuid.uuid4().hex[:8], "sham", separate=False)
+    assert b.policy == "model_computer_approvals", b.policy
+    calls = []
+    orig = b._exec
+    b._exec = lambda c: (calls.append(c), orig(c))[1]
+    assert b.run("echo kept > k.txt").ok and b.run("echo $HOME").out.startswith("/"), "the base is the computer as it is"
+    r = b.run("rm k.txt")
+    assert r.needs_confirmation and not r.ok and "rm k.txt" not in calls, "without the owner's allow it never reaches the computer"
+    assert b.run("rm k.txt", confirm=True).ok and calls[-1] == "rm k.txt"
+
+
+@test
+def train_sham2_on_a_tiny_body_saves_only_head_and_adapters_and_refuses_a_real_donor_before_the_gate():
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    d = tempfile.mkdtemp(prefix="sham2_test_")
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--tiny", "--steps", "3", "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    assert r["donor_weights_unchanged"] and r["trainable"]["new_head"] > 0
+    saved = torch.load(out)["head_and_adapters"]
+    assert saved and all(k.startswith("core.") or ".adapter_" in k for k in saved), "the output must hold no donor weight"
+    gate = os.path.join(d, "gate.json")
+    _json.dump({"heldout": {"same_effect": 0.417}, "heldout2": {"same_effect": 0.9}}, open(gate, "w"))
+    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--gate", gate, "--out", os.path.join(d, "x.pt")]) == 2, "below the gate: a real donor is refused"
+    assert train_sham2.main(["--donor", os.path.join(d, "none.pt"), "--gate", os.path.join(d, "missing.json"), "--out", os.path.join(d, "x.pt")]) == 2, "no gate file: refused"
+    docs_gate = os.path.join(ROOT, "..", "..", "docs", "experiments", "tldm_heldout_gate_2026-11-18.json")
+    assert open(docs_gate, "rb").read() == open(os.path.join(ROOT, "gate", "tldm_heldout_gate_2026-11-18.json"), "rb").read(), "gate/ must be the identical copy"
+    assert train_sham2.gate_ok(docs_gate, 0.6)[0], "the merged gate results pass the 0.6 gate"
+    assert not os.path.exists(os.path.join(d, "x.pt"))
+
+
+@test
+def train_sham2_loop_extra_trains_a_second_head_and_ships_the_winner_only():
+    """The real executed shell traces (data/snapshots) are a SECOND loop head; it is shipped only if it beats the in-domain head on the in-domain full-task benchmark; both numbers are kept."""
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    extra = os.path.join(ROOT, "data", "snapshots", "ultradata_loop_train.jsonl.gz")
+    assert os.path.isfile(extra), "the snapshot file must be in the repository (the Studio gets the tldm tree)"
+    d = tempfile.mkdtemp(prefix="sham2_extra_")
+    cfg = os.path.join(d, "c.yaml")
+    with open(os.path.join(ROOT, "configs", "sham2.yaml")) as f, open(cfg, "w") as g:
+        g.write(f.read().replace("loop_episodes: 500", "loop_episodes: 6").replace("loop_steps: 900", "loop_steps: 2") + "\nloop_eval_episodes: 3\n")
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "1", "--loop", "--loop_extra", extra, "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    e = r["loop"][0]
+    assert e["extra_rows"] > 0 and ("with_extra" in e or e.get("variant") == "with extra real shell traces"), e
+    assert e["variant"] in ("in-domain only", "with extra real shell traces")
+    heads = torch.load(out)["heads"]
+    assert set(heads) == {"writer", "loop_seed0"}, "only the winner is saved, under the name serving loads"
+    xs, ys, n = train_sham2.load_loop_extra(extra, lambda t, k: [5 + (ord(c) % 200) for c in t[:k]], 96, 64, cap=50, share=0.2, base_rows=100)
+    assert n == 25 and len(xs) == len(ys) == 25, "at most 20% of the mixed set"
+    assert train_sham2.load_loop_extra(os.path.join(d, "none.gz"), None, 96, 64)[2] == 0
+
+
+def train_sham2_cached_bf16_mode_reads_the_frozen_body_once_and_saves_heads_only():
+    import json as _json
+    import tempfile
+    sys.path.insert(0, os.path.join(ROOT, "training"))
+    import train_sham2
+    d = tempfile.mkdtemp(prefix="sham2_cached_")
+    cfg = os.path.join(d, "c.yaml")
+    with open(os.path.join(ROOT, "configs", "sham2.yaml")) as f, open(cfg, "w") as g:
+        g.write(f.read().replace("loop_episodes: 500", "loop_episodes: 6").replace("loop_steps: 900", "loop_steps: 2") + "\nloop_eval_episodes: 3\n")
+    out, res = os.path.join(d, "h.pt"), os.path.join(d, "r.json")
+    assert train_sham2.main(["--config", cfg, "--tiny", "--cached", "--dtype", "bf16", "--steps", "2", "--seeds", "2", "--loop", "--identity", "--identity_steps", "2",
+                             "--out", out, "--json", res]) == 0
+    r = _json.load(open(res))
+    assert r["donor_weights_unchanged"] and len(r["writer"]) == 2 and r["loop"][0]["all"]["n"] == 3 and "heldout2" in r
+    assert r["loop"][0]["terminal"] == "computer_terminal", "Sham 2 runs its terminal through its own embedded computer"
+    heads = torch.load(out)["heads"]
+    assert set(r["identity"]["after"]) == {"identity", "general_nll", "retention"} and len(r["identity"]["after"]["identity"]["answers"]) == 8
+    import retention as RT
+    assert len(r["identity"]["after"]["retention"]["rows"]) == len(RT.CHECKS) and not set(RT.CHECKS) & set(RT.PROMPTS), "retention checks are held out of the replay"
+    # replay: with a chat tokenizer that decodes, the body's OWN pre-LoRA answers are mixed into every LoRA batch (self-distillation)
+    tb, _ = train_sham2.tiny_body(4)
+    seen_batches = []
+    real_fwd = tb.forward
+    def spy(ids, *a, **k):
+        if k.get("labels") is not None and ids.shape[0] > 1:
+            seen_batches.append(ids.shape[0])
+        return real_fwd(ids, *a, **k)
+    tb.forward = spy
+    ct = train_sham2.ChatTok(lambda t: [5 + (ord(c) % 200) for c in t[:24]], lambda ids: "ok " * max(1, len(ids) // 8), 3)
+    got = train_sham2.identity_lora(tb, ct, steps=2, batch=4, log=lambda *_: None)
+    assert got["replay_pairs"] == len(RT.PROMPTS) and got["after"]["retention"]["rows"] and seen_batches == [4, 4], got
+    import identity as ID
+    assert ID.identity_ok("I am Sham Pro.") and ID.identity_ok("أنا شام برو") and not ID.identity_ok("I am Qwen, made by Alibaba Cloud") and not ID.identity_ok("I am Sham Pro, not Qwen") and not ID.identity_ok("أنا شام 2")
+    assert heads["identity_lora"] and all(".adapter_" in k for k in heads["identity_lora"]), "identity: only LoRA adapters are saved"
+    assert set(heads) == {"writer", "loop_seed0", "identity_lora"} and all(k.startswith(("proj.", "core.")) for k in heads["writer"]), "heads only, never a body weight"
+    body, _ = train_sham2.tiny_body(4)
+    from sham_tldm import ShamBodyTLDM
+    m = ShamBodyTLDM(body, latents=4, think_steps=2, block=8, writer_layers=1, heads=2).eval()
+    seen, orig = [], m.core.writer.generate
+    m.core.writer.generate = lambda z, steps, temperature, confident, *a: (seen.append(confident), orig(z, steps, temperature, confident, *a))[1]
+    ids = torch.randint(5, 300, (1, 10))
+    m.generate(ids, steps=4, confident=0.5)
+    m.generate(ids, steps=4)
+    assert seen == [0.5, 0.0], "Sham 2 body passes `confident` to the writer"
+
+
+@test
+def rewordings_never_copy_or_come_close_to_a_held_out_task():
+    import rewordings as RW
+    rows = RW.generate()
+    assert len(rows) > 200 and RW.check(rows) == [], RW.check(rows)[:3]
+    assert {c for _, c in rows} <= {c for _, c in T.TRAIN}
+    assert all(T.execute(c)[0] for _, c in RW.HELDOUT2), "every held-out-2 reference command runs"
+
+
+@test
+def inference_speed_options_keep_results_bitlinear_cache_bf16_confident_exit_thinker_confidence():
+    from sham_tldm.bitlinear import BitLinear
+    torch.manual_seed(0)
+    lin = BitLinear(16, 8)
+    x = torch.randn(3, 16)
+    ref = lin(x)                                                    # training path
+    lin.eval()
+    with torch.inference_mode():
+        assert torch.allclose(lin(x), ref, atol=1e-6) and torch.allclose(lin(x), ref, atol=1e-6)    # cached ternary weight = same result
+    with torch.no_grad():
+        lin.weight.mul_(-1)                                          # a weight update must drop the cache
+    with torch.inference_mode():
+        assert torch.allclose(lin(x), -ref, atol=1e-5)
+    m = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+    ids = torch.tensor([encode_bytes("ls", 12)])
+    out, info = m.generate(ids, steps=4)
+    assert info["writer_passes"] == 4
+    out2, info2 = m.generate(ids, steps=4, confident=1e-9)          # everything "confident": one pass fills the block
+    assert info2["writer_passes"] == 1 and out2.shape == out.shape
+    mb = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval().to(torch.bfloat16)
+    assert mb.generate(ids, steps=4)[0].shape == (1, 8), "bf16 inference runs (the reader's scan keeps the dtype)"
+    mc = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=20, block=8, writer_layers=1, heads=2, in_len=12, think_exit="confidence", think_min_steps=7).eval()
+    with torch.no_grad():
+        mc.core.thinker.conf.bias.fill_(10.0)                        # confidence ~1: the book's rule exits at step 7
+    assert mc.generate(ids, steps=2, early_exit=True)[1]["latent_steps_used"] == 7
+    with torch.no_grad():
+        mc.core.thinker.conf.bias.fill_(-10.0)
+    assert mc.generate(ids, steps=2, early_exit=True)[1]["latent_steps_used"] == 20
+
+
+@test
+def argument_slots_copy_unseen_names_and_numbers_into_the_command():
+    import augment as AUG
+    t, c, slots = AUG.delex("write the count in zqx.txt then show 7 lines", "echo 3 > zqx.txt && head -n 7 app.log")
+    assert t == "write the count in @F1 then show @N1 lines" and c == "echo 3 > @F1 && head -n @N1 app.log", (t, c)
+    assert AUG.relex(c, slots) == "echo 3 > zqx.txt && head -n 7 app.log"
+    import trajectories as J
+    dt, dh, sl = J.delex_view("save it to tally.txt", [("ls | wc -l", "5")], True)
+    assert dt == "save it to @F1" and AUG.relex("$ echo 5 > @F1", sl) == "$ echo 5 > tally.txt"
+
+
+@test
+def donor_head_trains_only_the_head_on_a_frozen_encoder():
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        print("   (skipped: transformers not installed)")
+        return
+    import tempfile
+    from transformers import BertConfig, BertModel, BertTokenizerFast
+    from sham_tldm.donor import DonorTLDM
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "vocab.txt"), "w") as f:
+        f.write("\n".join(["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + list("abcdefghijklmnopqrstuvwxyz")))
+    BertTokenizerFast(os.path.join(d, "vocab.txt")).save_pretrained(d)
+    BertModel(BertConfig(vocab_size=31, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32)).save_pretrained(d)
+    m = DonorTLDM(d, d=16, latents=4, think_steps=2, block=6, writer_layers=1, heads=2, vocab=20, in_len=10)
+    loss = m.loss(["list files", "show date"], torch.randint(1, 20, (2, 6)))
+    loss.backward()
+    assert all(p.grad is None for p in m.donor.parameters()) and m.proj.weight.grad is not None
+    assert not any(k.startswith("donor.") for k in m.head_state())
+    assert m.generate(["list files"], steps=2)[0].shape == (1, 6)
+
+
+
+@test
+def donor_tokenizer_refuses_a_silent_bert_fallback():
+    from sham_tldm.donor import check_donor_tokenizer
+
+    class UnkTok:
+        unk_token_id = 1
+        pad_token_id = 0
+        cls_token_id = 2
+        sep_token_id = 3
+        name_or_path = "bare-minilm"
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [2, 1, 1, 3]}
+
+    try:
+        check_donor_tokenizer(UnkTok())
+    except RuntimeError as exc:
+        assert "UNK" in str(exc) or "tokenizer" in str(exc).lower()
+    else:
+        raise AssertionError("all-UNK encodings must be refused")
+
+    class OkTok:
+        unk_token_id = 1
+        pad_token_id = 0
+        cls_token_id = 2
+        sep_token_id = 3
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [2, 10 + (hash(text) % 50), 11 + len(text), 3]}
+
+    assert check_donor_tokenizer(OkTok())
+
+
+@test
+def donor_head_refuses_a_reader_that_did_not_load_pretrained_weights():
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        print("   (skipped: transformers not installed)")
+        return
+    import tempfile
+    from transformers import BertConfig, BertTokenizerFast
+    from sham_tldm.donor import DonorTLDM
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "vocab.txt"), "w") as f:
+        f.write("\n".join(["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + list("abcdefghijklmnopqrstuvwxyz")))
+    BertTokenizerFast(os.path.join(d, "vocab.txt")).save_pretrained(d)
+    BertConfig(vocab_size=31, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32).save_pretrained(d)
+    try:
+        DonorTLDM(d, d=16, latents=4, think_steps=2, block=6, writer_layers=1, heads=2, vocab=20, in_len=10)
+    except (RuntimeError, OSError) as exc:
+        msg = str(exc).lower()
+        assert ("embeddings" in msg or "encoder" in msg or "model.safetensors" in msg or "pytorch_model.bin" in msg or "weight" in msg), exc
+        return
+    raise AssertionError("DonorTLDM must refuse a reader with no pretrained embeddings/encoder weights")
+
+
+@test
+def long_term_file_memory_recall_lessons_and_one_memory_per_model():
+    import unittest
+    suite = unittest.defaultTestLoader.discover(os.path.join(ROOT, "memory"), pattern="test_memory.py", top_level_dir=os.path.join(ROOT, "memory"))
+    res = unittest.TextTestRunner(stream=open(os.devnull, "w"), verbosity=0).run(suite)
+    assert res.testsRun >= 8 and res.wasSuccessful(), [str(t) + ": " + e.splitlines()[-1] for t, e in res.failures + res.errors]
+
+
+@test
+def budget_parameters_are_exact_and_a_vocabulary_change_is_visible_to_the_last_parameter():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import parameter_report, vocab_dependent_params
+    kw = dict(d=640, layers=8, latents=16, think_steps=5, block=24, writer_layers=3, heads=4, bitnet=False, in_len=32)
+    a, b = Sham1_TLDM(vocab=416, **kw), Sham1_TLDM(vocab=417, **kw)
+    ra, rb = parameter_report(a), parameter_report(b)
+    assert ra["total"] == a.count_params() == sum(ra["groups"].values()), "the groups must add up to the total"
+    assert ra["total"] == 66_432_640 and ra["biases"] == 37_120, (ra["total"], ra["biases"])           # asserted with ==, not a range: any change of width, depth or vocabulary shows
+    assert rb["total"] - ra["total"] == 3 * 640 == vocab_dependent_params(b.cfg) - vocab_dependent_params(a.cfg), "one more token adds exactly 3 x d parameters (input embedding, writer embedding, writer head)"
+
+
+@test
+def budget_flops_formula_equals_the_measured_forward_of_the_writer():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import measured_flops, writer_pass_flops_formula
+    from sham_tldm.writer import DiffusionWriter
+    for d, N, m, V, L in ((64, 16, 8, 50, 2), (128, 24, 16, 416, 3)):
+        w = DiffusionWriter(d, N, V, L, 4).eval()
+        z, tok, mk = torch.randn(1, m, d), torch.zeros(1, N, dtype=torch.long), torch.ones(1, N, dtype=torch.bool)
+        with torch.no_grad():
+            got = measured_flops(lambda: w.logits(tok, mk, z))
+        assert got == writer_pass_flops_formula(N, m, d, L, V), (got, writer_pass_flops_formula(N, m, d, L, V))   # attention scores included; the fused fast path would hide ~30%
+
+
+@test
+def budget_first_loss_of_a_fresh_model_is_near_ln_of_the_vocabulary():
+    sys.path.insert(0, os.path.join(ROOT, "eval"))
+    from budget import init_loss_check
+    torch.manual_seed(0)
+    for V in (50, 257, 416):
+        m = Sham1_TLDM(d=64, layers=2, latents=4, think_steps=2, block=12, writer_layers=2, heads=4, in_len=16, vocab=V)
+        ids, tgt = torch.randint(1, V, (8, 16)), torch.randint(1, V, (8, 12))
+        r = init_loss_check(m.loss(ids, tgt).item(), V)
+        assert r["ok"], r
+    assert not init_loss_check(0.0, 416)["ok"] and not init_loss_check(20.0, 416)["ok"], "a first loss of 0 or 20 means the loss, the vocabulary offsets or the tokenizer is wrong"
+
+
+@test
+def thresholds_have_one_source_and_a_close_call_is_called_inconclusive():
+    import json, re
+    sys.path.insert(0, os.path.join(ROOT, "gate"))
+    from stats import verdict, wilson
+    th = json.load(open(os.path.join(ROOT, "gate", "thresholds.json"), encoding="utf-8"))
+    assert 0 < th["degenerate_floor"] < th["acceptance_heldout"] < 1
+    for f in sorted(os.listdir(os.path.join(ROOT, "configs"))):
+        text = open(os.path.join(ROOT, "configs", f), encoding="utf-8").read()
+        m = re.search(r"^gate_heldout:\s*([0-9.]+)", text, re.M)
+        if m:
+            assert float(m.group(1)) == th["acceptance_heldout"], (f, m.group(1))
+    trainer = open(os.path.join(ROOT, "..", "modelscope-trainer", "app.py"), encoding="utf-8").read()
+    assert "HELDOUT_PUBLISH_FLOOR" not in trainer and "thresholds.json" in trainer, "the trainer must read the one threshold file, not keep a copy"
+    fb = re.search(r"return (\d\.\d+), (\d\.\d+)\s+# the values in force when the file is missing", trainer)
+    assert fb and (float(fb.group(1)), float(fb.group(2))) == (th["acceptance_heldout"], th["degenerate_floor"]), "the in-code fallback must equal the file (never fail open)"
+    assert verdict(9, 14, 0.6) == "inconclusive" and verdict(8, 14, 0.6) == "inconclusive", "one task either side of the gate is noise at n=14"
+    assert verdict(14, 14, 0.6) == "pass" and verdict(2, 14, 0.6) == "fail"
+    lo, hi = wilson(9, 14)
+    assert 0.38 < lo < 0.40 and 0.83 < hi < 0.85, (lo, hi)
+
+
+@test
+def sham_vocabulary_layout_is_contiguous_disjoint_and_inside_the_head_in_both_modes():
+    """Read-only check of ShamSmall's vocabulary contract (a layout mismatch once broke Sham v1's video: motion ids outside the published head's rows)."""
+    import subprocess
+    code = (
+        "import sys; sys.path.insert(0, %r); import model as m\n"
+        "S = m.SpecialTokens; b = S._base; ids = {k: v for k, v in vars(S).items() if k.isupper()}\n"
+        "assert m.IMAGE_VOCAB_BASE == m.TEXT_VOCAB_SIZE and m.AUDIO_VOCAB_BASE == m.TEXT_VOCAB_SIZE + m.IMAGE_VOCAB_SIZE\n"
+        "assert b == m.AUDIO_VOCAB_BASE + m.AUDIO_VOCAB_SIZE and m.MOTION_VOCAB_BASE == b + m.NUM_SPECIAL_TOKENS\n"
+        "assert m.TOTAL_VOCAB_SIZE == m.MOTION_VOCAB_BASE + m.MOTION_VOCAB_SIZE == m.ShamSmallConfig().vocab_size\n"
+        "assert len(set(ids.values())) == len(ids) and all(b <= v < m.MOTION_VOCAB_BASE for v in ids.values()), 'a special id left its range or collided'\n"
+        "print(m.TEXT_VOCAB_SIZE, m.TOTAL_VOCAB_SIZE)\n"
+    ) % os.path.join(ROOT, "..", "colab", "sham_small")
+    for env_text, total in (("", 43284), ("151936", 151936 + 8192 + 2048 + 20 + 1024)):
+        env = dict(os.environ, SHAM_TEXT_VOCAB=env_text)
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, env=env, timeout=120)
+        assert r.returncode == 0, r.stderr[-300:]
+        assert r.stdout.split()[1] == str(total), (env_text, r.stdout)
+
+
+@test
+def llama_cpp_server_as_the_frozen_reader_features_cache_fallback_pooled_refusal_and_the_whole_trainer():
+    """A fake llama-server with the documented /embeddings format (--pooling none: one vector per token). Checks the reader and wires the real trainer/evaluator end to end."""
+    import json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from sham_tldm.llama_reader import LlamaReader
+    D = 24
+    table = torch.randn(400, D, generator=torch.Generator().manual_seed(3))
+
+    def make_server(accept_tokens=True, pooled=False):
+        stats = {"embed": 0, "detok": 0}
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, obj):
+                b = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/detokenize":
+                    stats["detok"] += 1
+                    return self._send(200, {"content": "".join(chr(97 + (i % 26)) for i in body["tokens"])})
+                stats["embed"] += 1
+                inp = body["input"]
+                if isinstance(inp, list) and not accept_tokens:
+                    return self._send(400, {"error": "input must be a string"})
+                ids = inp if isinstance(inp, list) else [ord(c) - 97 for c in inp]
+                if pooled:
+                    return self._send(200, [{"index": 0, "embedding": table[ids].mean(0).tolist()}])
+                self._send(200, [{"index": 0, "embedding": [table[i % 400].tolist() for i in ids]}])
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, stats
+
+    srv, stats = make_server()
+    r = LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10)
+    assert r.probe() == D
+    h, pad = r.feats([[5, 6, 7], [9]], 6)
+    assert h.shape == (2, 6, D) and pad.tolist() == [[False] * 3 + [True] * 3, [False] + [True] * 5] and torch.equal(h[0, 1], table[6]) and not h[1, 3:].any()
+    calls = stats["embed"]
+    r.feats([[5, 6, 7], [9]], 6)
+    assert stats["embed"] == calls, "an input read once must come from the cache"
+    srv2, stats2 = make_server(accept_tokens=False)
+    r2 = LlamaReader(f"http://127.0.0.1:{srv2.server_port}", timeout=10)
+    h2, _ = r2.feats([[5, 6, 7]], 4)
+    assert r2.mode == "text" and stats2["detok"] >= 1 and h2.shape == (1, 4, D), "a server that refuses token arrays must be fed the detokenised text"
+    srv3, _ = make_server(pooled=True)
+    try:
+        LlamaReader(f"http://127.0.0.1:{srv3.server_port}", timeout=10).feats([[1, 2]], 4)
+        raise AssertionError("a pooled (single-vector) answer must be refused")
+    except RuntimeError as e:
+        assert "--pooling none" in str(e)
+    # the whole trainer + evaluator on the fake server's features (wiring only: the fake features are a token-id lookup)
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("train_gguf_head", os.path.join(ROOT, "training", "train_gguf_head.py"))
+    G = iu.module_from_spec(spec); spec.loader.exec_module(G)
+    cfg = dict(in_len=32, block=24, latents=4, think_steps=2, writer_layers=1, heads=4, head_d=32, steps=30, batch=8, lr=0.001, diffusion_steps=4, rewordings=False, gate_heldout=0.6)
+    enc = lambda text, n: ([(b % 200) + 5 for b in text.encode("utf-8")][:n] + [0] * n)[:n]
+    res = G.run(cfg, LlamaReader(f"http://127.0.0.1:{srv.server_port}", timeout=10), enc, seeds=1, log=lambda *a: None)
+    assert res["feature_width"] == D and len(res["seeds"]) == 1 and res["texts"] >= 30
+    for k in ("heldout", "heldout2"):
+        assert res[k]["verdict_mean"] in ("pass", "fail", "inconclusive") and 0.0 <= res[k]["mean"] <= 1.0
+
+
+
+def writer_end_exit_is_lossless_and_parallel_threshold_cuts_passes():
+    from sham_tldm import fast_inference
+    from sham_tldm.writer import _ended
+    tok = torch.tensor([[5, 0, 0, 0], [5, 6, 0, 0]])
+    assert _ended(tok, torch.tensor([[False, False, True, True], [False, False, False, True]]))
+    assert not _ended(tok, torch.tensor([[True, False, True, True], [False, False, False, True]])), "a hidden position before the PAD can still change the text"
+    torch.manual_seed(0)
+    w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+    with torch.no_grad():
+        w.head.weight.zero_()
+        w.head.weight[0].fill_(0.0)
+    z = torch.randn(3, 4, 16)
+    for _ in range(5):                                               # random writers: decoded text with and without end_exit is identical
+        torch.manual_seed(_)
+        w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+        for steps in (3, 6, 12):
+            a = w.generate(z, steps, end_exit=False)
+            b = w.generate(z, steps, end_exit=True)
+            assert [decode_bytes(r) for r in a] == [decode_bytes(r) for r in b]
+            c = w.generate(z, steps, end_exit=True, parallel=0.7)
+            assert c.shape == a.shape and w.last_passes <= steps
+    w = DiffusionWriter(16, 12, vocab=20, layers=1, heads=2).eval()
+    with torch.no_grad():
+        w.head.weight.zero_()
+        w.head.weight[0, 0] = 50.0                                   # every position is a very sure PAD
+        w.norm.weight.fill_(0.0); w.norm.bias.zero_(); w.norm.bias[0] = 1.0
+    w.generate(z, 10, parallel=0.9)
+    assert w.last_passes == 1, w.last_passes
+    m = Sham1_TLDM(d=32, layers=1, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+    ids = torch.tensor([encode_bytes("ls -la", 12)])
+    for _ in range(4):                                              # trailing-PAD trim before the reader: same latents, same text
+        torch.manual_seed(10 + _)
+        mt = Sham1_TLDM(d=32, layers=2, latents=4, think_steps=3, block=8, writer_layers=1, heads=2, in_len=12).eval()
+        bt = torch.tensor([encode_bytes("ls -la", 12), encode_bytes("pwd", 12)])
+        h, pad = mt.read(bt), bt == 0
+        z_full = mt.core.latents(h, pad)[0]
+        z_trim = mt.core.latents(mt.read(bt[:, :6]), pad[:, :6])[0]
+        assert torch.allclose(z_full, z_trim, atol=1e-5), (z_full - z_trim).abs().max()
+        assert torch.equal(mt.generate(bt, steps=4, trim=True)[0], mt.generate(bt, steps=4, trim=False)[0])
+    ref = m.generate(ids, steps=4)[0]
+    for mode in ("bf16", "int8", "fp32"):
+        import copy
+        mm = fast_inference(copy.deepcopy(m), mode)
+        out = mm.generate(ids, steps=4)[0]
+        assert out.shape == ref.shape and mm.fast_mode == mode
+
+
+
+@test
+def fast_int8_layers_have_the_same_math_and_cache_the_latent_keys_values():
+    import sham_tldm.fast as F_
+    orig = F_._int8
+    try:
+        F_._int8 = lambda mod: mod                                   # same layer without quantization: must equal PyTorch's own layer
+        torch.manual_seed(0)
+        for L in (nn.TransformerDecoderLayer(32, 4, 64, dropout=0.0, batch_first=True, norm_first=True), nn.TransformerEncoderLayer(32, 4, 64, dropout=0.0, batch_first=True, norm_first=True)):
+            L.eval()
+            x, z = torch.randn(2, 6, 32), torch.randn(2, 3, 32)
+            with torch.no_grad():
+                ref = L(x, z) if isinstance(L, nn.TransformerDecoderLayer) else L(x)
+                fl = F_._FastLayer(L)
+                for _ in range(2):                                   # 2nd call reuses the cached latent keys/values
+                    out = fl(x, z) if fl.dec else fl(x)
+                    assert (out - ref).abs().max() < 1e-5
+            if fl.dec:
+                assert fl.ca._mem is z
+    finally:
+        F_._int8 = orig
+    lin = F_._int8(nn.Linear(8, 8))
+    assert type(lin) is not nn.Linear and hasattr(lin, "_packed_params"), type(lin)     # the root Linear itself is swapped to dynamic INT8
+
+@test
+def open_slots_copy_repos_and_code_tokens_and_leave_every_old_row_unchanged():
+    import augment as A
+    import rewordings as RW
+    out, _, sl = A.delex("اقرأ الملف package.json من المستودع jonsnow-org/Ttbik واذكر echo ZX7Q-4821")
+    assert sl == {"@R1": "jonsnow-org/Ttbik", "@T1": "ZX7Q-4821", "@F1": "package.json"}, sl
+    assert A.relex('$ @tool github_read_file {"path": "@F1", "repo": "@R1"}', sl) == '$ @tool github_read_file {"path": "package.json", "repo": "jonsnow-org/Ttbik"}'
+    old = [t for t, _ in T.TRAIN + T.HELDOUT + RW.HELDOUT2] + [t for t, _ in RW.generate(per_command=48)]
+    gained = [t for t in old if any(k.startswith(("@R", "@T")) for k in A.delex(t)[2])]
+    assert not gained, "the new slot kinds must not change how the old training / held-out rows are read: " + repr(gained[:3])
+
+
+@test
+def open_episodes_run_for_real_fit_the_block_and_never_look_like_a_live_suite_task():
+    import random
+    import trajectories as J
+    import rewordings as RW
+    rng, kinds, tasks = random.Random(11), set(), []
+    for _ in range(300):
+        task, plan, reply_t = J.make_open_episode(rng)
+        steps, reply, _ = J.run_open_episode(task, plan, reply_t)
+        tasks.append(task)
+        kinds.add((plan[0][0] if plan else "chat") + str(len(plan)))
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            assert len(J.AUG.apply_slots(tgt, slots).encode("utf-8")) <= 64, "target longer than the loop block: " + tgt
+            if tgt.startswith("$ ") and not tgt.startswith("$ @tool"):
+                assert "FAIL" not in tgt
+        if plan and plan[-1][0] == "cmd" and "echo" in plan[0][1] and len(plan) == 1:
+            assert reply.endswith(plan[0][1].split()[-1] + ".") or plan[0][1].split()[-1] in reply, (task, reply)
+    assert {"cmd1", "cmd2", "tool1", "chat0"} <= kinds, kinds
+    for live in J.LIVE_TASKS:
+        near = [t for t in tasks if RW._words(t) and len(RW._words(t) & RW._words(live)) / len(RW._words(t) | RW._words(live)) >= 0.5]
+        assert not near, ("a training task is too close to a live-suite task", live, near[:2])
+        assert live not in tasks
+
+
+if __name__ == "__main__":
+    failed = 0
+    for f in TESTS:
+        try:
+            f()
+            print("PASS", f.__name__)
+        except Exception:
+            failed += 1
+            print("FAIL", f.__name__)
+            traceback.print_exc(limit=3)
+    print(f"\n{len(TESTS) - failed}/{len(TESTS)} passed")
+    sys.exit(1 if failed else 0)

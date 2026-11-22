@@ -60,6 +60,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/remit`, changeFrequency: "daily", priority: 0.7 },
     { url: `${base}/remit/join`, changeFrequency: "weekly", priority: 0.5 },
     { url: `${base}/markets`, changeFrequency: "hourly", priority: 0.85 },
+    { url: `${base}/tools`, changeFrequency: "weekly", priority: 0.9, alternates: { languages: { ar: `${base}/tools`, en: `${base}/en/free-tools` } } },
     { url: `${base}/prayer-times`, changeFrequency: "daily", priority: 0.85 },
     { url: `${base}/prayer-widget`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/bashar`, changeFrequency: "daily", priority: 0.9 },

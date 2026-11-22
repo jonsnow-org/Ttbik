@@ -193,6 +193,69 @@ class Running(Box):
         self.assertIn("computer_job", out["hint"])
         self.assertLess(time.time() - started, 15)
 
+    def test_the_disk_size_is_cached_not_walked_before_every_call(self):
+        # measured 2026-11-14: walking a cloned repository on the slow persistent mount took 25-30 s per call; the size is measured once and reused
+        calls = []
+        real = cb._walk_size
+        cb._walk_size = lambda path, cap_files=200000, deadline=None: (calls.append(str(path)), real(path, cap_files, deadline))[1]
+        try:
+            for _ in range(4):
+                self.assertTrue(self.run_box(session="q:m", action="run", command="true")["ok"])
+            self.run_box(session="q:m", action="write", path="a.txt", content="x")
+            self.run_box(session="q:m", action="status")
+        finally:
+            cb._walk_size = real
+        self.assertEqual(len(calls), 1, calls)
+
+    def test_a_walk_that_runs_out_of_time_is_finished_in_the_background(self):
+        old_walk, old_budget = cb._walk_size, cb.QUOTA_BUDGET
+        answers = [(7, False), (100, True)]
+        cb._walk_size = lambda path, cap_files=200000, deadline=None: answers.pop(0)
+        try:
+            home = self.tmp / "h"
+            home.mkdir()
+            self.assertEqual(cb.session_size(home), 7)                         # the lower bound answers at once
+            for _ in range(40):
+                with cb._LOCK:
+                    size = cb._QUOTA[str(home)]["size"]
+                if size == 100:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(size, 100)                                        # the background walk replaced it with the real size
+        finally:
+            cb._walk_size, cb.QUOTA_BUDGET = old_walk, old_budget
+
+    def test_the_home_is_repaired_once_not_walked_before_every_call(self):
+        # measured 2026-11-14: ensure_home walked the whole session folder on the slow mount before every call (8-13 s each)
+        old_root, old_fix, old_recheck = cb.is_root, cb._fix_owner, cb.HOME_RECHECK
+        calls = []
+        cb.is_root = lambda: True
+        cb._fix_owner = lambda home, uid, deadline=None: (calls.append(str(home)), True)[1]
+        try:
+            for _ in range(4):
+                self.assertTrue(cb.ensure_home("own:m").exists())
+            self.assertEqual(len(calls), 1, calls)
+            cb.HOME_RECHECK = 0                                                 # after the recheck time it is walked again
+            cb.ensure_home("own:m")
+            self.assertEqual(len(calls), 2, calls)
+        finally:
+            cb.is_root, cb._fix_owner, cb.HOME_RECHECK = old_root, old_fix, old_recheck
+
+    def test_a_home_walk_that_runs_out_of_time_is_finished_in_the_background(self):
+        old_root, old_fix = cb.is_root, cb._fix_owner
+        seen = []
+        cb.is_root = lambda: True
+        cb._fix_owner = lambda home, uid, deadline=None: (seen.append(deadline is None), deadline is None)[1]
+        try:
+            cb.ensure_home("slow:m")
+            for _ in range(40):
+                if len(seen) >= 2:
+                    break
+                time.sleep(0.05)
+        finally:
+            cb.is_root, cb._fix_owner = old_root, old_fix
+        self.assertEqual(seen, [False, True])                                  # first with a deadline (unfinished), then the full walk in a thread
+
     def test_the_disk_quota_stops_new_work(self):
         old = cb.QUOTA_BYTES
         cb.QUOTA_BYTES = 10
@@ -225,6 +288,95 @@ class Jobs(Box):
         stopped = self.run_box(session="u:m", action="job_stop", id=job_id)
         self.assertFalse(stopped["running"])
         self.assertEqual([j["id"] for j in self.run_box(session="u:m", action="job_list")["jobs"]], [job_id])
+
+    def test_a_command_still_running_after_the_foreground_wait_becomes_a_job(self):
+        # live probe 2026-11-14: an answer that takes longer than ~20 s is lost at the Studio gateway, so the call must answer early and keep the work alive
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            started = time.time()
+            out = self.run_box(session="promo:m", action="run", command="echo first; sleep 3; echo last", timeout=30)
+            self.assertLess(time.time() - started, 2.8)
+            self.assertTrue(out["ok"] and out["running"], out)
+            self.assertIn("first", out["output"])
+            self.assertIn("computer_job", out["hint"])
+            job_id = out["id"]
+            self.assertEqual(out["job"], job_id)
+            for _ in range(40):
+                log = self.run_box(session="promo:m", action="job_log", id=job_id)
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertFalse(log["running"], log)
+            self.assertEqual(log["exit_code"], 0)
+            self.assertIn("first", log["output"])
+            self.assertIn("last", log["output"])
+            self.assertIn(job_id, [j["id"] for j in self.run_box(session="promo:m", action="job_list")["jobs"]])
+        finally:
+            cb.FG_SECONDS = old
+
+    def test_a_promoted_command_is_stopped_at_its_own_timeout_and_can_be_stopped_by_hand(self):
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            out = self.run_box(session="promo:m", action="run", command="sleep 30", timeout=3)
+            self.assertTrue(out["running"], out)
+            for _ in range(40):
+                log = self.run_box(session="promo:m", action="job_log", id=out["id"])
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertFalse(log["running"], log)
+            self.assertIn("stopped after 3 s", log["output"])
+            other = self.run_box(session="promo:m", action="run", command="sleep 30", timeout=60)
+            self.assertTrue(other["running"], other)
+            stopped = self.run_box(session="promo:m", action="job_stop", id=other["id"])
+            self.assertFalse(stopped["running"])
+        finally:
+            cb.FG_SECONDS = old
+
+    def test_a_slow_search_keeps_running_as_a_job_and_returns_what_it_has(self):
+        old_fg, old_cmd = cb.FG_SECONDS, cb.search_command
+        cb.FG_SECONDS = 1
+        cb.search_command = lambda pattern, path=".", glob="": "echo first-hit; sleep 3; echo last-hit"
+        try:
+            out = self.run_box(session="promo:s", action="search", pattern="x")
+            self.assertTrue(out["ok"] and out["running"], out)
+            self.assertIn("first-hit", out["matches"])
+            for _ in range(40):
+                log = self.run_box(session="promo:s", action="job_log", id=out["id"])
+                if not log["running"]:
+                    break
+                time.sleep(0.25)
+            self.assertIn("last-hit", log["output"])
+        finally:
+            cb.FG_SECONDS, cb.search_command = old_fg, old_cmd
+
+    def test_search_reads_files_with_many_threads_to_hide_the_mount_latency(self):
+        self.assertIn("-j 32 ", cb.search_command("foo"))
+
+    def test_a_search_from_home_finds_files_inside_a_symlinked_checkout(self):
+        import subprocess
+        real = self.tmp / "fast" / "repo"
+        real.mkdir(parents=True)
+        (real / "a.ts").write_text("const SymlinkProbeToken = 1;\n")
+        home = self.tmp / "home"
+        home.mkdir()
+        os.symlink(real.parent, home / "repos")
+        out = subprocess.run(["/bin/bash", "-c", cb.search_command("SymlinkProbeToken", ".")], cwd=home, capture_output=True, text=True).stdout
+        self.assertIn("a.ts", out)
+
+    def test_a_quick_command_answers_in_the_call_as_before(self):
+        old = cb.FG_SECONDS
+        cb.FG_SECONDS = 1
+        try:
+            out = self.run_box(session="promo:m", action="run", command="echo quick", timeout=30)
+        finally:
+            cb.FG_SECONDS = old
+        self.assertTrue(out["ok"])
+        self.assertNotIn("running", out)
+        self.assertEqual(out["exit_code"], 0)
+        self.assertIn("quick", out["output"])
 
     def test_another_session_cannot_see_the_job(self):
         job_id = self.run_box(session="a:m", action="job_start", command="sleep 5")["id"]
@@ -624,6 +776,93 @@ class Batch(Box):
         with patch.object(cb, "welcome", side_effect=RuntimeError("boom")):
             self.assertTrue(self.run_box(session=s, action="run", command="echo ok")["ok"])
 
+class PrivateRepo(Box):
+    def test_only_a_codeload_address_is_accepted_for_a_private_repo(self):
+        bad = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://evil.example/x.tar.gz")
+        self.assertFalse(bad["ok"])
+        self.assertIn("bad download address", bad["error"])
+        injected = cb.repo_fetch("s1", "https://github.com/o/r", "", "https://codeload.github.com/o/r/x; rm -rf ~")
+        self.assertFalse(injected["ok"])
+
+
+class OwnerCredentials(Box):
+    TOKEN = "".join(["gh", "p_", "abcdefghij" * 4])      # built at run time: a fake value, never a literal that looks like a key
+
+    def test_token_reaches_the_command_for_that_call_only_and_is_hidden_in_every_reply(self):
+        got = self.run_box(session="own1", action="run", command='echo "T=$GH_TOKEN"; echo "G=$GIT_CONFIG_VALUE_0"', env={"GH_TOKEN": self.TOKEN, "PATH": "/evil"})
+        out = json.dumps(got)
+        self.assertNotIn(self.TOKEN, out)
+        self.assertIn("T=***", got.get("output", ""))
+        self.assertNotIn("basic ey", got.get("output", "").replace("basic ***", ""))   # the encoded header value is hidden too
+        later = self.run_box(session="own1", action="run", command='echo "T=[$GH_TOKEN]"')
+        self.assertIn("T=[]", later.get("output", ""))                                   # not kept in the session's environment
+
+    def test_bad_shaped_values_are_ignored(self):
+        self.assertEqual(cb.owner_env({"GH_TOKEN": "x y; rm -rf /"}), {})
+        self.assertEqual(cb.owner_env({"PATH": "/evil"}), {})
+
+
+class LocalBuild(Box):
+    def test_a_checkout_built_on_local_disk_stays_there_and_the_home_folder_links_to_it(self):
+        import tempfile as _tf
+        tmp = Path(_tf.mkdtemp()); src = tmp / "src"; home = tmp / "home"; fast = tmp / "fast"; home.mkdir(); (home / "repos").mkdir()
+        for i in range(120):
+            d = src / f"d{i % 7}" / f"e{i % 3}"; d.mkdir(parents=True, exist_ok=True); (d / f"f{i}.txt").write_text("x" * i)
+        (src / ".git").mkdir(); (src / ".git" / "HEAD").write_text("ref")
+        os.symlink("d0", src / "link")
+        want = sorted(str(p.relative_to(src)) for p in src.rglob("*"))
+        (home / "repos" / "x").mkdir(); (home / "repos" / "x" / "old.txt").write_text("old")          # an older real checkout on the slow mount is moved aside
+        r = subprocess.run(["bash", "-c", f"set -e; FAST={fast}; " + cb.PUBLISH_LOCAL_SH + f" publish_local {src} repos/x"], cwd=home, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.islink(home / "repos/x"))
+        self.assertEqual(os.path.realpath(home / "repos/x"), os.path.realpath(fast / "repos/x"))
+        got = sorted(str(p.relative_to(home / "repos/x")) for p in (home / "repos/x").rglob("*"))
+        self.assertEqual(want, got)
+        self.assertTrue(os.path.islink(home / "repos/x/link"))
+        self.assertFalse((fast / "repos/x.new").exists())
+        self.assertFalse(src.exists())                                    # moved, not copied
+        r2 = subprocess.run(["bash", "-c", f"set -e; FAST={fast}; " + cb.PUBLISH_LOCAL_SH + f" publish_local {tmp / 'src2'} repos/x"], cwd=home, capture_output=True, text=True)
+        self.assertNotEqual(r2.returncode, 0)                             # a missing source leaves the previous checkout alone
+        self.assertTrue(os.path.islink(home / "repos/x"))
+
+    def test_the_file_tools_may_follow_the_symlink_into_the_sessions_fast_folder_only(self):
+        import tempfile as _tf
+        old_fast = cb.FAST_ROOT
+        cb.FAST_ROOT = Path(_tf.mkdtemp())
+        try:
+            home = cb.ensure_home("sess-a"); fast = cb.fast_home("sess-a"); fast.mkdir(parents=True, exist_ok=True)
+            (fast / "repo").mkdir(); (fast / "repo" / "a.txt").write_text("hi")
+            os.symlink(fast / "repo", home / "repos" / "r")
+            self.assertEqual(cb.safe_path("sess-a", "repos/r/a.txt"), home / "repos/r/a.txt")
+            other = cb.fast_home("sess-b"); other.mkdir(parents=True, exist_ok=True)
+            os.symlink(other, home / "repos" / "stolen")
+            with self.assertRaises(ValueError):
+                cb.safe_path("sess-a", "repos/stolen")
+        finally:
+            cb.FAST_ROOT = old_fast
+
+    def test_a_tarball_checkout_gets_the_github_origin_so_changes_can_tell_which_repository_it_is(self):
+        cap = {}
+        old = cb.job_start
+        cb.job_start = lambda session, cmd, label: cap.update(cmd=cmd) or {"ok": True, "id": "j1"}
+        try:
+            cb.repo_fetch("s1", "https://github.com/o/r")
+        finally:
+            cb.job_start = old
+        self.assertIn("git remote add origin https://github.com/o/r.git", cap["cmd"].replace("'", ""))
+
+    def test_the_download_script_builds_in_tmp_not_in_the_home_folder(self):
+        cap = {}
+        old = cb.job_start
+        cb.job_start = lambda session, cmd, label: cap.update(cmd=cmd) or {"ok": True, "id": "j1"}
+        try:
+            cb.repo_fetch("s1", "https://github.com/o/r")
+        finally:
+            cb.job_start = old
+        self.assertIn("mktemp -d /tmp/crepo.", cap["cmd"])
+        self.assertNotIn(".tar.part", cap["cmd"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -665,3 +904,18 @@ class LiveActivity(Box):
 
     def test_typed_text_is_never_in_the_feed(self):
         self.assertEqual(cb._act_detail("type", {"text": "hunter2"}), "")
+
+
+class ScreenLog(Box):
+    """What the model does is written into ~/.activity.log, which the desktop's "Model Computer" window shows on the computer's own screen."""
+    def test_every_action_leaves_a_line_on_the_screen_log_and_commands_are_not_doubled(self):
+        self.run_box(session="u7:coder", action="run", command="true")      # the first action creates the home
+        self.run_box(session="u7:coder", action="write", path="notes.txt", content="hello")
+        self.run_box(session="u7:coder", action="read", path="notes.txt")
+        self.run_box(session="u7:coder", action="run", command="echo ONCE_ONLY")
+        log = (cb.session_home("u7:coder") / ".activity.log").read_text(encoding="utf-8")
+        self.assertIn("▶ write  notes.txt", log)
+        self.assertIn("▶ read  notes.txt", log)
+        self.assertIn("✔", log)
+        self.assertEqual(log.count("ONCE_ONLY"), 2)      # the command line and its output, written by the command's own logger; no extra '▶ run' line
+        self.assertNotIn("▶ run", log)

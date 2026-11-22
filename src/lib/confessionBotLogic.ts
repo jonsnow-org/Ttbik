@@ -1,4 +1,5 @@
 import { publicSiteUrl } from "@/lib/siteUrl";
+import { ownerGate } from "@/lib/ownerPanel";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
@@ -222,6 +223,10 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
   if (!SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) return false;
 
   const text = String(msg.text || "").trim();
+  // owner panel switch (src/lib/ownerPanel.ts): in the user view the regular flow runs for him
+  const gate = await ownerGate(botRow.id, text, (t) => handleConfessionBotUpdate(bot, botRow, { message: { ...msg, text: t } }));
+  if (gate === "handled") return true;
+  if (gate === "user") return false;
   const adminUser = await ensureConfessionUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 

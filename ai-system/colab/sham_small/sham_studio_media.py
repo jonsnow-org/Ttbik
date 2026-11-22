@@ -310,6 +310,9 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     from sham_decoding import chat_prompt_ids
     from sham_studio_chat import build_user_text, studio_generate
     stripped = prompt.strip()
+    from sham_studio_chat import split_modes
+    if split_modes(prompt)[1].get("text"):      # words only: the app retries this way after the model's own first choice (a picture) failed the quality gate on a plain message
+        return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
     if stripped.startswith("#pmedia "):      # diagnostic for the owner: how likely is it that the model, by itself, starts a picture / sound / clip for this text?
         return {"type": "text", "text": media_preference(model, tokenizer, stripped[8:], today)}
     if stripped == "#info" or stripped.startswith("#raw "):
@@ -317,15 +320,24 @@ def generate_any(model, tokenizer, image_tokenizer, audio_tokenizer, prompt: str
     ids = tokenizer.encode(build_user_text(prompt, today))[-384:]
     wrapped = chat_prompt_ids(ids)
     first = choose(model, wrapped, tokenizer.vocab_size)
-    if first == SpecialTokens.IMAGE_START:
-        return _image_result(model, image_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
-    if first == SpecialTokens.AUDIO_START:
-        return _audio_result(model, audio_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
-    if first == SpecialTokens.VIDEO_START:
-        if motion_tokenizer is None:
-            return dict(NO_VIDEO)
-        return _video_result(model, image_tokenizer, motion_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]],
-                             num_frames or _video_frames())
+    try:
+        if first == SpecialTokens.IMAGE_START:
+            return _image_result(model, image_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
+        if first == SpecialTokens.AUDIO_START:
+            return _audio_result(model, audio_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]])
+        if first == SpecialTokens.VIDEO_START:
+            if motion_tokenizer is None:
+                return dict(NO_VIDEO)
+            from model import TOTAL_VOCAB_SIZE
+            if int(model.cfg.vocab_size) < TOTAL_VOCAB_SIZE:
+                # Live 2026-11-16: the published head has 42256 token rows, the motion ids start at 42260: sampling them gave an all -inf row and an
+                # IndexError, and every plain message the model started as a clip died with "تعذّر توليد الرد". Without the motion rows there is no clip to make.
+                raise RuntimeError("the model has no motion token rows (vocab %d < %d)" % (int(model.cfg.vocab_size), TOTAL_VOCAB_SIZE))
+            return _video_result(model, image_tokenizer, motion_tokenizer, wrapped, [SpecialTokens.BOS, wrapped[1]],
+                                 num_frames or _video_frames())
+    except Exception as exc:
+        # a picture / sound / clip that cannot be made is never the whole answer to a message: the words come instead
+        print(f"generate_any: the model chose media but it failed ({type(exc).__name__}: {str(exc)[:120]}); answering in words", flush=True)
     return {"type": "text", "text": studio_generate(model, tokenizer, prompt, max_new_tokens, today)}
 
 
@@ -385,6 +397,8 @@ if __name__ == "__main__":
     long_v = make_media(model, Tok(), img_tok, aud_tok, "video", "رحلة طويلة", motion_tokenizer=mot_tok, num_frames=8)
     assert long_v["type"] == "video" and long_v["frames"] == 8, long_v.get("frames")
     assert base64.b64decode(long_v["b64"])[4:8] == b"ftyp"
+    tw = generate_any(model, Tok(), img_tok, aud_tok, "[[sham text=1]]\nاقرأ الملف", 6, d, choose=lambda *a, **k: SpecialTokens.IMAGE_START)
+    assert tw["type"] == "text", "the words-only header must skip the model's media choice"
     t = generate_any(model, Tok(), img_tok, aud_tok, "مرحبا", 6, d, choose=lambda *a, **k: 5)
     assert t["type"] == "text" and t["text"]
     assert "صورة" in generate_any(model, Tok(), img_tok, aud_tok, "#pmedia أعطني صورة أرنب", 6, d)["text"]

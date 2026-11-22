@@ -1,0 +1,70 @@
+{
+ "date": "2026-11-18",
+ "what": "agent loop (7.7M, configs/loop.yaml) with vs without argument slots (delex); 3 seeds; 60 episodes with file names never seen in training (seed 778)",
+ "arms": {
+  "no_slots": [
+   {
+    "seed": 0,
+    "unseen_names_episode_success": 0.75,
+    "full_task": {
+     "all": 0.75,
+     "simple": 0.973,
+     "multi_step": 0.391
+    },
+    "median_s_per_task": 0.1971
+   },
+   {
+    "seed": 1,
+    "unseen_names_episode_success": 0.75,
+    "full_task": {
+     "all": 0.75,
+     "simple": 0.973,
+     "multi_step": 0.391
+    },
+    "median_s_per_task": 0.1855
+   },
+   {
+    "seed": 2,
+    "unseen_names_episode_success": 0.75,
+    "full_task": {
+     "all": 0.75,
+     "simple": 0.973,
+     "multi_step": 0.391
+    },
+    "median_s_per_task": 0.1785
+   }
+  ],
+  "slots": [
+   {
+    "seed": 0,
+    "unseen_names_episode_success": 0.983,
+    "full_task": {
+     "all": 0.983,
+     "simple": 0.973,
+     "multi_step": 1.0
+    },
+    "median_s_per_task": 0.2041
+   },
+   {
+    "seed": 1,
+    "unseen_names_episode_success": 0.983,
+    "full_task": {
+     "all": 0.983,
+     "simple": 0.973,
+     "multi_step": 1.0
+    },
+    "median_s_per_task": 0.1773
+   },
+   {
+    "seed": 2,
+    "unseen_names_episode_success": 0.983,
+    "full_task": {
+     "all": 0.983,
+     "simple": 0.973,
+     "multi_step": 1.0
+    },
+    "median_s_per_task": 0.1947
+   }
+  ]
+ }
+}

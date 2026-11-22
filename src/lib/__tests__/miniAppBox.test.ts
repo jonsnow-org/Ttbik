@@ -21,24 +21,21 @@ it("owner runs a command on a model's computer (private session = chat:model); a
   await expect(appOp({ chatId: USER, tier: "user" }, "box", { model: "coder", args: { action: "run", command: "id" } }, d as any)).rejects.toThrow(AppError);
 });
 
-it("Sham v2 uses the isolated computer hub session; the desktop (browser) op is owner-only and returns a screenshot", async () => {
-  const { browserStudioFor } = await import("@/lib/browserComputer");
-  const computerStudio = process.env.COMPUTER_STUDIO_URL;
-  delete process.env.COMPUTER_STUDIO_URL;
-  try {
-    expect(browserStudioFor("sham_v2")).toContain("nova-inference-server");
-    expect(browserStudioFor("sham_v2")).toBe(browserStudioFor("coder"));
-  } finally {
-    if (computerStudio !== undefined) process.env.COMPUTER_STUDIO_URL = computerStudio;
-    else delete process.env.COMPUTER_STUDIO_URL;
-  }
+it("Sham v2 never uses Nova's hub: the headless-browser op is refused (it browses inside its own embedded computer); the op stays owner-only", async () => {
+  const { browserOwnStudioFor } = await import("@/lib/browserComputer");
+  expect(browserOwnStudioFor("sham_v2")).toBeNull();
+  expect(browserOwnStudioFor("sham")).toBeNull();
   const db: any = pgDb(); const { bot } = fakeBot();
+  const calls: string[] = [];
   const fetchImpl = (async (url: string, init?: any) => {
+    calls.push(String(url));
     if (init?.method === "POST") return new Response('{"event_id":"e1"}', { status: 200 });
     return new Response(`event: complete\ndata: ${JSON.stringify([JSON.stringify({ ok: true, url: "https://example.com/", title: "Example", screenshot_b64: "QUJD", text: "hi", elements: "[1] link" })])}\n\n`, { status: 200 });
   }) as unknown as typeof fetch;
   const d = { db, bot, botRow, fetchImpl };
-  const r: any = await appOp({ chatId: OWNER, tier: "owner" }, "browser", { model: "sham_v2", args: { action: "open", url: "https://example.com" } }, d as any);
+  await expect(appOp({ chatId: OWNER, tier: "owner" }, "browser", { model: "sham_v2", args: { action: "open", url: "https://example.com" } }, d as any)).rejects.toThrow(AppError);
+  expect(calls).toHaveLength(0);
+  const r: any = await appOp({ chatId: OWNER, tier: "owner" }, "browser", { model: "coder", args: { action: "open", url: "https://example.com" } }, d as any);
   expect(r).toMatchObject({ ok: true, title: "Example", screenshot_b64: "QUJD" });
   await expect(appOp({ chatId: USER, tier: "user" }, "browser", { model: "coder", args: { action: "look" } }, d as any)).rejects.toThrow(AppError);
 });

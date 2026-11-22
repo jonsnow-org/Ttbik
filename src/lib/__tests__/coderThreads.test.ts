@@ -61,7 +61,7 @@ describe("conversation threads", () => {
     const { bot } = fakeBot();
     const { saveState, loadState } = await import("@/lib/coderSections");
     await saveState(U, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: ["y"], run: { id: "r1", chain: "c", sent: 0, step: 1, lease: Date.now(), job: "j9" } }, db);
-    const r = await appOp({ chatId: U, tier: "user" }, "stop", { runId: "r1", slot: "" }, { db, bot, botRow });
+    const r = await appOp({ chatId: U, tier: "user" }, "stop", { model: "coder", runId: "r1", slot: "" }, { db, bot, botRow });
     expect(r.ok).toBe(true);
     await wait();
     expect(urls.some((u) => /cancel/.test(u))).toBe(true);

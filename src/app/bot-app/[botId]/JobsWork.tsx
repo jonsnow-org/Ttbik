@@ -31,10 +31,10 @@ export function WorkScreen({ tab: initialTab }: { tab?: string }) {
   const { init } = useInit();
   const employer = init.profile?.roleType === "EMPLOYER";
   const [tab, setTab] = useState<string>(initialTab || (employer ? "mine" : init.profile?.roleType === "PROFESSIONAL" ? "pros" : "jobs"));
-  const tabs = [{ id: "jobs", label: "🔍 وظائف شاغرة" }, { id: "pros", label: "🔨 ابحث عن مهني" }, ...(employer ? [{ id: "mine", label: "📋 وظائفي" }, { id: "post", label: "➕ انشر وظيفة" }] : [])];
+  const tabs = [{ id: "jobs", label: "🔍 عن وظيفة شاغرة" }, { id: "pros", label: "🔍 عن مهني" }, ...(employer ? [{ id: "mine", label: "📋 وظائفي" }, { id: "post", label: "📢 نشر" }] : [])];
   return (
     <>
-      <ScreenTitle icon="💼" title="العمل" sub="وظائف شاغرة لمن يبحث عن عمل، ومهنيون لمن يحتاج خدمة." />
+      <ScreenTitle icon="💼" title="قسم العمل" sub="وظائف شاغرة لمن يبحث عن عمل، ومهنيون لمن يحتاج خدمة." />
       <div className="mb-3"><Chips items={tabs} value={tab} onChange={setTab} /></div>
       {tab === "jobs" ? <JobsList /> : tab === "pros" ? <ProsList /> : tab === "mine" ? <MyJobs onPost={() => setTab("post")} /> : <JobPostForm onDone={() => setTab("mine")} />}
       {!employer && <p className="mt-4 px-1 text-[11.5px] leading-5" style={{ color: "var(--app-hint)" }}>نشر الوظائف متاح لملفات «معلن وظيفة».</p>}

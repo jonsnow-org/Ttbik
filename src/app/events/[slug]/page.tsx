@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { getExtraEvent, EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { EVENT_ITEMS, getEvent } from "@/lib/eventsIndex";
+import { EN_EVENTS, bySlug } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -28,7 +29,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: e.title,
     description: e.description,
-    alternates: { canonical: `${SITE}/events/${e.slug}` },
+    alternates: { canonical: `${SITE}/events/${e.slug}`, ...(bySlug(EN_EVENTS, e.slug) ? { languages: { ar: `${SITE}/events/${e.slug}`, en: `${SITE}/en/events/${e.slug}` } } : {}) },
     openGraph: {
       title: e.title,
       description: e.description,

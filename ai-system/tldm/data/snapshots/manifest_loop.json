@@ -1,0 +1,19 @@
+{
+  "stage": "loop",
+  "revision": "f684cc1a9f3e19f6f4929102cd9b06cc0b895b8a",
+  "license": "apache-2.0 (dataset); assistant turns written by a commercial model (owner accepted 2026-11-21)",
+  "scanned_traces": 751,
+  "files": [
+    {
+      "file": "ultradata_loop_train.jsonl.gz",
+      "rows": 4000,
+      "sha256": "8543d680c14ff8fba1877b9d30aa0fb7c7c34fe78c54cb97748306728008ccbe"
+    },
+    {
+      "file": "ultradata_loop_heldout.jsonl.gz",
+      "rows": 400,
+      "sha256": "115a9a29c23bc94c668bc0d25d5d723c57df65f7ff0180794bbcf07d01e8babd"
+    }
+  ],
+  "seconds": 21.3
+}

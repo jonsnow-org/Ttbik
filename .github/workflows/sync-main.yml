@@ -52,7 +52,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ORACLE="https://89-168-89-15.sslip.io"
+          ORACLE="$(jq -r '.oracleUrl // empty' deploy/hosting/site.json)"
+          if [ -z "$ORACLE" ]; then echo "::error::oracleUrl is missing from deploy/hosting/site.json"; exit 1; fi
           MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
           EXPECTED="${MAIN_SHA:0:8}"
           echo "Waiting for Oracle to pull main commit $EXPECTED and finish its site build."

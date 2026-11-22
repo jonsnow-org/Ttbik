@@ -35,7 +35,7 @@ describe("per-model visibility switch (owner panel) reaches the Mini App and the
     const { d } = setup();
     expect(await visibleTo(u, d)).toEqual(["coder"]);
     expect(await visibleTo(o, d)).toEqual(["coder"]);                        // the public list; the owner's full list is below
-    expect(((await appOp(o, "models", {}, d)).owner as any[]).map((m) => [m.id, m.access]).slice(0, 3)).toEqual([["coder", "everyone"], ["sham", "owner_only"], ["sham_v2", "owner_only"]]);   // the owner-only candidates follow
+    expect(((await appOp(o, "models", {}, d)).owner as any[]).map((m) => [m.id, m.access]).slice(0, 2)).toEqual([["coder", "everyone"], ["sham", "owner_only"]]);   // the owner-only candidates follow
     await expect(appOp(u, "settings", { model: "sham_v2" }, d)).rejects.toThrow(AppError);          // a user cannot pick it
     await appOp(o, "settings", { model: "sham_v2" }, d);                     // the owner can, hidden or not
     expect((await loadState(OWNER, d.db)).model).toBe("sham_v2");

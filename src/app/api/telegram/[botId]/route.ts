@@ -12,13 +12,15 @@ import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { handleCoderSections, shamContextFor } from "@/lib/coderSections";
-import { shamModeCtx, shamVariant } from "@/lib/shamStudio";
+import { shamModeCtx, shamTldmSession, shamVariant } from "@/lib/shamStudio";
 import { coderChatKey } from "@/lib/coderAuth";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
 import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
+import { OWNER_PANEL_TEMPLATES, ownerId, ownerPanelTransformer } from "@/lib/ownerPanel";
+import { takeOwnerPassphraseMessage, redactOwnerPassphraseInUpdate, refreshOwnerIds } from "@/lib/ownerIdentity";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
@@ -93,10 +95,27 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     const bot = new TelegramBot(botRow.token);
+    if (OWNER_PANEL_TEMPLATES.has(botRow.template) || (botRow.template === "AD_BOT" && !!ownerId() && botRow.ownerId === ownerId())) bot.api.config.use(ownerPanelTransformer(botRow.id));
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
-      void notifyGrok(botRow.id, botRow.template, botRow.ownerId, body);
+      rawBody = redactOwnerPassphraseInUpdate(body);
+      void refreshOwnerIds().catch(() => null);
+      const priv = body.message;
+      const unlockText = typeof priv?.text === "string" ? priv.text : typeof priv?.caption === "string" ? priv.caption : "";
+      if (priv?.chat?.type === "private" && priv?.from?.id && priv?.chat?.id && unlockText) {
+        const taken = await takeOwnerPassphraseMessage({
+          text: unlockText,
+          accountId: String(priv.from.id),
+          chatId: priv.chat.id,
+          deleteMessage: () => bot.api.deleteMessage(priv.chat.id, priv.message_id),
+          reply: (t: string) => bot.api.sendMessage(priv.chat.id, t),
+        });
+        if (taken.handled) {
+          return NextResponse.json({ status: "ok" });
+        }
+      }
+      void notifyGrok(botRow.id, botRow.template, botRow.ownerId, rawBody);
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a
       // balance top-up. Must be answered within 10s, so this skips the
@@ -161,6 +180,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (chatType && chatType !== "private" && botRow.template === "STREAK_BOT") {
         // 📖 Group khatma (the one exception): STREAK_BOT answers in a group only to /khatma and taps on its own board.
         // 🏆 Group contests (src/lib/contests) answer /contest, /top and their own buttons; everything else goes to the khatma handler.
+        const { tryOwnerLeave } = await import("@/lib/groupLeave");
+        if (await tryOwnerLeave(bot, botRow, body).catch(() => false)) return NextResponse.json({ status: "ok" });
         const { handleContestGroupUpdate } = await import("@/lib/contests/contests");
         const { handleKhatmaGroupUpdate } = await import("@/lib/khatma/khatma");
         const contest = await handleContestGroupUpdate(bot, botRow, body).catch((e) => { void reportError("bot:contest-group", e, { botId: botRow?.id }); return true; });
@@ -207,7 +228,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           }
           if (routeChatId) console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "sham", variant: ctx.variant });
           const novaRow = botRow;                                  // narrowed here: the closures below would lose the null check
-          await shamVariant.run(ctx.variant, () => shamModeCtx.run(ctx.mode, () => handleNovaBotUpdate(bot, novaRow, body)));
+          await shamVariant.run(ctx.variant, () => shamModeCtx.run(ctx.mode, () => shamTldmSession.run(routeChatId ? `tldm-sham_v2-${routeChatId}` : "default", () => handleNovaBotUpdate(bot, novaRow, body))));
         } else if (routeChatId) {
           console.info("[model-route] Telegram dispatch", { chatKey: coderChatKey(routeChatId), handler: "coder" });
         }

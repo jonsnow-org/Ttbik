@@ -8,12 +8,36 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import modelscope_computer_smoke as smoke  # noqa: E402
 
 TOOLS = ("git gh rg jq curl wget gcc g++ make cmake python3 pip3 node npm go java ruby php rustc cargo ffmpeg convert pandoc sqlite3 psql redis-cli mysql clang gdb valgrind "
          "vim nano tmux htop tree unzip 7z rsync ssh ping dig nc strace shellcheck fzf fdfind ag").split()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):  # noqa: D401
+        return None
+
+
+def signed_tarball(repo_url: str, token: str) -> str:
+    """What the app does for a private repository: ask GitHub for the tarball with the token, keep only the short-lived codeload address from the redirect.
+    The token itself never goes to the hub."""
+    parts = repo_url.rstrip("/").split("/")
+    if not token or len(parts) < 2:
+        return ""
+    req = urllib.request.Request(f"https://api.github.com/repos/{parts[-2]}/{parts[-1]}/tarball/HEAD", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "computer-check"})
+    try:
+        urllib.request.build_opener(_NoRedirect).open(req, timeout=15)
+    except urllib.error.HTTPError as exc:
+        loc = exc.headers.get("Location", "") if 300 <= exc.code < 400 else ""
+        return loc if loc.startswith("https://codeload.github.com/") else ""
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
 
 
 def main() -> int:
@@ -41,22 +65,35 @@ def main() -> int:
 
     status = step("computer status", {"action": "status"}, must=False)
     print("    toolchain:", status.get("toolchain"), "| devtools:", status.get("devtools"), flush=True)
-    repo = step("computer_repo: get the public repository", {"action": "repo", "url": args.repo}, timeout=150)
+    signed = signed_tarball(args.repo, (os.environ.get("GITHUB_TOKEN") or "").strip())
+    print("    signed address:", "yes (private-repository path, as the app does it)" if signed else "none (public path)", flush=True)
+    if signed:     # what the hub itself gets from the short-lived address (status and speed only; the address is never printed)
+        probe = step("diagnostic: download speed of the signed address from the hub", {"action": "run", "command": "curl -sS -o /dev/null -m 40 -w 'http=%{http_code} bytes=%{size_download} seconds=%{time_total} connect=%{time_connect}\\n' " + "'" + signed.replace("'", "") + "'"}, must=False, timeout=60)
+        print("    ", str(probe.get("output", ""))[-300:].replace("\n", " | "), flush=True)
+    repo = step("computer_repo: get the repository", {"action": "repo", "url": args.repo, **({"signed_url": signed} if signed else {})}, timeout=150)
     if repo.get("job"):                                       # still downloading: wait for it
         for _ in range(40):
             log = smoke.box_call(args.api, token, {"session": session, "action": "job_log", "id": repo["job"]})
             if log.get("ok") and not log.get("running"):
                 repo = {"ok": log.get("exit_code") == 0, "path": f"repos/{args.repo.rstrip('/').split('/')[-2]}-{args.repo.rstrip('/').split('/')[-1]}"}
+                print(f"    clone job finished: exit {log.get('exit_code')} after {log.get('seconds')} s", flush=True)
+                print("    clone job output:", str(log.get("output", ""))[-700:].replace("\n", " | "), flush=True)
+                if repo["ok"] is not True:
+                    failures.append("computer_repo: the background download failed")
                 break
             time.sleep(3)
     folder = repo.get("path") or "repos/jonsnow-org-Ttbik"
     print("    path:", folder, "| summary:", str(repo.get("summary", ""))[:200].replace("\n", " | "), flush=True)
     found = step("computer_search: find a symbol (ripgrep)", {"action": "search", "pattern": "coderSystemPrompt", "path": folder, "glob": "*.ts"})
     print("    matches:", str(found.get("matches", ""))[:200].replace("\n", " | "), flush=True)
+    home = step("computer_search from HOME (no path): the checkout is a symlink to the local disk", {"action": "search", "pattern": "coderSystemPrompt"})
+    print("    home search:", str(home.get("matches", ""))[:200].replace("\n", " | "), flush=True)
+    if "coderSystemPrompt" not in str(home.get("matches", "")):
+        failures.append("computer_search from home found nothing inside the checkout")
     step("computer_read: read a file", {"action": "read", "path": f"{folder}/package.json"})
     step("computer_write: create a file in the checkout", {"action": "write", "path": f"{folder}/zz_check.txt", "content": "check\n"})
     step("computer_edit: edit a file", {"action": "edit", "path": f"{folder}/zz_check.txt", "old": "check", "new": "checked"})
-    changes = step("changes the model would publish (computer_publish input)", {"action": "changes", "dir": folder, "repo": "jonsnow-org/Ttbik"}, must=False)
+    changes = step("changes the model would publish (computer_publish input)", {"action": "changes", "dir": folder, "repo": "jonsnow-org/Ttbik"})
     print("    changes:", json.dumps(changes, ensure_ascii=False)[:300], flush=True)
     step("computer_run: run the code (python)", {"action": "run", "command": "python3 -c \"print(sum(range(10)))\"", "cwd": folder})
     job = step("computer_job: start a background job", {"action": "job_start", "command": "sleep 2; echo background-done", "name": "check"})

@@ -1,6 +1,7 @@
 import { rewriteLegacyLinks } from "@/lib/siteUrl";
 import { NextRequest, NextResponse } from "next/server";
 import { channelBotToken, isSafeForChannel } from "@/lib/channelPublisher";
+import { ensureEnglishFirst, isEnglishOnlyPublicText } from "@/lib/publicChannelPolicy";
 import { posterToken } from "@/lib/coinsChannel";
 import { uploadVideo, youtubeReady } from "@/lib/youtubePublish";
 
@@ -20,10 +21,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const tag = q.get("tag") || "", asset = q.get("asset") || "", to = (q.get("to") || "general") as keyof typeof CHANNELS;
-  // Vercel stopped (402): a caption built from an old episode/site value still naming ttbik.vercel.app is sent with the live address.
-  const caption = rewriteLegacyLinks(q.get("caption") || "").slice(0, 1000);
-  if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !(to in CHANNELS)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
-  if (!caption || !isSafeForChannel(caption)) return NextResponse.json({ ok: false, reason: "caption-blocked" });
+  // Rewrite stale links to the configured public site; the mutation below is sent exactly once.
+  let caption = rewriteLegacyLinks(q.get("caption") || "").slice(0, 1000);
+  if (!/^promo-ep-\d{1,4}$/.test(tag) || !/^[\w.-]+\.mp4$/.test(asset) || !Object.prototype.hasOwnProperty.call(CHANNELS, to)) return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
+  if (to === "general") caption = ensureEnglishFirst(caption);
+  if (to === "coins" && !isEnglishOnlyPublicText(caption)) return NextResponse.json({ ok: false, reason: "coins-channel-must-be-english-only" }, { status: 400 });
+  if (!caption || !isSafeForChannel(caption)) return NextResponse.json({ ok: false, reason: "caption-blocked" }, { status: 400 });
   const yt = to === "youtube";
   if (yt && !(await youtubeReady())) return NextResponse.json({ ok: false, reason: "youtube-not-set-up" });
   const token = yt ? "-" : to === "coins" ? (await posterToken()) || (await channelBotToken()) : await channelBotToken();

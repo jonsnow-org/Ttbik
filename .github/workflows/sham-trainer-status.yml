@@ -1,11 +1,17 @@
-name: Sham trainer Studios status (read-only, cn)
+name: Sham trainer Studios status (read-only)
 
-# Asks each cn trainer Studio for its own status (phase, last cycle, error). Read-only; the token is never printed.
+# Asks each trainer Studio for its own status (phase, last cycle, error). Read-only; the token is never printed.
+# site is required (cn = novaai2026 / MODELSCOPE_TOKEN, ai = Jonjithup / MODELSCOPE_AI_TOKEN). No default: a silent cn default would query the wrong account for the international trainers.
 on:
   workflow_dispatch:
     inputs:
+      site:
+        description: "cn = modelscope.cn (novaai2026) | ai = modelscope.ai (Jonjithup)"
+        required: true
+        type: choice
+        options: [cn, ai]
       repos:
-        description: "comma list of Studio repos (empty = the three cn trainers)"
+        description: "comma list of Studio repos (empty = site default: three cn trainers, or sham-trainer-1 on ai)"
         required: false
         default: ""
 
@@ -25,6 +31,7 @@ jobs:
           python-version: "3.12"
       - name: Status
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
+          SITE: ${{ inputs.site }}
           SHAM_TRAINER_REPOS: ${{ inputs.repos }}
         run: python3 scripts/ops/sham_trainer_status.py

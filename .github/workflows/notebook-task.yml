@@ -1,0 +1,56 @@
+name: Run a script on a self-hosted runner (the sham-runner Studio, or the ModelScope Notebook)
+# 2026-11-18 (owner): the modelscope.ai CPU notebook stays stopped; its jobs moved to the always-on Studio Jonjithup/sham-runner-1 (ai-system/modelscope-runner/app.py), whose GitHub
+# runner carries the label `studio`. target=notebook is kept only for a session the owner starts himself (backup_workspace.sh needs it: the data lives on the notebook disk).
+# The notebook registers itself as a self-hosted runner (scripts/notebook-node/runner.sh). This workflow is manual only (workflow_dispatch can never be started from a fork)
+# and runs a script from this repository on that machine with the repository's secrets as environment variables: nothing is typed in the notebook.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "which self-hosted runner: studio (sham-runner-1, always on) | notebook (only while the owner runs a notebook session)"
+        type: choice
+        options: [studio, notebook]
+        default: studio
+      script:
+        description: "script under scripts/notebook-node/ (train_sham_gpu.sh | gpu_node.sh | distill_publish.sh | distill_local.sh | infer_bench.sh | backup_workspace.sh | runner_check.sh)"
+        default: "train_sham_gpu.sh"
+      args:
+        description: "argument for the script (gpu_node.sh: setup | bench | serve)"
+        default: ""
+      job:
+        description: "trainer job: live|images|audio|chat|tools|text|codec|motion"
+        default: "live"
+      hours:
+        description: "training hours (a notebook session lasts 4 h at most; the Studio has no limit)"
+        default: "3"
+      name:
+        description: "lineage name: publishes sham-crawl-<name>"
+        default: "nb1"
+permissions:
+  contents: read
+concurrency:
+  group: notebook-task-${{ inputs.target }}-${{ inputs.script }}-${{ inputs.name }}   # different scripts/names run side by side when the notebook has more than one runner
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: [self-hosted, "${{ inputs.target }}"]
+    timeout-minutes: 250
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run
+        env:
+          MS_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MS_AI_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          JOB: ${{ inputs.job }}
+          HOURS: ${{ inputs.hours }}
+          NAME: ${{ inputs.name }}
+          FG: "1"
+          SCRIPT: ${{ inputs.script }}
+          ARGS: ${{ inputs.args }}
+        run: |
+          echo "::add-mask::$MS_TOKEN"; echo "::add-mask::$MS_AI_TOKEN"; echo "::add-mask::$KAGGLE_API_TOKEN"
+          if [ "${{ inputs.target }}" = notebook ] && [ "$SCRIPT" != backup_workspace.sh ]; then echo "::error::target=notebook is kept only for backup_workspace.sh (the notebook stays stopped; use target=studio)"; exit 1; fi
+          case "$SCRIPT" in train_sham_gpu.sh|gpu_node.sh|distill_publish.sh|distill_local.sh|infer_bench.sh|backup_workspace.sh|runner_check.sh) ;; *) echo "script not allowed"; exit 1;; esac
+          bash "scripts/notebook-node/$SCRIPT" $ARGS

@@ -1,0 +1,210 @@
+{"prompt": "اشرح الجاذبية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الجاذبية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الجاذبية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الجاذبية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الجاذبية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الاحتباس الحراري بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الاحتباس الحراري؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الاحتباس الحراري.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الاحتباس الحراري؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الاحتباس الحراري؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الذكاء الاصطناعي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الذكاء الاصطناعي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الذكاء الاصطناعي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الذكاء الاصطناعي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الذكاء الاصطناعي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الشبكات العصبية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الشبكات العصبية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الشبكات العصبية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الشبكات العصبية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الشبكات العصبية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح البرمجة بلغة بايثون بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا البرمجة بلغة بايثون؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح البرمجة بلغة بايثون.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم البرمجة بلغة بايثون؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن البرمجة بلغة بايثون؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح قواعد البيانات بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا قواعد البيانات؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح قواعد البيانات.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم قواعد البيانات؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن قواعد البيانات؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الإنترنت بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الإنترنت؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الإنترنت.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الإنترنت؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الإنترنت؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الطاقة الشمسية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الطاقة الشمسية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الطاقة الشمسية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الطاقة الشمسية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الطاقة الشمسية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الاقتصاد بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الاقتصاد؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الاقتصاد.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الاقتصاد؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الاقتصاد؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التضخم بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التضخم؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التضخم.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التضخم؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التضخم؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الصحة النفسية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الصحة النفسية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الصحة النفسية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الصحة النفسية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الصحة النفسية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح النوم بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا النوم؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح النوم.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم النوم؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن النوم؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الرياضة بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الرياضة؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الرياضة.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الرياضة؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الرياضة؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التغذية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التغذية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التغذية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التغذية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التغذية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح القراءة بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا القراءة؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح القراءة.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم القراءة؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن القراءة؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الكتابة الإبداعية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الكتابة الإبداعية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الكتابة الإبداعية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الكتابة الإبداعية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الكتابة الإبداعية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التاريخ الإسلامي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التاريخ الإسلامي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التاريخ الإسلامي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التاريخ الإسلامي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التاريخ الإسلامي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الحضارة الفرعونية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الحضارة الفرعونية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الحضارة الفرعونية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الحضارة الفرعونية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الحضارة الفرعونية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الفلك بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الفلك؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الفلك.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الفلك؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الفلك؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح النظام الشمسي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا النظام الشمسي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح النظام الشمسي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم النظام الشمسي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن النظام الشمسي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الكيمياء بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الكيمياء؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الكيمياء.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الكيمياء؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الكيمياء؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الفيزياء بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الفيزياء؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الفيزياء.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الفيزياء؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الفيزياء؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الرياضيات بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الرياضيات؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الرياضيات.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الرياضيات؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الرياضيات؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الاحتمالات بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الاحتمالات؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الاحتمالات.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الاحتمالات؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الاحتمالات؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح اللغة العربية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا اللغة العربية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح اللغة العربية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم اللغة العربية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن اللغة العربية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح النحو بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا النحو؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح النحو.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم النحو؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن النحو؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الشعر العربي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الشعر العربي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الشعر العربي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الشعر العربي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الشعر العربي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الأمن السيبراني بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الأمن السيبراني؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الأمن السيبراني.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الأمن السيبراني؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الأمن السيبراني؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التشفير بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التشفير؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التشفير.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التشفير؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التشفير؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الحوسبة السحابية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الحوسبة السحابية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الحوسبة السحابية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الحوسبة السحابية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الحوسبة السحابية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح ريادة الأعمال بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا ريادة الأعمال؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح ريادة الأعمال.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم ريادة الأعمال؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن ريادة الأعمال؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التسويق الرقمي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التسويق الرقمي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التسويق الرقمي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التسويق الرقمي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التسويق الرقمي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح إدارة الوقت بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا إدارة الوقت؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح إدارة الوقت.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم إدارة الوقت؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن إدارة الوقت؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التعلم الذاتي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التعلم الذاتي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التعلم الذاتي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التعلم الذاتي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التعلم الذاتي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح التفكير النقدي بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا التفكير النقدي؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح التفكير النقدي.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم التفكير النقدي؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن التفكير النقدي؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح البيئة بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا البيئة؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح البيئة.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم البيئة؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن البيئة؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الزراعة بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الزراعة؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الزراعة.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الزراعة؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الزراعة؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح المياه بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا المياه؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح المياه.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم المياه؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن المياه؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح النقل بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا النقل؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح النقل.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم النقل؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن النقل؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "اشرح الهندسة المدنية بأسلوب بسيط ومختصر.", "task": "natural_sft", "topic": "explain", "accept": "first"}
+{"prompt": "لماذا تهمنا الهندسة المدنية؟ أعطني ثلاث نقاط.", "task": "natural_sft", "topic": "why", "accept": "first"}
+{"prompt": "أعطني مثالًا عمليًا يوضح الهندسة المدنية.", "task": "natural_sft", "topic": "example", "accept": "first"}
+{"prompt": "كيف يبدأ المبتدئ في تعلم الهندسة المدنية؟ اذكر خطوات واضحة.", "task": "natural_sft", "topic": "steps", "accept": "first"}
+{"prompt": "ما أشهر الأخطاء الشائعة عند الحديث عن الهندسة المدنية؟", "task": "natural_sft", "topic": "compare", "accept": "first"}
+{"prompt": "ما عاصمة ألمانيا؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما أكبر محيط في العالم؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "كم عدد أضلاع المسدس؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما أسرع حيوان بري؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما لغة البرازيل الرسمية؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "من مؤلف كتاب المقدمة؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما أعلى جبل في العالم؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما عاصمة كندا؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "كم عدد قارات العالم؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}
+{"prompt": "ما الغاز الذي نتنفسه أكثر؟", "task": "natural_sft", "topic": "facts", "accept": "agree"}

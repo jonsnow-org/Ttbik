@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_sham_v2_studio import patch_staged_sham_v2_download, stage_sham_v2, write_sham_v2_wrapper
+from stage_sham_v2_studio import patch_staged_sham_v2_download, stage_sham_v2, stage_tldm_serving, write_sham_v2_wrapper
 
 
 class StagedShamV2Runtime(unittest.TestCase):
@@ -41,6 +41,9 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertIn('os.environ["SHAM_MS_MODEL"] = "novaai2026/sham-v2"', wrapper)
             self.assertIn('os.environ.setdefault("SHAM_NATIVE_TOOL_CALLS", "1")', wrapper)
             self.assertNotIn("novaai2026/sham-v1", wrapper)
+            self.assertIn('os.environ.setdefault("SHAM_TLDM", "0")', wrapper)
+            self.assertNotIn('os.environ["SHAM_TLDM"] = "1"', wrapper)
+            self.assertIn("novaai2026/sham2-tldm-head", wrapper)
 
     def test_the_computer_and_browser_are_in_the_models_own_code_not_behind_an_api(self):
         # owner 2026-11-08: Sham's computer lives in the model's code (its generation loop), not on a Studio and not behind a command API
@@ -56,6 +59,46 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertNotIn('api_name="box_do"', app)
             self.assertNotIn('api_name="browser_do"', app)
             self.assertIn('api_name="computer_changes"', app)          # read-only, for publishing after the user confirms
+
+    def test_tldm_serving_files_are_staged_but_left_off(self):
+        with tempfile.TemporaryDirectory() as folder:
+            studio = Path(folder)
+            stage_sham_v2(studio)
+            self.assertTrue((studio / "sham_tldm_serve.py").is_file())
+            self.assertTrue((studio / "sham_tldm_experience.py").is_file())
+            self.assertTrue((studio / "tldm" / "evolution" / "api.py").is_file())
+            self.assertTrue((studio / "tldm" / "evolution" / "owner_denylist.txt").is_file())
+            self.assertTrue((studio / "tldm" / "serve_adapter.py").is_file())
+            self.assertTrue((studio / "tldm" / "sham_tldm" / "model.py").is_file())
+            self.assertTrue((studio / "terminal" / "sham_binding.py").is_file())
+            self.assertTrue((studio / "terminal" / "approvals.py").is_file())
+            for rel in ("sham_pro_coordinator.py", "terminal/tasks.py", "terminal/media_workers.py", "terminal/sham_pro_agent.py"):
+                self.assertTrue((studio / rel).is_file(), rel)
+            self.assertFalse((studio / "tldm" / "training").exists())
+            wrapper = (studio / "app.py").read_text(encoding="utf-8")
+            self.assertIn('os.environ.setdefault("SHAM_TLDM", "0")', wrapper)
+
+
+class StagedTldmImports(unittest.TestCase):
+    def test_staged_tldm_tree_imports_like_the_studio(self):
+        """generate_tldm on the live Studio failed with ModuleNotFoundError terminal_tasks (2026-11-18): the staged tree must import alone."""
+        import importlib.util
+        import subprocess
+        import sys
+        if importlib.util.find_spec("torch") is None:
+            self.skipTest("torch is not installed")
+        with tempfile.TemporaryDirectory() as folder:
+            studio = Path(folder)
+            stage_tldm_serving(studio)
+            for rel in ("sham_tldm_serve.py", "tldm/serve_adapter.py", "tldm/data/trajectories.py", "tldm/data/augment.py",
+                        "tldm/data/terminal_tasks.py", "tldm/tools/organize.py", "terminal/sandbox_terminal.py", "distill/exec_verify.py", "tldm/sham_tldm/donor.py"):
+                self.assertTrue((studio / rel).is_file(), rel)
+            code = ("import sys; sys.path[:0] = [r'{0}', r'{0}/tldm', r'{0}/tldm/data', r'{0}/tldm/memory', r'{0}/terminal'];"
+                    "import serve_adapter, augment, terminal_tasks, approvals, backends; from sham_tldm.donor import FeatureTLDM; import sham_tldm_serve as S;"
+                    "assert S.HEAD_FILE == 'sham2_heads.pt'; print('ok')").format(studio)
+            r = subprocess.run([sys.executable, "-c", code], cwd=folder, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"}, timeout=120)
+            self.assertEqual(r.returncode, 0, r.stderr[-1500:])
+            self.assertIn("ok", r.stdout)
 
 
 if __name__ == "__main__":

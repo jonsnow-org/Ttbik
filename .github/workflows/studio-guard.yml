@@ -1,0 +1,235 @@
+name: "Studio guard: roll out, status, verify"
+# Owner's order 2026-11-18: training on the Studios (modelscope.cn novaai2026 + modelscope.ai Jonjithup) must never stop silently; anything that stops is restarted and resumes.
+#   rollout : push ONLY the supervisor code (ai-system/modelscope-trainer/*.py + sham_small) into existing trainer Studios, add the cross-watch secrets, redeploy. The job settings
+#             (SHAM_TRAINER_JOB / NAME / HOURS, Kaggle keys, the tldm tree) are left exactly as the last deploy-sham-trainer-studio.yml set them.
+#   status  : every Studio's ModelScope state + each trainer's own heartbeat (phase, progress age, restarts) — read-only
+#   kill    : ask one trainer to kill its running cycle (Gradio api kill_cycle), then follow its heartbeat: the supervisor must restart it and resume from the last checkpoint
+#   stop    : stop one Studio, then only WATCH (this job never wakes it): the Studios' own guards / the Cloudflare Worker must start it again
+#   once    : one studio_guard pass from here (same as keep-awake)
+# Never: nova-inference-server, the cn Nova 4B Studios, Athar. coder-inference-server-16 is never stopped or rolled out.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "rollout | status | logs (read-only: run log tail + app status tail of the targets) | kill | stop | once | resume-test (one trainer: wait for a save, kill, check the resume)"
+        required: true
+        default: status
+      targets:
+        description: "site/name list for rollout / kill / stop, e.g. ai/sham-trainer-tools,cn/sham-trainer-1"
+        required: false
+        default: ""
+      watch_minutes:
+        description: "kill / stop: minutes to follow the target afterwards"
+        required: false
+        default: "40"
+permissions:
+  contents: read
+concurrency:
+  group: studio-guard-${{ inputs.action }}-${{ inputs.targets }}
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: self-tests
+        run: python3 ai-system/modelscope-trainer/studio_guard.py --selftest && python3 ai-system/modelscope-trainer/app.py --selftest > /dev/null && echo app self-test OK
+      - name: refuse what is off-limits
+        env:
+          TARGETS: ${{ inputs.targets }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          case ",$TARGETS," in *nova-inference-server*|*athar*|*coder-inference-server*) echo "::error::refusing $TARGETS"; exit 1;; esac
+          if [ "$ACTION" = rollout ] || [ "$ACTION" = kill ] || [ "$ACTION" = resume-test ]; then
+            for t in ${TARGETS//,/ }; do case "${t#*/}" in sham-trainer-*) ;; *) echo "::error::$ACTION is only for trainer Studios (sham-trainer-*): $t"; exit 1;; esac; done
+          fi
+      - name: ${{ inputs.action }}
+        env:
+          T_CN: ${{ secrets.MODELSCOPE_TOKEN }}
+          T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          ACTION: ${{ inputs.action }}
+          TARGETS: ${{ inputs.targets }}
+          WATCH_MIN: ${{ inputs.watch_minutes }}
+          SHAM_GUARD_STATE: ${{ runner.temp }}/studio_guard.json
+        run: |
+          set -uo pipefail
+          echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
+          cd ai-system/modelscope-trainer
+          python3 - <<'PY'
+          import json, os, subprocess, sys, time
+          import studio_guard as g
+          act, targets, T = os.environ["ACTION"], [t for t in os.environ["TARGETS"].split(",") if t.strip()], {"cn": os.environ["T_CN"], "ai": os.environ["T_AI"]}
+          OWN = {"cn": "novaai2026", "ai": "Jonjithup"}
+          def ts(): return time.strftime("%H:%M:%S", time.gmtime())
+          def hb_line(site, name):
+              hb = g.heartbeat(site, OWN[site], name, T[site])
+              if not hb:
+                  return "heartbeat: none (older app or not answering)"
+              keep = {k: hb.get(k) for k in ("phase", "cycle", "progress_age_min", "restarts", "fails_in_a_row", "child_pid", "error", "supervisor_alive")}
+              return "heartbeat: " + json.dumps(keep, ensure_ascii=False)[:500]
+          def status_all():
+              for site, owner, name, policy in g.STUDIOS:
+                  st = g.studio_status(site, owner, name, T[site])
+                  extra = hb_line(site, name) if policy == "train" and g.norm(st) == "running" else ""
+                  print(f"{ts()} {site}/{owner}/{name} [{policy}]: {st} {extra}", flush=True)
+          def run_log(site, name, grep=None, n=3000):
+              code, body = g._call(f"https://{g.HOSTS[site]}/openapi/v1/studios/{OWN[site]}/{name}/logs/run", T[site], timeout=60)
+              lines = [ln for ln in body.splitlines() if not any(w in ln.lower() for w in ("token", "secret", "password", "authorization"))]
+              if grep:
+                  lines = [ln for ln in lines if any(x in ln for x in grep)]
+              print("\n".join(lines)[-n:], flush=True)
+          if act == "status":
+              status_all()
+          elif act == "logs":       # read-only: the targets' ModelScope run log tail and the trainer app's own status tail (token-like lines dropped)
+              for t in targets:
+                  site, name = t.split("/", 1)
+                  print(f"===== {t}: {g.studio_status(site, OWN[site], name, T[site])} — run log tail", flush=True)
+                  run_log(site, name, n=12000)
+                  base = g.app_url(site, OWN[site], name) + "/gradio_api/call/status"
+                  code, body = g._call(base, T[site], "POST", b'{"data": []}')
+                  ev = json.loads(body).get("event_id") if code == 200 else None
+                  code2, out = g._call(f"{base}/{ev}", T[site]) if ev else (code, "")
+                  import re
+                  txt = out
+                  for ln in out.splitlines():
+                      if ln.startswith("data:"):
+                          try:
+                              st = json.loads(json.loads(ln[5:])[0])
+                              txt = json.dumps({k: st.get(k) for k in ("phase", "cycle", "error", "last", "heartbeat", "settings")}, ensure_ascii=False, indent=1) + "\n--- tail ---\n" + "\n".join(st.get("tail") or [])
+                          except Exception:
+                              pass
+                  for v in T.values():
+                      txt = txt.replace(v, "***") if v else txt
+                  txt = re.sub(r"(ms-[A-Za-z0-9-]{6})[A-Za-z0-9-]+|(Bearer )[A-Za-z0-9._-]+|(KGAT_)[A-Za-z0-9]+", lambda m: (m.group(1) or m.group(2) or m.group(3)) + "***", txt)
+                  print(f"===== {t}: app status HTTP {code2}", flush=True)
+                  print(txt[-12000:], flush=True)
+          elif act == "once":
+              g.guard_once()
+          elif act == "rollout":
+              ws = os.environ["GITHUB_WORKSPACE"]
+              for t in targets:
+                  site, name = t.split("/", 1)
+                  owner, host = OWN[site], g.HOSTS[site]
+                  sh = f"""set -euo pipefail
+          rm -rf /tmp/s && git clone -q "https://oauth2:$TOK@{host}/studios/{owner}/{name}.git" /tmp/s 2>&1 | sed "s/$TOK/***/g"
+          cd /tmp/s
+          test -f app.py || {{ echo "not a trainer Studio (no app.py)"; exit 1; }}
+          cp {ws}/ai-system/modelscope-trainer/*.py .
+          rsync -a --exclude kaggle_notebooks --exclude colab_notebooks --exclude __pycache__ --exclude '*.ipynb' --exclude '*.pt' --exclude '*.zip' {ws}/ai-system/colab/sham_small/ sham_small/
+          git config user.name "Sham CI"; git config user.email "ci@sham.local"
+          date -u +"guard rollout: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
+          git add -A && git commit -q -m "Studio guard: supervisor + cross-watch (from CI $GITHUB_SHA)" && git push -q && echo pushed"""
+                  r = subprocess.run(["bash", "-c", sh], env={**os.environ, "TOK": T[site]}, capture_output=True, text=True)
+                  print(t, "push:", (r.stdout + r.stderr).replace(T[site], "***")[-600:], flush=True)
+                  if r.returncode:
+                      sys.exit(f"push to {t} failed")
+                  for key, val in (("MS_GUARD_TOKEN_CN", T["cn"]), ("MS_GUARD_TOKEN_AI", T["ai"]), ("SHAM_GUARD_SELF", f"{site}/{owner}/{name}")):
+                      body = json.dumps({"key": key, "value": val}).encode()
+                      code = 0
+                      for m in ("PUT", "POST"):
+                          code, _ = g._call(f"https://{host}/openapi/v1/studios/{owner}/{name}/secrets", T[site], m, body)
+                          if 200 <= code < 300:
+                              break
+                      print(t, "secret", key, "HTTP", code, flush=True)
+                  print(t, "deploy HTTP", g.deploy(site, owner, name, T[site]), flush=True)
+              end = time.time() + 40 * 60
+              pending = set(targets)
+              while pending and time.time() < end:
+                  time.sleep(60)
+                  for t in sorted(pending):
+                      site, name = t.split("/", 1)
+                      st = g.studio_status(site, OWN[site], name, T[site])
+                      line = hb_line(site, name) if g.norm(st) == "running" else ""
+                      print(f"{ts()} {t}: {st} {line}", flush=True)
+                      if g.norm(st) == "running" and "heartbeat: {" in line:
+                          pending.discard(t)
+                      if g.norm(st) == "failed":
+                          run_log(site, name, n=2500)
+                          sys.exit(f"{t} failed")
+              if pending:
+                  sys.exit(f"no heartbeat yet from {sorted(pending)}")
+          elif act == "resume-test":
+              # wait until the running cycle has saved a checkpoint, kill it, and check that the next cycle RESUMES from that step (not from the head)
+              t = targets[0]
+              site, name = t.split("/", 1)
+              owner = OWN[site]
+              end = time.time() + float(os.environ.get("WATCH_MIN") or 40) * 60
+              hb = {}
+              while time.time() < end:
+                  hb = g.heartbeat(site, owner, name, T[site]) or {}
+                  print(f"{ts()} {t}: waiting for a save: " + json.dumps({k: hb.get(k) for k in ("phase", "cycle", "saved_in_cycle", "checkpoint_step", "checkpoint_age_min", "restarts")}), flush=True)
+                  if hb.get("saved_in_cycle"):
+                      break
+                  time.sleep(120)
+              if not hb.get("saved_in_cycle"):
+                  sys.exit("no checkpoint saved in the running cycle within the watch window")
+              step0, r0 = hb.get("checkpoint_step"), int(hb.get("restarts") or 0)
+              base = g.app_url(site, owner, name) + "/gradio_api/call/kill_cycle"
+              code, body = g._call(base, T[site], "POST", b'{"data": []}')
+              ev = json.loads(body).get("event_id") if code == 200 else None
+              code2, out = g._call(f"{base}/{ev}", T[site]) if ev else (code, "")
+              print(f"{ts()} {t}: saved step {step0} -> kill_cycle HTTP {code2} {out.strip()[-200:]}", flush=True)
+              end = time.time() + 25 * 60
+              ok = False
+              while time.time() < end and not ok:
+                  time.sleep(60)
+                  hb = g.heartbeat(site, owner, name, T[site]) or {}
+                  print(f"{ts()} {t}: " + json.dumps({k: hb.get(k) for k in ("phase", "cycle", "restarts", "child_pid", "resume", "error")}, ensure_ascii=False)[:700], flush=True)
+                  res = str(hb.get("resume") or "")
+                  ok = int(hb.get("restarts") or 0) > r0 and "resume: continuing the interrupted cycle" in res and "⏯" in res and str(step0) in res
+              if not ok:
+                  sys.exit("the restarted cycle did not log a resume from the saved step")
+              print(f"RESUMED from step {step0}")
+          elif act in ("kill", "stop"):
+              r0 = {}
+              for t in targets:
+                  site, name = t.split("/", 1)
+                  owner = OWN[site]
+                  if act == "kill":
+                      hb0 = g.heartbeat(site, owner, name, T[site]) or {}
+                      r0[t] = int(hb0.get("restarts") or 0)
+                      print(f"{ts()} {t}: before the kill: {json.dumps({k: hb0.get(k) for k in ('phase', 'cycle', 'restarts', 'child_pid')})}", flush=True)
+                      base = g.app_url(site, owner, name) + "/gradio_api/call/kill_cycle"
+                      code, body = g._call(base, T[site], "POST", b'{"data": []}')
+                      ev = json.loads(body).get("event_id") if code == 200 else None
+                      code2, out = g._call(f"{base}/{ev}", T[site]) if ev else (code, "")
+                      print(f"{ts()} {t}: kill_cycle -> HTTP {code2} {out.strip()[-300:]}", flush=True)
+                  else:
+                      code, _ = g._call(f"https://{g.HOSTS[site]}/openapi/v1/studios/{owner}/{name}/stop", T[site], "POST")
+                      print(f"{ts()} {t}: stop -> HTTP {code} (this job will NOT wake it)", flush=True)
+              end = time.time() + float(os.environ.get("WATCH_MIN") or 40) * 60
+              seen_down = set()
+              revived = set()
+              while time.time() < end and len(revived) < len(targets):
+                  time.sleep(60)
+                  for t in targets:
+                      site, name = t.split("/", 1)
+                      st = g.studio_status(site, OWN[site], name, T[site])
+                      line = hb_line(site, name) if g.norm(st) == "running" else ""
+                      print(f"{ts()} {t}: {st} {line}", flush=True)
+                      if g.norm(st) != "running":
+                          seen_down.add(t)
+                      if act == "stop" and t in seen_down and g.norm(st) == "running":
+                          revived.add(t)
+                      if act == "kill" and g.norm(st) == "running":
+                          hb = g.heartbeat(site, OWN[site], name, T[site]) or {}
+                          if hb.get("phase") == "training" and int(hb.get("restarts") or 0) > r0.get(t, 0) and hb.get("child_pid"):
+                              revived.add(t)
+              for t in targets:
+                  site, name = t.split("/", 1)
+                  print(f"--- {t}: supervisor / resume lines from its run log", flush=True)
+                  run_log(site, name, grep=("supervisor", "resume", "استئناف", "Studio guard", "studio-guard"))
+              print("--- who woke it: studio-guard lines in sham-runner-1's run log", flush=True)
+              run_log("ai", "sham-runner-1", grep=("[studio-guard]",), n=4000)
+              if len(revived) < len(targets):
+                  sys.exit(f"not revived/restarted within the watch window: {sorted(set(targets) - revived)}")
+              print("REVIVED:", sorted(revived))
+          else:
+              sys.exit("unknown action " + act)
+          PY

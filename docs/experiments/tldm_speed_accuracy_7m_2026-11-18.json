@@ -1,0 +1,84 @@
+{
+ "ckpt": "small_reword0.pt",
+ "params_M": 7.7,
+ "variants": [
+  {
+   "dtype": "fp32",
+   "confident": 0.0,
+   "train": 0.967,
+   "train_passes": 10.0,
+   "train_ms": 39.5,
+   "heldout": 0.5,
+   "heldout_passes": 10.0,
+   "heldout_ms": 28.5,
+   "heldout2": 0.5,
+   "heldout2_passes": 10.0,
+   "heldout2_ms": 26.0
+  },
+  {
+   "dtype": "fp32",
+   "confident": 0.9,
+   "train": 0.967,
+   "train_passes": 1.57,
+   "train_ms": 10.8,
+   "heldout": 0.5,
+   "heldout_passes": 5.42,
+   "heldout_ms": 19.7,
+   "heldout2": 0.5,
+   "heldout2_passes": 5.64,
+   "heldout2_ms": 20.5
+  },
+  {
+   "dtype": "fp32",
+   "confident": 0.99,
+   "train": 0.967,
+   "train_passes": 7.93,
+   "train_ms": 29.2,
+   "heldout": 0.5,
+   "heldout_passes": 10.0,
+   "heldout_ms": 29.4,
+   "heldout2": 0.5,
+   "heldout2_passes": 10.0,
+   "heldout2_ms": 31.2
+  },
+  {
+   "dtype": "bf16",
+   "confident": 0.0,
+   "train": 0.967,
+   "train_passes": 10.0,
+   "train_ms": 27.5,
+   "heldout": 0.5,
+   "heldout_passes": 10.0,
+   "heldout_ms": 26.3,
+   "heldout2": 0.5,
+   "heldout2_passes": 10.0,
+   "heldout2_ms": 26.8
+  },
+  {
+   "dtype": "bf16",
+   "confident": 0.9,
+   "train": 0.967,
+   "train_passes": 1.57,
+   "train_ms": 11.2,
+   "heldout": 0.5,
+   "heldout_passes": 5.42,
+   "heldout_ms": 19.8,
+   "heldout2": 0.5,
+   "heldout2_passes": 5.64,
+   "heldout2_ms": 16.1
+  },
+  {
+   "dtype": "bf16",
+   "confident": 0.99,
+   "train": 0.967,
+   "train_passes": 7.93,
+   "train_ms": 22.0,
+   "heldout": 0.5,
+   "heldout_passes": 10.0,
+   "heldout_ms": 26.0,
+   "heldout2": 0.5,
+   "heldout2_passes": 10.0,
+   "heldout2_ms": 24.7
+  }
+ ]
+}

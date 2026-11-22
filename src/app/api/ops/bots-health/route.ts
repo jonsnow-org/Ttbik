@@ -10,14 +10,20 @@ export const maxDuration = 60;
 
 const SITE_URL = publicSiteUrl();
 
+// One retry: a single slow or dropped call to Telegram used to be reported as "token invalid" (the telegram-bots supervisor raised a needs-attention issue
+// that cleared by itself). A 401/404 answer is definitive (the token is revoked or wrong), so that is not retried.
 async function tg(token: string, method: string) {
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, { signal: AbortSignal.timeout(8000) });
-    const j = await r.json();
-    return j?.ok ? j.result : null;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, { signal: AbortSignal.timeout(8000) });
+      const j = await r.json();
+      if (j?.ok) return j.result;
+      if (r.status === 401 || r.status === 404) return null;
+    } catch {
+      /* timeout or network: try once more */
+    }
   }
+  return null;
 }
 
 export async function GET(req: NextRequest) {

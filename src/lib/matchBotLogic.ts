@@ -1,4 +1,5 @@
 import { sendTelegramBroadcast } from "@/lib/telegramBroadcast";
+import { ownerGate } from "@/lib/ownerPanel";
 import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -245,8 +246,7 @@ function adminMenu(botId?: string): Keyboard {
     .text(MATCHMAKER_ADMIN_BUTTON).row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
-    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
-    .text("🩺 فحص البحث");
+    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة");
   // 📱 opens the Mini App straight on «🛡 لوحة القيادة» (same isMatchAdmin / SUPER_ADMIN_TELEGRAM_ID check server-side).
   // Reply-keyboard web_app buttons get an EMPTY initData (Telegram design), so the app could not
   // authenticate the admin. This is a plain text button; the bot answers with an INLINE web_app
@@ -2746,7 +2746,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
-  if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
+  let ownerAdminView = !!SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID;
+  if (ownerAdminView) {
+    // owner panel switch (src/lib/ownerPanel.ts): «👤 لوحة المستخدم» / «🛠 لوحة الإدارة»; in the user view he runs the regular flow below
+    const gate = await ownerGate(botRow.id, String(msg.text || "").trim(), (t) => handleMarriageBotUpdate(bot, botRow, { ...update, message: { ...msg, text: t } }));
+    if (gate === "handled") return;
+    ownerAdminView = gate === "admin";
+  }
+  if (ownerAdminView) {
     const text = String(msg.text || "").trim();
     if (!text) return;
     // The admin gets a MatchUser row too, purely to persist their own

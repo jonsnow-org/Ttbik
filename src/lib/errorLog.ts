@@ -1,5 +1,5 @@
 // One place where every server error of the site lands (route and page errors via instrumentation.ts, bot webhook errors, anything that calls reportError()).
-// Errors are grouped by a fingerprint, counted, and read by the hourly "error-triage" workflow, which opens one GitHub issue per distinct open error.
+// Errors are grouped by a fingerprint, counted, and read by the hourly "monitor" workflow, which opens a GitHub issue only for an error that repeated 10+ times.
 // A scheduled Claude session then fixes the open issues without being asked. Never put a secret, a token or a person's data in `message` or `ctx`.
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";

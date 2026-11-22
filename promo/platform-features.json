@@ -6,7 +6,7 @@
       "id": "feature:explore",
       "pages": ["coins.html"],
       "title": "Explore coins like a trading terminal",
-      "text": "Trending, new, closest to graduation, top and graduated lists, 24h top movers and a watchlist, all on one screen. Experimental platform with unaudited contracts: only use what you can afford to lose.",
+      "text": "Trending, new, closest to graduation, top and graduated lists, 24h top movers and a watchlist, all on one screen.",
       "path": "coins.html",
       "cta": "🪙 Open Palmyra Launch",
       "tags": "#PalmyraLaunch #TON",

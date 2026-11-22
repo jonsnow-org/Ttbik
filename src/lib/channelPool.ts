@@ -5,6 +5,7 @@ import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
 import { SITE_URL } from "@/lib/siteUrl";
+import { EXCLUDED_PUBLIC_BOT_SLUGS, ensureEnglishFirst } from "@/lib/publicChannelPolicy";
 
 // Everything the channel can promote, built from the site's own data so a new
 // tool, bot page, news item, event or article joins the rotation by itself.
@@ -69,7 +70,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     tags: ["#أدوات_مجانية", "#شام_AI"],
     repeatDays: 7,
   }));
-  const bots: PoolItem[] = BOT_LANDINGS.map((b) => ({
+  const bots: PoolItem[] = BOT_LANDINGS.filter((b) => !EXCLUDED_PUBLIC_BOT_SLUGS.has(b.slug)).map((b) => ({
     kind: "bot",
     id: `bot:${b.slug}`,
     title: b.name,
@@ -158,7 +159,7 @@ export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): 
     {
       kind: "project", id: "project:free-tools", title: "جميع الأدوات المجانية",
       blurb: "أكثر من 30 أداة مجانية تعمل داخل المتصفح: حاسبات، مولّدات، مساعد كتابة، ضغط صور، وغيرها. بلا تسجيل.",
-      url: `${SITE_URL}/free-tools`, cta: "🛠️ افتح الأدوات", tags: ["#أدوات_مجانية", "#شام_AI"], repeatDays: 4,
+      url: `${SITE_URL}/#free-tools`, cta: "🛠️ افتح الأدوات", tags: ["#أدوات_مجانية", "#شام_AI"], repeatDays: 4,
     },
     {
       kind: "project", id: "project:zenobia-passport", title: "جواز مرور طريق الحرير من تدمر",
@@ -218,7 +219,7 @@ export const HEADERS: Record<PoolKind, string> = {
   coin: "🏛 عملة زنوبيا",
 };
 
-const esc = (s: string) => s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Several fixed layouts, rotated, so the channel does not look copy-pasted.
 export function formatPost(item: PoolItem, variant: number): string {
@@ -228,10 +229,10 @@ export function formatPost(item: PoolItem, variant: number): string {
   const tags = item.tags.join(" ");
   switch (variant % 3) {
     case 0:
-      return `<b>${head}</b>\n\n<b>${t}</b>\n${b}\n\n${tags}`;
+      return ensureEnglishFirst(`<b>${head}</b>\n\n<b>${t}</b>\n${b}\n\n${tags}`);
     case 1:
-      return `${head} ✦\n\n<b>${t}</b>\n\n${b}\n\n⬇️ الرابط في الزر بالأسفل\n${tags}`;
+      return ensureEnglishFirst(`${head} ✦\n\n<b>${t}</b>\n\n${b}\n\n⬇️ الرابط في الزر بالأسفل\n${tags}`);
     default:
-      return `<b>${t}</b>\n\n${b}\n\n— ${head} من شام AI\n${tags}`;
+      return ensureEnglishFirst(`<b>${t}</b>\n\n${b}\n\n— ${head} من شام AI\n${tags}`);
   }
 }

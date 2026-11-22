@@ -190,7 +190,7 @@ export function Row({ icon, title, sub, onClick, right, danger }: { icon?: React
         <span className="block truncate text-[15px] font-semibold" style={{ color: danger ? "var(--app-danger)" : "var(--app-text)" }}>{title}</span>
         {sub && <span className="mt-0.5 block text-xs leading-5" style={{ color: "var(--app-hint)" }}>{sub}</span>}
       </span>
-      {right ?? (onClick ? <span style={{ color: "var(--app-hint)" }}>‹</span> : null)}
+      {right ?? (onClick ? <span className="app-chev inline-block" aria-hidden style={{ color: "var(--app-hint)" }}>‹</span> : null)}
     </C>
   );
 }
@@ -329,6 +329,7 @@ export const THEME: React.CSSProperties = {
   ["--app-text" as any]: "var(--tg-theme-text-color, #0f172a)",
   ["--app-hint" as any]: "var(--tg-theme-hint-color, #6b7280)",
   ["--app-link" as any]: "var(--tg-theme-link-color, #2481cc)",
+  ["--app-accent" as any]: "var(--tg-theme-link-color, var(--tg-theme-button-color, #2481cc))",
   ["--app-btn" as any]: "var(--tg-theme-button-color, #2481cc)",
   ["--app-btn-text" as any]: "var(--tg-theme-button-text-color, #ffffff)",
   ["--app-danger" as any]: "var(--tg-theme-destructive-text-color, #e53935)",
@@ -340,6 +341,7 @@ export const THEME: React.CSSProperties = {
 export function AppFrame({ lang, children }: { lang: Lang; children: React.ReactNode }) {
   return (
     <div dir={lang === "en" ? "ltr" : "rtl"} lang={lang} style={{ ...THEME, background: "var(--app-bg)", color: "var(--app-text)", minHeight: "100dvh", paddingBottom: "var(--app-safe-bottom)", fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Noto Sans Arabic\", Tahoma, Arial, sans-serif", WebkitTapHighlightColor: "transparent" }}>
+      <style>{"[dir=ltr] .app-chev{transform:scaleX(-1)}"}</style>
       {children}
     </div>
   );

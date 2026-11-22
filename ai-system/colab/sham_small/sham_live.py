@@ -160,6 +160,22 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
             and tokenizer_fingerprint(aa[0]) == tokenizer_fingerprint(ab[0]))
 
 
+def _resume_dir():
+    """(checkpoint, folder, progress, origin) from SHAM_RESUME_DIR when it holds this trainer's interrupted cycle (final.pt + crawl_progress.json by sham_live + the tokenizer); else None.
+    The weights there are the guard's best of that cycle, which itself started from the head, so the merge gate judges the result exactly as before."""
+    d = Path(os.environ.get("SHAM_RESUME_DIR") or "")
+    if not str(d).strip() or str(d) == "." or not (d / "final.pt").is_file() or not (d / "sham_small_tokenizer.json").is_file():
+        return None
+    try:
+        progress = json.loads((d / "crawl_progress.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(progress, dict) or progress.get("by") != "sham_live":
+        return None
+    print(f"⏯ استئناف الدورة المنقطعة من آخر حفظ لها (الخطوة {progress.get('step')}) — {d}")
+    return d / "final.pt", d, progress, f"{d.name} (استئناف دورة منقطعة)"
+
+
 def resolve_start(model_dataset: str = MODEL_DATASET):
     """(checkpoint path, its folder, progress dict, origin label). The start is the MEASURED best among the main line (chat stage, stage 2) and
     this trainer's own previous output (sham_base_select): a lineage is only continued while it is not clearly worse than another one
@@ -167,14 +183,37 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     from sham_base_select import choose_base, make_probe
     from sham_inputs import fetch_dataset
 
+    resumed = _resume_dir()
+    if resumed:   # 2026-11-18: a cycle that was interrupted (crash, stuck kill, Studio sleep/restart) continues from its own last guarded save, set by the Studio supervisor
+        return resumed
     mains = []
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
-                          ("sham-grown-checkpoint", "final_grown.pt"),
-                          ("sham-merged-checkpoint", "final_merged.pt")):   # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    anchor_on = (os.environ.get("SHAM_START_ANCHOR") or "merged").lower() != "off"
+    fast = anchor_on and (os.environ.get("SHAM_START_FAST") or "1").strip().lower() not in ("0", "off", "false", "no")
+    lines = [("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-grown-checkpoint", "final_grown.pt"),
+             ("sham-merged-checkpoint", "final_merged.pt")]    # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
+    if fast:       # 2026-11-13: four checkpoints (3 GB) were downloaded on every cycle start over a slow link (and every redeploy got Kaggle to rate-limit us) only to end up on the head anyway
+        lines = lines[::-1][:1] + lines[:-1]
+    head_ok = False
+    looked = []        # what each line gave: printed when nothing usable came back, so the log says WHY there is no start point
+    for name, pattern in lines:
+        if head_ok:
+            print(f"⚡ الرأس المنشور سليم: لا حاجة لتنزيل {name} (SHAM_START_FAST=0 يعيد القياس الكامل)")
+            continue
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
+        looked.append(f"{name}: {'غير متاحة' if not root else (hits[0].name if hits else 'بلا ' + pattern)}")
         if hits:
             mains.append((name, hits[0], hits[0].parent))
+            if fast and name == "sham-merged-checkpoint":
+                try:
+                    toks = sorted(hits[0].parent.rglob("sham_small_tokenizer.json"))
+                    probe = make_probe("cuda" if torch.cuda.is_available() else "cpu")
+                    loss = probe(hits[0], toks[0]) if toks else None
+                    head_ok = bool(loss is not None and probe.last_chance and loss <= 0.9 * probe.last_chance)
+                    if head_ok:
+                        print(f"⚓ الرأس المنشور سليم (الخسارة النصية {loss:.2f} أقل بكثير من التخمين العشوائي {probe.last_chance:.1f}): نقطة الانطلاق مباشرة بلا تنزيل بقية الخطوط")
+                except Exception as exc:
+                    print(f"⚠ تعذّر فحص الرأس سريعًا ({type(exc).__name__}): يُنزَّل بقية الخطوط ويُقاس الجميع")
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -190,9 +229,12 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
         toks = sorted(own_ckpt[0].parent.rglob("sham_small_tokenizer.json"))
         cands.append(("own", own_ckpt[0], toks[0] if toks else None))
     if not cands:
-        raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
+        looked.append(f"{model_dataset}: {'غير متاحة' if not own else ('final.pt بلا crawl_progress من sham_live' if own_ckpt else 'بلا final.pt')}")
+        raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً. | " + " ; ".join(looked))
     best = cands[0][0]
-    if len(cands) > 1:
+    if head_ok:
+        best = "sham-merged-checkpoint"
+    elif len(cands) > 1:
         try:
             best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
                                 prefer=("sham-merged-checkpoint", "sham-grown-checkpoint"),   # the head first: it IS the grown lineage plus every merged gain
@@ -326,7 +368,7 @@ class Encoder:
             import datetime
             import random as _random
             import sham_auto_config
-            from sham_chat import build_date_example, build_search_example, date_context_line
+            from sham_chat import build_date_example, build_search_example, build_smalltalk_example, date_context_line
             import zlib
             r2 = _random.Random(zlib.crc32(text.encode('utf-8')[:600]))      # from the text itself, so the choice does not follow the document's length
             lines = [ln for ln in text.split("\n") if ln.strip()]
@@ -346,6 +388,8 @@ class Encoder:
                     out.append(ex)
             if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
                 out.append(build_date_example(self.tok.encode, r2))
+            if r2.random() < float(os.environ.get("SHAM_SMALLTALK_MIX") or sham_auto_config.get("smalltalk_share", 0.03)):     # greetings / identity / thanks (sanity check 2026-11-15)
+                out.append(build_smalltalk_example(self.tok.encode, r2))
         except Exception:
             pass
         return out
@@ -461,6 +505,51 @@ def make_batches(examples: list, token_budget: int):
 
 # ---------------------------------------------------------------- run
 
+def _start_memory_watch(every: float = 60.0) -> None:
+    """Prints the process memory (RSS), what the machine still has and the container limit once a minute. The cn trainer Studio was killed with code -9 (out of memory) right after the
+    chat data loaded (2026-11-13) and nothing said which step grows: this line tells, and says how close the kill was."""
+    def read(path):
+        try:
+            return Path(path).read_text().strip()
+        except Exception:
+            return ""
+
+    marks = [3.0, 4.0, 4.8]      # GB of process memory at which every thread's stack is printed once: it says WHICH code is growing (cn trainer: +0.5 GB/min until the kill, 2026-11-13)
+
+    def dump_threads(rss_gb):
+        import sys as _sys
+        import traceback as _tb
+        names = {t.ident: t.name for t in threading.enumerate()}
+        print(f"🧵 الذاكرة بلغت {rss_gb:.1f} غ.ب — أين يقف كل خيط:", flush=True)
+        for ident, frame in _sys._current_frames().items():
+            if names.get(ident) == "memory-watch":
+                continue
+            last = _tb.extract_stack(frame)[-4:]
+            print(f"  🧵 {names.get(ident, ident)}: " + " ← ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in reversed(last)), flush=True)
+
+    shown = {"rss": -9.0, "at": 0.0}      # the Studio keeps only a short tail of the log: a line every minute pushed the training lines out of it (2026-11-13), so a line is printed only on a change of 0.4 GB or every 15 minutes
+
+    def loop():
+        while True:
+            try:
+                rss = int(next(l for l in read("/proc/self/status").splitlines() if l.startswith("VmRSS")).split()[1]) / 1048576
+                avail = int(next(l for l in read("/proc/meminfo").splitlines() if l.startswith("MemAvailable")).split()[1]) / 1048576
+                lim = read("/sys/fs/cgroup/memory.max") or read("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+                lim_s = f"{int(lim) / 1073741824:.1f} غ.ب" if lim.isdigit() and int(lim) < 1 << 50 else "بلا حد ظاهر"
+                cur = read("/sys/fs/cgroup/memory.current") or read("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+                cur_s = f"، الحاوية {int(cur) / 1073741824:.1f} غ.ب" if cur.isdigit() else ""
+                while marks and rss >= marks[0]:
+                    dump_threads(rss)
+                    marks.pop(0)
+                if abs(rss - shown["rss"]) >= 0.4 or time.time() - shown["at"] >= 900:
+                    shown.update(rss=rss, at=time.time())
+                    print(f"🧠 الذاكرة: العملية {rss:.1f} غ.ب | متاح في الجهاز {avail:.1f} غ.ب{cur_s} | حدّ الحاوية {lim_s}", flush=True)
+            except Exception:
+                return
+            time.sleep(every)
+    threading.Thread(target=loop, daemon=True, name="memory-watch").start()
+
+
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
         mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None, source_set: str = "default") -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
@@ -478,6 +567,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     from train_image_tokenizer import save_tokenizer_checkpoint as save_img
 
     t_start = time.time()
+    _start_memory_watch()
     cuda = torch.cuda.is_available()
     device = "cuda" if cuda else "cpu"
     hours = hours if hours is not None else (7.0 if cuda else 11.0)
@@ -537,7 +627,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     print(f"عناوين سبقت زيارتها (لا تُحمَّل ثانيةً): {len(sham_spider.URL_SEEN):,}")
 
     # — the spider network and the encoders
-    raw_q, enc_q = queue.Queue(maxsize=256), queue.Queue(maxsize=512)
+    # CPU trainer on a small machine: 256 raw items (images / audio bytes, up to MBs each) + 512 encoded examples were part of the memory that got the cn Studio killed (8 GB limit)
+    raw_q, enc_q = (queue.Queue(maxsize=256), queue.Queue(maxsize=512)) if cuda else (queue.Queue(maxsize=int(os.environ.get("SHAM_RAW_Q") or 32)), queue.Queue(maxsize=int(os.environ.get("SHAM_ENC_Q") or 128)))
     ledgers = {}
     if source_set == "gh":   # the GitHub-hosted trainer reads different sources than the Kaggle one (sham_sources_gh.py)
         from sham_sources_gh import gh_sources
@@ -690,6 +781,10 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     ema = EMA(model, EMA_DECAY)
     guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
+    try:      # 2026-11-18: the Studio supervisor saves more often (SHAM_SAVE_EVERY_MIN, default there 20) so a killed / slept cycle resumes losing little
+        save_every = max(5 * 60, int(float(os.environ.get("SHAM_SAVE_EVERY_MIN") or 0) * 60)) if os.environ.get("SHAM_SAVE_EVERY_MIN") else save_every
+    except ValueError:
+        pass
     model.train()
     # Quantization-aware training in the LIVE trainer (owner's order, 2026-11-06): the checkpoint this
     # session publishes must be trained THROUGH the compression it ships with, so the small model keeps
@@ -733,7 +828,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                          "weights": guard.best_flavor, "guard_score": guard.best_score, "rollbacks": guard.rollbacks,
                          "seen_total": len(kept), "sources": {s.name: s.items for s in spider.sources},
                          "sessions": int(progress.get("sessions", 0)) + (1 if tag == "final" else 0)})
-        (out / "crawl_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
+        (out / "crawl_progress.json.tmp").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
+        os.replace(out / "crawl_progress.json.tmp", out / "crawl_progress.json")     # whole or not at all: a killed cycle must leave a readable progress for the resume
         print(f"💾 حفظ الخطوة {step:,} — {guard.line(r)}\n   تحقق (أفضل نقطة): "
               + ", ".join(f"{k} {guard.base.get(k, float('nan')):.3f}→{v:.3f}" for k, v in chosen.items()))
         return chosen
@@ -855,9 +951,18 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         corpus = publish_dataset(WORK / "crawl_corpus", corpus_ds, f"live corpus to step {step:,}")
     try:
         from kaggle_secrets import UserSecretsClient
-        from telegram_report import send_telegram_message
+        from telegram_report import send_training_report
         sec = UserSecretsClient()
-        send_telegram_message(sec.get_secret("TELEGRAM_BOT_TOKEN"), sec.get_secret("TELEGRAM_CHAT_ID"), report[:4000])
+        token = sec.get_secret("TELEGRAM_BOT_TOKEN")
+        admin = ""
+        for key in ("TELEGRAM_ADMIN_CHAT_ID", "TELEGRAM_OWNER_CHAT_ID", "SHAM_TRAINING_REPORT_CHAT_ID", "SUPER_ADMIN_TELEGRAM_ID"):
+            try:
+                admin = sec.get_secret(key) or ""
+            except Exception:
+                admin = ""
+            if admin:
+                break
+        send_training_report(token, report[:4000], chat_id=admin or None)
     except Exception:
         pass
     return {"steps": step - start_step, "published": published, "corpus": corpus, "holdout": final,

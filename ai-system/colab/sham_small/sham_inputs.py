@@ -35,9 +35,10 @@ import shutil
 import subprocess
 import zipfile
 from pathlib import Path
+from ms_hub import apply_ms_hub_endpoint, ms_hub_endpoint
 
 KAGGLE_INPUT = Path("/kaggle/input")
-FETCH_ROOT = Path("/tmp/sham_inputs")
+FETCH_ROOT = Path(os.environ.get("SHAM_FETCH_ROOT") or "/tmp/sham_inputs")      # a ModelScope trainer Studio points this at its persistent disk (the root file system counts as memory there)
 
 # Earlier names of the same datasets (renames), treated as the notebook's own lineage.
 OLD_NAMES = {
@@ -111,8 +112,11 @@ def _unzip_nested(root: Path) -> None:
             return
         for z in archives:
             target = z.parent / z.stem
-            with zipfile.ZipFile(z) as zf:
-                zf.extractall(target)
+            try:
+                with zipfile.ZipFile(z) as zf:
+                    zf.extractall(target)
+            except zipfile.BadZipFile:      # a download cut by SHAM_KAGGLE_TIMEOUT leaves a partial archive: drop it (the caller's fallback / next candidate takes over), never crash the trainer
+                print(f"  ⚠ أرشيف ناقص أو تالف تُرك: {z.name}")
             z.unlink()
 
 
@@ -150,6 +154,26 @@ def _split_name(name: str) -> tuple[str, str | None]:
 
 def _has(root: Path, pattern: str | None) -> bool:
     return pattern is None or any(root.rglob(pattern))
+
+
+# What a CACHED copy of a checkpoint dataset must hold to be reused (only for the cache check: REQUIRED_FILE also drives the walk-back / repair of foreign
+# publications, which these datasets must not get). Found 2026-11-18 on the ai Studio sham-trainer-tools: a copy left half-written on the Studio's persistent
+# disk (a cycle killed mid-download, or a failed ModelScope pull) was returned as-is by every later cycle -- no final_*.pt in it, nothing re-downloaded -- so
+# resolve_start found no start point at all and the trainer failed 8 cycles in a row ("لا توجد نقطة حفظ...").
+CACHE_EXPECT = {
+    "sham-merged-checkpoint": "final_merged.pt",
+    "sham-grown-checkpoint": "final_grown.pt",
+    "sham-chat-checkpoint": "final_chat.pt",
+    "sham-multimodal-checkpoint": "final_multimodal.pt",
+}
+
+
+def _cache_ok(root: Path, need: str | None, base: str) -> bool:
+    """A cached copy is reused only when it holds the file this dataset is fetched for, and that file is not empty (a truncated copy)."""
+    want = need or CACHE_EXPECT.get(base)
+    if want is None:
+        return True
+    return any(p.is_file() and p.stat().st_size > 0 for p in root.rglob(want))
 
 
 def _rest_auth() -> dict:
@@ -241,7 +265,12 @@ def _kaggle(cmd: list, tries: int = 6):
     import time as _time
     r = None
     for attempt in range(tries):
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            # a download that never ends froze a cn trainer for 35 minutes without a line (2026-11-13): give each Kaggle command a limit (SHAM_KAGGLE_TIMEOUT, 1800 s)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("SHAM_KAGGLE_TIMEOUT") or 1800))
+        except subprocess.TimeoutExpired:
+            print(f"  ⏱ Kaggle لم يُنهِ الأمر في المهلة: {' '.join(str(c) for c in cmd[:5])}")
+            return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_TIMEOUT)")
         out = (r.stderr or "") + (r.stdout or "")
         if r.returncode == 0 or not any(t in out for t in ("429", "Too Many Requests", "502", "503", "504", "timed out", "Connection")):
             return r
@@ -249,6 +278,175 @@ def _kaggle(cmd: list, tries: int = 6):
         print(f"  ⏳ Kaggle يتمهّل ({out.strip().splitlines()[-1][:80] if out.strip() else '?'}) — انتظار {wait} ث ثم إعادة {attempt + 2}/{tries}")
         _time.sleep(wait)
     return r
+
+
+def _head_from_modelscope(dest: Path) -> bool:
+    """The published head also lives in a ModelScope model repo (sham-modelscope.yml copies it there). The cn trainer Studio reaches ModelScope at home speed while Kaggle
+    downloads of its 850 MB took more than 30 minutes (2026-11-13: the trainer never started). Returns True when dest now holds final_merged.pt + its tokenizers."""
+    repo = os.environ.get("SHAM_MS_HEAD_REPO") or "novaai2026/sham-merged"
+    try:
+        from modelscope import snapshot_download
+        tok = os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
+        if tok:
+            try:
+                _ms_api()
+            except Exception:       # the cached login / public access may still work
+                pass
+        cache = dest.parent / "ms_cache"
+        src = Path(snapshot_download(repo, cache_dir=str(cache)))
+        got = 0
+        dest.mkdir(parents=True, exist_ok=True)
+        # the weights go in LAST and through a temporary name: a copy cut half-way (a killed cycle) never leaves a final_merged.pt that looks complete
+        for f in sorted(src.iterdir(), key=lambda f: f.name == "final_merged.pt"):
+            if f.is_file() and (f.name in ("final_merged.pt", "sham_small_tokenizer.json") or f.name.endswith("_tokenizer.pt")):
+                part = dest / (f.name + ".part")
+                shutil.copy2(f, part)
+                os.replace(part, dest / f.name)
+                got += 1
+        shutil.rmtree(cache, ignore_errors=True)
+        ok = (dest / "final_merged.pt").exists() and (dest / "sham_small_tokenizer.json").exists()
+        print(f"  • sham-merged-checkpoint: من ModelScope ({repo}) — {got} ملفات" if ok else f"  ⚠ مستودع ModelScope {repo} ينقصه الرأس")
+        return ok
+    except Exception as exc:
+        print(f"  ⚠ تعذّر جلب الرأس من ModelScope ({type(exc).__name__}: {str(exc)[:100]}) — يُجرَّب Kaggle")
+        return False
+
+
+
+def _on_modelscope() -> bool:
+    return (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope"
+
+
+def _ms_owner() -> str:
+    return os.environ.get("SHAM_MS_OWNER") or os.environ.get("MS_OWNER") or "novaai2026"
+
+
+def _ms_token() -> str:
+    return os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or ""
+
+
+def _ms_hub_endpoint() -> str | None:
+    """Back-compat wrapper: the implementation lives in ms_hub.py (shared with the Studio trainer / sham2_donor)."""
+    return ms_hub_endpoint()
+
+
+def _apply_ms_hub_endpoint() -> str | None:
+    return apply_ms_hub_endpoint()
+
+
+def _ms_api():
+    from modelscope.hub.api import HubApi
+    apply_ms_hub_endpoint()
+    api = HubApi()
+    tok = _ms_token()
+    if tok:
+        api.login(tok)
+    return api
+
+
+def ms_model_repos(prefix: str = "sham-crawl-") -> list[str]:
+    """Names (without the owner) of the account's ModelScope MODEL repos that start with `prefix`. The cn trainer Studios publish here because Kaggle uploads from
+    cn fail: the owner's inventory of 2026-11-14 found NO dataset `sham-crawl-ms1` although that trainer had finished a cycle 11% better than its start point.
+    [] when there is no token or the hub does not answer."""
+    if not _ms_token():
+        return []
+    try:
+        api = _ms_api()
+        names: list[str] = []
+        page = 1
+        while page <= 6:
+            res = api.list_models(_ms_owner(), page_number=page, page_size=50, token=_ms_token())
+            rows = (res.get("Models") if isinstance(res, dict) else None) or []
+            if not rows:
+                break
+            for row in rows:
+                n = str(row.get("Name") or row.get("name") or "")
+                if n.startswith(prefix):
+                    names.append(n)
+            if len(rows) < 50:
+                break
+            page += 1
+        return sorted(set(names))
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"  ⚠ تعذّر سرد مستودعات ModelScope ({type(exc).__name__}: {str(exc)[:100]})")
+        return []
+
+
+def _ms_pull(repo: str, dest: Path) -> bool:
+    """Copies every file of the ModelScope model repo `repo` (name without owner) into dest, in the layout the Kaggle dataset has (files at the root)."""
+    try:
+        from modelscope import snapshot_download
+        _ms_api()
+        cache = dest.parent / "ms_cache_src"
+        src = Path(snapshot_download(f"{_ms_owner()}/{repo}", cache_dir=str(cache)))
+        dest.mkdir(parents=True, exist_ok=True)
+        got = 0
+        for f in src.rglob("*"):
+            if f.is_file() and f.name != "configuration.json" and ".git" not in f.parts:
+                target = dest / f.relative_to(src)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+                got += 1
+        shutil.rmtree(cache, ignore_errors=True)
+        print(f"  • {repo}: من ModelScope ({_ms_owner()}/{repo}) — {got} ملفات")
+        return got > 0
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"  ⚠ تعذّر جلب {repo} من ModelScope ({type(exc).__name__}: {str(exc)[:100]})")
+        return False
+
+
+# The hub's own numeric visibility (1 private, 5 public). MEASURED 2026-11-14: on the cn trainer Studio the SDK's `Visibility.PRIVATE` went into the create request as the
+# STRING "private" (request body in the 400 message: "Visibility": "private") and every create was refused with 400; the project's older scripts pass the integer.
+MS_PRIVATE = 1
+
+
+def publish_modelscope(upload_dir: str | Path, name: str, message: str) -> str | None:
+    """Create-or-update the PRIVATE ModelScope model repo `<owner>/<name>` from upload_dir (the same files publish_dataset sends to Kaggle). Returns
+    "modelscope:<owner>/<name>" on success, None on failure (the files stay on the Studio's disk either way)."""
+    if not _ms_token():
+        return None
+    try:
+        import json
+        import tempfile
+
+        api = _ms_api()
+        stage = Path(tempfile.mkdtemp(prefix="ms_push_"))
+        try:
+            for f in Path(upload_dir).iterdir():
+                if f.is_file() and f.name != "dataset-metadata.json":
+                    try:
+                        os.link(f, stage / f.name)                    # no second copy of an 850 MB checkpoint
+                    except OSError:
+                        shutil.copy2(f, stage / f.name)
+            (stage / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
+            model_id = f"{_ms_owner()}/{name}"
+            print(f"ModelScope publish host: {os.environ.get('MODELSCOPE_DOMAIN') or 'sdk-default (cn)'} -> {model_id}", flush=True)
+            # 2026-11-14: from the cn trainer Studio the create call answered "400 Bad Request" (body cut off by the log). The variants below differ in what the hub validates when the repo
+            # is CREATED (license spelling, display name): the scripts that create repos elsewhere in this project use "Apache License 2.0" + a short display name.
+            errors: list[str] = []
+            done = False
+            for variant, (license_name, display) in enumerate((("apache-2.0", name), ("Apache License 2.0", "Sham"))):
+                try:
+                    if variant:
+                        try:
+                            api.create_model(model_id, visibility=MS_PRIVATE, license=license_name, chinese_name=display)
+                        except Exception as exc2:                         # noqa: BLE001 - it may exist already; the push below decides
+                            errors.append(f"create_model: {type(exc2).__name__}: {str(exc2)[:260]}")
+                    api.push_model(model_id=model_id, model_dir=str(stage), visibility=MS_PRIVATE, license=license_name,
+                                   chinese_name=display, commit_message=str(message)[:200])
+                    done = True
+                    break
+                except Exception as exc:                                  # noqa: BLE001
+                    errors.append(f"push_model[{license_name}]: {type(exc).__name__}: {str(exc)[:360]}")
+            if not done:
+                raise RuntimeError(" || ".join(errors))
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        print(f"نُشرت نسخة إلى ModelScope: {model_id} — الدمج يلتقطها تلقائياً.")
+        return f"modelscope:{model_id}"
+    except Exception as exc:                                      # noqa: BLE001
+        print(f"تنبيه: فشل النشر إلى ModelScope ({type(exc).__name__}: {str(exc)[:900]}) — الملفات آمنة على قرص الاستوديو.")
+        return None
 
 
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
@@ -273,11 +471,22 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
     if fresh:
         shutil.rmtree(dest, ignore_errors=True)
     elif dest.exists() and any(dest.iterdir()):
-        if _has(dest, need):
+        if _cache_ok(dest, need, base):
             return dest
-        older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _has(d, need)),
+        older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _cache_ok(d, need, base)),
                        key=lambda d: int(d.name.rsplit("__v", 1)[1]))
-        return older[-1] if older else (None if name != base else dest)
+        if older:
+            return older[-1]
+        if need is not None or base in CACHE_EXPECT:
+            # a stale / half-written copy: never hand it back again (it would fail every cycle); drop it and download afresh below
+            print(f"  ⚠ {base}: النسخة المخزّنة ناقصة (لا {need or CACHE_EXPECT[base]}) — تُحذف ويُعاد التنزيل")
+            shutil.rmtree(dest, ignore_errors=True)
+        else:
+            return None if name != base else dest
+    if base == "sham-merged-checkpoint" and not fresh and (os.environ.get("SHAM_HEAD_SOURCE") or ("modelscope" if Path("/home/studio").exists() else "kaggle")).lower() == "modelscope":
+        if _head_from_modelscope(dest):
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
     user = _ensure_credentials()
     if not user:
         return None
@@ -300,6 +509,12 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
             print(f"  • {base}: التنزيل الكامل فشل فنُزّلت الملفات واحداً واحداً ({got}/{len(names)})")
             _unzip_nested(dest)
             r = subprocess.CompletedProcess(r.args, 0, r.stdout, "")
+    if (r.returncode != 0 or not any(dest.iterdir())) and base.startswith(CRAWL_PREFIX) and not base.endswith("corpus"):
+        shutil.rmtree(dest, ignore_errors=True)
+        if base in ms_model_repos(base) and _ms_pull(base, dest) and _has(dest, need):      # a trainer that publishes to ModelScope instead of Kaggle
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
     if r.returncode != 0 or not any(dest.iterdir()):
         shutil.rmtree(dest, ignore_errors=True)
         msg = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
@@ -493,6 +708,9 @@ def crawl_dataset_names(prefix: str = CRAWL_PREFIX) -> dict:
         if not n.startswith(prefix):
             continue
         (found["corpora"] if n.endswith("corpus") else found["models"]).append(n)
+    for n in ms_model_repos(prefix):                                 # collection outputs published to ModelScope (cn trainers)
+        if n not in found["models"] and not n.endswith("corpus"):
+            found["models"].append(n)
     return found
 
 
@@ -605,7 +823,28 @@ def dataset_exists(slug: str, run=subprocess.run) -> bool:
     return False
 
 
+def _run_limited(cmd: list, limit: float):
+    """One attempt of a command with a wall-clock limit (exit code 124 when it does not finish): used for uploads, which must neither retry for hours nor hang."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        print(f"  ⏱ الرفع لم ينتهِ في {int(limit)} ث: {' '.join(str(c) for c in cmd[:4])}")
+        return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_PUBLISH_TIMEOUT)")
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
+    """Publish a track's output where the merge reads it. On a ModelScope Studio (cn trainers) the PRIVATE ModelScope model repo is tried FIRST (fast from there) and
+    Kaggle second with a time limit: uploads to Kaggle from cn kept failing, so a finished 5-hour cycle never reached the merge (inventory 2026-11-14: no dataset
+    sham-crawl-ms1). Returns the Kaggle slug, else "modelscope:<repo>", else None (the files stay in this session's Output / on the Studio's disk either way).
+    Text corpora (name ends with "corpus") go to Kaggle only."""
+    ms = None
+    if _on_modelscope() and not str(name).endswith("corpus"):
+        ms = publish_modelscope(upload_dir, name, message)
+    slug = _publish_kaggle(upload_dir, name, message)
+    return slug or ms
+
+
+def _publish_kaggle(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
     slug on success, None on failure (the files stay in this session's
@@ -624,11 +863,12 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
     exists = dataset_exists(slug)
     version_cmd = ["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"]
     create_cmd = ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"]
-    r = subprocess.run(version_cmd if exists else create_cmd, capture_output=True, text=True)
+    limit = int(os.environ.get("SHAM_KAGGLE_PUBLISH_TIMEOUT") or 1500)           # an upload that stalls must not hold the cycle's end for hours
+    r = _run_limited(version_cmd if exists else create_cmd, limit)
     out = (r.stdout or "") + (r.stderr or "")
     if not exists and "already in use" in out.lower():
         exists = True
-        r = subprocess.run(version_cmd, capture_output=True, text=True)
+        r = _run_limited(version_cmd, limit)
         out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "error" not in out.lower():
         print(f"{'نُشرت نسخة جديدة إلى' if exists else 'أُنشئت'} {slug} — التشغيل القادم يلتقطها تلقائياً.")

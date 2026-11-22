@@ -1,4 +1,4 @@
-import { boxActionFor, boxDo, cleanBoxArgs, renderBoxReply } from "@/lib/computerBox";
+import { boxActionFor, boxDo, cleanBoxArgs, homePath, renderBoxReply } from "@/lib/computerBox";
 import { COMPUTER_PLAYBOOK, toolGroups } from "@/lib/coderAgent";
 const unb64 = (x: string): string => (x.startsWith("b64:") ? Buffer.from(x.slice(4), "base64").toString("utf8") : x);   // jobs travel as base64 (the gateway filter rejects some plain text)
 
@@ -37,7 +37,7 @@ describe("the model's own persistent computer", () => {
   test("fields are bounded before they reach the Studio", () => {
     const clean = cleanBoxArgs({ action: "run", command: "x".repeat(20000), timeout: 9999, cwd: "src" })!;
     expect(String(clean.command).length).toBe(8000);
-    expect(clean.timeout).toBe(90);
+    expect(clean.timeout).toBe(300);
     expect(cleanBoxArgs({ action: "rm" })).toBeNull();
     expect(cleanBoxArgs({ action: "job_log", id: "abcdefgh", tail: 9999 })).toEqual({ action: "job_log", id: "abcdefgh", tail: 400 });
     expect(cleanBoxArgs({ action: "activity", since: -5, limit: 999 })).toEqual({ action: "activity", since: 0, limit: 40 });
@@ -52,6 +52,21 @@ describe("the model's own persistent computer", () => {
     expect(renderBoxReply("read", { ok: true, kind: "folder", path: ".", entries: ["d src", "f a.txt (3 B)"] })).toContain("d src");
     expect(renderBoxReply("job_log", { ok: true, id: "abcd1234", running: false, exit_code: 0, seconds: 3, output: "done" })).toContain("finished with exit 0");
     expect(renderBoxReply("run", { ok: false, error: "disk full" })).toBe("error: disk full");
+  });
+
+  test("a search that is still running is shown with its job id and what it found so far", () => {
+    const text = renderBoxReply("search", { ok: true, running: true, id: "cd34ef56", matches: "src/a.ts:3:foo", seconds: 15.4, hint: "Read the rest with computer_job action=log id=cd34ef56" });
+    expect(text).toContain("still searching in the background as job cd34ef56");
+    expect(text).toContain("src/a.ts:3:foo");
+    expect(text).toContain("computer_job action=log id=cd34ef56");
+  });
+
+  test("a command still running after the foreground wait is shown as a job to poll, not as exit null", () => {
+    const text = renderBoxReply("run", { ok: true, running: true, id: "ab12cd34", job: "ab12cd34", exit_code: null, seconds: 15.2, cwd: ".", output: "installing…", hint: "Read the rest with computer_job action=log id=ab12cd34" });
+    expect(text).toContain("still running in the background as job ab12cd34");
+    expect(text).toContain("installing…");
+    expect(text).toContain("computer_job action=log id=ab12cd34");
+    expect(text).not.toContain("exit null");
   });
 
   test("the playbook rides with the first result and a repository answer says what to do next", () => {
@@ -92,10 +107,10 @@ describe("the model's own persistent computer", () => {
       if (url.endsWith("/gradio_api/call/box_do")) return new Response(JSON.stringify({ event_id: "e1" }), { status: 200 });
       return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify({ ok: true, exit_code: 0, seconds: 0.1, cwd: ".", output: "hello" })]) + "\n\n", { status: 200 });
     }) as any;
-    const out = await boxDo("lfm25", "42:lfm25", { action: "run", command: "echo hello" }, fetchImpl);
+    const out = await boxDo("coder", "42:coder", { action: "run", command: "echo hello" }, fetchImpl);
     expect(out).toContain("hello");
-    expect(calls[0].url).toContain("nova-inference-server");
-    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:lfm25" });
+    expect(calls[0].url).toContain("sham-trainer-2");
+    expect(JSON.parse(unb64(calls[0].body.data[0]))).toEqual({ action: "run", command: "echo hello", session: "42:coder" });
     // Sham and Sham v2 have NO computer Studio: their computer is inside the model's own loop (owner 2026-11-08), so the app never sends them a command
     const before = calls.length;
     expect(await boxDo("sham_v2", "1:x", { action: "run", command: "ls" }, fetchImpl)).toMatch(/no computer Studio/);
@@ -197,5 +212,47 @@ describe("writing fast: edit in place and publish in one commit", () => {
     const gh = async (_m: string, p: string) => p === "/repos/o/r" ? { status: 200, data: { default_branch: "main" } } : p.includes("/branches/") ? { status: 200, data: { protected: false } } : { status: 404, data: {} };
     const guard = await guardCall(call("computer_publish", { repo: "o/r", branch: "main", message: "m" }), gh as any, "user");
     expect(guard.confirm).toBe(true);
+  });
+});
+
+import { signedTarball as _signedTarball, cleanBoxArgs as _clean } from "@/lib/computerBox";
+describe("private repositories reach the computer as a signed address, never the token", () => {
+  const redirect = (loc: string, status = 302) => (async () => ({ status, headers: { get: (h: string) => (h.toLowerCase() === "location" ? loc : null) } })) as any;
+  it("returns the short-lived codeload address from the redirect", async () => {
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://codeload.github.com/owner/repo/legacy.tar.gz/HEAD?token=ABC"))).toBe("https://codeload.github.com/owner/repo/legacy.tar.gz/HEAD?token=ABC");
+  });
+  it("refuses other hosts, non-redirects and bad repo names", async () => {
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://evil.example/x"))).toBeNull();
+    expect(await _signedTarball("tok", "owner/repo", "", redirect("https://codeload.github.com/x", 200))).toBeNull();
+    expect(await _signedTarball("tok", "../etc", "", redirect("https://codeload.github.com/x"))).toBeNull();
+    expect(await _signedTarball("", "owner/repo", "", redirect("https://codeload.github.com/x"))).toBeNull();
+  });
+  it("only a codeload address passes the argument cleaner", () => {
+    expect(_clean({ action: "repo", url: "https://github.com/o/r", signed_url: "https://codeload.github.com/o/r/x?token=1" })?.signed_url).toBe("https://codeload.github.com/o/r/x?token=1");
+    expect(_clean({ action: "repo", url: "https://github.com/o/r", signed_url: "https://evil.example/x" })?.signed_url).toBeUndefined();
+  });
+});
+
+const FAKE = ["gh", "p_", "abcdefghij".repeat(3)].join("");     // built at run time, never a literal that looks like a key
+describe("the owner's GitHub credentials reach the computer only as a token-shaped value for one call", () => {
+  it("keeps a token-shaped GH_TOKEN and drops anything else", () => {
+    expect(_clean({ action: "run", command: "git clone x", env: { GH_TOKEN: FAKE, PATH: "/evil" } } as any)?.env).toEqual({ GH_TOKEN: FAKE });
+    expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "short" } } as any)?.env).toBeUndefined();
+    expect(_clean({ action: "run", command: "x", env: { GH_TOKEN: "a b; rm -rf /aaaaaaaaaaaaaaaa" } } as any)?.env).toBeUndefined();
+  });
+});
+
+describe("home paths", () => {
+  it("~/ and $HOME/ mean the hub home folder", () => {
+    expect(homePath("~/repos/a-b")).toBe("repos/a-b");
+    expect(homePath("$HOME/repos/a-b")).toBe("repos/a-b");
+    expect(homePath("~")).toBe(".");
+    expect(homePath("repos/a-b")).toBe("repos/a-b");
+    expect(homePath("src/~x")).toBe("src/~x");
+  });
+  it("search, read and run arguments are normalised", () => {
+    expect(cleanBoxArgs({ action: "search", pattern: "x", path: "~/repos/a-b" })).toMatchObject({ path: "repos/a-b" });
+    expect(cleanBoxArgs({ action: "run", command: "ls", cwd: "~/repos/a-b" })).toMatchObject({ cwd: "repos/a-b" });
+    expect(cleanBoxArgs({ action: "changes", repo: "a/b", dir: "~/repos/a-b" })).toMatchObject({ dir: "repos/a-b" });
   });
 });

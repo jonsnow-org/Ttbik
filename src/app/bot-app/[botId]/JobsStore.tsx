@@ -52,11 +52,12 @@ function SearchBox({ value, onChange, onSubmit, placeholder }: { value: string; 
 }
 
 // ---------------------------------------------------------------- 🛒 store
-export function StoreScreen({ tab: initialTab }: { tab?: string }) {
+export function StoreScreen({ tab: initialTab, otab }: { tab?: string; otab?: string }) {
   const { api, push, toast } = useApp();
   const { init } = useInit();
   const trader = init.profile?.roleType === "TRADER";
-  const [tab, setTab] = useState<"sell" | "buy">(initialTab === "buy" ? "buy" : "sell");
+  const [tab, setTab] = useState<"sell" | "buy" | "orders" | "myshop">(initialTab === "buy" || initialTab === "orders" || initialTab === "myshop" ? initialTab : "sell");
+  const browse = tab === "sell" || tab === "buy";
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState<any>({ min: "", max: "", escrow: false, shipping: false, sort: "new" });
   const [showF, setShowF] = useState(false);
@@ -65,6 +66,7 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const qRef = useRef(q); qRef.current = q;
   const load = useCallback(async (offset = 0) => {
+    if (tab !== "sell" && tab !== "buy") return; // «طلباتي» and «متجري» load themselves
     if (offset) setLoadingMore(true); else setItems(null);
     const r = await api<{ items: any[]; more: boolean }>("store_list", { tab, q: qRef.current, offset, filters: tab === "sell" ? filters : undefined });
     setLoadingMore(false);
@@ -76,8 +78,11 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
   const fCount = (filters.min ? 1 : 0) + (filters.max ? 1 : 0) + (filters.escrow ? 1 : 0) + (filters.shipping ? 1 : 0) + (filters.sort !== "new" ? 1 : 0);
   return (
     <>
-      <ScreenTitle icon="🛒" title="المتجر" sub="تصفّح المنتجات وطلبات الشراء، وتفاوض على السعر بأمان." />
-      <div className="mb-3"><Chips items={[{ id: "sell", label: "💰 منتجات للبيع" }, { id: "buy", label: "🛍 طلبات شراء" }]} value={tab} onChange={(v) => setTab(v)} /></div>
+      <ScreenTitle icon="🛒" title="قسم المتجر" sub="تصفّح المنتجات وطلبات الشراء، وتفاوض على السعر بأمان." />
+      <div className="mb-3"><Chips items={[{ id: "sell", label: "🛒 تصفح للبيع" }, { id: "buy", label: "🛍 تصفح للشراء" }, { id: "orders", label: "📂 طلباتي" }, { id: "myshop", label: "🏪 متجري" }]} value={tab} onChange={(v) => setTab(v)} /></div>
+      {tab === "orders" && <OrdersScreen embedded tab={otab} />}
+      {tab === "myshop" && <MyShopScreen embedded />}
+      {browse && (<>
       <SearchBox value={q} onChange={setQ} onSubmit={() => void load(0)} placeholder={tab === "sell" ? "ابحث عن منتج…" : "ابحث في طلبات الشراء…"} />
       {tab === "sell" && (
         <div className="mb-3">
@@ -114,6 +119,7 @@ export function StoreScreen({ tab: initialTab }: { tab?: string }) {
           <Btn kind="soft" onClick={() => push({ name: "wanted_form" })}>🛍 أمر شراء</Btn>
         </div>
       ) : <p className="mt-4 px-1 text-[11.5px] leading-5" style={{ color: "var(--app-hint)" }}>البيع ونشر طلبات الشراء متاحان لملفات «تاجر» فقط. يمكنك التصفح وتقديم العروض بحرية.</p>}
+      </>)}
     </>
   );
 }
@@ -212,7 +218,7 @@ export function ProductScreen({ id }: { id: string }) {
       <h1 className="text-[20px] font-black leading-tight" style={{ color: "var(--app-text)" }}>{l.title}</h1>
       <div className="mt-1 text-[24px] font-black" style={{ color: "var(--app-accent)" }}>{money(l.price)}</div>
       <Section>
-        <Row icon={l.escrow ? "🔒" : "🤝"} title={l.escrow ? "دفع بحجز آمن" : "دفع يدوي مع البائع"} sub={l.escrow ? "يُحجز المبلغ من رصيدك عند الاتفاق، ويصل للبائع بعد تأكيدك الاستلام." : "تتفق مع البائع مباشرة على الدفع والتسليم."} />
+        <Row icon={l.escrow ? "🔒" : "⚠️"} title={l.escrow ? "دفع بحجز آمن" : "يلزم تفعيل الحجز الآمن"} sub={l.escrow ? `يُحجز كامل السعر من رصيد المشتري عند الاتفاق. عمولة المنصة ${d.listing.commissionPercent ?? 5}% تُخصم من مستحق البائع عند إتمام الصفقة؛ صافي البائع ${money(l.price * (1 - (d.listing.commissionPercent ?? 5) / 100))}.` : "هذا منتج قديم غير متاح للشراء حتى يعدّله البائع ويعيد نشره بالحجز الآمن."} />
         <Row icon={l.shipping ? "🚚" : "📍"} title={l.shipping ? "يوجد شحن" : "استلام يدوي من البائع"} />
         <Row icon="🏪" title={d.seller.name} sub={d.seller.place || undefined} onClick={d.seller.shop ? () => push({ name: "shop", params: { slug: d.seller.shop } }) : undefined} right={d.seller.shop ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>المتجر ‹</span> : undefined} />
       </Section>
@@ -264,7 +270,7 @@ export function WantedScreen({ id }: { id: string }) {
       <div className="mb-2"><StatusPill s={w.status} /></div>
       <Section>
         <Row icon="💵" title={w.budget != null ? `الميزانية: ${money(w.budget)}` : "الميزانية: غير محددة"} />
-        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} onClick={d.buyer.contact ? () => open(d.buyer.contact) : undefined} right={d.buyer.contact ? <span className="text-xs font-bold" style={{ color: "var(--app-accent)" }}>تواصل ‹</span> : undefined} />}
+        {!w.mine && <Row icon="👤" title={d.buyer.name} sub={d.buyer.place || undefined} />}
       </Section>
       {w.description && <Section title="التفاصيل"><p className="whitespace-pre-wrap px-4 py-3 text-[14px] leading-6" style={{ color: "var(--app-text)" }}>{w.description}</p></Section>}
       {w.mine ? (w.status === "ACTIVE" || w.status === "PAUSED") && (
@@ -309,9 +315,9 @@ export function useUpload() {
 
 export function ListingForm({ id }: { id?: string }) {
   const { api, toast, back, replace, setDirty } = useApp();
-  const { reload } = useInit();
+  const { reload, init } = useInit();
   const upload = useUpload();
-  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "", paymentMethod: "" });
+  const [f, setF] = useState<any>(id ? null : { title: "", description: "", price: "", photoFileIds: [], deliveryMethod: "", paymentMethod: "ESCROW" });
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -322,7 +328,7 @@ export function ListingForm({ id }: { id?: string }) {
     void api("listing_get", { id }).then((r: any) => {
       if (!r.ok || !r.listing.mine) { toast(r.error || "غير مسموح.", "err"); back(); return; }
       const l = r.listing;
-      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL", paymentMethod: l.escrow ? "ESCROW" : "MANUAL" });
+      setF({ title: l.title, description: l.description, price: String(l.price), photoFileIds: l.photos, deliveryMethod: l.shipping ? "SHIPPING" : "PICKUP_MANUAL", paymentMethod: "ESCROW" });
     });
   }, [api, id, toast, back]);
   if (!f) return <Loading lines={5} />;
@@ -379,8 +385,8 @@ export function ListingForm({ id }: { id?: string }) {
       <Section title="طريقة التسليم">
         <div className="p-3"><Chips items={[{ id: "PICKUP_MANUAL", label: "📍 استلام يدوي" }, { id: "SHIPPING", label: "🚚 يوجد شحن" }]} value={f.deliveryMethod} onChange={(v) => set("deliveryMethod", v)} /></div>
       </Section>
-      <Section title="طريقة الدفع" hint="🔒 الحجز الآمن: يُحجز المبلغ من رصيد المشتري ويصلك بعد تأكيده الاستلام (أو تلقائياً بعد 7 أيام بلا نزاع). 🤝 اليدوي: تتفق مع المشتري مباشرة.">
-        <div className="p-3"><Chips items={[{ id: "ESCROW", label: "🔒 حجز آمن" }, { id: "MANUAL", label: "🤝 يدوي" }]} value={f.paymentMethod} onChange={(v) => set("paymentMethod", v)} /></div>
+      <Section title="الحجز الآمن والعمولة" hint={`الحجز الآمن إلزامي لحماية الطرفين. يُحجز كامل السعر حتى تأكيد الاستلام أو انقضاء 7 أيام دون نزاع. عمولة المنصة ${init.commissionPercent}% من البائع فقط؛ تقدير صافي البائع عند بيع هذا المنتج ${money((Number(f.price) || 0) * (1 - init.commissionPercent / 100))}.`}>
+        <Row icon="🔒" title="الحجز الآمن مفعّل تلقائياً" sub={`لا نكشف بيانات التواصل قبل إتمام الحجز. عمولة ${init.commissionPercent}% تُحتسب عند تحرير المبلغ.`} />
       </Section>
       {err && <p className="mb-2 px-1 text-sm font-bold" style={{ color: "var(--app-danger)" }}>{err}</p>}
       <MainAction text={id ? "💾 حفظ التعديلات" : "📢 نشر المنتج"} onClick={save} busy={busy} disabled={uploading > 0} />
@@ -477,7 +483,7 @@ export function ShopScreen({ slug }: { slug: string }) {
   );
 }
 
-export function MyShopScreen() {
+export function MyShopScreen({ embedded }: { embedded?: boolean } = {}) {
   const { api, push, toast } = useApp();
   const { init } = useInit();
   const [s, setS] = useState<any>(null);
@@ -494,7 +500,7 @@ export function MyShopScreen() {
   const trader = init.profile?.roleType === "TRADER";
   return (
     <>
-      <ScreenTitle icon="🏪" title="متجري" sub="متجرك يجمع كل منتجاتك النشطة في رابط واحد تشاركه في أي مكان." />
+      {!embedded && <ScreenTitle icon="🏪" title="متجري" sub="متجرك يجمع كل منتجاتك النشطة في رابط واحد تشاركه في أي مكان." />}
       {!trader ? (
         <Empty icon="🛒" title="المتجر متاح لملفات «تاجر»" sub="غيّر نوع ملفك إلى «تاجر» لتفتح متجرك وتبيع منتجاتك." action={<Btn onClick={() => push({ name: "profile_edit" })}>✏️ تعديل الملف</Btn>} />
       ) : s.slug ? (
@@ -529,7 +535,7 @@ export function MyShopScreen() {
 }
 
 // ---------------------------------------------------------------- 📂 my orders: offers, purchases, sales
-export function OrdersScreen({ tab: initialTab }: { tab?: string }) {
+export function OrdersScreen({ tab: initialTab, embedded }: { tab?: string; embedded?: boolean }) {
   const { api, toast } = useApp();
   const [tab, setTab] = useState<"offers" | "buy" | "sell">(initialTab === "buy" || initialTab === "sell" ? initialTab : "offers");
   const [offers, setOffers] = useState<any[] | null>(null);
@@ -544,7 +550,7 @@ export function OrdersScreen({ tab: initialTab }: { tab?: string }) {
   const turn = offers?.filter((o) => o.myTurn).length || 0;
   return (
     <>
-      <ScreenTitle icon="📂" title="طلباتي" sub="عروض الأسعار، مشترياتك ومبيعاتك وحالة كل طلب." />
+      {!embedded && <ScreenTitle icon="📂" title="طلباتي" sub="عروض الأسعار، مشترياتك ومبيعاتك وحالة كل طلب." />}
       <div className="mb-3"><Chips items={[{ id: "offers", label: `💬 العروض${turn ? ` (${turn})` : ""}` }, { id: "buy", label: "🛍 مشترياتي" }, { id: "sell", label: "💰 مبيعاتي" }]} value={tab} onChange={setTab} /></div>
       {offers === null || orders === null ? <Loading lines={4} /> : tab === "offers" ? <OffersList offers={offers} reload={load} /> : <OrdersList orders={orders.filter((o) => o.role === (tab === "buy" ? "buyer" : "seller"))} buyer={tab === "buy"} reload={load} />}
     </>
@@ -675,6 +681,7 @@ function OrderCard({ o, reload }: { o: any; reload: () => Promise<void> }) {
           <b className="block truncate text-[14px]" style={{ color: "var(--app-text)" }}>{o.title}</b>
           <span className="block text-xs" style={{ color: "var(--app-hint)" }}>#{o.short} · {ago(o.at)}{o.shipping ? " · 🚚 شحن" : " · 📍 استلام"}</span>
           <span className="block text-[14px] font-black" style={{ color: "var(--app-accent)" }}>{money(o.amount)}</span>
+          <span className="block text-[10.5px]" style={{ color: "var(--app-hint)" }}>{o.status === "REFUNDED" ? `المبلغ المسترد للمشتري ${money(o.amount)}` : `عمولة المنصة ${money(o.platformFee)} · صافي البائع ${money(o.sellerNet)}`}</span>
         </div>
         <StatusPill s={o.status} />
       </div>

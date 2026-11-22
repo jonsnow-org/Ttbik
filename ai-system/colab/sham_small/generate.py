@@ -45,6 +45,8 @@ from model import (
     vocab_id_to_image_token_id,
 )
 
+_NAN_REPORTED = False
+
 
 def _sample_from_logits(
     logits: torch.Tensor,
@@ -59,6 +61,7 @@ def _sample_from_logits(
     outside [lo, hi) to -inf first — how generate_image()/
     generate_audio() keep sampling inside their own codebook's range
     without touching the model's weights or training."""
+    original = logits
     if allowed_range is not None:
         lo, hi = allowed_range
         mask = torch.full_like(logits, float("-inf"))
@@ -83,6 +86,25 @@ def _sample_from_logits(
         logits = torch.full_like(logits, float("-inf")).scatter(-1, sorted_indices, sorted_logits)
 
     probs = F.softmax(logits, dim=-1)
+    if not bool(torch.isfinite(probs).all()) or bool((probs.sum(dim=-1) <= 0).any()):
+        # Live 2026-11-16: the v1 Studio failed every reply with "probability tensor contains either inf, nan or element < 0".
+        # Say what the logits looked like once, then take the best finite token instead of failing the whole answer.
+        global _NAN_REPORTED
+        if not _NAN_REPORTED:
+            _NAN_REPORTED = True
+            raw = original
+            print("sample: non-finite probabilities (logits: nan=%d +inf=%d -inf=%d of %d, finite max=%s; at the softmax: finite=%d of %d, temperature=%s top_k=%s top_p=%s range=%s)" % (
+                int(torch.isnan(raw).sum()), int((raw == float("inf")).sum()), int((raw == float("-inf")).sum()), raw.numel(),
+                (float(raw[torch.isfinite(raw)].max()) if bool(torch.isfinite(raw).any()) else "none"),
+                int(torch.isfinite(logits).sum()), logits.numel(), temperature, top_k, top_p, allowed_range), flush=True)
+        safe = torch.nan_to_num(original, nan=float("-inf"), posinf=1e4, neginf=float("-inf"))
+        if allowed_range is not None:      # the fallback must stay inside the allowed ids (text / image / audio spans)
+            fence = torch.full_like(safe, float("-inf"))
+            fence[:, allowed_range[0]:allowed_range[1]] = 0.0
+            safe = safe + fence
+        if not bool(torch.isfinite(safe).any()):
+            safe = torch.zeros_like(safe)
+        return safe.argmax(dim=-1, keepdim=True)
     return torch.multinomial(probs, num_samples=1)
 
 

@@ -3,10 +3,11 @@
 // The ONLY guardrail (owner's order, 2026-10-21): an explicit confirmation button before ANY delete, and before any push / merge into a
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
-import { AGENT_SKILL_NAMES, agentSkillText } from "@/lib/agentSkills";
+import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
+import { NOVA_SKILL_NAMES, novaSkillText } from "@/lib/skillsNova";
 import { historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
-import { coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
+import { agentsAllowedFor, coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 
@@ -18,7 +19,7 @@ const s = (description: string) => ({ type: "string", description });
 const n = (description: string) => ({ type: "number", description });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): CoderTool => ({ type: "function", function: { name, description, parameters } });
 const REPO = s("owner/name, e.g. jonsnow-org/Ttbik");
-const delegateAvailable = (): boolean => agentsEnabled() && maxParallelAgentsForStudios(coderStudioUrls().length) > 0;
+const delegateAvailable = (): boolean => agentsEnabled() && agentsAllowedFor() && maxParallelAgentsForStudios(coderStudioUrls().length) > 0;
 
 export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_whoami", "Who the GitHub token belongs to.", obj({})),
@@ -84,9 +85,9 @@ export const BROWSER_TOOL_DEFS: CoderTool[] = [
 
 /** The shared computer hub graphical desktop: one private X11 session at a time; screenshots return to the selected model. */
 export const DESKTOP_TOOL_DEFS: CoderTool[] = [
-  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use status or frame to inspect the screen; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
+  tool("desktop", "Operate the graphical Linux desktop in the private computer hub. Your user+model session is isolated from other sessions. Start a display with action=start; use state to read the screen as text (the visible windows, the focused one, the pointer) or frame for the picture; after launch/click/key the reply already carries the window list; launch browser, terminal or files; click/move by pixel coordinates; type text; press a key; scroll; stop when finished. After each action inspect the returned screenshot before assuming it worked.",
     obj({
-      action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "move", "type", "key", "scroll"] },
+      action: { type: "string", enum: ["start", "status", "frame", "state", "stop", "launch", "click", "move", "type", "key", "scroll"] },
       app: { type: "string", enum: ["browser", "terminal", "files"] },
       url: s("URL to open when launching the browser"),
       x: n("horizontal pixel coordinate from the latest screenshot"),
@@ -97,6 +98,8 @@ export const DESKTOP_TOOL_DEFS: CoderTool[] = [
       direction: { type: "string", enum: ["up", "down"] },
       amount: n("scroll amount, 1-8"),
     }, ["action"])),
+  // the user takes over this model's own screen for a step only they should do (their sign-in, a code, a captcha); the task waits for "Done"
+  tool(HANDOFF_TOOL_NAME, HANDOFF_TOOL_DESCRIPTION, obj({ kind: { type: "string", enum: [...HANDOFF_KINDS] }, reason: s("one short line: what the user should do on the screen, in the user's language") }, ["kind", "reason"])),
 ];
 
 /** Persistent Linux computer tools on the shared 16 GB hub; every user+model session has its own unprivileged home and job scope. */
@@ -104,7 +107,7 @@ export const DESKTOP_TOOL_DEFS: CoderTool[] = [
 export const COMPUTER_PLAYBOOK = [
   "How to work fast on your computer:",
   "- start with computer_read \".\" and ~/NOTES.md (files and notes from earlier chats are still there; keep NOTES.md updated);",
-  "- to read a public GitHub repository use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
+  "- to read a GitHub repository (public or the owner's private one) use ONE computer_repo call, then computer_search / computer_read, not dozens of GitHub API calls;",
   "- anything over ~60 s (install, build, tests, download, server) goes to computer_job; do other work, then read its log;",
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
@@ -130,7 +133,7 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
     obj({ steps: { type: "array", items: obj({ tool: s("computer_* tool name"), continue_on_error: { type: "boolean" } }, ["tool"]) } }, ["steps"])),
   tool("computer_publish", "Send ALL your changes in a computer_repo checkout to GitHub in ONE commit on `branch` (no content to re-send; links, binaries and huge files are skipped and reported). Then open the pull request with github_create_pr.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
-  tool("computer_repo", "Get a PUBLIC GitHub repository onto YOUR computer in ONE call (shallow clone into ~/repos), with a summary. Then use computer_search. Far faster than many GitHub API calls.",
+  tool("computer_repo", "Get a GitHub repository onto YOUR computer in ONE call (into ~/repos), with a summary: public ones, and the owner's PRIVATE ones that the connected GitHub account can read. Then use computer_search / computer_read. Far faster than many GitHub API calls.",
     obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
   tool("computer_search", "Search text in files on YOUR computer (ripgrep): matching lines with file:line. path = folder or file, glob like *.ts.",
     obj({ pattern: s("text or regex"), path: s("folder, default ."), glob: s("file filter, optional") }, ["pattern"])),
@@ -149,7 +152,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("send_file", "Send a file you made in the VM to the user in the chat (a report, a document, an archive, an image). Check that it exists and is what they asked for first. Workers can send files too.", obj({ path: s("path of the file in the VM"), caption: s("short caption, optional"), cwd: s("base dir") }, ["path"])),
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
-  tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
+  tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Options must come from tool results; never invent example names. Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
   // the secret box (src/lib/secretVault.ts): the user types a password / token into a masked field of the app (never into the chat); the model only ever sees the NAME and writes {{secret:name}} in tool arguments
   tool("request_secret", "Ask the user for a password, token, API key or login in a secure box that is shown in the app (NEVER ask for these in the chat and never repeat one). Give a short name (letters, digits, - and _) and say what it is for. The answer is only 'stored'; afterwards write {{secret:name}} wherever the value belongs in a tool argument (a typed password, a command, an HTTP header) and the system fills it in. If the user cannot use the box, tell them to type it themselves on the computer screen (take over).", obj({ name: s("short secret name, e.g. github_password"), purpose: s("what it is for, in the user's language") }, ["name", "purpose"])),
   // scheduled tasks (src/lib/coderSchedules.ts): the user asks in plain words, the model creates the schedule itself; the dispatcher runs it
@@ -163,7 +166,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   tool("recall", "Look up something you ALREADY READ in this task (a file, a scan, CI logs, a page, search results): everything you read is kept even after the conversation moved on. Use it instead of reading the same file again.", obj({ query: s("what to look for: names, words from the text"), count: n("pieces to return, default 3, max 5") }, ["query"])),
   tool("plan", "Write or UPDATE the TODO list, only for work that changes or builds something in 3+ steps (never for reading, explaining or answering). At most 5 items of at most 6 words; update only when the plan changes.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("knowledge_search", "Search the shared knowledge bank the crawlers filled (books, papers, answers, code, discussions; each passage with its source). Use it BEFORE searching the web for a fact or an explanation, and cite the source.", obj({ query: s("the question or keywords"), count: n("passages, default 4") }, ["query"])),
-  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: AGENT_SKILL_NAMES } }, ["name"])),
+  tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: NOVA_SKILL_NAMES } }, ["name"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
@@ -179,7 +182,7 @@ export const CONNECTOR_TOOLS: CoderTool[] = [
 ];
 
 export const ASK_USER_TOOL: CoderTool = COMMON_TOOLS.find((t) => t.function.name === "ask_user")!;
-export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand independent jobs to agents in parallel only when they are genuinely separable. The runner caps the number to available Nova Studios and disables delegation with one Studio. Each returns a short report. role worker = full tools and user permission checks; reader = read-only (default); tester (max 1) = runs tests in its own VM. A worker may start at most one read-only helper at a time. Each task must be a complete standalone instruction.",
+export const DELEGATE_TOOL: CoderTool = tool("delegate", "Hand genuinely independent jobs to agents on THIS model's own Studio pool; the runner enforces its capacity and never borrows another model's Studios. Nova 2 may run one child serially on its single dedicated Studio. Each returns a short report. role worker = full tools and user permission checks; reader = read-only (default); tester (max 1) = runs tests in its own VM. A worker may start at most one read-only helper at a time. Each task must be a complete standalone instruction.",
   obj({ tasks: { type: "array", items: obj({ title: s("3-6 words"), task: s("full instruction: repo, paths, what to report"), role: { type: "string", enum: ["reader", "worker", "tester"] }, helper: { type: "string", enum: HELPER_IDS }, arg: s("helper job argument") }, []) } }, ["tasks"]));
 /** The tools of a sub-agent run: the read-only subset (see coderAgents.ts AGENT_TOOL_NAMES). */
 export function agentToolDefs(github: boolean, role: AgentRole = "reader"): CoderTool[] {
@@ -316,7 +319,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "1. PLAN: only for work that CHANGES or BUILDS something in 3+ steps, write the plan with the plan tool (at most 5 items of at most 6 words) and update it only when it really changes. For reading, explaining, searching and answering questions do NOT plan: just do it. You write about 5 words a second, so every word you write costs time: be brief in plans, tool arguments and answers, and match the requested length (a \"short paragraph\" is at most 4 sentences).",
     "2. ACT: use the tools one step at a time. Read the relevant files before changing them; never guess file contents or APIs.",
     "READING RULE: never describe a file, folder or project from its name. When asked what files contain or do, read them first (github_read_files takes up to 4 files in one call; github_repo_scan gives a repository's lay in one call) and say only what you read. Answer EVERY part of the request in the form and length asked (\"five lines\" = five lines, \"each file\" = one line per file); before you finish, check each part was answered, and say plainly what you could not check.",
-    "ASK FIRST: if the request does not name what to work on (which repository, project, file, site or document), or only asks \"can you ...?\", do NOT search, clone or pick something yourself: say in one or two sentences what you can do and ask ONE question with ask_user (which repository? which file?). Never report on work done on something the user did not name as if it were theirs.",
+    "ASK FIRST: if the request does not name what to work on (which repository, project, file, site or document), or only asks \"can you ...?\", do NOT search, clone or pick something yourself: say in one or two sentences what you can do and ask ONE question with ask_user (which repository? which file?). Never report on work done on something the user did not name as if it were theirs. ACCOUNT RULE: when the user says \"my repository / my GitHub / my bot\" without naming it, FIRST call github_list_repos (their connected account) or github_search_repos, and look for the name they gave; ask only if that finds nothing or several fit, and then offer ONLY names those tools returned. NEVER invent repository names or example options. If GitHub is not connected, say exactly that.",
     "3. VERIFY: after a change, re-read what you wrote and check CI with github_ci_status (or start a workflow). If something fails, read the error, fix it, verify again.",
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "SCOPE RULE: when the user names a project (\"Nova project\", \"مشروع نوفا\", a folder or a file), read ONLY that part: Nova's project is the ai-system/ folder (backend, Studios) plus the src/lib files named coder*, nova* and openCoder*. Use github_repo_scan with a path or search for it; never scan or read the whole repository for a named project. If you cannot tell which folder is meant, ask ONE question with ask_user.",
@@ -656,6 +659,7 @@ export type ToolCtx = {
   gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
   userId?: number | string; memoryChatId?: number | string; modelId?: string; db?: import("@/lib/coderAuth").Db;           // account/model computer namespace, memory and plan metering
   tier?: "owner" | "user";
+  goal?: string;                                                             // the run's own request (owner tier: used to find the project he means)
   memory?: { remember: boolean; recall: boolean };                         // the user's own memory switches for this model (undefined = both on)
   botId?: string; tz?: string;                                               // scheduling: which bot answers the scheduled run, and the user's zone
 };
@@ -664,6 +668,8 @@ export type ToolCtx = {
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const key = ctx.userId === undefined || ctx.userId === null ? "" : String(ctx.userId);   // the chat id: the same key the app uses when the user fills the box
   const raw = call.function?.arguments;
+  // Nova 2 has no private secret vault yet. Never resolve Nova 1's {{secret:name}} values inside N2 tools.
+  if (ctx.modelId === "nova2" && typeof raw === "string" && /secret:/i.test(raw)) return "error: Nova 2's independent secret vault is not provisioned; Nova's stored credentials are not visible here.";
   if (!key || typeof raw !== "string" || !raw.includes("secret:")) return runToolInner(call, ctx);
   const V = await import("@/lib/secretVault");
   let resolved: CoderToolCall;
@@ -678,6 +684,10 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
 async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
   const name = call.function.name;
+  // These actions target account-wide Nova stores until Nova 2 has model-native stores and a computer.
+  if (ctx.modelId === "nova2" && name === "request_secret") return "error: Nova 2's own secret vault is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name === HANDOFF_TOOL_NAME) return "error: Nova 2's own computer screen is not provisioned yet.";
+  if (ctx.modelId === "nova2" && name.startsWith("schedule_")) return "error: Nova 2's own scheduler is not provisioned; Nova's schedules are not shared.";
   try {
     if (name === "load_tools") {
       const want = loadArgs(call);
@@ -692,7 +702,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       const out = await bankSection(String(a.query || ""), Number(a.count) || 4);
       return out ? `From the shared knowledge bank (cite the source):\n${out}` : "the shared knowledge bank has nothing on this (or is not reachable): use web_search / deep_research";
     }
-    if (name === "skill") return agentSkillText(String(a.name || ""));
+    if (name === "skill") return novaSkillText(String(a.name || ""));
     if (name === "plan") {
       const text = renderPlan(a.items);
       if (!text) return "error: items must be a non-empty list of { step, status }";
@@ -754,6 +764,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
     if (name === "view_image" || name === "view_video" || name === "make_media") return "error: this tool works in the main chat or in a worker only (it needs the chat to show or send the result).";
     if (name === "send_file") return "error: send_file is not available to this agent role (a reader or tester only reports). Put the result in your report instead.";
     if (name === "connector_api" || name === "mcp_list_tools" || name === "mcp_call") {
+      if (ctx.modelId === "nova2") return "error: Nova 2 has its own connector boundary; Nova's linked OAuth accounts and MCP servers are not available to it.";
       if (ctx.userId === undefined) return "error: connectors are not available here";
       const c = await import("@/lib/coderConnectors");
       if (name === "connector_api") return clip(await c.connectorApi(ctx.userId, a, ctx.db, ctx.fetchImpl));
@@ -790,9 +801,22 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       const { boxDo, boxActionFor } = await import("@/lib/computerBox");
       const mapped = boxActionFor(name, a as Record<string, unknown>);
+      if (mapped && ctx.tier === "owner" && ctx.githubToken) mapped.env = { GH_TOKEN: ctx.githubToken };      // owner order 2026-11-14: full control, git and the GitHub API work from the shell (the hub hides the value in everything it prints)
+      if (name === "computer_repo" && mapped && ctx.githubToken) {       // the owner's own (private) repositories: a signed download address, never the token
+        const m = /github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(a.url || ""));
+        if (m) { const { signedTarball } = await import("@/lib/computerBox"); const u = await signedTarball(ctx.githubToken, `${m[1]}/${m[2]}`, String(a.ref || ""), ctx.fetchImpl); if (u) mapped.signed_url = u; }
+      }
       if (!mapped) return name === "computer_batch" ? "error: every batch step needs a valid computer_* tool and its arguments" : "error: computer_job action must be start, log, stop or list";
       // one private computer namespace per user AND model on the shared 16 GB computer hub
-      return boxDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, mapped, ctx.fetchImpl);
+      const ns = `${ctx.userId}:${ctx.modelId}`;
+      const res = await boxDo(ctx.modelId, ns, mapped, ctx.fetchImpl);
+      if (name === "computer_repo" && ctx.tier === "owner" && typeof res === "string" && /repository ready in/.test(res)) { const cf2 = await import("@/lib/coderComputerFirst"); cf2.markRepoOnComputer(ctx.runId); }
+      if (name === "computer_repo" && ctx.tier === "owner" && ctx.goal && typeof res === "string") {      // which project does the owner mean? the docs are searched for his own words (coderGoalHints.ts)
+        const { docsHintsAfterRepo } = await import("@/lib/coderGoalHints");
+        const extra = await docsHintsAfterRepo(res, ctx.goal, async (sa) => { const m2 = boxActionFor("computer_search", sa); return m2 ? String(await boxDo(ctx.modelId!, ns, m2, ctx.fetchImpl)) : ""; });
+        if (extra) return res + extra;
+      }
+      return res;
     }
     if (name === "desktop") {
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the graphical desktop";
@@ -823,6 +847,11 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       });
       if (meter) await meter(Math.ceil((Date.now() - t0) / 1000));
       if (sbx !== null) return sbx;
+    }
+    {   // owner order: repository work runs on the computer (coderComputerFirst.ts); the first GitHub read calls of a run are redirected to computer_repo
+      const cf = await import("@/lib/coderComputerFirst");
+      const redirect = cf.computerFirstRedirect(name, a as Record<string, unknown>, ctx.tier, ctx.runId, ctx.userId !== undefined && !!ctx.modelId);
+      if (redirect) return redirect;
     }
     const gh = ctx.gh;
     if (!gh) return "error: GitHub is not connected in this chat";
@@ -1153,7 +1182,7 @@ load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "ط
 
 // ---------------------------------------------------------------- research fast path
 const RESEARCH_RX = /(ابحث|بحث عن|تقصّ|قارن|اعثر|ما هي أفضل|research|search for|look up|investigate|compare|find (?:me )?(?:projects|tools|libraries|examples))/i;
-const ACT_RX = /(اكتب (?:لي )?(?:كود|دالة|برنامج|سكربت)|عدّل|عدل |صحّح|صحح |أصلح|اصلح|ادفع|انشر|احذف|أنشئ (?:فرع|ملف|مستودع)|commit|push|merge|deploy|fix |refactor|implement|اختبر|شغّل|شغل |نفّذ|نفذ |جدول|schedule|every (?:day|hour|morning)|كل (?:يوم|ساعة|صباح)|مستودعي|مستودعاتي|my repo|github\.com\/[\w-]+\/[\w.-]+|(?:^|\s)[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]+(?=[\s:,.؟?]|$))/i;
+const ACT_RX = /(اكتب (?:لي )?(?:كود|دالة|برنامج|سكربت)|عدّل|عدل |صحّح|صحح |أصلح|اصلح|ادفع|انشر|احذف|أنشئ (?:فرع|ملف|مستودع)|commit|push|merge|deploy|fix |refactor|implement|اختبر|شغّل|شغل |نفّذ|نفذ |جدول|schedule|every (?:day|hour|morning)|كل (?:يوم|ساعة|صباح)|مستودعي|مستودعاتي|المستودع الخاص بي|مستودع(?:ي| الخاص)|حسابي على|تطوير|طوّر|طور |ادمج|دمج |my (?:private )?repo|github\.com\/[\w-]+\/[\w.-]+|(?:^|\s)[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]+(?=[\s:,.؟?]|$))/i;
 /** The question to hand to deep_research when a message is a plain "go and find out" request (no writing, no scheduling, not about the user's own repo), else "". */
 export function researchQuestion(goal: string): string {
   const t = String(goal || "").trim();

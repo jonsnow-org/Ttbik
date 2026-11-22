@@ -1,0 +1,30 @@
+name: Computer publish live check (computer_repo -> edit -> computer_publish -> PR, throw-away branch)
+# Drives the production tool code (runTool) against the REAL computer hub: gets the repository, writes a file in the checkout, publishes it in ONE commit to a throw-away
+# branch, opens a pull request, then closes the PR and deletes the branch. Manual only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts && (cd athar && npm ci --no-audit --no-fund)
+      - name: Generate the Prisma client (types only, no database)
+        run: npx prisma generate
+      - name: Run the live publish check
+        env:
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          GH_PUSH_TOKEN: ${{ github.token }}
+          PUBLISH_REPO: ${{ github.repository }}
+        run: |
+          cd athar
+          set -o pipefail
+          npx jest --config ../jest.media.config.js --rootDir .. --testMatch '<rootDir>/src/lib/__tests__/live/computerPublish.live.ts' 2>&1 | grep -v "^\s*at " | cut -c1-500 | head -80

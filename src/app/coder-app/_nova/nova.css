@@ -77,7 +77,7 @@
 .n-h[lang="ar"] h2 { font-family: var(--n-font-display); font-size: 23px; }
 .n-link { padding: 0; color: var(--n-primary); font-weight: 600; font-size: 15px; }
 .n-row { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 62px; padding: 10px 18px; text-align: start; color: var(--n-ink); transition: background-color .15s; }
-button.n-row:active, .n-row.n-tap:active { background: var(--n-surface-2); }
+button.n-row:active { background: var(--n-surface-2); }
 .n-row + .n-row { border-top: 1px solid transparent; }
 .n-ico { flex: 0 0 auto; width: 30px; font-size: 24px; line-height: 1; text-align: center; }
 .n-body { flex: 1 1 auto; min-width: 0; }
@@ -86,7 +86,6 @@ button.n-row:active, .n-row.n-tap:active { background: var(--n-surface-2); }
 .n-val { flex: 0 0 auto; max-width: 45%; color: var(--n-ink-soft); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n-chev { flex: 0 0 auto; color: var(--n-ink-soft); opacity: .8; }
 .nova[dir="rtl"] .n-chev { transform: scaleX(-1); }
-.n-new { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--n-accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .n-cat { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--n-primary-soft); color: var(--n-primary-ink); font-size: 11.5px; font-weight: 600; }
 .n-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--n-surface-2); color: var(--n-ink-muted); font-size: 12px; font-weight: 600; }
 .n-chip.n-on { background: var(--n-primary-soft); color: var(--n-primary-ink); }
@@ -108,7 +107,6 @@ button.n-row:active, .n-row.n-tap:active { background: var(--n-surface-2); }
 .n-plus { flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--n-surface-2); color: var(--n-ink); font-size: 20px; font-weight: 500; }
 .n-plus.n-ok { background: var(--n-primary-soft); color: var(--n-primary); font-size: 16px; }
 .n-fab { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--n-primary); color: var(--n-on-primary) !important; font-size: 24px; box-shadow: 0 6px 16px rgba(13,148,136,.35); }
-.n-tile { flex: 0 0 auto; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #fff; }
 
 /* ------------------------------------------------------------------ page header for tabs / sub-pages */
 .n-page { padding: calc(14px + var(--safe-top, 0px)) 16px 4px; }

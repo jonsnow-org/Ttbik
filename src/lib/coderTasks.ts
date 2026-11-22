@@ -6,10 +6,10 @@ import { coderChatKey, decryptToken, encryptToken, prismaDb, type Db } from "@/l
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event" | "agent";
-export type TaskModelFilter = "coder" | "sham" | "sham_v2" | "all";
+export type TaskModelFilter = "coder" | "nova2" | "sham" | "sham_v2" | "all";
 /** Every accepted `?model=` value for the terminal and the live feed. Both routes must use this one list:
  * a model missing from a route's allowlist is a silent 400 that no test would catch otherwise. */
-export const TASK_MODEL_FILTERS: readonly string[] = ["all", "coder", "sham", "sham_v2"];
+export const TASK_MODEL_FILTERS: readonly string[] = ["all", "coder", "nova2", "sham", "sham_v2"];
 export const isTaskModelFilter = (value: unknown): value is TaskModelFilter => typeof value === "string" && TASK_MODEL_FILTERS.includes(value);
 export const shamTaskSlot = (variant: "v1" | "v2"): string => variant === "v2" ? "sham_v2" : "sham_v1";
 function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column = "slot"): void {
@@ -286,18 +286,24 @@ export async function stopTaskRow(chatId: number | string, runId: string, db: Db
   } catch { return false; }
 }
 
-/** The newest "the model shows you its screen" offer of this chat in the last few minutes ({id, model}); the Mini App opens the screen by itself when a new one appears. */
-export async function latestScreenOffer(chatId: number | string, db: Db = prismaDb): Promise<{ id: number; model: string } | null> {
+/** The newest "the model shows you its screen" offer of this chat ({id, model, handoff?}); the Mini App opens the screen by itself when a new one appears.
+ *  A Sham "show" lasts 5 minutes; a handoff (any model asked the user to take over its computer: computer_handoff) lasts HANDOFF_OFFER_MINUTES. */
+export async function latestScreenOffer(chatId: number | string, db: Db = prismaDb): Promise<{ id: number; model: string; handoff?: { kind: string; reason: string }; runId?: string; slot?: string; resume?: "run" | "chat" } | null> {
   try {
     await ensureTaskTables(db);
-    const rows = await db.query<{ id: number; text: string }>(
-      `SELECT e.id::int AS id, e.text FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.kind = 'screen' AND e.text LIKE '%"model":"sham%' AND t.chat_key = $1 AND e.created_at > now() - interval '5 minutes' ORDER BY e.id DESC LIMIT 1`,
+    const { HANDOFF_OFFER_MINUTES, parseScreenEvent } = await import("@/lib/computerHandoff");
+    const rows = await db.query<{ id: number; text: string; run_id: string }>(
+      `SELECT e.id::int AS id, e.text, e.run_id FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.kind = 'screen' AND t.chat_key = $1
+         AND ((e.text LIKE '%"model":"sham%' AND e.created_at > now() - interval '5 minutes') OR (e.text LIKE '%"handoff":%' AND e.created_at > now() - interval '${Math.trunc(HANDOFF_OFFER_MINUTES)} minutes'))
+       ORDER BY e.id DESC LIMIT 1`,
       coderChatKey(chatId),
     );
     const row = rows[0];
     if (!row) return null;
-    const model = String((JSON.parse(row.text) as { model?: string }).model || "");
-    return /^(sham|sham_v2)$/.test(model) ? { id: row.id, model } : null;
+    const ev = parseScreenEvent(row.text);
+    if (!ev) return null;
+    if (ev.handoff) return { id: row.id, model: ev.model, handoff: ev.handoff, resume: ev.resume, ...(ev.resume === "run" ? { runId: row.run_id, slot: ev.slot || "" } : {}) };
+    return /^(sham|sham_v2)$/.test(ev.model) ? { id: row.id, model: ev.model } : null;
   } catch {
     return null;
   }
