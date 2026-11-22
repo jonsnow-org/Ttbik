@@ -27,6 +27,8 @@ const tiny = Buffer.from("png").toString("base64");
 const seed = async (runId: string, media: any) => { const { shamSaveRun } = await import("@/lib/shamExec"); await shamSaveRun({ chatId: 77, botId: "bot1", runId, request: media.request, messages: [], leg: 0, variant: "v2", mode: {}, card: { msgId: 1, startedAt: Date.now(), steps: [], at: Date.now() }, media }); };
 
 describe("Sham media fast lane", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // covers the opt-in progress card (default is live streaming, owner 2026-11-22)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   beforeEach(async () => {
     routeCalls.length = 0; routeReply = null; mockLastMemory = null; continuation = { ok: true }; runs.clear();
     process.env.CODER_SELF_URL = "https://self.test";

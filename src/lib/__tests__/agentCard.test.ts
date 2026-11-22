@@ -117,13 +117,14 @@ describe("the model's own understanding line", () => {
 });
 
 describe("the one Telegram message (Sham / shared card)", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // these tests cover the progress card, now an opt-in (owner 2026-11-22: live streaming is the default)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   it("opens at once, takes the model's line, shows real tool steps, and the answer replaces it; never a second message", async () => {
     const { bot, sent, edits } = fakeBot();
     const card = await openCard(bot, 5, "اقرأ README", { understand: async () => "تريد قراءة ملف README؛ سأفتحه أولاً." });
-    expect(sent).toHaveLength(0);                                      // no "received" card: the message appears with the first real step
+    expect(sent).toHaveLength(1);                                      // card opt-in: opens at once
     await new Promise((r) => setTimeout(r, 20));
     await cardPhase(bot, 5, card, "think", "جاري التفكير", true);
-    expect(sent).toHaveLength(1);
     expect(sent[0].text).toContain("💬 تريد قراءة ملف README؛ سأفتحه أولاً.");   // the model's own line shows with the first step
     expect(sent[0].text).not.toContain(NEUTRAL_ACK);
     await cardTool(bot, 5, card, "قراءة ملف o/r:README.md");
@@ -167,6 +168,8 @@ const say = (text: string) => ({ type: "text" as const, text });
 const script = (answers: Array<ReturnType<typeof say>>): ShamAsk => async () => (answers.shift() ?? null) as any;
 
 describe("Sham v2 agent -> card events (real, in order)", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // these tests cover the progress card, now an opt-in (owner 2026-11-22: live streaming is the default)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   const read = '<tool_call>{"name":"github_read_file","arguments":{"repo":"o/r","path":"README.md"}}</tool_call>';
   it("a plain greeting never emits a thought event even with precise + always enabled", async () => {
     const ev: ShamStepEvent[] = [];
@@ -221,6 +224,8 @@ const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, t
 const tc = (id: string, name: string, args: object) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 
 describe("Nova: the card is written from the loop's real events", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // these tests cover the progress card, now an opt-in (owner 2026-11-22: live streaming is the default)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   beforeEach(() => {
     process.env.OPEN_CODER_STUDIO_URL = "https://s1.test"; delete process.env.OPEN_CODER_STUDIO_URLS;
     process.env.MODELSCOPE_API_TOKEN = "ms"; process.env.CODER_POLL_MS = "5"; process.env.CODER_TOKEN_KEY = "test-key";

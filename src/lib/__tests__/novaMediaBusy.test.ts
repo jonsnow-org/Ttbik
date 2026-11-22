@@ -57,6 +57,8 @@ describe("Nova media Studio SSE streaming", () => {
 });
 
 describe("Nova media Studio busy / off", () => {
+  beforeEach(() => { process.env.CODER_PROGRESS_CARD = "on"; });   // covers the opt-in progress card (default is live streaming, owner 2026-11-22)
+  afterEach(() => { delete process.env.CODER_PROGRESS_CARD; });
   it("the picture: one message while waiting, the picture sent, the card gone, no excuse text", async () => {
     net([{ type: "image", b64: b64(await png("gradient", 256)) }]);
     const { bot, api, sent } = fakeBot();

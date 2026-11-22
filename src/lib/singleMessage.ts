@@ -34,8 +34,8 @@ async function flush(bot: Bot, chatId: number, card: Card): Promise<void> {
 /** An event happened: edit at most every EDIT_EVERY_MS (Telegram's rate limits); an edit that has to wait is sent by a timer, so the last event always shows. */
 async function touch(bot: Bot, chatId: number, card: Card, force = false): Promise<void> {
   if (card.done) return;
-  if (!card.msgId) {                                   // lazy creation: only once there is a real step to show
-    if (!card.steps.length) return;
+  if (!card.msgId) {                                     // owner 2026-11-22: no progress card by default (the answer is sent by cardFinish); CODER_PROGRESS_CARD=on creates it at the first real step
+    if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() !== "on" || !card.steps.length) return;
     card.chain = card.chain.then(async () => {
       if (card.msgId || card.done) return;
       const m = await bot.api.sendMessage(chatId, renderCard(card)).catch(() => null);
@@ -58,8 +58,13 @@ async function touch(bot: Bot, chatId: number, card: Card, force = false): Promi
 export async function openCard(bot: Bot, chatId: number, request: string, opts: { understand?: () => Promise<string | null | undefined> } = {}): Promise<Card | null> {
   if ((process.env.CODER_SINGLE_MESSAGE || "").toLowerCase() === "off" || chatId <= 0 || typeof bot.api.editMessageText !== "function") return null;
   const card: Card = { ...newTimeline(), at: Date.now(), chain: Promise.resolve() };
-  // owner 2026-11-22: no "received" card. Nothing is sent now (just the typing indicator); the message is created by the first REAL step (touch) and then edited into the answer.
-  void (bot.api as any).sendChatAction?.(chatId, "typing")?.catch?.(() => null);
+  // owner 2026-11-22: no card by default (no "received", no steps list): nothing is sent now and nothing while it works; the answer is sent when it is ready. CODER_PROGRESS_CARD=on restores the card.
+  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "on") {
+    beginStep(card, "phase", "received", "استلام الطلب", card.startedAt);
+    const m = await bot.api.sendMessage(chatId, renderCard(card)).catch(() => null);
+    card.msgId = m?.message_id;
+    if (!card.msgId) return null;
+  }
   if (opts.understand) {
     const put = (line: string) => { if (card.done) return; card.ack = line; void touch(bot, chatId, card, true); };
     void understandRequest(opts.understand, request, { onLate: put }).then((line) => { if (line) put(line); });
