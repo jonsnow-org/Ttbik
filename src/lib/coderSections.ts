@@ -34,7 +34,7 @@ export function queueMoveAfterMs(run: { step?: number; promptEst?: number }): nu
 
 export { stripThinkTags };
 import { DEFAULT_MODELS, chooseModel, ensureUsableModel, listModels, modelReady, modelUsableBy, publicShamSelection, novaModelOf, modelSettings, memorySettings, type ModelSettings, type MemorySettings, tldmEnabled, setTldmEnabled, tldmAllowedFor, isTldmModel } from "@/lib/coderModels";
-import { novaGenerateTldm, novaTldmSessionId, withNovaTldmModel } from "@/lib/novaTldm";
+import { novaGenerateTldm, novaTldmSessionId, tldmTurnFrom, withNovaTldmModel } from "@/lib/novaTldm";
 /** The Arabic name each T-LDM model is shown under. Sham 1 has no T-LDM path and no entry. */
 const MODEL_LABEL_AR: Record<"sham_v2" | "coder" | "nova2", string> = { sham_v2: "شام برو", coder: "نوفا 1", nova2: "نوفا 2" };
 import { refreshTldmPolicy } from "@/lib/tldmPolicy";
@@ -2852,12 +2852,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
     const tldmModel = !run.agent && isTldmModel(novaModelOf(st.model)) && tldmEnabled(st, novaModelOf(st.model)) ? (novaModelOf(st.model) as "coder" | "nova2") : null;
-    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => tldmModel
-      // this model's OWN T-LDM head, on its own Studio pool; a failure is an honest error, never a quiet switch to plain chat
-      ? withNovaTldmModel(tldmModel, () => novaGenerateTldm(messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "") })), novaTldmSessionId(chatId, tldmModel), waitS * 1000 + 9000))
-        // an error is the model's OWN honest line and is shown as-is: no `failure`, so the outage retry loop does not hide it
-        .then((r): CoderOutcome => ({ reply: r }))
-      : coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", async () => {
+      if (!tldmModel) return plainChat();
+      // this model's OWN T-LDM head, on its own Studio; a failure is an honest error, never a quiet switch to another model. The head sees the task (and the result of a tool it asked for), not the system prompt.
+      const turn = tldmTurnFrom(messages);
+      const r = await withNovaTldmModel(tldmModel, () => novaGenerateTldm(turn.messages, novaTldmSessionId(chatId, tldmModel), waitS * 1000 + 9000, { owner: tierFor(chatId) === "owner", resumeTool: turn.resumeTool }));
+      if ((r as { error?: string }).error === "body") return plainChat();          // the head has nothing for this task: the same model's own body answers
+      return { reply: r } as CoderOutcome;                                         // an error is the model's OWN honest line, shown as-is
+    });
     const r = o.reply;
     if (tldmModel && r?.type === "error") {
       // The model's own T-LDM head could not answer. Show its honest line and stop: no retry, no other model, no plain chat.

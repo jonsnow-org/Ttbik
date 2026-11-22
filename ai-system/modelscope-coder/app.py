@@ -881,6 +881,35 @@ def start_background() -> None:
     threading.Thread(target=_runner, daemon=True).start()
 
 
+def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0,
+                  deny_list: str = "", owner: float = 0, resume_tool_name: str = "", resume_tool_arguments_json: str = "", resume_tool_result: str = "",
+                  resume_tool_error: float = 0, resume_tool_request_id: str = "") -> str:
+    """Nova's own T-LDM head (nova_tldm_serve.py): a few-million-parameter head over the frozen features of THIS Studio's own GGUF (a second llama-server in embedding mode on the
+    same file). It answers {"type": "text" | "tool_request" | "body" | "error"}. Off unless NOVA_TLDM=1; chat is never affected. Sham and the other models are never used."""
+    try:
+        import nova_tldm_serve as nt
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"type": "error", "text": f"مسار T-LDM لنوفا غير متاح ({type(exc).__name__}). لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    if not nt.enabled() or not float(tldm_flag or 0):
+        return nt.error_json(nt.missing_message())
+    if STATE.get("phase") != "ready" or not _PATHS["model"]:
+        return json.dumps({"type": "error", "text": "نوفا يتهيأ بعد. لم يُستخدم نموذج آخر.", "tldm": True, "fallback": "none"}, ensure_ascii=False)
+    try:
+        msgs = json.loads(messages_json or "[]")
+        task = str(msgs[-1]["content"]) if msgs and msgs[-1].get("role") == "user" else ""
+    except Exception:  # noqa: BLE001
+        return nt.error_json("messages_json غير صالح.")
+    if not task and not resume_tool_name:
+        return nt.error_json("الرسالة الأخيرة يجب أن تكون من المستخدم.")
+    try:
+        return nt.respond(str(Path(_PATHS["bindir"]) / "llama-server"), _PATHS["model"], str(session or "default"), task, deny_list=str(deny_list or ""), owner=bool(float(owner or 0)),
+                          resume_tool_name=str(resume_tool_name or ""), resume_tool_arguments_json=str(resume_tool_arguments_json or ""), resume_tool_result=str(resume_tool_result or ""),
+                          resume_tool_error=bool(float(resume_tool_error or 0)), resume_tool_request_id=str(resume_tool_request_id or ""))
+    except Exception as exc:  # noqa: BLE001
+        _log("generate_tldm failed", type(exc).__name__, str(exc)[:160])
+        return nt.error_json(f"مسار T-LDM لنوفا فشل ({type(exc).__name__}). لم يُستخدم نموذج آخر.")
+
+
 def build_ui():
     import gradio as gr
     tabs = [
@@ -893,8 +922,13 @@ def build_ui():
         gr.Interface(status, None, gr.Textbox(label="status"), api_name=f"{PREFIX}status", flagging_mode="never"),
         gr.Interface(bench, None, gr.Textbox(label="bench"), api_name=f"{PREFIX}bench", flagging_mode="never"),
         gr.Interface(warm, [gr.Textbox(label="messages"), gr.Textbox(label="tools")], gr.Textbox(label="json"), api_name=f"{PREFIX}warm", flagging_mode="never"),
+        gr.Interface(generate_tldm, [gr.Textbox(label="messages_json"), gr.Textbox(label="session"), gr.Number(label="max_new_tokens", value=512), gr.Number(label="tldm_flag", value=1),
+                                     gr.Textbox(label="confirm_cmd"), gr.Number(label="confirm_ok", value=0), gr.Textbox(label="deny_list"), gr.Number(label="owner", value=0),
+                                     gr.Textbox(label="resume_tool_name"), gr.Textbox(label="resume_tool_arguments_json"), gr.Textbox(label="resume_tool_result"),
+                                     gr.Number(label="resume_tool_error", value=0), gr.Textbox(label="resume_tool_request_id")],
+                     gr.Textbox(label="T-LDM result"), api_name="generate_tldm", flagging_mode="never"),
     ]
-    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench", "warm"], title="coder")
+    return gr.TabbedInterface(tabs, ["chat", "job_result", "cancel", "status", "bench", "warm", "generate_tldm"], title="coder")
 
 
 if __name__ == "__main__":

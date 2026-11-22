@@ -23,6 +23,9 @@ on:
       seeds:
         description: "seeds"
         default: "3"
+      publish:
+        description: "publish the best head to the international ModelScope site (Jonjithup/nova2-tldm-head), where Nova's Studio reads it (needs the gate: heldout and heldout2 mean >= 0.6)"
+        default: "false"
 permissions:
   contents: read
 jobs:
@@ -68,7 +71,7 @@ jobs:
         run: |
           set -o pipefail
           cd ai-system/tldm
-          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova1.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json 2>&1 | tee /tmp/gguf_head.log
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova1.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -77,4 +80,27 @@ jobs:
             /tmp/gguf_head.json
             /tmp/gguf_head.log
             /tmp/llama_server.log
+            /tmp/nova2_heads.pt
           if-no-files-found: warn
+      - name: Publish the head (only when asked, and only if it passes the gate on both held-out sets)
+        if: ${{ inputs.publish == 'true' }}
+        env:
+          MS_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          r = json.load(open("/tmp/gguf_head.json"))
+          ok = r["heldout"]["mean"] >= 0.6 and r["heldout2"]["mean"] >= 0.6
+          print("heldout", r["heldout"]["mean"], "heldout2", r["heldout2"]["mean"], "gate 0.6 ->", "PASS" if ok else "BLOCKED")
+          if not ok:
+              sys.exit("head below the gate: not published")
+          from modelscope.hub.api import HubApi
+          api = HubApi(); api.login(os.environ["MS_TOKEN"])
+          repo = "Jonjithup/nova2-tldm-head"
+          try:
+              api.create_model(repo, visibility=1, chinese_name="nova2 tldm head")
+          except Exception as e:
+              print("create_model:", type(e).__name__, str(e)[:100])
+          api.upload_file(path_or_fileobj="/tmp/nova2_heads.pt", path_in_repo="nova2_heads.pt", repo_id=repo, commit_message="Nova 2 T-LDM head on the GGUF reader")
+          print("published", repo)
+          PY

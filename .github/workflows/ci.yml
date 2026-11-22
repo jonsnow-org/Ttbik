@@ -49,6 +49,7 @@ jobs:
           python -m unittest discover -s ai-agent -p 'test_*.py' -v       # the free i agent: tools, guard rails and the loop (no network)
           python ai-system/colab/sham_small/sham_intent.py
           python ai-system/modelscope-trainer/app.py --selftest       # the Studio trainer app (jobs, cycles, no network)
+          python ai-system/modelscope-coder/nova_tldm_serve.py            # Nova's own T-LDM serving loop (no network, no weights)
           python ai-system/modelscope-trainer/safe_evolve.py --selftest  # replay + no-regress gate; anonymized session records
           python ai-system/modelscope-runner/app.py --selftest          # sham-runner-1 (runner + guard thread)
           python scripts/ops/sham_trainer_status.py --selftest      # trainer status URLs for cn and ai (no network)
