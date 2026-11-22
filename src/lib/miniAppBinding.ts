@@ -23,7 +23,8 @@ export type MiniAppBinding = {
 };
 
 /** The canonical model id of a settings value ("sham_loop" is the old Sham; nothing means Nova). */
-export const canonicalModel = (id: string | undefined | null): string => (id === "sham_loop" ? "sham" : id || "coder");
+/** Nova is ONE model (`coder`): the old `nova2` id is only a legacy alias (a stored setting or an old client), never a second identity or session namespace (review note #1198 §2.2). */
+export const canonicalModel = (id: string | undefined | null): string => (id === "sham_loop" ? "sham" : id === "nova2" ? "coder" : id || "coder");
 
 export function bindingFor(selected: string | undefined | null): MiniAppBinding {
   const model = canonicalModel(selected);

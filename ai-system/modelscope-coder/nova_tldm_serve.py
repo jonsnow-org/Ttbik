@@ -33,7 +33,8 @@ TOKENIZER_REPO = os.environ.get("NOVA_TLDM_TOKENIZER_REPO", "Qwen/Qwen3.6-35B-A3
 # Nova's read tools a head may call by name (the app owns the real implementations, GitHub tokens and confirmations).
 READ_TOOLS = {"web_search", "fetch_page", "deep_research", "github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci_status"}
 
-_PENDING: dict = {}                 # session -> {id, message, hist, tool, arguments}
+_PENDING: dict = {}                 # request id -> {session, message, hist, tool, arguments, at}: several requests of one session can wait at once (review note #1198 §5.7); each is used once
+_PENDING_TTL_S, _PENDING_MAX = 3600, 200
 _STATE: dict = {"writer": None, "err": "", "reader": None, "embed": None}
 _LOCK = threading.Lock()
 
@@ -229,9 +230,14 @@ def respond(llama_exe: str, model_path: str, session: str, message: str, deny_li
     sid = session or "default"
     hist: list = []
     if resume_tool_name:
-        pending = _PENDING.get(sid)
-        if not pending or pending.get("id") != resume_tool_request_id or pending.get("tool") != resume_tool_name:
-            return error_json("انتهت صلاحية طلب الأداة أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
+        with _LOCK:
+            pending = _PENDING.get(resume_tool_request_id)
+            if pending and (pending.get("session") != sid or pending.get("tool") != resume_tool_name):
+                pending = None                                      # another session's request, or another tool: it is neither answered nor consumed
+            elif pending:
+                _PENDING.pop(resume_tool_request_id, None)          # consumed exactly once: a second resume of the same request finds nothing
+        if not pending:
+            return error_json("انتهت صلاحية طلب الأداة أو استُكمل من قبل أو لا يطابق الجلسة. لم تُنفَّذ أداة بديلة.")
         try:
             if json.loads(resume_tool_arguments_json or "{}") != pending["arguments"]:
                 return error_json("معاملات الاستكمال لا تطابق الطلب الأصلي.")
@@ -241,12 +247,17 @@ def respond(llama_exe: str, model_path: str, session: str, message: str, deny_li
         message = pending["message"] or message
         call = pending["tool"] + " " + json.dumps(pending["arguments"], ensure_ascii=False, sort_keys=True)
         hist.append((call if pending["tool"] != "computer_run" else pending["arguments"].get("command", call), str(resume_tool_result or "")[:8000], not resume_tool_error))
-        _PENDING.pop(sid, None)
     out = drive(writer, sid, message, hist, [] if owner else _parse_deny(deny_list), owner)
     if out[0] == "tool":
         _, name, args, h = out
         rid = secrets.token_hex(12)
-        _PENDING[sid] = {"id": rid, "message": message, "hist": h, "tool": name, "arguments": args}
+        with _LOCK:
+            now = time.time()
+            for k in [k for k, v in _PENDING.items() if now - v.get("at", 0) > _PENDING_TTL_S]:
+                _PENDING.pop(k, None)
+            while len(_PENDING) >= _PENDING_MAX:                    # a bounded table: the oldest abandoned request goes first
+                _PENDING.pop(min(_PENDING, key=lambda k: _PENDING[k].get("at", 0)), None)
+            _PENDING[rid] = {"session": sid, "message": message, "hist": h, "tool": name, "arguments": args, "at": now}
         return json.dumps({"type": "tool_request", "tool_name": name, "tool_arguments": args, "tool_request_id": rid, "session": sid, "tldm": True}, ensure_ascii=False)
     if out[0] == "body":
         return json.dumps({"type": "body", "tldm": True}, ensure_ascii=False)
@@ -275,4 +286,19 @@ if __name__ == "__main__":
     assert drive(lambda t, h: next(seq3), "s", "q", [], ["rm -rf"], False)[:2] == ("text", "لا")   # the owner's list blocks it for users
     seq4 = iter(["$ rm -rf /"])
     assert drive(lambda t, h: next(seq4), "s", "q", [], ["rm -rf"], True)[0] == "tool"              # not for the owner
+    # two requests of ONE session wait together, each is answered once, and another session cannot answer them
+    class _W:
+        def __init__(self): self.q = iter(["$ ls", "$ pwd", "ok-a", "ok-b"])
+        def __call__(self, t, h): return next(self.q)
+    _STATE["writer"] = _W()
+    def _first(msg):
+        return json.loads(respond("x", "y", "S", msg))
+    a, b = _first("m1"), _first("m2")
+    assert a["type"] == b["type"] == "tool_request" and a["tool_request_id"] != b["tool_request_id"] and len(_PENDING) == 2
+    bad = json.loads(respond("x", "y", "OTHER", "", resume_tool_name="computer_run", resume_tool_arguments_json=json.dumps(a["tool_arguments"]), resume_tool_result="r", resume_tool_request_id=a["tool_request_id"]))
+    assert bad["type"] == "error" and len(_PENDING) == 2                                          # another session: refused and NOT consumed
+    ok = json.loads(respond("x", "y", "S", "", resume_tool_name="computer_run", resume_tool_arguments_json=json.dumps(a["tool_arguments"]), resume_tool_result="r", resume_tool_request_id=a["tool_request_id"]))
+    assert ok["type"] == "text" and len(_PENDING) == 1
+    again = json.loads(respond("x", "y", "S", "", resume_tool_name="computer_run", resume_tool_arguments_json=json.dumps(a["tool_arguments"]), resume_tool_result="r", resume_tool_request_id=a["tool_request_id"]))
+    assert again["type"] == "error"                                                              # a second resume of the same request does nothing
     print("nova_tldm_serve self-test ok")

@@ -12,7 +12,7 @@ import { fakeBot } from "./coderFakes";
 import { pgDb, resetPg } from "./pgDb";
 
 const OWNER = 4242;
-const MODELS = ["coder", "nova2", "sham", "sham_v2"] as const;
+const MODELS = ["coder", "sham", "sham_v2"] as const;     // Nova is ONE model (coder); "nova2" is only a legacy alias (owner 2026-11-22; review note #1198)
 const botRow = { id: "bot1", token: "T", webhookSecret: "whs", isActive: true, template: "NOVA_BOT" } as any;
 const HUB = "https://hub.test";
 beforeEach(async () => {
@@ -51,16 +51,16 @@ describe("client binding table", () => {
       expect(b[m].computer.model).toBe(m);                       // nobody borrows another model's computer (Nova 2 used to borrow Nova's)
     }
     expect(new Set(MODELS.map((m) => computerSessionFor(OWNER, m))).size).toBe(MODELS.length);
-    expect(computerSessionFor(OWNER, "nova2")).toBe(`${OWNER}:nova2`);
+    expect(computerSessionFor(OWNER, "nova2")).toBe(computerSessionFor(OWNER, "coder"));     // an old client that still says nova2 reaches the SAME computer session
     expect(b.coder.computer.home).toBe("miniapp-hub");
-    expect(b.nova2.computer.home).toBe("miniapp-hub");
+    expect(bindingFor("nova2").model).toBe("coder");
     expect(b.sham.computer.home).toBe("embedded");
     expect(b.sham_v2.computer.home).toBe("embedded");
     expect(MODELS.filter((m) => b[m].threadPage)).toEqual(["coder"]);
     expect(MODELS.filter((m) => b[m].tldm)).toEqual(["sham_v2"]);
     expect(MODELS.filter((m) => b[m].schedules)).toEqual(["coder"]);
     expect(b.sham.memory).toBe("sham_memory");
-    expect(b.nova2.memory).toBe("memories");
+    expect(bindingFor("nova2").memory).toBe("memories");
     expect(bindingFor("sham_loop").model).toBe("sham");
     expect(bindingFor(undefined).model).toBe("coder");
   });
@@ -69,9 +69,9 @@ describe("client binding table", () => {
     for (const m of MODELS) for (const op of MODEL_SCOPED_OPS) {
       expect(boundBody(op, m, { model: m === "coder" ? "sham_v2" : "coder", x: 1 })).toEqual({ model: m, x: 1 });
     }
-    expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1, model: "nova2" });
+    expect(boundBody("me", "nova2", { a: 1 })).toEqual({ a: 1, model: "coder" });
     for (const op of ["connectors", "connector_start", "connector_link", "connector_test", "connector_disconnect", "mcp_add", "mcp_remove", "repos", "github_start", "github_token", "secret_list", "secret_delete", "screen_offer", "handoff_done", "schedules", "schedule_create", "schedule_update", "schedule_pause", "schedule_delete", "schedule_run", "stop", "task_stop", "task_delete", "events", "resolve", "secret_answer"]) {
-      expect(boundBody(op, "nova2", { model: "coder" })).toEqual({ model: "nova2" });
+      expect(boundBody(op, "nova2", { model: "coder" })).toEqual({ model: "coder" });
     }
   });
 

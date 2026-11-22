@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
   // It streams the existing per-user:model Studio session rather than polling full JPEG snapshots.
   if (String(body.op || "") === "desktop_live") {
     if (tierOf(chatId) !== "owner") return NextResponse.json({ error: "owner only" }, { status: 403, headers: { "Cache-Control": "no-store" } });
-    const model = String(body.model || "");
+    const { canonModelId } = await import("@/lib/coderModels");
+    const model = canonModelId(String(body.model || "")) || "coder";          // the same identity appOp builds the session from: an old client sending "nova2" reaches the same desktop (review note #1198 §2.3)
     const seconds = Number(body.seconds ?? 20);
     try {
       const { desktopLive } = await import("@/lib/desktopComputer");
