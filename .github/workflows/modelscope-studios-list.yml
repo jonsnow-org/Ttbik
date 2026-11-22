@@ -1,29 +1,104 @@
-name: ModelScope Studios list (read-only)
+name: Nova 2 computer-only Studio on the international account (provision + deploy + readiness)
 
-# Lists the Studios of one of the owner's two ModelScope accounts (cn = novaai2026 on modelscope.cn, ai = the international account): name, status, hardware. To find idle Studios
-# that can train Sham (owner's order: always use the idle Studios of both accounts). Changes nothing; tokens are never printed.
+# VEHICLE BRANCH, never merged: provisions the private computer-only Studio of Nova 2 (owner 2026-11-22: Nova 2 needs its own computer). Free hardware only; Jonjithup account;
+# never touches the 16 GB cn computer hub (nova-inference-server). Tokens are never printed.
 on:
   workflow_dispatch:
     inputs:
       site:
-        description: "cn | ai"
+        description: "ai"
         required: false
-        default: "cn"
+        default: "ai"
 
 permissions:
   contents: read
 
+env:
+  MS: https://www.modelscope.ai
+  MSHOST: www.modelscope.ai
+  OWNER: Jonjithup
+  REPO: nova2-computer
+  API: https://studio-jonjithup-nova2-computer.api-inference.modelscope.ai
+
 jobs:
-  list:
+  provision:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: List
+      - name: Create the Studio when missing (free hardware only)
         env:
-          SITE: ${{ inputs.site || 'cn' }}
-          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
-        run: python3 scripts/ops/modelscope_studios_list.py
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -uo pipefail
+          code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          if [ "$code" = "200" ] && python3 -c "import json,sys;d=json.load(open('studio.json'));sys.exit(0 if (d.get('data') or d.get('Data')) else 1)" 2>/dev/null; then echo "Studio $REPO exists"; exit 0; fi
+          curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/hardware?sdk_type=gradio" > hw.json
+          HW=$(python3 - <<'PY'
+          import json
+          items=((json.load(open("hw.json")).get("data") or {}).get("hardware")) or []
+          free=[i for i in items if str(i.get("resource_type","")).lower()=="free" and not str(i.get("name","")).startswith("paid/")]
+          print((free or [{"name":"platform/2v-cpu-16g-mem"}])[-1]["name"])
+          PY
+          )
+          case "$HW" in paid/*) echo "::error::Refusing paid hardware"; exit 1;; esac
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create HTTP $code (hardware $HW)"; head -c 800 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused"; exit 1; }
+          sleep 15
+      - name: Push the computer-only app
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "nova2 computer deployment"
+          git config --global user.email "nova2-computer@users.noreply.github.com"
+          git clone "https://oauth2:$T@$MSHOST/studios/$OWNER/$REPO.git" ms 2>&1 | sed "s/$T/***/g"
+          cp ai-system/modelscope-media/computer_studio_app.py ms/app.py
+          cp ai-system/modelscope-media/computer_box.py ms/computer_box.py
+          cp ai-system/modelscope-media/desktop_computer.py ms/desktop_computer.py
+          cp ai-system/modelscope-media/browser_computer.py ms/browser_computer.py
+          cp ai-system/modelscope-media/requirements-computer.txt ms/requirements.txt
+          printf '# Nova 2 computer (computer-only)\nPrivate Studio of the Nova 2 model: Linux shell, headless Chromium, X11 desktop. No model weights.\n' > ms/README.md
+          cd ms
+          git add -A
+          if git diff --cached --quiet; then echo "already up to date"; else git commit -m "Nova 2 computer-only app"; fi
+          git push origin HEAD:master 2>&1 | sed "s/$T/***/g"
+      - name: Deploy and wait for readiness
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -uo pipefail
+          show_logs() { for kind in build run; do echo "===== $kind log tail ====="; curl -sS --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" | tail -c 6000 || true; echo; done; }
+          deploy_code=$(curl -sS --max-time 30 -o deploy.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy")
+          echo "deploy HTTP $deploy_code"; [[ "$deploy_code" =~ ^2 ]] || { cat deploy.json; exit 1; }
+          ready=0
+          for i in $(seq 1 120); do
+            curl -sS --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" > st.json || true
+            state=$(python3 -c "import json;d=json.load(open('st.json')).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" 2>/dev/null || true)
+            echo "Runtime=$state ($i/120)"
+            case "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" in
+              deployfailed|failed|error) show_logs; exit 1;;
+              running|ready)
+                code=$(curl -sS --max-time 30 -o s.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"data":[]}' "$API/gradio_api/run/status" || true)
+                echo "status HTTP $code"
+                if [ "$code" = "200" ]; then python3 - <<'PY' && { ready=1; break; }
+          import json
+          raw=json.load(open("s.json",encoding="utf-8")); v=raw.get("data",raw)
+          if isinstance(v,list): v=v[0] if v else {}
+          if isinstance(v,str):
+              try: v=json.loads(v)
+              except Exception: v={}
+          print({k:v.get(k) for k in ("phase","app_revision","role","hardware","bootstrap")} if isinstance(v,dict) else v)
+          raise SystemExit(0 if isinstance(v,dict) and v.get("phase")=="ready" and v.get("role")=="computer-only" else 1)
+          PY
+                fi;;
+            esac
+            sleep 20
+          done
+          if [ "$ready" -ne 1 ]; then show_logs; echo "::error::not ready"; exit 1; fi
+          echo "READY $API"
