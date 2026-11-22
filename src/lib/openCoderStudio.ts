@@ -9,7 +9,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { getSecret, secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
-import { pressureOn } from "@/lib/pressureMode";
 import { noteStudioCtx } from "@/lib/coderContext";
 const PROVIDER_JOB_PREFIX = "p~";   // jobs of the removed "Sham inside Nova" provider: a run saved before that was removed gets "gone" instead of being polled
 export type CoderToolCall = { id?: string; type?: "function"; function: { name: string; arguments: string } };
@@ -220,7 +219,6 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier, prefer = ""): Promise<CoderOutcome> {
   const all = allEngineBases();
   const pool = coderStudioUrls();
-  if (pressureOn()) avoidHome = true;                                       // pressure mode (owner switch): the least-queued Studio, not the conversation's cache-holding one
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of pool) void studioStatus(b, 4000).catch(() => null); }
   if (typeof payload.job_id === "string") {
     // a job lives on one Studio (global index: valid in any request context)

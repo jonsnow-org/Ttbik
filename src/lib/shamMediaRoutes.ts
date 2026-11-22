@@ -1,5 +1,4 @@
 import { shamEngine, targetOf } from "@/lib/shamMediaEngine";
-import { pressureMedia } from "@/lib/pressureMode";
 import { shamGenerateMedia, shamLastFailure, shamNoteFailure, shamVariant, type ShamReply } from "@/lib/shamStudio";
 
 export type ShamMediaKind = "image" | "audio" | "video";
@@ -22,7 +21,7 @@ export async function generateShamMediaThroughRoute(
   // Owner's order 2026-11-08: Sham v2 is a copy of Sham v1 and makes ALL media (image, audio, video) with its own internal token generator; no donor/external generator is called.
   const route = targetOf(modelId, await shamEngine(modelId)).route;
   const timeoutMs = kind === "video"      // both Shams: a long clip (own motion-token video, 6 s … 5 min) is bounded by compute, not by a fixed 4 minutes
-    ? Math.min(7_200_000, Math.max(Number(opts.timeoutMs) || 0, 300_000, shamVideoDeadlineMs(opts.seconds ?? pressureMedia().videoSeconds)))
+    ? Math.min(7_200_000, Math.max(Number(opts.timeoutMs) || 0, 300_000, shamVideoDeadlineMs(opts.seconds ?? 10)))
     : Math.min(240_000, Math.max(8_000, opts.timeoutMs ?? 240_000));
   try {
     let reply: ShamReply | null;

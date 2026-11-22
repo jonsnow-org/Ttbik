@@ -681,13 +681,6 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { modelHealth } = await import("@/lib/modelHealth");
       return { health: await modelHealth() };
     }
-    case "pressure": {
-      // the owner's load switch (src/lib/pressureMode.ts): read / set; owner only, decided here from the verified id
-      if (user.tier !== "owner") throw new AppError(403, "owner only");
-      const P = await import("@/lib/pressureMode");
-      if (typeof body.on === "boolean") await P.setPressure(body.on, db);
-      return { on: await P.refreshPressure(db, true) };
-    }
     case "mode_force": {
       // the owner's mode override (src/lib/modeForce.ts): { for: model id, mode: "fast" | "balanced" | "precise" | "" (clear) }; read-only without `mode`. Owner only.
       if (user.tier !== "owner") throw new AppError(403, "owner only");

@@ -153,10 +153,9 @@ describe("resolveProfile: thinking, budgets, lite", () => {
     expect(r).toMatchObject({ mode: "precise", auto: false, think: true });
     expect(p({ model: "nova", force: "precise", thinkSwitch: true, text: "مرحبا" }).think).toBe(false);          // …but a greeting still never thinks
   });
-  it("pictures: always ONE step (SDXS is a one-step model: more steps are noise), the side grows with the mode, pressure mode shrinks it", () => {
+  it("pictures: always ONE step (SDXS is a one-step model: more steps are noise), the side grows with the mode", () => {
     expect(p({ model: "sham_v2", pref: "precise", auto: false, text: "x" }).image).toEqual({ size: 640, steps: 1 });
     expect(p({ model: "sham_v2", pref: "fast", auto: false, text: "x" }).image).toEqual({ size: 512, steps: 1 });
-    expect(p({ model: "sham_v2", pressure: true, text: "x" }).image).toEqual({ size: 384, steps: 1 });
   });
 });
 

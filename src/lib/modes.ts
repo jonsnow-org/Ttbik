@@ -147,8 +147,6 @@ export type ProfileInput = {
   force?: unknown;
   /** the old Sham body cannot think at all */
   canThink?: boolean;
-  /** pressure mode (owner switch): smaller pictures, no extra steps */
-  pressure?: boolean;
 };
 
 export function resolveProfile(i: ProfileInput): Profile {
@@ -167,7 +165,7 @@ export function resolveProfile(i: ProfileInput): Profile {
   // Nova: adaptive thinks at the plan stage of code / agent work. Sham v2 (never trained to think): only when asked ("always"), and only on code / agent work.
   const think = eligible && policy !== "never" && (policy === "always" ? (sham ? work : true) : !sham && work);
   const thinkAct = eligible && policy === "always" && (sham ? work : true);
-  const image = i.pressure ? { size: 384, steps: 1 } : IMAGE_BY_MODE[mode];
+  const image = IMAGE_BY_MODE[mode];
   return {
     pref, mode, klass, auto, policy, think, thinkAct,
     thinkCapChars: envCap(mode), thinkTokens: think ? THINK_TOKENS[mode] : 0,
