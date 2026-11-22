@@ -4,14 +4,13 @@
 export const COMPUTER_MODEL_OPTIONS = [
   { id: "coder", label: "Nova AI" },
   { id: "nova2", label: "Nova 2" },
-  { id: "lfm25", label: "LFM2.5" },
   { id: "sham", label: "Sham (old)" },
   { id: "sham_v2", label: "Sham Pro" },
 ] as const;
 
 export const COMPUTER_MODEL_IDS = COMPUTER_MODEL_OPTIONS.map(({ id }) => id);
 
-/** Mini App tab routing: Nova/LFM use the shared hub, Nova 2 uses its own configured endpoint, Shams use embedded computers. */
+/** Mini App tab routing: Nova uses the shared hub, Nova 2 uses its own configured endpoint, Shams use embedded computers. */
 export type ComputerHome = "miniapp-hub" | "embedded";
 export const computerHomeOf = (id: string | undefined): ComputerHome => (id === "sham" || id === "sham_v2" ? "embedded" : "miniapp-hub");
 

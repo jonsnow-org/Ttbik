@@ -9,7 +9,6 @@ export const KEEP_AWAKE_MS = 8 * 60_000;
 const ENV_KEYS = [
   "OPEN_CODER_STUDIO_URL", "OPEN_CODER_STUDIO_URLS", "NOVA_IMAGE_STUDIO_URL", "NOVA_MEDIA_STUDIO_URL",      // Nova
   "NOVA2_COMPUTER_STUDIO_URL", "NOVA2_MEDIA_STUDIO_URL",                                                    // Nova 2, own services only
-  "LFM_STUDIO_URL", "LFM_STUDIO_URLS", "LFM_MEDIA_STUDIO_URL",                                              // LFM2.5
   "SHAM_V2_URL",                                                                                              // Sham v2 (own chat + internal media)
 ];
 
@@ -19,8 +18,8 @@ export function parseStudioUrl(raw: string): { owner: string; name: string; url:
   return m ? { owner: m[1], name: m[2], url: raw.trim().replace(/\/$/, "") } : null;
 }
 
-// the code's own defaults (used when the env names are unset): Nova chat + image + media, LFM chat + media, Sham v2, and the computer hub
-const DEFAULTS = ["coder-inference-server", "epicrealism-image-test", "nova-media-server", "lfm25-inference-server", "lfm25-media-server", "sham-v2-server",
+// the code's own defaults (used when the env names are unset): Nova chat + image + media, Sham v2, and the computer hub
+const DEFAULTS = ["coder-inference-server", "epicrealism-image-test", "nova-media-server", "sham-v2-server",
   "nova-inference-server"].map((n) => `https://studio-novaai2026-${n}.api-inference.modelscope.net`);
 
 export function studiosToKeepAwake(env: Record<string, string | undefined> = process.env) {

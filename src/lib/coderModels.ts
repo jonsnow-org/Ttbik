@@ -23,14 +23,9 @@ export type CoderModel = {
 export const DEFAULT_MODELS: CoderModel[] = [
   // The order here is the order in the picker: Nova AI (one, with everything added to it), Sham (the old one, every fix and tool added to its own code) and Sham v2 (the new body, tried beside it).
   { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "مبرمج ومساعد عملي: يصلح مشاريع GitHub ويبحث ويجدول ويفهم الصور ويصنع الصور والصوت والفيديو.", en: "Practical coder and assistant: fixes GitHub projects, searches, schedules, reads pictures and makes pictures, speech and video." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
-  // Nova 2 (owner 2026-11-17): Qwen3.6-35B-A3B on the owner's international Studio, beside Nova (the 4B), which stays as it is. Stronger and slower; owner-only until the owner opens it.
-  { id: "nova2", name: { ar: "Nova 2", en: "Nova 2" }, desc: { ar: "Nova بنموذج أكبر وأقوى (Qwen3.6-35B-A3B) على استوديو الحساب الدولي: أبطأ وأعمق. نوفا الأصلي يبقى كما هو.", en: "Nova with a bigger, stronger model (Qwen3.6-35B-A3B) on the international Studio: slower and deeper. The original Nova stays as it is." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "", sort: 0.5 },
   { id: "sham", name: { ar: "شام (القديم)", en: "Sham (old)" }, desc: { ar: "نموذجنا الأصلي المبني من الصفر، بمساره واستوديوهاته الخاصة.", en: "Our original model, built from scratch, on its own path and Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "SHAM_MODEL_URL", sort: 1 },
   { id: "sham_v2", name: { ar: "شام برو", en: "Sham Pro" }, desc: { ar: "شام برو، نسخة من شام 1 بأوزان المانح ونظام T-LDM (يُفعَّل بمفتاح المالك عندما يكون الرأس جاهزًا) وبأدواته ووسائطه وحاسوبه الداخلي.", en: "Sham Pro, the copy of Sham 1 with donor weights and the T-LDM system (owner switch, once the trained head exists), with its own tools, media and internal computer." }, price_stars: null, visible: true, ownerOnly: false, publicRolloutVersion: 1, sort: 2 },
   // The three donor candidates (Qwen3.5-9B, Gemma 4 E4B, MiniCPM-o 4.5) were removed on 2026-11-08 (owner's order): none beat Nova in the real task test.
-  // The fast model (owner 2026-11-04: "the forgotten candidate"): LiquidAI LFM2.5-8B-A1B (8B MoE, ~1B active; Q4_K_M GGUF), on ITS OWN Studios
-  // (lfm25-inference-server + lfm25-media-server). It used to hide inside Nova's pool as replica 4; it now never shares a Studio with Nova.
-  { id: "lfm25", name: { ar: "LFM2.5 (السريع)", en: "LFM2.5 (fast)" }, desc: { ar: "LFM2.5-8B-A1B: أسرع نموذج على المعالج، بأدوات GitHub والحاسوب الخاص، ويصنع الصور والصوت والفيديو من استوديوهاته الخاصة.", en: "LFM2.5-8B-A1B: the fastest model on CPU, with GitHub tools and its own computer; makes pictures, speech and video in its own Studios." }, price_stars: null, visible: false, ownerOnly: true, serveEnv: "LFM_STUDIO_URLS", sort: 6 },
   // "free i" (owner 2026-11-08): the AI Agent path as a picker entry. Picking it sends the owner's messages to the GitHub AI Agent (a free OpenRouter model) instead of any model of this app; owner-only.
   { id: "freei", name: { ar: "free i", en: "free i" }, desc: { ar: "وكيل مجاني عبر GitHub (OpenRouter): يجيب ويقترح، وقد يفتح طلب دمج. للمالك فقط.", en: "Free GitHub agent (OpenRouter): answers and proposes, may open a pull request. Owner only." }, price_stars: null, visible: false, ownerOnly: true, sort: 50 },
 ];
@@ -106,7 +101,7 @@ export async function updateModel(id: string, patch: { visible?: unknown; price_
 
 /** Can this model answer right now (its Studio / key is set)? A model that is switched on for everyone but is not ready is still hidden from users. */
 /** Older chats may hold the id of the former "Sham (advanced)" entry: it was merged into the old Sham (which now has everything it had). */
-export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id);
+export const canonModelId = (id: string | undefined): string | undefined => (id === "sham_loop" ? "sham" : id === "nova2" ? "coder" : id);   // Nova 1 was removed (2026-11-22): the one Nova is the 35B model; an old "nova2" pick means it
 
 /** Is a model-server token present (the Studios Sham runs on share the platform token)? Read from the environment here so the model list needs nothing from Sham's code. */
 const studioTokenSet = (): boolean => Boolean((process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim());
@@ -118,7 +113,6 @@ export function modelReady(m: CoderModel): boolean {
   if (m.id === "sham" || m.id === "sham_v2") return studioTokenSet();
   if (m.id === "freei") return Boolean(secretCached("AI_GITHUB_TOKEN"));   // env or the secret stored from the Athar bot (src/lib/hostedSecrets.ts)
   if (m.id === "nova2") return nova2TokenSet() && nova2Urls().length > 0;
-  if (m.id === "lfm25") return studioTokenSet() && !/^(off|none|0)$/i.test((process.env.LFM_STUDIO_URLS ?? process.env.LFM_STUDIO_URL ?? "on").trim());   // its own Studio has a default address
   return Boolean(m.serveEnv && (process.env[m.serveEnv] || "").trim());
 }
 const openToUsers = (m: CoderModel): boolean => !m.lockedOwnerOnly && m.visible && modelReady(m);
@@ -191,28 +185,14 @@ export type ModelSettings = { think: boolean; accuracy: "fast" | "balanced" | "p
 export type PerModelState = { model?: string; think?: boolean; accuracy?: string; perModel?: Record<string, Partial<ModelSettings>> };
 const isAcc = (x: unknown): x is ModelSettings["accuracy"] => x === "fast" || x === "balanced" || x === "precise";   // "accurate" is accepted as "precise" by the API (modes.ts normalizePref)
 /** The effective settings of one model. Nova (id "coder") also honours the old single global switches until it has its own entry; every other model starts from the defaults. */
-export function modelSettings(st: PerModelState, id: string | undefined): ModelSettings {
-  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
-  const pm = st.perModel?.[mid] || {};
-  // Defaults for EVERY model and user: thinking "adaptive" (recommended), accuracy "balanced" (recommended), media always on, auto always on.
-  // Only a choice made in the per-model settings screen counts; the old single global switches (st.think / st.accuracy) and the old per-model `think` boolean are stale and ignored (2026-10-28).
-  const policy: ModelSettings["policy"] = pm.policy === "adaptive" || pm.policy === "always" || pm.policy === "never" ? pm.policy : "adaptive";
-  return {
-    think: policy === "always",
-    accuracy: isAcc(pm.accuracy) ? pm.accuracy : "balanced",
-    media: true,                 // media generation is ALWAYS on for every model: a stored `false` (the old per-model switch, removed 2026-10-28) is ignored
-    auto: true,                  // the request class decides within the chosen accuracy (modes.ts); there is no separate switch any more
-    policy,
-  };
+export function modelSettings(_st: PerModelState, _id: string | undefined): ModelSettings {
+  // Owner 2026-11-22: the models are AUTOMATIC in every function, so the Mini App has no thinking / speed / media / memory controls. The request class decides within "balanced"
+  // (src/lib/modes.ts): thinking adaptive, accuracy balanced, media always on. A value stored by the old settings screens is ignored, so a hidden setting can never surprise a user.
+  return { think: false, accuracy: "balanced", media: true, auto: true, policy: "adaptive" };
 }
-/** Change some settings of ONE model (the others are untouched). Returns the model's new effective settings. */
-export function setModelSettings(st: PerModelState, id: string, patch: Partial<ModelSettings>): ModelSettings {
-  const mid = canonModelId(id) || DEFAULT_MODEL_ID;
-  const cur = modelSettings(st, mid);
-  const polNext = patch.policy || (typeof patch.think === "boolean" ? (patch.think ? "always" : "adaptive") : cur.policy);
-  const next: ModelSettings = { think: polNext === "always", accuracy: isAcc(patch.accuracy) ? patch.accuracy : cur.accuracy, media: true, auto: true, policy: polNext };
-  st.perModel = { ...(st.perModel || {}), [mid]: next };
-  return next;
+/** Kept for older clients: the settings are automatic now, so a request to change them changes nothing and returns the automatic values. */
+export function setModelSettings(st: PerModelState, id: string, _patch: Partial<ModelSettings> = {}): ModelSettings {
+  return modelSettings(st, id);
 }
 
 // ---------------------------------------------------------------- memory / save settings, per model

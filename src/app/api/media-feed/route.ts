@@ -400,7 +400,8 @@ export async function POST(req: NextRequest) {
   g.__mediaFeed = [item, ...(g.__mediaFeed || []).filter((x) => x.id !== item.id)].slice(0, 200);
 
   // Followers get a bot message about the new share (private squad posts excluded).
-  if (saved.id && !item.squad_code) {
+  // `silent` (the bot's /refeed swapping in a compressed copy of an existing post) must not tell followers about it again
+  if (saved.id && !item.squad_code && body.silent !== true) {
     await Promise.race([notifyFollowers(item).catch(() => null), new Promise((r) => setTimeout(r, 8000))]);
   }
 

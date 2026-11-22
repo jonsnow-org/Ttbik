@@ -6,11 +6,9 @@ describe("Nova Studio availability", () => {
     const saved = {
       primary: process.env.OPEN_CODER_STUDIO_URL,
       replicas: process.env.OPEN_CODER_STUDIO_URLS,
-      lfm: process.env.LFM_STUDIO_URLS,
     };
     process.env.OPEN_CODER_STUDIO_URL = "";
     process.env.OPEN_CODER_STUDIO_URLS = "https://studio-test-coder-inference-server-2.api-inference.modelscope.net";
-    process.env.LFM_STUDIO_URLS = "off";
     try {
       expect(coderStudioUrls()).toHaveLength(1);
       expect(coderEnabled()).toBe(true);
@@ -19,8 +17,6 @@ describe("Nova Studio availability", () => {
       else process.env.OPEN_CODER_STUDIO_URL = saved.primary;
       if (saved.replicas === undefined) delete process.env.OPEN_CODER_STUDIO_URLS;
       else process.env.OPEN_CODER_STUDIO_URLS = saved.replicas;
-      if (saved.lfm === undefined) delete process.env.LFM_STUDIO_URLS;
-      else process.env.LFM_STUDIO_URLS = saved.lfm;
     }
   });
 });

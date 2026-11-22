@@ -97,7 +97,7 @@ class RequestedDuration(unittest.TestCase):
             self.assertIn("native-video-duration-limit", str(caught.exception))
 
     def test_low_memory_pass_cap_uses_two_second_passes_and_keeps_the_exact_duration(self):
-        # An 8 GB Studio died mid-sampling on a 4 s/32-frame pass (LFM2.5/Nova video 2026-11-05); the cap forces 2 s/16-frame passes.
+        # An 8 GB Studio died mid-sampling on a 4 s/32-frame pass (Nova video 2026-11-05); the cap forces 2 s/16-frame passes.
         expected = {2: [2], 4: [2, 2], 6: [2, 2, 2], 10: [2, 2, 2, 2, 2], 15: [2, 2, 2, 2, 2, 2, 3], 30: [2] * 15, 60: [2] * 30, 120: [2] * 60}
         with patch.dict(os.environ, {"CPU_VIDEO_MAX_PASS_S": "2"}):
             for seconds, chunks in expected.items():

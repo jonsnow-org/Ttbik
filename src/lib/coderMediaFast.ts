@@ -196,7 +196,7 @@ export function parseMediaRoute(reply: string): RoutedMedia | null {
 }
 
 /** The router's decision checked against what the message literally names: a message that names a video (فيديو / فديو / مقطع / video) and a
- *  duration is a video of that duration even when a small model answered IMAGE (live 2026-11-04: LFM sent a photo for «فديو … 6 ثوان»).
+ *  duration is a video of that duration even when a small model answered IMAGE (live 2026-11-04: a small model sent a photo for «فديو … 6 ثوان»).
  *  The model's own prompt is kept; only the kind / seconds the user wrote are restored. */
 export function reconcileRoute(routed: RoutedMedia | null, text: string, context: MediaFollowupContext = {}): RoutedMedia | null {
   if (!routed || (routed.kind !== "image" && routed.kind !== "video")) return routed;

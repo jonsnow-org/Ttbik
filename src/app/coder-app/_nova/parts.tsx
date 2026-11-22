@@ -677,16 +677,12 @@ export function PanelPage({ lang }: { lang: Lang }) {
       {tab === "models" && <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />}
       {tab === "training" && (<>
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
-        {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · Nova 1 ${g.novaHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
-        <Cell multiline subtitle={nova?.request?.not_before ? `${ar ? "يبدأ بعد" : "Starts after"} ${trt(nova.request.not_before)}` : undefined}
-          after={<Button size="s" mode="bezeled" loading={busy.startsWith("nova")} onClick={() => act(nova?.paused ? "nova_resume" : "nova_pause")}>{nova?.paused ? "▶️" : "⏸"}</Button>}>
-          {`Nova 1: ${nova?.request?.enabled ? (nova.paused ? (ar ? "موقوف (لا جلسات جديدة)" : "paused (no new sessions)") : (ar ? "مفعّل" : "on")) : (ar ? "غير مفعّل" : "off")}`}
-        </Cell>
+        {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>{`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}</Cell>}
         <Cell multiline subtitle={tr?.monitor ? `${trt(tr.monitor.at)} · ${tr.monitor.conclusion}` : "—"}
           after={<Button size="s" mode="bezeled" loading={busy === "monitor_run"} onClick={() => act("monitor_run")}>🛰</Button>}>
           {ar ? "مراقب كاكل" : "Kaggle monitor"}
         </Cell>
-        {(tr?.monitorLines || []).filter((l: string) => l.startsWith("دفتر") || l.startsWith("Nova 1:")).slice(0, 8).map((l: string, i: number) => <Cell key={i} multiline>{l}</Cell>)}
+        {(tr?.monitorLines || []).filter((l: string) => l.startsWith("دفتر")).slice(0, 8).map((l: string, i: number) => <Cell key={i} multiline>{l}</Cell>)}
         {(tr?.inspectorLines || []).filter((l: string) => l.startsWith("status:") || l.startsWith("=====")).slice(0, 10).map((l: string, i: number) => <Cell key={"i" + i} multiline>{l}</Cell>)}
         {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
       </Section>
@@ -718,7 +714,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
         <Cell after={String(d.health?.live?.ctx ?? "—")}>{ar ? "سياق النموذج (رمز)" : "Model context (tokens)"}</Cell>
         <Cell after={String(d.health?.live?.historyChars ?? "—")}>{ar ? "نافذة المحادثة (حرف)" : "History window (chars)"}</Cell>
         <Cell after={d.health?.live?.quickLane ? "✅" : "—"}>{ar ? "الرد السريع بسطر واحد" : "Quick one-line reply"}</Cell>
-        <Cell after={d.health?.nova1Studio ? "✅" : "—"}>Nova 1 Studio</Cell>
+        <Cell after={d.health?.nova1Studio ? "✅" : "—"}>{ar ? "استوديو نوفا (35B)" : "Nova Studio (35B)"}</Cell>
       </Section>
       <Section header={ar ? "التنفيذ والبحث (بدائل)" : "Sandbox & search (fallbacks)"}>
         <Cell after={d.health?.oracle ? "✅" : "—"}>{ar ? "خادم Oracle (تشغيل الكود)" : "Oracle host (code runner)"}</Cell>
