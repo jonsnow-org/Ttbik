@@ -40,6 +40,7 @@ export default function EnglishStoryCard({
   title,
   dek,
   date,
+  updatedDate,
   badge,
 }: {
   href: string;
@@ -47,6 +48,7 @@ export default function EnglishStoryCard({
   title: string;
   dek: string;
   date: string;
+  updatedDate?: string;
   badge?: string;
 }) {
   return (
@@ -58,6 +60,7 @@ export default function EnglishStoryCard({
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
           {badge && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-sky-800 ring-1 ring-sky-100">{badge}</span>}
           <span className="text-slate-400">{date}</span>
+          {updatedDate ? <span className="text-slate-600">Updated · {updatedDate}</span> : null}
         </div>
         <h2 className="mt-1 text-lg font-black text-slate-900">{title}</h2>
         <p className="mt-1 text-sm leading-6 text-slate-600">{dek}</p>

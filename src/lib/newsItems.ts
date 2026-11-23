@@ -747,7 +747,7 @@ export function getNewsItem(slug: string): NewsItem | undefined {
 
 /** The newest authored news item, or undefined when the desk is empty. */
 export function latestNewsItem(): NewsItem | undefined {
-  return [...NEWS_ITEMS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
+  return [...NEWS_ITEMS].sort((a, b) => (b.updatedDateIso || b.dateIso).localeCompare(a.updatedDateIso || a.dateIso))[0];
 }
 
 /** Public URLs used by IndexNow and the news sitemap. */

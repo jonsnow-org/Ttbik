@@ -9,9 +9,14 @@ test("news catalogue is real, non-empty, and contains unique slugs", () => {
 });
 
 test("latest news entry and public sitemap exports are usable", () => {
-  const newest = [...NEWS_ITEMS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];     // the daily automation adds newer items on top: do not pin one slug
+  const newest = [...NEWS_ITEMS].sort((a, b) => (b.updatedDateIso || b.dateIso).localeCompare(a.updatedDateIso || a.dateIso))[0];
   assert.equal(latestNewsItem()?.slug, newest.slug);
   assert.equal(getNewsItem("us-midterms-2026-democrats-gains-nov")?.dateIso, "2026-11-04");
   assert.equal(newsSitemapEntries().length, NEWS_ITEMS.length);
   assert.ok(newsSitemapEntries().every((item) => item.path.startsWith("/news/")));
+  const cop31 = NEWS_ITEMS.find((item) => item.slug === "cop31-overtime-climate-talks-2026");
+  const cop31Sitemap = newsSitemapEntries().find((item) => item.path.endsWith(cop31?.slug || ""));
+  assert.equal(cop31?.dateIso, "2026-11-21");
+  assert.equal(cop31?.updatedDateIso, "2026-11-23");
+  assert.equal(cop31Sitemap?.dateIso, cop31?.dateIso, "news sitemap must retain the original publication date");
 });

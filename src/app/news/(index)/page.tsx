@@ -155,6 +155,7 @@ export default async function NewsHubPage() {
             )}
             <div className="p-5">
               <p className="mb-1 text-xs font-bold text-indigo-700">خبر اليوم · {featured.dateLabel}</p>
+              {featured.updatedDateLabel ? <p className="mb-1 text-xs font-bold text-slate-600">آخر تحديث · {featured.updatedDateLabel}</p> : null}
               <h2 className="mb-3 text-lg font-extrabold text-slate-900">
                 <Link href={`/news/${featured.slug}`} className="hover:underline">
                   {featured.title}

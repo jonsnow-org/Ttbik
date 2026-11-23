@@ -64,6 +64,18 @@ test("the APEC event remains current through its final day in both locales", () 
   assert.equal(isEventUpcomingOrCurrent(ar, "2026-11-20"), false);
 });
 
+test("updated stories surface by update date while both locales retain original publication dates", () => {
+  const root = process.cwd();
+  const arabicPage = readFileSync(path.join(root, "src/app/news/(index)/page.tsx"), "utf8");
+  const englishPage = readFileSync(path.join(root, "src/app/en/news/page.tsx"), "utf8");
+  const englishCard = readFileSync(path.join(root, "src/components/EnglishStoryCard.tsx"), "utf8");
+  assert.match(arabicPage, /featured\.updatedDateLabel/);
+  assert.match(englishPage, /const orderedNews = \[\.\.\.EN_NEWS\]\.sort/);
+  assert.match(englishPage, /updatedDate=\{item\.updatedDateLabel\}/);
+  assert.match(englishCard, /updatedDate\?: string/);
+  assert.match(englishCard, /Updated · \{updatedDate\}/);
+});
+
 test("English covers fall back to the site's editorial image when a slug has no custom cover", () => {
   const root = process.cwd();
   const component = readFileSync(path.join(root, "src/components/EnglishStoryCard.tsx"), "utf8");

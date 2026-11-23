@@ -13,6 +13,12 @@ export const metadata: Metadata = {
   openGraph: { title: "English news notes | Sham AI", description: "Documented English notes and official live desks.", url: `${SITE_URL}/en/news`, locale: "en_US", type: "website" },
 };
 
+const orderedNews = [...EN_NEWS].sort((a, b) => {
+  const dateA = Date.parse(a.updatedDateIso || a.date) || 0;
+  const dateB = Date.parse(b.updatedDateIso || b.date) || 0;
+  return dateB - dateA;
+});
+
 export default function Page() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
@@ -22,8 +28,8 @@ export default function Page() {
       <LiveHeadlines limit={24} />
       <div className="mt-6"><AdSlot position="in-content" label="English news" /></div>
       <div className="mt-6 grid gap-4">
-        {EN_NEWS.map((item) => (
-          <EnglishStoryCard key={item.slug} href={`/en/news/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} badge="Note" />
+        {orderedNews.map((item) => (
+          <EnglishStoryCard key={item.slug} href={`/en/news/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} updatedDate={item.updatedDateLabel} badge="Note" />
         ))}
       </div>
     </main>
