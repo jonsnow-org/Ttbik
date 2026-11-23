@@ -1,0 +1,225 @@
+"""Qalam: one unified model. Recurrent shared blocks with sparse experts, a K/V cache, a native T-LDM path and self-speculative decoding.
+
+Native T-LDM (no donor, no separate head model): the SAME blocks, embeddings and tied LM head do
+  compress  - a learned perceiver-style compressor turns the prefix states into `latents` slots,
+  think     - the recurrent blocks run over the latents (bidirectionally),
+  write     - the recurrent blocks, bidirectional over a masked block, read the prefix from the K/V cache and the latents by cross-attention,
+and the same causal path verifies the writer's draft, so speculative decoding returns exactly what greedy causal decoding would.
+"""
+from __future__ import annotations
+
+import math
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+from .config import ModelConfig
+from .layers import KV, Block, CrossAttention, RMSNorm
+
+
+class Qalam(nn.Module):
+    def __init__(self, cfg: ModelConfig) -> None:
+        super().__init__()
+        self.cfg = cfg
+        self.embed = nn.Embedding(cfg.vocab_size, cfg.width)
+        self.cycle_embed = nn.Embedding(cfg.cycles, cfg.width)
+        self.blocks = nn.ModuleList(Block(cfg) for _ in range(cfg.unique_blocks))
+        self.final_norm = RMSNorm(cfg.width)
+        self.lm_head = nn.Linear(cfg.width, cfg.vocab_size, bias=False)
+        self.lm_head.weight = self.embed.weight                       # tied: counted once
+        self.latent_queries = nn.Parameter(torch.randn(cfg.latents, cfg.width) * 0.02)
+        self.compressor = CrossAttention(cfg.width, cfg.heads)
+        self.reader = CrossAttention(cfg.width, cfg.heads)
+        self.apply(self._init)
+
+    @staticmethod
+    def _init(m: nn.Module) -> None:
+        if isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, std=0.02)
+        elif isinstance(m, nn.Embedding):
+            nn.init.normal_(m.weight, std=0.02)
+
+    def count_parameters(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+    def active_parameters_per_token(self) -> int:
+        """Parameters that touch one token in one pass (2 of 8 experts), times the cycles actually run is the compute; this is the per-application figure x applications."""
+        c = self.cfg
+        attn = (c.width * c.heads * (c.width // c.heads) * 2) + (c.width * c.kv_heads * (c.width // c.heads) * 2)
+        moe = c.top_k * 3 * c.width * c.expert_hidden + c.width * c.experts
+        return (attn + moe) * c.unique_blocks * c.cycles
+
+    # ------------------------------------------------------------------ causal path
+    def _check_ids(self, ids: torch.Tensor) -> None:
+        if ids.ndim != 2 or ids.shape[1] < 1:
+            raise ValueError("token ids must have shape [batch, non-empty sequence]")
+        if ids.min().item() < 0 or ids.max().item() >= self.cfg.vocab_size:
+            raise ValueError("token id outside the vocabulary")
+
+    def _cycles(self, cycles: int | None) -> int:
+        c = self.cfg.cycles if cycles is None else int(cycles)
+        if not 1 <= c <= self.cfg.cycles:
+            raise ValueError("cycles must be between 1 and the configured cycles")
+        return c
+
+    def forward_causal(self, ids: torch.Tensor, cache: list[KV] | None = None, cycles: int | None = None) -> tuple[torch.Tensor, list[KV]]:
+        """Hidden states of `ids` (continuing `cache` if given) and the grown cache: one (K, V) per cycle x block application."""
+        self._check_ids(ids)
+        cyc = self._cycles(cycles)
+        start = 0 if cache is None else cache[0][0].shape[2]
+        if start + ids.shape[1] > self.cfg.max_seq:
+            raise ValueError("sequence exceeds max_seq")
+        positions = torch.arange(start, start + ids.shape[1], device=ids.device)
+        x = self.embed(ids)
+        new: list[KV] = []
+        for c in range(cyc):
+            x = x + self.cycle_embed.weight[c]
+            for i, blk in enumerate(self.blocks):
+                x, kv = blk(x, positions, True, None if cache is None else cache[c * len(self.blocks) + i])
+                new.append(kv)
+        return self.final_norm(x), new
+
+    def aux_loss(self) -> torch.Tensor:
+        return torch.stack([b.moe.aux for b in self.blocks]).mean()
+
+    def forward(self, ids: torch.Tensor, cycles: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        h, _ = self.forward_causal(ids, None, cycles)
+        return self.lm_head(h), self.aux_loss()
+
+    # ------------------------------------------------------------------ native T-LDM
+    def compress(self, hidden: torch.Tensor, window: int = 256) -> torch.Tensor:
+        """The latent compressor: learned queries read (the last `window` of) the prefix states."""
+        mem = hidden[:, -window:]
+        q = self.latent_queries.unsqueeze(0).expand(hidden.shape[0], -1, -1)
+        return q + self.compressor(q, mem)
+
+    def think(self, latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
+        cyc = self._cycles(cycles)
+        pos = torch.arange(latents.shape[1], device=latents.device)
+        x = latents
+        for c in range(cyc):
+            x = x + self.cycle_embed.weight[c]
+            for blk in self.blocks:
+                x, _ = blk(x, pos, False, None)
+        return x
+
+    def write(self, block_ids: torch.Tensor, cache: list[KV], latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
+        """Logits for a (partly masked) block that follows the cached prefix. Bidirectional inside the block; the prefix is read from the cache."""
+        cyc = self._cycles(cycles)
+        start = cache[0][0].shape[2]
+        positions = torch.arange(start, start + block_ids.shape[1], device=block_ids.device)
+        x = self.embed(block_ids)
+        for c in range(cyc):
+            x = x + self.cycle_embed.weight[c]
+            x = x + self.reader(x, latents)
+            for i, blk in enumerate(self.blocks):
+                x, _ = blk(x, positions, False, cache[c * len(self.blocks) + i])
+        return self.lm_head(self.final_norm(x))
+
+    def tldm_loss(self, ids: torch.Tensor, block: int = 16, cycles: int | None = None, generator: torch.Generator | None = None) -> torch.Tensor:
+        """Masked-block diffusion loss at a random split: the prefix is encoded causally, the block is masked at a random ratio and rebuilt."""
+        self._check_ids(ids)
+        b, t = ids.shape
+        if t < block + 1:
+            raise ValueError("sequence shorter than block + 1")
+        cyc = self._cycles(cycles)
+        split = int(torch.randint(1, t - block + 1, (1,), generator=generator))
+        h, cache = self.forward_causal(ids[:, :split], None, cyc)
+        latents = self.think(self.compress(h), cyc)
+        target = ids[:, split:split + block]
+        ratio = 0.15 + 0.85 * torch.rand((b, 1), generator=generator)
+        mask = torch.rand((b, block), generator=generator) < ratio
+        mask[:, 0] |= ~mask.any(dim=1)                               # at least one masked position per row
+        inp = torch.where(mask, torch.full_like(target, self.cfg.special_id("MASK")), target)
+        logits = self.write(inp, cache, latents, cyc)
+        return F.cross_entropy(logits[mask].float(), target[mask])
+
+    @torch.no_grad()
+    def _draft(self, cache: list[KV], hidden: torch.Tensor, block: int, steps: int, allowed: list[int], cyc: int,
+               fixed: torch.Tensor | None = None) -> torch.Tensor:
+        """A block of `block` tokens; `fixed` (optional, [batch, f]) are known tokens at its start, never overwritten."""
+        mask_id = self.cfg.special_id("MASK")
+        latents = self.think(self.compress(hidden), cyc)
+        out = torch.full((hidden.shape[0], block), mask_id, dtype=torch.long, device=hidden.device)
+        if fixed is not None:
+            out[:, :fixed.shape[1]] = fixed
+        keep = torch.full((self.cfg.vocab_size,), float("-inf"), device=hidden.device, dtype=hidden.dtype)
+        keep[allowed] = 0.0
+        for s in range(steps):
+            masked = out.eq(mask_id)
+            if not bool(masked.any()):
+                break
+            probs = torch.softmax(self.write(out, cache, latents, cyc) + keep, dim=-1)
+            conf, pred = probs.max(dim=-1)
+            for row in range(out.shape[0]):
+                pos = masked[row].nonzero(as_tuple=True)[0]
+                reveal = max(1, math.ceil(pos.numel() / (steps - s)))
+                top = conf[row, pos].topk(min(reveal, pos.numel())).indices
+                out[row, pos[top]] = pred[row, pos[top]]
+        return out
+
+    @torch.no_grad()
+    def generate_tldm(self, prefix: torch.Tensor, block: int = 16, steps: int = 4, cycles: int | None = None, allowed: list[int] | None = None) -> torch.Tensor:
+        """A block written by iterative masked refinement (greedy, deterministic). Never emits MASK or ids outside `allowed`."""
+        if block < 1 or steps < 1:
+            raise ValueError("block and steps must be positive")
+        cyc = self._cycles(cycles)
+        allowed = allowed or self.cfg.text_and_end_ids()
+        if self.cfg.special_id("MASK") in allowed:
+            raise ValueError("allowed ids must exclude MASK")
+        was = self.training
+        self.eval()
+        try:
+            h, cache = self.forward_causal(prefix, None, cyc)
+            return self._draft(cache, h, block, steps, allowed, cyc)
+        finally:
+            self.train(was)
+
+    # ------------------------------------------------------------------ self-speculative decoding
+    @torch.no_grad()
+    def generate_speculative(self, prefix: torch.Tensor, max_new: int, block: int = 8, steps: int = 2, cycles: int | None = None,
+                             allowed: list[int] | None = None, stop_id: int | None = None) -> tuple[torch.Tensor, dict]:
+        """Greedy decoding accelerated by the native writer. State: the cache holds the committed tokens, and `pending` is the next token already known to be
+        the greedy one but not yet in the cache. Each round the writer drafts `block` tokens after `pending` in parallel, ONE causal chunk pass over
+        [pending, draft...] checks them, and the longest agreeing run plus the first correct token are kept. The result is IDENTICAL to plain greedy
+        causal decoding (batch size 1); only the number of causal passes drops. `passes` counts causal passes (the draft passes are extra, writer-sized)."""
+        if prefix.shape[0] != 1:
+            raise ValueError("speculative decoding is for batch size 1")
+        if max_new < 1:
+            raise ValueError("max_new must be positive")
+        cyc = self._cycles(cycles)
+        allowed = allowed or self.cfg.text_and_end_ids()
+        keep = torch.full((self.cfg.vocab_size,), float("-inf"), dtype=self.embed.weight.dtype)
+        keep[allowed] = 0.0
+        was = self.training
+        self.eval()
+        try:
+            hid, cache = self.forward_causal(prefix, None, cyc)
+            pending = int((self.lm_head(hid[:, -1]) + keep).argmax())
+            out: list[int] = [pending]
+            passes, accepted = 1, 0
+            while len(out) < max_new and not (stop_id is not None and stop_id in out):
+                k = min(block, max_new - len(out), self.cfg.max_seq - cache[0][0].shape[2] - 1)
+                if k < 1:
+                    break
+                fixed = torch.tensor([[pending]])
+                chunk = self._draft(cache, hid, k + 1, steps, allowed, cyc, fixed=fixed)            # [pending, d1..dk]
+                chunk_h, chunk_cache = self.forward_causal(chunk, cache, cyc)
+                passes += 1
+                preds = (self.lm_head(chunk_h)[0] + keep).argmax(dim=-1)                              # preds[j]: the greedy token after chunk[:j+1]
+                agree = (preds[:k] == chunk[0, 1:]).long().cumprod(dim=0)
+                m = int(agree.sum())
+                accepted += m
+                keep_len = cache[0][0].shape[2] + 1 + m
+                cache = [(kk[:, :, :keep_len], vv[:, :, :keep_len]) for kk, vv in chunk_cache]
+                hid = torch.cat([hid, chunk_h[:, :1 + m]], dim=1)
+                out.extend(int(t) for t in chunk[0, 1:1 + m])
+                pending = int(preds[m])
+                out.append(pending)
+            if stop_id is not None and stop_id in out:
+                out = out[:out.index(stop_id) + 1]
+            out = out[:max_new]
+            return torch.tensor([out]), {"tokens": len(out), "passes": passes, "accepted_draft_tokens": accepted}
+        finally:
+            self.train(was)
