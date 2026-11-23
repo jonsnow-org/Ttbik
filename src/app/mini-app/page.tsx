@@ -248,7 +248,7 @@ export default function MiniAppPage() {
   const loadMoreRequestRef = useRef(0);
   const loadMoreBusyRef = useRef(false);
   const itemsRef = useRef<FeedItem[]>([]);
-  itemsRef.current = items;
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
@@ -368,6 +368,21 @@ export default function MiniAppPage() {
   }
 
   useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const oldRoot = root.style.overscrollBehaviorY;
+    const oldBody = body.style.overscrollBehaviorY;
+    root.style.setProperty("overscroll-behavior-y", "none");
+    body.style.setProperty("overscroll-behavior-y", "none");
+    return () => {
+      if (oldRoot) root.style.setProperty("overscroll-behavior-y", oldRoot);
+      else root.style.removeProperty("overscroll-behavior-y");
+      if (oldBody) body.style.setProperty("overscroll-behavior-y", oldBody);
+      else body.style.removeProperty("overscroll-behavior-y");
+    };
+  }, []);
+
+  useEffect(() => {
     const onScroll = () => setShowTopBtn(window.scrollY > 280);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -392,7 +407,7 @@ export default function MiniAppPage() {
     }
     setLiked(loadJSON(LS.liked, {}));
     seenRef.current = new Set(loadJSON<string[]>(LS.seen, []));
-    try { document.documentElement.style.overscrollBehaviorY = "none"; document.body.style.overscrollBehaviorY = "none"; } catch {}
+    // The overscroll style is synchronized in its own effect below.
     // Autoplay defaults on, except when the phone asks to save data.
     const saveData = !!(navigator as any).connection?.saveData;
     setAutoplay(loadJSON(LS.autoplay, !saveData));
@@ -430,6 +445,13 @@ export default function MiniAppPage() {
     if (n) setViewUserName(n);
   }, [viewUserId, viewUserName, names, items]);
 
+  async function social(action: string, extra: Record<string, unknown> = {}) {
+    const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, init_data: tgInitData(), ...extra }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || "failed"), { status: r.status, needsMigration: !!j.needs_migration });
+    return j;
+  }
+
   const loadRelations = useCallback(async (profileId?: string | null) => {
     if (!userId) return;
     try {
@@ -461,20 +483,16 @@ export default function MiniAppPage() {
           // failed IDs remain in the legacy local list for a future retry.
           if (!migration.pendingIds.length) {
             saveJSON(LS.followMigrated, true);
-            void loadRelations(profileId);
+            setRelations((prev) => ({
+              ...prev,
+              following: Array.from(new Set([...prev.following, ...ids])),
+            }));
           }
         }
       }
     } catch { setSocialReady(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  async function social(action: string, extra: Record<string, unknown> = {}) {
-    const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, init_data: tgInitData(), ...extra }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error(j.error || "failed"), { status: r.status, needsMigration: !!j.needs_migration });
-    return j;
-  }
 
   const profileTargetId = viewUserId || (tab === "me" ? userId : null);
   const isOwnProfile = !!profileTargetId && profileTargetId === userId;
@@ -598,7 +616,6 @@ export default function MiniAppPage() {
     return () => clearInterval(t);
   }, [buildQuery, items, tab, showProfile]);
 
-  useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   useEffect(() => { void loadRelations(showProfile ? profileTargetId : null); }, [loadRelations, showProfile, profileTargetId]);
   useEffect(() => { if (isOwnProfile && userId) void loadReward(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isOwnProfile, userId]);
 
@@ -636,6 +653,7 @@ export default function MiniAppPage() {
       if (Array.isArray(j.reports)) setReports(j.reports);
     } catch {}
   }
+  useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   async function loadAdminConvs() {
     try {
       const j = await (await fetch(`/api/media-messages?admin=1&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })).json();
@@ -900,6 +918,48 @@ export default function MiniAppPage() {
     return list;
   }, [items, tab, trendKind, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
+  // View counting:
+  // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
+  // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
+  // Server dedupes once per verified Telegram user and ignores the sharer's own views.
+  // Client only locks an id after the server confirms counted:true so a failed request can retry.
+  // id -> when the server last counted it for this person (or refused for good). A post counts again after the server's cooldown.
+  const viewedRef = useRef<Map<string, number>>(new Map());
+  const viewPendingRef = useRef<Set<string>>(new Set());
+  const viewTriesRef = useRef<Map<string, number>>(new Map());
+  const VIEW_COOLDOWN_MS = 30 * 60_000;
+  const recentlyViewed = (id: string) => { const t = viewedRef.current.get(id); return t !== undefined && Date.now() - t < VIEW_COOLDOWN_MS; };
+  const markViewed = (item: FeedItem, seconds: number, force = false) => {
+    if (!item?.id) return;
+    if (recentlyViewed(item.id) || viewPendingRef.current.has(item.id)) return;
+    if (!force && seconds < 1.5) return;
+    viewPendingRef.current.add(item.id);
+    const lock = () => viewedRef.current.set(item.id, Date.now());
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        viewPendingRef.current.delete(item.id);
+        if (j?.counted) {
+          lock();
+          setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 } : it));
+          track("view", { post_id: item.id, type: item.media_type });
+        } else if (j?.reason === "cooldown" || j?.reason === "no-post") {
+          lock();                                    // counted recently / nothing to count: do not ask again for now
+          if (typeof j.views === "number") setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: Math.max(it.views || 0, j.views) } : it));
+        } else {
+          // no-auth / no-db / storage / network: the view did NOT count. Try again a few times instead of silently giving up.
+          const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+          viewTriesRef.current.set(item.id, n);
+          if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
+        }
+      })
+      .catch(() => {
+        viewPendingRef.current.delete(item.id);
+        const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+        viewTriesRef.current.set(item.id, n);
+        if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
+      });
+  };
   // Picks the one video card most in view (≥60% visible) for the muted
   // autoplay preview — only one at a time — and stops the full player
   // (with sound) when the user scrolls it off-screen so audio never stacks.
@@ -1079,7 +1139,7 @@ export default function MiniAppPage() {
       following: profileCounts?.following ?? 0,
     };
   }, [items, profileTargetId, profileCounts]);
-  notifsRef.current = notifs;
+  useEffect(() => { notifsRef.current = notifs; }, [notifs]);
   useEffect(() => { if (!showNotifs && freshIds.size) setFreshIds(new Set()); }, [showNotifs, freshIds]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
   const openReports = useMemo(() => reports.filter((r) => r.status === "open"), [reports]);
@@ -1127,48 +1187,6 @@ export default function MiniAppPage() {
       })
       .catch(undo);
     track(was ? "unlike" : "like", { post_id: id });
-  };
-  // View counting:
-  // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
-  // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
-  // Server dedupes once per verified Telegram user and ignores the sharer's own views.
-  // Client only locks an id after the server confirms counted:true so a failed request can retry.
-  // id -> when the server last counted it for this person (or refused for good). A post counts again after the server's cooldown.
-  const viewedRef = useRef<Map<string, number>>(new Map());
-  const viewPendingRef = useRef<Set<string>>(new Set());
-  const viewTriesRef = useRef<Map<string, number>>(new Map());
-  const VIEW_COOLDOWN_MS = 30 * 60_000;
-  const recentlyViewed = (id: string) => { const t = viewedRef.current.get(id); return t !== undefined && Date.now() - t < VIEW_COOLDOWN_MS; };
-  const markViewed = (item: FeedItem, seconds: number, force = false) => {
-    if (!item?.id) return;
-    if (recentlyViewed(item.id) || viewPendingRef.current.has(item.id)) return;
-    if (!force && seconds < 1.5) return;
-    viewPendingRef.current.add(item.id);
-    const lock = () => viewedRef.current.set(item.id, Date.now());
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
-      .then(async (r) => {
-        const j = await r.json().catch(() => ({}));
-        viewPendingRef.current.delete(item.id);
-        if (j?.counted) {
-          lock();
-          setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 } : it));
-          track("view", { post_id: item.id, type: item.media_type });
-        } else if (j?.reason === "cooldown" || j?.reason === "no-post") {
-          lock();                                    // counted recently / nothing to count: do not ask again for now
-          if (typeof j.views === "number") setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: Math.max(it.views || 0, j.views) } : it));
-        } else {
-          // no-auth / no-db / storage / network: the view did NOT count. Try again a few times instead of silently giving up.
-          const n = (viewTriesRef.current.get(item.id) || 0) + 1;
-          viewTriesRef.current.set(item.id, n);
-          if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
-        }
-      })
-      .catch(() => {
-        viewPendingRef.current.delete(item.id);
-        const n = (viewTriesRef.current.get(item.id) || 0) + 1;
-        viewTriesRef.current.set(item.id, n);
-        if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
-      });
   };
   const playItem = (item: FeedItem) => {
     soundOnRef.current = item.media_type !== "audio" && item.media_type !== "voice";
@@ -1997,7 +2015,7 @@ function LazyFeedAd() {
 function LoadMoreSentinel({ onVisible, loading }: { onVisible: () => void; loading: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const cb = useRef(onVisible);
-  cb.current = onVisible;
+  useEffect(() => { cb.current = onVisible; }, [onVisible]);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
