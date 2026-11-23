@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from .config import ModelConfig
-from .layers import KV, Block, CrossAttention, RMSNorm
+from .layers import KV, Block, CrossAttention, RMSNorm, rope_tables
 
 
 class Qalam(nn.Module):
@@ -31,6 +31,9 @@ class Qalam(nn.Module):
         self.latent_queries = nn.Parameter(torch.randn(cfg.latents, cfg.width) * 0.02)
         self.compressor = CrossAttention(cfg.width, cfg.heads)
         self.reader = CrossAttention(cfg.width, cfg.heads)
+        cos, sin = rope_tables(cfg.max_seq, cfg.width // cfg.heads, cfg.rope_theta)
+        self.register_buffer("rope_cos", cos, persistent=False)
+        self.register_buffer("rope_sin", sin, persistent=False)
         self.apply(self._init)
 
     @staticmethod
@@ -57,6 +60,9 @@ class Qalam(nn.Module):
         if ids.min().item() < 0 or ids.max().item() >= self.cfg.vocab_size:
             raise ValueError("token id outside the vocabulary")
 
+    def _rope(self, start: int, length: int, like: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.rope_cos[start:start + length].to(like.dtype), self.rope_sin[start:start + length].to(like.dtype)
+
     def _cycles(self, cycles: int | None) -> int:
         c = self.cfg.cycles if cycles is None else int(cycles)
         if not 1 <= c <= self.cfg.cycles:
@@ -70,13 +76,13 @@ class Qalam(nn.Module):
         start = 0 if cache is None else cache[0][0].shape[2]
         if start + ids.shape[1] > self.cfg.max_seq:
             raise ValueError("sequence exceeds max_seq")
-        positions = torch.arange(start, start + ids.shape[1], device=ids.device)
         x = self.embed(ids)
+        rope = self._rope(start, ids.shape[1], x)
         new: list[KV] = []
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
             for i, blk in enumerate(self.blocks):
-                x, kv = blk(x, positions, True, None if cache is None else cache[c * len(self.blocks) + i])
+                x, kv = blk(x, rope, True, None if cache is None else cache[c * len(self.blocks) + i])
                 new.append(kv)
         return self.final_norm(x), new
 
@@ -96,25 +102,25 @@ class Qalam(nn.Module):
 
     def think(self, latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
         cyc = self._cycles(cycles)
-        pos = torch.arange(latents.shape[1], device=latents.device)
+        rope = self._rope(0, latents.shape[1], latents)
         x = latents
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
             for blk in self.blocks:
-                x, _ = blk(x, pos, False, None)
+                x, _ = blk(x, rope, False, None)
         return x
 
     def write(self, block_ids: torch.Tensor, cache: list[KV], latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
         """Logits for a (partly masked) block that follows the cached prefix. Bidirectional inside the block; the prefix is read from the cache."""
         cyc = self._cycles(cycles)
         start = cache[0][0].shape[2]
-        positions = torch.arange(start, start + block_ids.shape[1], device=block_ids.device)
         x = self.embed(block_ids)
+        rope = self._rope(start, block_ids.shape[1], x)
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
             x = x + self.reader(x, latents)
             for i, blk in enumerate(self.blocks):
-                x, _ = blk(x, positions, False, cache[c * len(self.blocks) + i])
+                x, _ = blk(x, rope, False, cache[c * len(self.blocks) + i])
         return self.lm_head(self.final_norm(x))
 
     def tldm_loss(self, ids: torch.Tensor, block: int = 16, cycles: int | None = None, generator: torch.Generator | None = None) -> torch.Tensor:

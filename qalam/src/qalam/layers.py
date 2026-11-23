@@ -20,10 +20,11 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
 
 
-def rope_tables(positions: torch.Tensor, head_dim: int, theta: float, dtype: torch.dtype) -> tuple[torch.Tensor, torch.Tensor]:
-    inv = 1.0 / (theta ** (torch.arange(0, head_dim, 2, device=positions.device, dtype=torch.float64) / head_dim))
-    ang = positions.to(torch.float64)[:, None] * inv[None, :]
-    return ang.cos().to(dtype), ang.sin().to(dtype)
+def rope_tables(length: int, head_dim: int, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """cos/sin for positions 0..length-1, computed once in float64 (the model keeps them as buffers)."""
+    inv = 1.0 / (theta ** (torch.arange(0, head_dim, 2, dtype=torch.float64) / head_dim))
+    ang = torch.arange(length, dtype=torch.float64)[:, None] * inv[None, :]
+    return ang.cos(), ang.sin()
 
 
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
@@ -45,19 +46,17 @@ class Attention(nn.Module):
         self.v = nn.Linear(cfg.width, self.kv * self.hd, bias=False)
         self.o = nn.Linear(self.h * self.hd, cfg.width, bias=False)
 
-    def forward(self, x: torch.Tensor, positions: torch.Tensor, causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
+    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
         b, t, _ = x.shape
         q = self.q(x).view(b, t, self.h, self.hd).transpose(1, 2)
         k = self.k(x).view(b, t, self.kv, self.hd).transpose(1, 2)
         v = self.v(x).view(b, t, self.kv, self.hd).transpose(1, 2)
-        cos, sin = rope_tables(positions, self.hd, self.theta, x.dtype)
+        cos, sin = rope                                   # already sliced to this call's positions
         q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
         if prefix_kv is not None:
             k_all, v_all = torch.cat([prefix_kv[0], k], dim=2), torch.cat([prefix_kv[1], v], dim=2)
         else:
             k_all, v_all = k, v
-        rep = self.h // self.kv
-        k_e, v_e = k_all.repeat_interleave(rep, dim=1), v_all.repeat_interleave(rep, dim=1)
         mask, is_causal = None, False
         if causal:
             if prefix_kv is None:
@@ -66,7 +65,7 @@ class Attention(nn.Module):
                 p = prefix_kv[0].shape[2]
                 mask = torch.ones(t, p + t, dtype=torch.bool, device=x.device)
                 mask[:, p:] = torch.tril(torch.ones(t, t, dtype=torch.bool, device=x.device))
-        y = F.scaled_dot_product_attention(q, k_e, v_e, attn_mask=mask, is_causal=is_causal)
+        y = F.scaled_dot_product_attention(q, k_all, v_all, attn_mask=mask, is_causal=is_causal, enable_gqa=self.h != self.kv)
         return self.o(y.transpose(1, 2).reshape(b, t, self.h * self.hd)), (k_all, v_all)
 
 
@@ -99,6 +98,13 @@ class MoE(nn.Module):
         top_p, top_i = probs.topk(self.k, dim=-1)
         top_p = top_p / top_p.sum(dim=-1, keepdim=True)
         out = torch.zeros_like(flat)
+        if flat.shape[0] == 1:                                    # decode: run exactly the chosen experts, no scan over all of them
+            for n in range(flat.shape[0]):
+                for j in range(self.k):
+                    out[n] += top_p[n, j] * self.experts[int(top_i[n, j])](flat[n:n + 1])[0]
+            load = F.one_hot(top_i, self.e).sum(dim=1).to(probs.dtype).mean(dim=0) / self.k
+            self.aux = self.e * (load * probs.mean(dim=0)).sum()
+            return out.view(b, t, d)
         for e, expert in enumerate(self.experts):
             rows, slot = (top_i == e).nonzero(as_tuple=True)
             if rows.numel():
@@ -116,8 +122,8 @@ class Block(nn.Module):
         self.norm1, self.attn = RMSNorm(cfg.width), Attention(cfg)
         self.norm2, self.moe = RMSNorm(cfg.width), MoE(cfg)
 
-    def forward(self, x: torch.Tensor, positions: torch.Tensor, causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
-        y, kv = self.attn(self.norm1(x), positions, causal, prefix_kv)
+    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
+        y, kv = self.attn(self.norm1(x), rope, causal, prefix_kv)
         x = x + y
         return x + self.moe(self.norm2(x)), kv
 

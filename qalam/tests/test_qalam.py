@@ -184,3 +184,18 @@ def test_independence_no_imports_from_other_models():
     bad = re.compile(r"^\s*(from|import)\s+(sham|nova|onecore|sham_tldm|ai_system)\b", re.M | re.I)
     for f in pathlib.Path(__file__).resolve().parents[1].joinpath("src").rglob("*.py"):
         assert not bad.search(f.read_text(encoding="utf-8")), f
+
+
+def test_int8_copy_stays_close_and_does_not_touch_the_original():
+    from qalam.quant import quantize_int8
+    torch.manual_seed(5)
+    m = Qalam(tiny_config()).eval()
+    before = m.blocks[0].moe.experts[0].up.weight.clone()
+    q = quantize_int8(m)
+    ids = torch.randint(0, 200, (1, 24))
+    a, _ = m(ids)
+    b = q.lm_head(q.forward_causal(ids)[0])
+    cos = torch.nn.functional.cosine_similarity(a.flatten(), b.flatten(), dim=0)
+    assert float(cos) > 0.97 and torch.equal(before, m.blocks[0].moe.experts[0].up.weight)
+    h, cache = q.forward_causal(ids[:, :10])
+    assert q.forward_causal(ids[:, 10:11], cache)[0].shape == (1, 1, q.cfg.width)        # the single-token decode path works quantised too
