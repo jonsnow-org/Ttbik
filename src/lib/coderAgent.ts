@@ -12,7 +12,7 @@ import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from
 import { runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 
 const GH = "https://api.github.com";
-const RESULT_MAX = Number(process.env.CODER_TOOL_RESULT_MAX || 9000);
+export const RESULT_MAX = Number(process.env.CODER_TOOL_RESULT_MAX || 9000);   // the cap on one tool result; scripts/nova-speed/bench.sh measures against it
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const s = (description: string) => ({ type: "string", description });
@@ -1012,6 +1012,9 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         }
         const r = await gh("GET", `${R}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
         const items = (r.data?.tree || []).filter((x: any) => x.type === "blob").map((x: any) => x.path);
+        // CODER_TREE_PRUNE=off restores the earlier listing (every path, dependencies and binaries included): the rollback
+        // switch, and the "before" side of scripts/nova-speed/bench.sh.
+        if ((process.env.CODER_TREE_PRUNE || "").toLowerCase() === "off") return clip(`${items.length} files${r.data?.truncated ? " (truncated)" : ""}\n${items.slice(0, 1500).join("\n")}`);
         const { kept, hidden } = pruneTree(items);
         const cap = Math.max(100, Number(process.env.CODER_TREE_MAX) || 800);
         const shown = kept.slice(0, cap);
@@ -1033,6 +1036,13 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       case "github_search_code": {
         const q = String(a.query || "").trim();
         if (!q) return "error: query is required";
+        // CODER_SEARCH_FRAGMENTS=off: the earlier behaviour (paths only), used as the rollback switch and as the "before"
+        // side of scripts/nova-speed/bench.sh.
+        if ((process.env.CODER_SEARCH_FRAGMENTS || "").toLowerCase() === "off") {
+          const r0 = await gh("GET", `/search/code?q=${encodeURIComponent(`${q} repo:${a.repo}`)}&per_page=30`);
+          if (r0.status >= 300) return clip(`error ${r0.status}: ${String(r0.data?.message || "code search failed")}`);
+          return clip((r0.data?.items || []).map((x: any) => x.path).join("\n") || `no results (${r0.status})`);
+        }
         // text-match: GitHub also returns the code AROUND each hit, so one search answers what used to take a search step
         // plus one or more file reads (each read is minutes of prompt on Nova's 2-core Studio).
         const r = await gh("GET", `/search/code?q=${encodeURIComponent(`${q} repo:${a.repo}`)}&per_page=20`, undefined, { Accept: "application/vnd.github.text-match+json" });

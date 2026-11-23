@@ -257,6 +257,69 @@ describe("the owner's GitHub credentials reach the computer only as a token-shap
   });
 });
 
+describe("the computer path after the clone: the map, an empty folder, and errors that must not be swallowed", () => {
+  const studio = (replies: Record<string, any>) => {
+    const sent: string[] = [];
+    const fetchImpl = jest.fn(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.endsWith("/gradio_api/call/box_do")) {
+        sent.push(unb64(JSON.parse(String(init.body)).data[0]));
+        return new Response(JSON.stringify({ event_id: "e" + sent.length }), { status: 200 });
+      }
+      const asked = JSON.parse(sent[sent.length - 1]);
+      const r = replies[asked.action] || { ok: false, error: `no reply for ${asked.action}` };
+      return new Response("event: complete\ndata: " + JSON.stringify([JSON.stringify(r)]) + "\n\n", { status: 200 });
+    }) as any;
+    return { fetchImpl, sent };
+  };
+
+  test("a clone that finished while the tool waited keeps its folder map, so no scout step follows", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.BOX_JOB_WAIT_MS = "0";
+    const { fetchImpl } = studio({
+      repo: { ok: true, path: "repos/o-r", job: "j1", summary: "files: 120  size: 3M\ntop level:\nsrc, docs, tests" },
+      job_log: { ok: true, id: "j1", running: false, exit_code: 0, seconds: 3, output: "cloned" },
+    });
+    const out = await boxDo("coder", "1:coder", { action: "repo", url: "https://github.com/o/r" }, fetchImpl);
+    expect(out).toContain("repository ready in ~/repos/o-r");
+    expect(out).toContain("top level:");                                  // the folder map arrives with the clone
+    expect(out).toContain("src, docs, tests");
+    expect(out).toContain("computer_search");
+    delete process.env.BOX_JOB_WAIT_MS;
+  });
+
+  test("a clone that FAILED is reported as a failed job, never as a ready repository", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.BOX_JOB_WAIT_MS = "0";
+    const { fetchImpl } = studio({
+      repo: { ok: true, path: "repos/o-r", job: "j2" },
+      job_log: { ok: true, id: "j2", running: false, exit_code: 128, seconds: 2, output: "fatal: repository 'o/r' not found" },
+    });
+    const out = await boxDo("coder", "1:coder", { action: "repo", url: "https://github.com/o/r" }, fetchImpl);
+    expect(out).not.toContain("repository ready");
+    expect(out).toContain("finished with exit 128");
+    expect(out).toContain("not found");
+    expect(out).not.toContain("(empty)");
+    delete process.env.BOX_JOB_WAIT_MS;
+  });
+
+  test("an empty folder says (empty) and a cut file says it continues", () => {
+    expect(renderBoxReply("read", { ok: true, kind: "folder", path: ".", entries: [] })).toBe("folder .:\n(empty)");
+    expect(renderBoxReply("read", { ok: true, kind: "folder", path: ".", entries: ["f package.json (96 B)"] })).toBe("folder .:\nf package.json (96 B)");
+    expect(renderBoxReply("read", { ok: true, text: "first lines", cut: true })).toContain("file continues");
+  });
+
+  test("a Studio error and an unreachable Studio are reported as errors, not as a result", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const { fetchImpl } = studio({ read: { ok: false, error: "no such folder: nope" } });
+    expect(await boxDo("coder", "1:coder", { action: "read", path: "nope" }, fetchImpl)).toBe("error: no such folder: nope");
+    const down = jest.fn(async () => { throw new Error("hub unreachable"); }) as any;
+    expect(await boxDo("coder", "1:coder", { action: "run", command: "ls" }, down)).toBe("error: hub unreachable");
+    expect(await boxDo("coder", "1:coder", { action: "nonsense" }, fetchImpl)).toContain("unknown computer action");
+    expect(renderBoxReply("repo", { ok: false, error: "clone refused: no space left" })).toBe("error: clone refused: no space left");
+  });
+});
+
 describe("home paths", () => {
   it("~/ and $HOME/ mean the hub home folder", () => {
     expect(homePath("~/repos/a-b")).toBe("repos/a-b");
