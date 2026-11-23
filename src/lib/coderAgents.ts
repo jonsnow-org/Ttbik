@@ -5,7 +5,7 @@
 // state row (`agentResult`). The parent only polls those rows, so there is no shared write and no race between finishing children.
 // CODER_AGENTS=off removes the tool.
 
-import { reportsHardChars } from "@/lib/coderContext";
+import { ctxTokens, reportsHardChars } from "@/lib/coderContext";
 import { currentEngineModel, runsOnBigModel } from "@/lib/openCoderStudio";
 
 /** CODER_TOOL_GROUPS=lazy brings back the earlier lazy loading (load_tools); the default is ONE fixed tool list on every step (coderAgent.ts coderToolsFor). */
@@ -15,7 +15,9 @@ export const toolGroupsLazy = (): boolean => {
   if (mode === "fixed") return false;
   // Nova 2 (35B on 2 cores) reads ~7-9 tokens/s: the full tool list is ~11,000 tokens = 20+ minutes of reading before the first word (measured 2026-11-17: 14,342-token prompt for "who are you").
   // It gets the small list (load_tools + the group it needs); Nova (4B, fast reader) keeps the fixed list that its prompt cache likes.
-  return runsOnBigModel();
+  // 2026-11-23: a Studio whose context is 16,384 tokens or less cannot take the full list at all: live run 5ff363b8 sent 18,531 tokens (tools ~11,700) to a 16,384 window,
+  // got HTTP 400, and the step went on WITHOUT tools. Whatever the pool environment says, a small known context means the small list.
+  return runsOnBigModel() || ctxTokens() <= 16384;
 };
 
 export const AGENT_MAX = 5;          // agents one run can start at once

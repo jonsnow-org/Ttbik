@@ -59,7 +59,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
-  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -2434,7 +2434,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const nCtx = Number(/\((\d+) tokens\)[^(]*$/.exec(String(r.error || ""))?.[1]) || Number(/"n_ctx":(\d+)/.exec(String(r.error || ""))?.[1]) || 0;
             if (nCtx >= 8192) noteStudioCtx("ctx-error", nCtx);
             run.histChars = Math.max(6000, Math.floor((run.histChars || historyChars()) / 2));
-            run.softSteps = run.step + 1;
+            // 2026-11-23: this used to set run.softSteps = run.step + 1, which withdrew the tools for the REST of the task and told the model «Step budget reached»:
+            // live, Nova answered «الميزانية وصلت لحدها» and asked permission instead of working. Once the Studio's context is learned the small tool list applies by itself
+            // (toolGroupsLazy); only when it could not be learned is this ONE step sent without tools.
+            if (nCtx < 8192) run.dropToolsOnce = true;
           }
           run.job = undefined;
           run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined;
@@ -2882,7 +2885,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     await cancelWarm(chatId);
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
     const tldmModel = !run.agent && isTldmModel(novaModelOf(st.model)) && tldmEnabled(st, novaModelOf(st.model)) ? (novaModelOf(st.model) as "coder" | "nova2") : null;
-    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    const dropTools = Boolean(run.dropToolsOnce); run.dropToolsOnce = false;
+    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite || dropTools ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", async () => {
       if (!tldmModel) return plainChat();
       // this model's OWN T-LDM head, on its own Studio; a failure is an honest error, never a quiet switch to another model. The head sees the task (and the result of a tool it asked for), not the system prompt.
