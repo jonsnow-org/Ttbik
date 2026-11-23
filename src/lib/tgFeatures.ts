@@ -57,11 +57,12 @@ export async function setTgAudience(key: "tg_rich" | "tg_guest", value: Audience
 /** Guest mode audience for the webhook: off | owner | all. */
 export const guestAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).guest;
 
-type RawApi = { raw: Record<string, (p: Record<string, unknown>) => Promise<unknown>> };
+type RawApi = { raw: Record<string, (p?: Record<string, unknown>) => Promise<unknown>> };
 
 /** What Telegram says about the bot now (getMe returns BotFullInfo since Bot API 10.5): username, topics, guest queries. */
 export async function readBotInfo(api: RawApi): Promise<{ username: string; guest: boolean; topics: boolean; usersCreateTopics: boolean; sidebar: boolean }> {
-  const me = (await api.raw.getMe({})) as Record<string, unknown>;
+  // grammY's raw getMe takes NO payload: its first argument is the abort signal, so getMe({}) fails with «Incorrect abort signal instance found» (seen live in the Mini App, 2026-11-23)
+  const me = (await api.raw.getMe()) as Record<string, unknown>;
   return {
     username: String(me.username || ""),
     guest: Boolean(me.supports_guest_queries),
