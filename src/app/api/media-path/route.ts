@@ -29,6 +29,8 @@ export async function GET(req: NextRequest) {
   }
   return NextResponse.json(
     { file_path: filePath, media_type: String(row.media_type || "video") },
-    { headers: { "cache-control": "public, max-age=0, s-maxage=3000" } }
+    // This is a short-lived access capability, not a public media asset.
+    // Keep the gate/CDN from extending it beyond the Worker’s short local cache.
+    { headers: { "cache-control": "private, no-store" } }
   );
 }
