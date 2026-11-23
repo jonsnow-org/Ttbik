@@ -89,6 +89,7 @@ describe("media stream cache and playback revocation", () => {
     const worker = read("cloudflare/media-stream-worker.js");
     const pathRoute = read("src/app/api/media-path/route.ts");
     expect(worker).toContain('copy.headers.set("cache-control", "public, max-age=30")');
+    expect(worker).toContain('&v=2');
     expect(worker).not.toContain('copy.headers.set("cache-control", "public, max-age=3000")');
     expect(pathRoute).toContain('"cache-control": "private, no-store"');
   });
