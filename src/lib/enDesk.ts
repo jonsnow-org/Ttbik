@@ -15,6 +15,118 @@ export type DeskItem = {
 };
 
 export const EN_NEWS: DeskItem[] = [
+{
+  "slug": "wfp-warns-trade-route-disruptions-risk-food-aid-7-3-million-nov-2026",
+  "title": "WFP warns trade-route disruption could put food aid for 7.3 million people at risk",
+  "date": "23 November 2026",
+  "contextDateLabel": "UN Security Council briefing in New York: 23 November 2026; World Food Programme statement: 23 November 2026 (no publication time shown); Reuters report: 23 November 2026, 16:51 UTC (19:51 Istanbul); Sham AI item date: 23 November 2026.",
+  "dek": "The World Food Programme warned that disruption to the Strait of Hormuz, Bab el-Mandeb and the Black Sea could add US$727 million to its costs by mid-2027 if current conditions persist, potentially putting assistance for 7.3 million people at risk. These are conditional estimates, not confirmed aid cuts.",
+  "body": [
+    "World Food Programme Executive Director Luke J. Lindberg told the UN Security Council in New York on Monday, 23 November 2026, that disruption to three major trade routes—the Strait of Hormuz, Bab el-Mandeb and the Black Sea—is raising food, transport and agricultural-input costs and putting pressure on humanitarian operations. WFP's statement is dated 23 November but does not show a publication time; Reuters published its report at 16:51 UTC (19:51 Istanbul).",
+    "WFP said that, if current conditions persist, it could incur an additional US$727 million in costs by mid-2027, potentially putting assistance for 7.3 million people at risk. This is a conditional projection, not a confirmed funding cut or a statement that assistance has already stopped.",
+    "Lindberg said 266 million people worldwide already face acute hunger, with famine risks in parts of Sudan, South Sudan and Somalia. He also noted that Yemen imports about 90% of its food, leaving it exposed to disruptions in grain flows.",
+    "WFP linked the pressure to higher energy and transport costs, disrupted food and fertilizer shipments, and climate shocks such as El Niño. It said about 30% of global fertilizer supplies pass through the Strait of Hormuz and that reduced wheat and maize vessel traffic through the Bosphorus adds to supply risks.",
+    "Briefing date: 23 November 2026, UN Security Council, New York; WFP statement date: 23 November 2026; Reuters report: 23 November 2026, 16:51 UTC (19:51 Istanbul). The mid-2027 cost and assistance figures are conditional on current conditions persisting, not certain outcomes."
+  ],
+  "sources": [
+    {
+      "href": "https://www.wfp.org/stories/wfp-chief-warns-un-security-council-triple-chokepoint-driving-hunger",
+      "label": "World Food Programme — Security Council warning on trade routes and humanitarian costs, 23 November 2026"
+    },
+    {
+      "href": "https://www.wfp.org/news/wfp-executive-directors-briefing-un-security-council-ukraine-remarks-delivered",
+      "label": "World Food Programme — transcript of the Executive Director's Security Council briefing, 23 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/environment/un-food-agency-chief-warns-wars-jeopardize-food-aid-73-million-more-people-2026-11-23/",
+      "label": "Reuters — independent report on aid risks and shipping costs, 23 November 2026, 16:51 UTC"
+    }
+  ]
+},
+{
+  "slug": "amazon-agrees-to-acquire-decart-ai-optimization-technology-november-2026",
+  "title": "Amazon signs agreement to acquire Decart's AI optimization technology",
+  "date": "23 November 2026",
+  "contextDateLabel": "Amazon statement: 23 November 2026 (no publication time shown); Reuters report: 23 November 2026, 15:33 UTC (18:33 Istanbul); Sham AI item date: 23 November 2026.",
+  "dek": "Amazon announced an agreement to purchase the proprietary technology behind Decart Optimization Stack and bring Decart's founders and team to Amazon. Amazon did not disclose a deal value; completion remains subject to customary conditions, including regulatory clearance.",
+  "body": [
+    "Amazon announced on 23 November 2026 that it had signed an agreement to purchase the proprietary technology behind Decart Optimization Stack (DOS) and bring Decart's three co-founders and its team of researchers and engineers to Amazon. Amazon's statement is dated 23 November but does not show a publication time; Reuters published its report at 15:33 UTC (18:33 Istanbul).",
+    "DOS helps companies run AI systems more efficiently and switch among chips from Nvidia, Amazon and Google. Amazon said the technology would help optimize inference and custom-silicon performance, allowing customers to train and run AI models faster and at lower cost.",
+    "Amazon did not disclose the deal's financial terms or value. Reuters reported that Bloomberg cited a person familiar with the matter for a figure of about US$7.5 billion, but Amazon did not confirm that figure; it should not be presented as a value announced by either party.",
+    "Reuters said completion remains subject to customary closing conditions, including regulatory clearance. The announcement of an agreement therefore does not mean the technology transfer or the team's move has already been completed.",
+    "Announcement and Amazon statement date: 23 November 2026; Reuters report: 23 November 2026, 15:33 UTC (18:33 Istanbul). Amazon did not disclose the deal value, and completion remains conditional on customary approvals and procedures."
+  ],
+  "sources": [
+    {
+      "href": "https://www.aboutamazon.com/news/company-news/amazon-decart-ai-optimization",
+      "label": "Amazon — agreement to purchase Decart technology and bring its team to Amazon, 23 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/retail-consumer/amazon-buy-decarts-ai-chip-optimization-tech-latest-ai-talent-grab-2026-11-23/",
+      "label": "Reuters — agreement details, regulatory conditions and undisclosed value, 23 November 2026, 15:33 UTC"
+    }
+  ]
+},
+  {
+    "slug": "bank-israel-holds-rate-3-25-november-2026",
+    "title": "Bank of Israel holds its benchmark rate at 3.25% for a second consecutive decision",
+    "date": "23 November 2026",
+    "contextDateLabel": "Official decision date: 23 November 2026 (the Bank's page does not show a publication time); Reuters report: 23 November 2026, 17:57 UTC (20:57 Istanbul); Sham AI publication date: 23 November 2026.",
+    "dek": "The Bank of Israel's Monetary Committee kept its benchmark rate at 3.25% in its final scheduled decision of 2026. The decision came with annual inflation at 1.1% in October, a weaker shekel and continued geopolitical uncertainty; this is reporting on the decision and official indicators, not investment advice.",
+    "body": [
+      "The Bank of Israel's Monetary Committee kept the benchmark interest rate at 3.25% in its decision on Monday, 23 November 2026. It was the second consecutive unchanged decision and the final scheduled decision of the year. The Bank's page gives the decision date but no publication time; Reuters published its report that day at 17:57 UTC (20:57 Istanbul).",
+      "The Bank said the Consumer Price Index fell 0.1% in October and 12-month inflation through October was 1.1%, within the 1%–3% target range. From the previous decision on 21 October through 20 November, the shekel depreciated by 7.6% against the US dollar and 5.1% against the euro, according to the Bank.",
+      "National accounts data showed that GDP grew in the third quarter at an annualized rate of 8% relative to the second quarter. Excluding production abroad by Israeli firms—a measure the Bank described as more relevant to domestic economic activity—the annualized growth rate was 4%. These are different measures and should not be described as year-over-year growth.",
+      "The Committee cited several factors behind its decision, including continued domestic and global uncertainty related to geopolitical tensions, the exchange rate, inflation expectations, economic activity and fiscal developments. Reuters reported that 12 of the 14 economists it surveyed had expected the rate to remain unchanged.",
+      "Official decision date: 23 November 2026; Reuters report: 23 November 2026, 17:57 UTC (20:57 Istanbul). This report does not forecast the future path of rates or recommend borrowing or investing."
+    ],
+    "sources": [
+      { "href": "https://www.boi.org.il/en/communication-and-publications/press-releases/the-monetary-committee-decides-on-november-23-2026-to-keep-the-interest-rate-unchanged-at-325-percent/", "label": "Bank of Israel — Monetary Committee decision, 23 November 2026" },
+      { "href": "https://boi.org.il/publications/pressreleases/23-11-26/", "label": "Bank of Israel — Hebrew version of the decision, 23 November 2026" },
+      { "href": "https://www.reuters.com/markets/asia/bank-israel-leaves-rates-unchanged-amid-political-uncertainty-2026-11-23/", "label": "Reuters — rate decision and factors cited by the Bank, 23 November 2026, 17:57 UTC" }
+    ]
+  },
+  {
+    "slug": "poland-airspace-kh101-preliminary-identification-2026",
+    "title": "Polish preliminary inquiry identifies Russian Kh-101 missile fragments at all three crash sites",
+    "date": "22 November 2026",
+    "contextDateLabel": "Incident: Friday 20 November 2026 at sites in eastern Poland; Lublin prosecutor's initial update on ongoing examinations: 21 November 2026; prosecutor update reported by Reuters: 22 November 2026, 17:18 UTC (18:18 Warsaw, 20:18 Istanbul); Sham AI publication: 22 November 2026, 23:06 Istanbul (20:06 UTC).",
+    "dek": "Lublin prosecutors said preliminary inspections found fragments of Russian Kh-101 cruise missiles at all three sites where objects fell after entering Polish airspace on 20 November. The investigation and specialist examinations continue, so the findings are not a final forensic or judicial determination.",
+    "body": [
+      "Three objects fell at sites in eastern Poland on Friday, 20 November 2026, after entering Polish airspace during a Russian overnight attack on Ukraine. In its official statement dated 21 November, the Lublin District Prosecutor's Office said the objects were still being examined and that their precise nature and origin could be established only after further inspections and specialist laboratory tests.",
+      "In an update reported on Sunday, 22 November, prosecutors said preliminary examinations had found fragments of Russian Kh-101 cruise missiles at all three sites: Nowy Lipowiec in Lublin Voivodeship, and Rudnik and Mołodycz in Podkarpackie Voivodeship. Reuters reported the prosecutor's statement that the missiles were manufactured in the fourth quarter of 2026 at a facility in Dubna, in the Moscow region.",
+      "The preliminary identification differs from the first public account, which described two missiles and a jet-powered drone. Prosecutors said all recovered fragments and forensic traces would undergo further expert examination and that additional findings would be announced when available. The weapon identification and manufacturing details should therefore be treated as preliminary investigative findings.",
+      "The available statements do not establish that the incident was a deliberate attack on NATO territory. Poland's prime minister previously described it as a possible provocation, but that was a political characterization, not a final finding from the forensic investigation. The fact that objects entered Poland should not be conflated with proof of intent to target it.",
+      "Incident date: 20 November 2026; initial prosecutor statement: 21 November; preliminary identification update: 22 November. Reuters published its report on 22 November at 17:18 UTC (18:18 Warsaw, 20:18 Istanbul). Sham AI publication date: 22 November 2026, 23:06 Istanbul."
+    ],
+    "sources": [
+      { "href": "https://www.gov.pl/web/po-lublin/aktualny-stan-czynnosci-procesowych-w-sprawie-ujawnienia-obiektow-latajacych-na-terenie-wojewodztwa-lubelskiego-i-podkarpackiego", "label": "Lublin District Prosecutor's Office — official initial investigation update, 21 November 2026" },
+      { "href": "https://www.reuters.com/world/three-russian-missiles-flew-into-poland-friday-prosecutors-say-2026-11-22/", "label": "Reuters — preliminary examination update, 22 November 2026, 17:18 UTC" },
+      { "href": "https://sharjah24.ae/en/Articles/2026/11/22/Poland-says-three-Russian-cruise-missiles-hit-on-Friday", "label": "Agence France-Presse via Sharjah24 — independent confirmation, 22 November 2026" },
+      { "href": "https://www.pb.pl/prokuratura-w-nowym-lipowcu-rudniku-i-molodyczu-znaleziono-szczatki-rosyjskich-pociskow-ch-101-krotka-1270808", "label": "Polish Press Agency via Puls Biznesu — report quoting prosecutors, 22 November 2026, 17:47 Warsaw time" }
+    ]
+  },
+  {
+    "slug": "china-margin-financing-ratio-80-november-2026",
+    "title": "Shanghai, Shenzhen and Beijing exchanges lower the minimum margin-financing ratio to 80%",
+    "date": "22 November 2026",
+    "contextDateLabel": "Official exchange notices: 22 November 2026 (the exchange pages show a date, not a publication time); Reuters report: 22 November 2026, 13:09 UTC (16:09 Istanbul); effective date: 30 November 2026; Sham AI publication: 22 November 2026, 23:06 Istanbul (20:06 UTC).",
+    "dek": "China's three stock exchanges will lower the minimum margin requirement for financed securities purchases from 100% to 80% on 30 November. The notices allow recalculation for some existing contracts and strengthen controls on unusual trading; the change does not guarantee higher prices or a market recovery.",
+    "body": [
+      "On 22 November 2026, the Shanghai, Shenzhen and Beijing stock exchanges announced, with approval from the China Securities Regulatory Commission, that the minimum margin ratio for securities purchases financed through margin trading will fall from 100% to 80%. The revised rule takes effect on 30 November 2026, not on the announcement date.",
+      "The notices allow member firms, including brokerages, to recalculate the available margin balance for financing contracts that remain unsettled before the effective date. This gives firms permission to apply the revised calculation; it does not mean every existing contract will be adjusted automatically or that every customer will receive additional credit.",
+      "The rules also require firms to strengthen supervision of unusual trading, apply differentiated margin ratios and collateral-conversion rates, and exercise caution over credit limits and fees. In serious cases, firms may restrict, suspend or terminate margin-financing services or refuse to extend a contract.",
+      "The exchanges said the change follows weaker margin-financing activity and lower overall leverage, and is intended to release financing capacity and improve liquidity. Reuters also reported separate fee reductions by Shanghai and Shenzhen and a proposed market-making mechanism for Shenzhen's ChiNext board.",
+      "The lower ratio does not guarantee higher securities prices or a market recovery, and this report is not an investment recommendation. Margin borrowing can magnify losses as well as gains; actual eligibility, collateral requirements and credit limits remain subject to broker assessments and regulatory controls.",
+      "Official announcement date: 22 November 2026; effective date: 30 November 2026. Reuters published its report on 22 November at 13:09 UTC (16:09 Istanbul). Sham AI publication date: 22 November 2026, 23:06 Istanbul."
+    ],
+    "sources": [
+      { "href": "https://www.sse.com.cn/lawandrules/sselawsrules2025/trade/specific/margin/c/c_20261122_10838633.shtml", "label": "Shanghai Stock Exchange — official Notice No. 108 of 2026, 22 November" },
+      { "href": "https://www.szse.cn/aboutus/trends/news/t20261122_623983.html", "label": "Shenzhen Stock Exchange — official explanation, 22 November 2026" },
+      { "href": "https://www.bse.cn/jygl_list/200029860.html", "label": "Beijing Stock Exchange — official Announcement No. 46 of 2026, 22 November" },
+      { "href": "https://www.reuters.com/world/chinese-exchanges-ease-margin-trading-requirements-aid-stock-markets-2026-11-22/", "label": "Reuters — independent coverage of the changes, 22 November 2026, 13:09 UTC" }
+    ]
+  },
   {
     "slug": "riemann-hypothesis-lean-verification-2026",
     "title": "Lean and Mathlib communities announce verification of a Riemann hypothesis proof developed with Claude",
@@ -215,19 +327,25 @@ export const EN_NEWS: DeskItem[] = [
   },
   {
     "slug": "us-ai-tech-selloff-correction-november-2026",
-    "title": "AI-led technology sell-off pushes the S&P 500 into correction territory",
+    "title": "AI-led technology sell-off spreads from U.S. markets to South Korea",
     "date": "21 November 2026",
-    "contextDateLabel": "Market session: Friday, 20 November 2026; Reuters published: 20 November 2026, 21:17 UTC; AP report: 20 November 2026; Sham AI publication: 21 November 2026",
-    "dek": "U.S. stocks fell sharply on 20 November as technology and AI shares led a broad sell-off. The S&P 500 dropped 3.7% and entered correction territory, while the Nasdaq fell 5.3% and ended the year-to-date period in negative territory.",
+    "updatedDateIso": "2026-11-23",
+    "updatedDateLabel": "23 November 2026",
+    "contextDateLabel": "U.S. market session: Friday, 20 November 2026; Reuters publication: 20 November 2026, 21:17 UTC; AP report: 20 November 2026; South Korean market session: Monday, 23 November 2026; Reuters publication: 23 November 2026, 02:43 UTC; Yonhap closing report: 23 November 2026, 15:34 KST (06:34 UTC; 09:34 Istanbul); original Sham AI publication: 21 November 2026; last updated: 23 November 2026.",
+    "dek": "A technology- and AI-led sell-off hit U.S. stocks on 20 November and spread to South Korea on 23 November, where the KOSPI closed 3.31% lower at 4,708.54 after falling to 4,586.80 intraday.",
     "body": [
       "U.S. markets saw a broad sell-off on Friday, 20 November 2026, led by technology and artificial-intelligence shares. The Associated Press reported that the S&P 500 fell 3.7%, leaving it more than 10% below its 6 October record high — the commonly used definition of a market correction. The Nasdaq Composite dropped 5.3%, turning negative for 2026, while the Dow Jones Industrial Average fell 1.9%.",
       "Reuters published its report at 21:17 UTC on 20 November and reported a similar 5.3% daily fall in the Nasdaq and a roughly 10% weekly decline. Nvidia fell 14% on the day and 23% for the week, while the semiconductor index lost 11%, Reuters said.",
-      "Both reports linked the sell-off to investor concerns about AI-company valuations, spending on infrastructure and data centres, earnings expectations and interest rates. These are explanations and views attributed to analysts and investors; they do not establish that the AI sector has ended or that an investment bubble has definitively burst. AP said the decline also spread to Asian and European markets.",
-      "Event date: the U.S. trading session on 20 November 2026; Reuters and AP report dates: 20 November 2026; Sham AI publication date: 21 November 2026. This is market reporting, not investment advice."
+      "The volatility spread to South Korea on Monday, 23 November 2026. Yonhap reported that the KOSPI closed at 4,708.54, down 161.42 points (3.31%) from the previous session, after touching 4,586.80 intraday. Yonhap published its closing report at 15:34 KST (06:34 UTC; 09:34 Istanbul). In an earlier report that day, Reuters said the index had fallen about 5% intraday and quoted Finance Minister Lee Hyoung-il saying authorities were preparing market-stabilisation measures to be activated according to market conditions. The 5% figure describes the intraday decline, while 3.31% is the closing loss; they refer to different points in the session.",
+      "Reports linked the sell-off to investor concerns about AI-company valuations, spending on infrastructure and data centres, earnings expectations and interest rates. These are explanations and views attributed to analysts and investors; they do not establish that the AI sector has ended or that an investment bubble has definitively burst. Preparations for market-stabilisation measures do not mean that the measures were activated or that they guarantee a particular market direction.",
+      "U.S. event date: the trading session on 20 November 2026; South Korean event date: the market session on 23 November 2026; original Sham AI publication date: 21 November 2026; last updated: 23 November 2026. This is market reporting, not investment advice."
     ],
     "sources": [
       { "href": "https://www.reuters.com/business/view-nasdaq-plunges-5-day-after-anthropic-debut-investors-still-believe-ai-2026-11-20/", "label": "Reuters — 20 November market close and analysis, 21:17 UTC" },
-      { "href": "https://apnews.com/article/stock-markets-anthropic-ai-chips-boom-c4c3f4878b12989347f8a930ed813dad", "label": "Associated Press — S&P 500, Nasdaq and technology shares, 20 November 2026" }
+      { "href": "https://apnews.com/article/stock-markets-anthropic-ai-chips-boom-c4c3f4878b12989347f8a930ed813dad", "label": "Associated Press — S&P 500, Nasdaq and technology shares, 20 November 2026" },
+      { "href": "https://en.yna.co.kr/view/AEN20261123006600320", "label": "Yonhap News Agency — KOSPI close on 23 November, 15:34 KST" },
+      { "href": "https://www.reuters.com/world/asia-pacific/south-koreas-finance-minister-sees-solid-growth-next-year-flags-chip-volatility-2026-11-23/", "label": "Reuters — KOSPI decline and government stabilisation preparations, 23 November 2026, 02:43 UTC" },
+      { "href": "https://www.koreatimes.co.kr/amp/economy/20261123/seoul-stocks-lose-33-as-ai-rout-tests-govt-rescue-plans", "label": "The Korea Times — corroborating the 4,708.54 close, published 16:32 and updated 18:06 KST on 23 November" }
     ]
   },
   {
@@ -252,9 +370,9 @@ export const EN_NEWS: DeskItem[] = [
     "slug": "cop31-overtime-climate-talks-2026",
     "title": "COP31 closes in Antalya without consensus on an overarching political outcome",
     "date": "21 November 2026",
-    "updatedDateIso": "2026-11-22",
-    "updatedDateLabel": "22 November 2026",
-    "contextDateLabel": "Official dates: 9–20 November 2026; closing plenary: 22 November 2026 in Antalya (UTC+3); UNFCCC statement: 22 November 2026; Reuters update: 22 November 2026, 10:13 UTC; AP report: 22 November 2026; original Sham AI publication: 21 November 2026; article updated: 22 November 2026.",
+    "updatedDateIso": "2026-11-23",
+    "updatedDateLabel": "23 November 2026",
+    "contextDateLabel": "Official dates: 9–20 November 2026; closing plenary: 22 November 2026 in Antalya (UTC+3); UNFCCC closing remarks: 22 November 2026; Reuters update: 22 November 2026, 10:13 UTC; AP report: 22 November 2026; subsequent UNFCCC outcome update: 23 November 2026 (no publication time shown); original Sham AI publication: 21 November 2026; article updated: 23 November 2026.",
     "dek": "COP31 ended without consensus on an overarching political outcome after negotiations ran more than 50 hours into overtime. Fossil-fuel language and adaptation finance remained central disputes, while some other decisions and initiatives moved forward.",
     "body": [
       "The official schedule listed the 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) in Antalya, Türkiye, for 9–20 November 2026. Negotiations continued beyond those dates, and the closing plenary took place at the Antalya Expo Center on Sunday, 22 November, local time UTC+3.",
@@ -262,7 +380,8 @@ export const EN_NEWS: DeskItem[] = [
       "In an update published on 22 November at 10:13 UTC, Reuters reported that countries had failed to agree on an overarching political outcome after the European Union and other parties rejected the final proposal. Key disputes included the absence of an explicit reference to fossil fuels and disagreements over adaptation finance and the baseline for the proposed increase.",
       "The Associated Press independently reported that the talks ended without an overarching agreement after more than 50 hours of overtime. It also noted progress on smaller issues and a separate electrification pledge signed by nearly 100 countries. Unresolved matters were deferred to next year's talks in Ethiopia.",
       "The failure to agree on the overarching political outcome should be distinguished from the conference's other results: the UNFCCC closing remarks said key negotiating decisions had been made, including one on a Just Transition. This report therefore does not describe the entire conference as having produced no outcomes.",
-      "Location: Antalya Expo Center, Antalya, Türkiye. Official dates: 9–20 November 2026; actual closing plenary: 22 November 2026. Original Sham AI publication: 21 November 2026; article updated: 22 November 2026. The event has ended and must not be presented as upcoming."
+      "In a detailed outcome update published on 23 November, UNFCCC said the conference advanced several negotiating items, including just transition, climate finance and adaptation, even though parties did not agree on the Presidency-led cover decision. It said countries representing around half of the global economy backed the goal of raising electrification to 35% by 2035 or signalled an intention to reach it earlier. This belongs to the Action Agenda and should not be confused with an overarching political decision adopted by all parties.",
+      "Location: Antalya Expo Center, Antalya, Türkiye. Official dates: 9–20 November 2026; actual closing plenary: 22 November 2026. Original Sham AI publication: 21 November 2026; article updated: 23 November 2026. The event has ended and must not be presented as upcoming."
     ],
     "sources": [
       {
@@ -280,6 +399,10 @@ export const EN_NEWS: DeskItem[] = [
       {
         "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
         "label": "Associated Press — talks end without an overarching agreement, 22 November 2026"
+      },
+      {
+        "href": "https://unfccc.int/news/cop31-delivers-progress-that-advances-implementation-of-the-paris-agreement-but-stalls-on-range-of",
+        "label": "UNFCCC — detailed account of negotiation outcomes and climate-action tracks, 23 November 2026"
       }
     ]
   },
