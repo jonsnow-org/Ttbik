@@ -701,8 +701,14 @@ def main() -> int:
         check_shell(api, token, session, marker)
         print(f"[{args.model_id}] PASS: Bash, persistent files, and background jobs", flush=True)
         print(f"[{args.model_id}] checking private file banks and workstation app inventory", flush=True)
-        check_banks(api, token, session, marker)
-        print(f"[{args.model_id}] PASS: file bank create/store/search/restore and app inventory", flush=True)
+        try:
+            check_banks(api, token, session, marker)
+            print(f"[{args.model_id}] PASS: file bank create/store/search/restore and app inventory", flush=True)
+        except Exception as exc:
+            # An older hub image has no bank action; a timing run must still reach the bench stage.
+            if not (args.bench and "unknown action" in str(exc)):
+                raise
+            print(f"[{args.model_id}] SKIP: file banks unavailable on this hub ({str(exc)[:120]})", flush=True)
         if not args.no_gui:
             print(f"[{args.model_id}] checking X11 desktop and terminal coexistence", flush=True)
             check_gui(api, token, session, marker)
