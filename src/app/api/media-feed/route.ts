@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
 import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, resolveRealTitle } from "@/lib/mediaSocial";
 import { notify, notifyFollowers } from "@/lib/mediaNotify";
+import { isPublicMediaPost } from "@/lib/mediaVisibility";
 import { recordError as recordMediaError, write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
@@ -529,8 +530,9 @@ export async function PATCH(req: NextRequest) {
     const viewer = mediaUser(String(body.init_data || ""));
     if (!viewer) return NextResponse.json({ ok: true, counted: false, reason: "no-auth" });
     if (!db) return NextResponse.json({ ok: true, counted: false, reason: "no-db" });
-    const { data: post } = await db.from("media_feed").select("sharer_id,sharer_name,views,likes").eq("id", id).maybeSingle();
-    if (!post) return NextResponse.json({ ok: true, counted: false, reason: "no-post" });
+    const { data: post } = await db.from("media_feed").select("sharer_id,sharer_name,views,likes,hidden,squad_code").eq("id", id).maybeSingle();
+    // Public counters must not be usable against a guessed hidden/private post id.
+    if (!isPublicMediaPost(post)) return NextResponse.json({ ok: true, counted: false, reason: "no-post" });
 
     if (action === "view") {
       const now = Date.now();
