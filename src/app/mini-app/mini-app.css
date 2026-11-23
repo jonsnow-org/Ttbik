@@ -239,7 +239,7 @@
   background: rgba(224, 242, 254, 0.42);
 }
 
-.media-mini-app-nav-item[aria-current="page"] > span:last-of-type {
+.media-mini-app-nav-item[aria-current="page"] > span:nth-child(2) {
   color: #075985;
 }
 
