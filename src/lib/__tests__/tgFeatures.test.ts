@@ -51,7 +51,7 @@ describe("Telegram feature switches (panel)", () => {
   });
 
   it("reads the bot's real state and builds the invite link", async () => {
-    const api: any = { raw: { getMe: async () => ({ username: "NovaBot", supports_guest_queries: true, has_topics_enabled: true, allows_users_to_create_topics: false, has_topic_sidebar: true }) } };
+    const api: any = { raw: { getMe: async (...args: unknown[]) => { if (args.length) throw new Error("Incorrect abort signal instance found! You passed two payloads to 'getMe'"); return ({ username: "NovaBot", supports_guest_queries: true, has_topics_enabled: true, allows_users_to_create_topics: false, has_topic_sidebar: true }); } } };
     expect(await readBotInfo(api)).toEqual({ username: "NovaBot", guest: true, topics: true, usersCreateTopics: false, sidebar: true });
     expect(inviteLink("NovaBot")).toBe("https://t.me/botinvite/NovaBot");
     expect(inviteLink("")).toBe("");
