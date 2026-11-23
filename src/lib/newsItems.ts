@@ -360,11 +360,11 @@ export const NEWS_ITEMS: NewsItem[] = [
       },
       {
         "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
-        "label": "أسوشيتد برس — انتهاء المحادثات دون اتفاق شامل، 22 نوفمبر 2026",
+        "label": "أسوشيتد برس — انتهاء المحادثات دون اتفاق شامل، 22 نوفمبر 2026"
+      },
       {
         "href": "https://unfccc.int/news/cop31-delivers-progress-that-advances-implementation-of-the-paris-agreement-but-stalls-on-range-of",
         "label": "UNFCCC — الحصيلة التفصيلية للمفاوضات ومسارات العمل المناخي، 23 نوفمبر 2026"
-      }
       }
     ]
   },

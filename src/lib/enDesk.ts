@@ -346,11 +346,11 @@ export const EN_NEWS: DeskItem[] = [
       },
       {
         "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
-        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026",
+        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026"
+      },
       {
         "href": "https://unfccc.int/news/cop31-delivers-progress-that-advances-implementation-of-the-paris-agreement-but-stalls-on-range-of",
         "label": "UNFCCC — detailed account of negotiation outcomes and climate-action tracks, 23 November 2026"
-      }
       }
     ]
   },
