@@ -33,6 +33,13 @@ describe("Sham gets Nova's tools as text", () => {
     expect(parseShamToolCalls("أهلاً، هذا جواب عادي.", tools)).toEqual({ text: "أهلاً، هذا جواب عادي.", calls: [] });
     expect(parseShamToolCalls("<tool_call>not json</tool_call>", tools).calls).toHaveLength(0);
   });
+  it("normalizes stringified parameters without accepting an unloaded tool", () => {
+    const payload = JSON.stringify({ name: "github_read_file", arguments: JSON.stringify({ repo: "https://github.com/o/r.git", path: "README.md" }) });
+    const { calls } = parseShamToolCalls(`شام: ${payload}`, tools);
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0].function.arguments)).toEqual({ repo: "o/r", path: "README.md" });
+    expect(parseShamToolCalls(payload, []).calls).toEqual([]);
+  });
   it("shows earlier calls and results to Sham, keeping the end when it is too long", () => {
     const msgs: any[] = [{ role: "user", content: "اقرأ الملف" }, { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "github_read_file", arguments: '{"repo":"o/r","path":"a"}' } }] }, { role: "tool", name: "github_read_file", content: "x".repeat(5000), tool_call_id: "1" }];
     const p = shamToolConversation(msgs, tools, { turns: 6, turnChars: 300, maxChars: 5400 });

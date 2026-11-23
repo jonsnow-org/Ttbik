@@ -113,7 +113,7 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           const action = phase === "running" ? "frame" : "status";
           const result = await api<any>("desktop", { model, args: { action } });
           if (!stopped) {
-            setStatus(result);
+            if (result?.phase) setStatus(result);
             const size = screenSizeOf(result);
             if (size) screenRef.current = size;
             if (typeof result?.screenshot_b64 === "string") setFrame("data:image/jpeg;base64," + result.screenshot_b64);
@@ -146,6 +146,9 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
       setStreaming(false);
       while (!stopped) {
         controller = new AbortController();
+        const attempt = controller;
+        // A hung upstream may send headers but neither frames nor EOF. Bound the whole 20 s stream attempt.
+        const timeout = setTimeout(() => attempt.abort(new DOMException("Live desktop timed out", "TimeoutError")), 30_000);
         try {
           const response = await fetch("/api/coder/app", {
             method: "POST",
@@ -156,14 +159,13 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
           });
           if (!response.ok) {
             const body = await response.json().catch(() => null);
-            throw new Error(String(body?.error || ("Live desktop HTTP " + response.status)));
+            throw new Error(`Live desktop HTTP ${response.status}${body?.error ? `: ${body.error}` : ""}`);
           }
           if (!response.body) throw new Error("Live desktop stream is empty");
-          setStreaming(true);
-          lastStreamAt.current = Date.now();
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
+          let receivedFrame = false;
           const consume = (block: string) => {
             if (!block.trim()) return;
             if (/^event:\s*error/m.test(block)) throw new Error("Computer Studio ended the live stream with an error");
@@ -174,12 +176,16 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             const value = Array.isArray(parsed) ? parsed[0] : parsed;
             let event: any = value;
             if (typeof value === "string") { try { event = JSON.parse(value); } catch { return; } }
-            if (!event || typeof event !== "object") return;
-            retryAttempt = 0;
-            lastStreamAt.current = Date.now();
+            if (stopped || !event || typeof event !== "object") return;
             const size = screenSizeOf(event);
             if (size) screenRef.current = size;
-            if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) setFrame("data:image/jpeg;base64," + event.screenshot_b64);
+            if (typeof event.screenshot_b64 === "string" && event.screenshot_b64) {
+              receivedFrame = true;
+              retryAttempt = 0;
+              lastStreamAt.current = Date.now();
+              setFrame("data:image/jpeg;base64," + event.screenshot_b64);
+              setStreaming(true);
+            }
             if (event.phase) setStatus((prior: any) => ({ ...(prior || {}), phase: event.phase }));
             if (event.frame_error) setError(String(event.frame_error));
             else if (event.ok !== false) setError("");
@@ -193,22 +199,28 @@ export default function GraphicalDesktop({ model, ar }: { model: string; ar: boo
             for (const block of blocks) consume(block);
           }
           if (buffer) consume(buffer);
+          if (!stopped && !receivedFrame) throw new Error("Computer Studio ended the live stream with an error: no frame received");
           if (!stopped) setStreaming(false);
         } catch (e: any) {
-          if (!stopped && e?.name !== "AbortError") {
+          if (!stopped) {
             setStreaming(false);
             const message = String(e?.message || e);
             setError(message);
-            const transient = /\b(?:402|408|409|425|429|500|502|503|504)\b|fetch failed|network|timed out|timeout|ECONNRESET|connection reset/i.test(message);
+            const transient = /\b(?:402|408|409|425|429|500|502|503|504)\b|failed to fetch|fetch failed|network|timed out|timeout|ECONNRESET|connection reset|ended the live stream with an error/i.test(message);
             const transient412 = model === "sham_v2"
               && /\b412\b/.test(message)
               && /deploy(?:ing|ment)|starting|warming(?: up)?|temporarily unavailable|runtime not ready|studio not ready|retry-after/i.test(message);
             if (!transient && !transient412) break;
             const delay = Math.min(8000, 1000 * (2 ** Math.min(retryAttempt, 3)));
             retryAttempt = Math.min(retryAttempt + 1, 4);
+            attempt.abort(); // release the response body before waiting to reconnect
+            clearTimeout(timeout);
             await pause(delay);
             continue;
           }
+        } finally {
+          clearTimeout(timeout);
+          attempt.abort();
         }
         if (!stopped) await pause(250);
       }

@@ -2924,7 +2924,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       return;
     }
     await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos + "؛ أرسل البوت مؤخراً: " + (recentStudioCalls(300000).filter((e) => e.ageS > 1).map((e) => `${e.tag}@${e.studio} قبل ${e.ageS}ث`).join("، ") || "لا شيء قبل هذا الطلب") : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure + (o.status ? " (HTTP " + o.status + ")" : "") + (o.detail ? " — " + o.detail : "") : "") + ".", db);
-    if ((!r || !r.job) && o.failure && o.failure !== "off" && o.failure !== "auth") {
+    // Retry outages before submission only. If Gradio accepted the step but lost its reply, replaying would enqueue another job.
+    if ((!r || !r.job) && !o.submitted && o.failure && o.failure !== "off" && o.failure !== "auth") {
       // the model server is away (restart, wake-up, a deploy): wait for it, minutes if need be, instead of failing a long task
       run.outageSince = run.outageSince || Date.now();
       if (Date.now() - run.outageSince < outageMs()) {

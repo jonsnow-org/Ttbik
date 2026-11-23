@@ -41,6 +41,25 @@ describe("hub request gate", () => {
     expect(submits).toBe(3);
   });
 
+  it("retries a throttled result stream without submitting another generation", async () => {
+    let submits = 0;
+    let results = 0;
+    const fetchMock = jest.fn(async (url: string, init: RequestInit) => {
+      if (init.method === "POST") {
+        submits++;
+        return new Response(JSON.stringify({ event_id: "e" }));
+      }
+      expect(url).toMatch(/\/e$/);
+      return ++results === 1 ? new Response("rate limited", { status: 429 }) : new Response(ok({ type: "pending", job: "j" }));
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const result = await coderCall("chat", { wait_s: 1 }, 5000);
+    expect(result.reply?.job).toBe("j");
+    expect(submits).toBe(1);
+    expect(results).toBe(2);
+    expect(fetchMock.mock.calls[0][1].signal).toBe(fetchMock.mock.calls[2][1].signal);
+  });
+
   it("a 429 that does not go away is reported as such (the caller's own pause takes over)", async () => {
     (global as any).fetch = jest.fn(async () => new Response('{"error":{"message":"Request limit exceeded."}}', { status: 429 }));
     const o = await coderCall("job_result", { job_id: "j", offset: 0 }, 5000);
