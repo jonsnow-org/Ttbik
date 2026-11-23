@@ -1252,7 +1252,7 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className={`media-mini-app-shell ${reelsMode ? "media-reels-open" : ""} bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_#f8fafc_38%,_#f5f3ff_72%,_#ecfeff_100%)] text-slate-800 selection:bg-violet-200`}>
+    <div className={`media-mini-app-shell ${reelsMode ? "media-reels-open" : ""} text-slate-800 selection:bg-violet-200`}>
       
       {showTopBtn && (
         <button
@@ -1269,22 +1269,22 @@ export default function MiniAppPage() {
       <nav aria-label="التنقل" className={`media-mini-app-nav fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl ${reelsMode ? "media-reels-hide" : ""}`}>
         <div className="mx-auto flex max-w-xl items-stretch justify-around">
           {tabs.map((t) => { const active = !viewUserId && tab === t.id; return (
-            <button key={t.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); window.scrollTo({ top: 0 }); }} className="relative flex flex-1 flex-col items-center gap-0.5 py-1 transition active:scale-90">
+            <button key={t.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); window.scrollTo({ top: 0 }); }} className="media-mini-app-nav-item relative flex flex-1 flex-col items-center gap-0.5 py-1 transition active:scale-90">
               <span className={`flex h-8 w-14 items-center justify-center rounded-full text-xl transition-all duration-200 ${active ? TAB_STYLES[t.id].active : ""}`}>{t.icon}</span>
               <span className={`text-[10px] font-bold ${active ? "text-slate-800" : "text-slate-400"}`}>{t.label}</span>
               {t.id === "admin" && openReports.length > 0 && <span className="absolute right-3 top-0 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}
             </button>); })}
         </div>
       </nav>
-      <header className={`sticky top-0 z-20 border-b border-white/70 bg-white/75 px-4 pb-1.5 pt-1.5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] backdrop-blur-2xl ${reelsMode ? "media-reels-hide" : ""}`}>
+      <header className={`media-mini-app-header sticky top-0 z-20 border-b border-white/70 bg-white/75 px-4 pb-1.5 pt-1.5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] backdrop-blur-2xl ${reelsMode ? "media-reels-hide" : ""}`}>
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => { haptic(); setAdNonce((n) => n + 1); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
-            <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
-            <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { const ids = notifsRef.current.filter((n) => !n.read).map((n) => n.id); setFreshIds(new Set(ids)); if (ids.length) { const r = await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), ids }) }).catch(() => null); if (r && r.ok) setNotifs((prev) => prev.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n))); } } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
-            <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
-            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
+            <button type="button" onClick={() => { haptic(); setAdNonce((n) => n + 1); void load(); }} title="تحديث" aria-label="تحديث الخلاصة" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
+            <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-label={searchOpen ? "إغلاق البحث" : "فتح البحث"} aria-pressed={searchOpen} aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
+            <button type="button" title="الإشعارات" aria-label="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { const ids = notifsRef.current.filter((n) => !n.read).map((n) => n.id); setFreshIds(new Set(ids)); if (ids.length) { const r = await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), ids }) }).catch(() => null); if (r && r.ok) setNotifs((prev) => prev.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n))); } } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
+            <button type="button" title="الرسائل" aria-label="صندوق الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
+            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} aria-label="ملفي الشخصي" title="ملفي الشخصي" className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
         </div>
         {tab === "trending" && !viewUserId && (
@@ -1316,7 +1316,34 @@ export default function MiniAppPage() {
         </div>
       </div>
 
-      {searchOpen && <div className="px-3 pt-2"><input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>}
+      {searchOpen && (
+        <div className="media-mini-app-search mx-3 mt-3">
+          <div className="media-mini-app-search-field">
+            <span aria-hidden="true" className="media-mini-app-search-icon">⌕</span>
+            <input
+              type="search"
+              aria-label="ابحث في الوسائط"
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && load()}
+              placeholder="ابحث بالعنوان أو اسم المستخدم..."
+              className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 pr-10 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400"
+            />
+          </div>
+          {search.trim() && (
+            <button
+              type="button"
+              aria-label="مسح البحث"
+              title="مسح البحث"
+              onClick={() => setSearch("")}
+              className="media-mini-app-search-clear"
+            >
+              مسح
+            </button>
+          )}
+        </div>
+      )}
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
       {!overlayOpen && tab !== "admin" && !reelsMode && <TopBannerAd reloadKey={adNonce} />}
@@ -1365,9 +1392,9 @@ export default function MiniAppPage() {
         </div>
       )}
 
-      <div className="relative z-10 px-3 pb-10 pt-3">
+      <div className="media-mini-app-content relative z-10 px-3 pb-10 pt-3">
         {showProfile && !overlayOpen && (
-          <div className="mb-4 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
+          <div className="media-profile-card mb-4 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
             <div className="h-20 bg-gradient-to-l from-teal-400 via-sky-500 to-indigo-500" />
             <div className="relative px-4 pb-4">
               <div className="-mt-10 flex items-end gap-3">
@@ -1416,7 +1443,7 @@ export default function MiniAppPage() {
         )}
 
         {isOwnProfile && !overlayOpen && (
-          <div className="mb-4 rounded-3xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-4">
+          <div className="media-usage-card mb-4 rounded-3xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-4">
             <div className="flex items-center justify-between"><p className="text-sm font-black text-teal-700">📋 استخدامي</p><LiveDot online={botOnline} label /></div>
             <div className="mt-3 grid grid-cols-4 gap-2">
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-rose-500">{Object.values(liked).filter(Boolean).length}</p><p className="text-[9px] font-bold text-slate-500">إعجاباتي</p></div>
@@ -1476,7 +1503,7 @@ export default function MiniAppPage() {
         {isOwnProfile && !overlayOpen && <AtharProfileCard onOpen={openAthar} />}
 
         {tab === "admin" && isOwner && !viewUserId && !overlayOpen && (
-          <div className="mb-4 space-y-3">
+          <div className="media-admin-panel mb-4 space-y-3">
             <div className="flex gap-1.5 overflow-x-auto pb-0.5">{([["reports", "🚩 البلاغات"], ["chats", "💬 المحادثات"], ["rooms", "🔒 الغرف"], ["content", "🗂 المحتوى"], ["settings", "⚙️ الإعدادات"]] as const).map(([k, l]) => (
               <button key={k} type="button" onClick={() => { setAdminSection(k); if (k === "chats" && adminConvs === null) void loadAdminConvs(); }} className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold ${adminSection === k ? "bg-amber-500 text-white shadow" : "bg-white text-amber-700 ring-1 ring-amber-100"}`}>{l}{k === "reports" && openReports.length > 0 ? ` (${openReports.length})` : ""}</button>
             ))}</div>
@@ -1648,7 +1675,7 @@ export default function MiniAppPage() {
             const mine = !!userId && item.sharer_id === userId;
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar} plain={reelsMode}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className={reelsMode ? "overflow-hidden bg-black" : "fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200"}>
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className={reelsMode ? "overflow-hidden bg-black" : "media-feed-card fade-up mx-1 mb-5 overflow-hidden rounded-[1.75rem] bg-white shadow-lg shadow-slate-200/70 ring-1 ring-white/90 transition-shadow duration-200"}>
                 <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${reelsMode ? "media-reel-stage" : isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
@@ -1717,12 +1744,12 @@ export default function MiniAppPage() {
                     <span>⬇ {item.clones || 0}</span>
                     <span>❤ {item.likes || 0}</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-5 gap-1.5">
+                  <div className="media-feed-actions mt-3 grid grid-cols-5 gap-1.5">
                     <a href={cloneHref(item.id)} onClick={() => { haptic(); track("download_intent", { post_id: item.id, method: "telegram-bot" }); }} aria-label="استلام الوسائط عبر البوت" className="col-span-1 rounded-xl bg-gradient-to-l from-sky-500 via-blue-600 to-indigo-600 py-2.5 text-center text-[11px] font-black text-white shadow-md shadow-blue-100 transition hover:brightness-105 active:scale-95">⚡ فوري</a>
-                    <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[13px] font-black transition active:scale-90 ${isLiked ? "heart-pop" : ""} ${isLiked ? "bg-rose-500 text-white shadow-sm" : "bg-rose-50 text-rose-500 ring-1 ring-rose-100"}`}>{isLiked ? "❤️" : "🤍"}</button>
-                    <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} className="rounded-xl transition active:scale-90 bg-amber-50 py-2.5 text-[13px] font-black text-amber-600 ring-1 ring-amber-100">💬</button>
-                    <a href={item.url || "#"} target="_blank" rel="noreferrer" title="المصدر الأصلي" className="rounded-xl transition active:scale-90 bg-emerald-50 py-2.5 text-center text-[13px] font-black text-emerald-600 ring-1 ring-emerald-100">🌐</a>
-                    <button type="button" onClick={() => void forwardInTelegram(item)} title="إرسال في تيليجرام" className="rounded-xl transition active:scale-90 bg-gradient-to-l from-violet-500 to-fuchsia-500 py-2.5 text-[13px] font-black text-white shadow-sm">↪️</button>
+                    <button type="button" aria-label={isLiked ? "إلغاء الإعجاب" : "إعجاب"} title={isLiked ? "إلغاء الإعجاب" : "إعجاب"} onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[13px] font-black transition active:scale-90 ${isLiked ? "heart-pop" : ""} ${isLiked ? "bg-rose-500 text-white shadow-sm" : "bg-rose-50 text-rose-500 ring-1 ring-rose-100"}`}>{isLiked ? "❤️" : "🤍"}</button>
+                    <button type="button" aria-label="عرض التعليقات" title="التعليقات" onClick={() => void openComments(item.id, displayTitle(item))} className="rounded-xl transition active:scale-90 bg-amber-50 py-2.5 text-[13px] font-black text-amber-600 ring-1 ring-amber-100">💬</button>
+                    <a href={item.url || "#"} target="_blank" rel="noreferrer" title="المصدر الأصلي" aria-label="فتح المصدر الأصلي" className="rounded-xl transition active:scale-90 bg-emerald-50 py-2.5 text-center text-[13px] font-black text-emerald-600 ring-1 ring-emerald-100">🌐</a>
+                    <button type="button" onClick={() => void forwardInTelegram(item)} title="إرسال في تيليجرام" aria-label="إرسال في تيليجرام" className="rounded-xl transition active:scale-90 bg-gradient-to-l from-violet-500 to-fuchsia-500 py-2.5 text-[13px] font-black text-white shadow-sm">↪️</button>
                   </div>
                   {mine && showProfile && isOwnProfile && (
                     <button type="button" onClick={() => void deletePost(item)} className="mt-2 w-full rounded-xl bg-rose-50 py-2 text-[11px] font-bold text-rose-600 ring-1 ring-rose-100">🗑 حذف المنشور</button>
