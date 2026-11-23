@@ -218,12 +218,12 @@ test("23 November Bank of Israel rate decision is bilingual, source-matched and 
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href.includes("boi.org.il")));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/markets/asia/bank-israel-leaves-rates-unchanged")));
-  assert.match(arabic.paragraphs.join(" "), /3\\.25%/);
-  assert.match(english.body.join(" "), /3\\.25%/);
-  assert.match(arabic.paragraphs.join(" "), /1\\.1%/);
-  assert.match(english.body.join(" "), /1\\.1%/);
-  assert.match(arabic.paragraphs.join(" "), /7\\.6%/);
-  assert.match(english.body.join(" "), /7\\.6%/);
+  assert.match(arabic.paragraphs.join(" "), /3\.25%/);
+  assert.match(english.body.join(" "), /3\.25%/);
+  assert.match(arabic.paragraphs.join(" "), /1\.1%/);
+  assert.match(english.body.join(" "), /1\.1%/);
+  assert.match(arabic.paragraphs.join(" "), /7\.6%/);
+  assert.match(english.body.join(" "), /7\.6%/);
   assert.match(arabic.paragraphs.join(" "), /معدل سنوي قدره 8%/);
   assert.match(english.body.join(" "), /annualized rate of 8%/);
   assert.match(arabic.paragraphs.join(" "), /بلغ النمو السنوي المعدل 4%/);
