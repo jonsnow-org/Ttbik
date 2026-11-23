@@ -165,7 +165,7 @@ test("Manipur public-health incident briefing uses matching official and indepen
   assert.match(english.body.join(" "), /does not describe the incident as confirmed methanol poisoning/i);
 });
 
-test("COP31 update preserves the original publication date and synchronizes the 22 November outcome in both languages", () => {
+test("COP31 update preserves the original publication date and synchronizes the 23 November official outcome in both languages", () => {
   const slug = "cop31-overtime-climate-talks-2026";
   const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
   const english = EN_NEWS.find((item) => item.slug === slug);
@@ -175,29 +175,61 @@ test("COP31 update preserves the original publication date and synchronizes the 
   assert.equal(arabic.dateIso, "2026-11-21");
   assert.equal(arabic.dateLabel, "21 نوفمبر 2026");
   assert.equal(english.date, "21 November 2026");
-  assert.equal(arabic.updatedDateIso, "2026-11-22");
-  assert.equal(english.updatedDateIso, "2026-11-22");
-  assert.equal(arabic.updatedDateLabel, "22 نوفمبر 2026");
-  assert.equal(english.updatedDateLabel, "22 November 2026");
+  assert.equal(arabic.updatedDateIso, "2026-11-23");
+  assert.equal(english.updatedDateIso, "2026-11-23");
+  assert.equal(arabic.updatedDateLabel, "23 نوفمبر 2026");
+  assert.equal(english.updatedDateLabel, "23 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
   assert.match(arabic.contextDateLabel, /تاريخ النشر الأصلي في شام AI: 21 نوفمبر 2026/);
   assert.match(english.contextDateLabel, /original Sham AI publication: 21 November 2026/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.deepEqual(sourceUrls(arabicEvent), sourceUrls(englishEvent));
-  assert.ok(arabic.sources.some((source) => source.href.includes("unfccc.int/news/")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("unfccc.int/news/") && source.href.includes("cop31-delivers-progress")));
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com") && source.href.includes("2026-11-22")));
   assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
   assert.match(arabic.description, /دون توافق على القرار السياسي الشامل/);
   assert.match(english.dek, /without consensus on an overarching political outcome/i);
-  assert.match(arabic.paragraphs.join(" "), /22 نوفمبر 2026/);
-  assert.match(english.body.join(" "), /22 November 2026/);
-  assert.match(arabic.paragraphs.join(" "), /الانتقال العادل/);
-  assert.match(english.body.join(" "), /Just Transition/);
+  assert.match(arabic.paragraphs.join(" "), /23 نوفمبر 2026/);
+  assert.match(english.body.join(" "), /23 November 2026/);
+  assert.match(arabic.paragraphs.join(" "), /تمويل المناخ والتكيف/);
+  assert.match(english.body.join(" "), /climate finance and adaptation/i);
+  assert.match(arabic.paragraphs.join(" "), /نحو نصف الاقتصاد العالمي/);
+  assert.match(english.body.join(" "), /around half of the global economy/i);
   assert.equal(arabicEvent.endDateIso, "2026-11-20");
   assert.equal(englishEvent.endDate, "2026-11-20");
-  assert.equal(isEventCurrent(arabicEvent, "2026-11-22"), false);
-  assert.equal(isEventUpcomingOrCurrent(arabicEvent, "2026-11-22"), false);
-  assert.equal(isUpcomingDate(englishEvent, "2026-11-22"), false);
+  assert.equal(isEventCurrent(arabicEvent, "2026-11-23"), false);
+  assert.equal(isEventUpcomingOrCurrent(arabicEvent, "2026-11-23"), false);
+  assert.equal(isUpcomingDate(englishEvent, "2026-11-23"), false);
+});
+
+test("23 November Bank of Israel rate decision is bilingual, source-matched and preserves official timing qualifiers", () => {
+  const slug = "bank-israel-holds-rate-3-25-november-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Bank of Israel briefing is missing");
+  assert.ok(english, "English Bank of Israel briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-23");
+  assert.equal(english.date, "23 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /لا تعرض صفحة البنك ساعة النشر/);
+  assert.match(english.contextDateLabel, /does not show a publication time/i);
+  assert.match(arabic.contextDateLabel, /17:57 UTC/);
+  assert.match(english.contextDateLabel, /20:57 Istanbul/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("boi.org.il")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/markets/asia/bank-israel-leaves-rates-unchanged")));
+  assert.match(arabic.paragraphs.join(" "), /3\\.25%/);
+  assert.match(english.body.join(" "), /3\\.25%/);
+  assert.match(arabic.paragraphs.join(" "), /1\\.1%/);
+  assert.match(english.body.join(" "), /1\\.1%/);
+  assert.match(arabic.paragraphs.join(" "), /7\\.6%/);
+  assert.match(english.body.join(" "), /7\\.6%/);
+  assert.match(arabic.paragraphs.join(" "), /معدل سنوي قدره 8%/);
+  assert.match(english.body.join(" "), /annualized rate of 8%/);
+  assert.match(arabic.paragraphs.join(" "), /بلغ النمو السنوي المعدل 4%/);
+  assert.match(english.body.join(" "), /annualized growth rate was 4%/);
+  assert.match(arabic.paragraphs.join(" "), /لا يقدّم هذا التقرير.*توصية/);
+  assert.match(english.body.join(" "), /does not.*recommend borrowing or investing/i);
 });
 
 test("21 November autonomous-weapons briefing is bilingual, source-matched and does not overstate the outcome", () => {

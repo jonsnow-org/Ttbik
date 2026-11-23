@@ -16,6 +16,25 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    "slug": "bank-israel-holds-rate-3-25-november-2026",
+    "title": "Bank of Israel holds its benchmark rate at 3.25% for a second consecutive decision",
+    "date": "23 November 2026",
+    "contextDateLabel": "Official decision date: 23 November 2026 (the Bank's page does not show a publication time); Reuters report: 23 November 2026, 17:57 UTC (20:57 Istanbul); Sham AI publication date: 23 November 2026.",
+    "dek": "The Bank of Israel's Monetary Committee kept its benchmark rate at 3.25% in its final scheduled decision of 2026. The decision came with annual inflation at 1.1% in October, a weaker shekel and continued geopolitical uncertainty; this is reporting on the decision and official indicators, not investment advice.",
+    "body": [
+      "The Bank of Israel's Monetary Committee kept the benchmark interest rate at 3.25% in its decision on Monday, 23 November 2026. It was the second consecutive unchanged decision and the final scheduled decision of the year. The Bank's page gives the decision date but no publication time; Reuters published its report that day at 17:57 UTC (20:57 Istanbul).",
+      "The Bank said the Consumer Price Index fell 0.1% in October and 12-month inflation through October was 1.1%, within the 1%–3% target range. From the previous decision on 21 October through 20 November, the shekel depreciated by 7.6% against the US dollar and 5.1% against the euro, according to the Bank.",
+      "National accounts data showed that GDP grew in the third quarter at an annualized rate of 8% relative to the second quarter. Excluding production abroad by Israeli firms—a measure the Bank described as more relevant to domestic economic activity—the annualized growth rate was 4%. These are different measures and should not be described as year-over-year growth.",
+      "The Committee cited several factors behind its decision, including continued domestic and global uncertainty related to geopolitical tensions, the exchange rate, inflation expectations, economic activity and fiscal developments. Reuters reported that 12 of the 14 economists it surveyed had expected the rate to remain unchanged.",
+      "Official decision date: 23 November 2026; Reuters report: 23 November 2026, 17:57 UTC (20:57 Istanbul). This report does not forecast the future path of rates or recommend borrowing or investing."
+    ],
+    "sources": [
+      { "href": "https://www.boi.org.il/en/communication-and-publications/press-releases/the-monetary-committee-decides-on-november-23-2026-to-keep-the-interest-rate-unchanged-at-325-percent/", "label": "Bank of Israel — Monetary Committee decision, 23 November 2026" },
+      { "href": "https://boi.org.il/publications/pressreleases/23-11-26/", "label": "Bank of Israel — Hebrew version of the decision, 23 November 2026" },
+      { "href": "https://www.reuters.com/markets/asia/bank-israel-leaves-rates-unchanged-amid-political-uncertainty-2026-11-23/", "label": "Reuters — rate decision and factors cited by the Bank, 23 November 2026, 17:57 UTC" }
+    ]
+  },
+  {
     "slug": "poland-airspace-kh101-preliminary-identification-2026",
     "title": "Polish preliminary inquiry identifies Russian Kh-101 missile fragments at all three crash sites",
     "date": "22 November 2026",
@@ -299,9 +318,9 @@ export const EN_NEWS: DeskItem[] = [
     "slug": "cop31-overtime-climate-talks-2026",
     "title": "COP31 closes in Antalya without consensus on an overarching political outcome",
     "date": "21 November 2026",
-    "updatedDateIso": "2026-11-22",
-    "updatedDateLabel": "22 November 2026",
-    "contextDateLabel": "Official dates: 9–20 November 2026; closing plenary: 22 November 2026 in Antalya (UTC+3); UNFCCC statement: 22 November 2026; Reuters update: 22 November 2026, 10:13 UTC; AP report: 22 November 2026; original Sham AI publication: 21 November 2026; article updated: 22 November 2026.",
+    "updatedDateIso": "2026-11-23",
+    "updatedDateLabel": "23 November 2026",
+    "contextDateLabel": "Official dates: 9–20 November 2026; closing plenary: 22 November 2026 in Antalya (UTC+3); UNFCCC closing remarks: 22 November 2026; Reuters update: 22 November 2026, 10:13 UTC; AP report: 22 November 2026; subsequent UNFCCC outcome update: 23 November 2026 (no publication time shown); original Sham AI publication: 21 November 2026; article updated: 23 November 2026.",
     "dek": "COP31 ended without consensus on an overarching political outcome after negotiations ran more than 50 hours into overtime. Fossil-fuel language and adaptation finance remained central disputes, while some other decisions and initiatives moved forward.",
     "body": [
       "The official schedule listed the 31st Conference of the Parties to the UN Framework Convention on Climate Change (COP31) in Antalya, Türkiye, for 9–20 November 2026. Negotiations continued beyond those dates, and the closing plenary took place at the Antalya Expo Center on Sunday, 22 November, local time UTC+3.",
@@ -309,7 +328,8 @@ export const EN_NEWS: DeskItem[] = [
       "In an update published on 22 November at 10:13 UTC, Reuters reported that countries had failed to agree on an overarching political outcome after the European Union and other parties rejected the final proposal. Key disputes included the absence of an explicit reference to fossil fuels and disagreements over adaptation finance and the baseline for the proposed increase.",
       "The Associated Press independently reported that the talks ended without an overarching agreement after more than 50 hours of overtime. It also noted progress on smaller issues and a separate electrification pledge signed by nearly 100 countries. Unresolved matters were deferred to next year's talks in Ethiopia.",
       "The failure to agree on the overarching political outcome should be distinguished from the conference's other results: the UNFCCC closing remarks said key negotiating decisions had been made, including one on a Just Transition. This report therefore does not describe the entire conference as having produced no outcomes.",
-      "Location: Antalya Expo Center, Antalya, Türkiye. Official dates: 9–20 November 2026; actual closing plenary: 22 November 2026. Original Sham AI publication: 21 November 2026; article updated: 22 November 2026. The event has ended and must not be presented as upcoming."
+      "In a detailed outcome update published on 23 November, UNFCCC said the conference advanced several negotiating items, including just transition, climate finance and adaptation, even though parties did not agree on the Presidency-led cover decision. It said countries representing around half of the global economy backed the goal of raising electrification to 35% by 2035 or signalled an intention to reach it earlier. This belongs to the Action Agenda and should not be confused with an overarching political decision adopted by all parties.",
+      "Location: Antalya Expo Center, Antalya, Türkiye. Official dates: 9–20 November 2026; actual closing plenary: 22 November 2026. Original Sham AI publication: 21 November 2026; article updated: 23 November 2026. The event has ended and must not be presented as upcoming."
     ],
     "sources": [
       {
@@ -326,7 +346,11 @@ export const EN_NEWS: DeskItem[] = [
       },
       {
         "href": "https://apnews.com/article/climate-un-turkey-fossil-fuels-global-warming-f6e36c4caf13ec6fed57c9f077cbd067",
-        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026"
+        "label": "Associated Press — talks end without an overarching agreement, 22 November 2026",
+      {
+        "href": "https://unfccc.int/news/cop31-delivers-progress-that-advances-implementation-of-the-paris-agreement-but-stalls-on-range-of",
+        "label": "UNFCCC — detailed account of negotiation outcomes and climate-action tracks, 23 November 2026"
+      }
       }
     ]
   },
