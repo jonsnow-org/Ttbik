@@ -999,6 +999,14 @@ def publish_leftover_subprocess() -> str:
     return out
 
 
+def freeze_gap(now: float, last: float, poll_s: float, tolerance: float = 300.0) -> float:
+    """Seconds the process was frozen between two watchdog ticks (0 when the gap is within poll_s + tolerance).
+    2026-11-23: cn coder-inference-server-2/-3 slept for 8.6 h (nobody pinged them); on waking, the supervisor counted the sleep as wall-clock and killed a
+    cycle that had run only minutes."""
+    gap = now - last - poll_s
+    return gap if gap > tolerance else 0.0
+
+
 def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20) -> dict:
     """Run child_cycle in a subprocess (its own process group, so a kill also ends the trainers it started); copy its printed lines into the status tail; kill it when it
     overruns the wall-clock budget (hours + 40 min), when it shows no progress for SHAM_STUCK_MINUTES (no output line and no checkpoint/log written), or on a kill request."""
@@ -1027,9 +1035,20 @@ def run_cycle_subprocess(cfg: dict, cmd: list | None = None, poll_s: float = 20)
             proc.kill()
 
     def watchdog():
-        nonlocal killed
+        nonlocal killed, deadline
+        last = time.time()
+        frozen, freeze_end = 0.0, 0.0
         while proc.poll() is None:
-            idle = (time.time() - progress_ts()) / 60
+            now = time.time()
+            gap = freeze_gap(now, last, poll_s)
+            if gap:                                  # the Studio was frozen (idle sleep): that time is neither work nor a hang
+                frozen += gap
+                freeze_end = now
+                deadline += gap
+                print(f"supervisor: the Studio was frozen for {gap / 60:.0f} min (not counted in the budget or the stuck limit)", flush=True)
+            last = now
+            ts = progress_ts()
+            idle = (now - ts - (frozen if ts < freeze_end else 0.0)) / 60
             if time.time() > deadline:
                 killed = f"cycle killed after the {cfg['hours']} h + 40 min wall-clock budget"
             elif idle >= stuck_minutes():
@@ -1694,6 +1713,8 @@ if __name__ == "__main__":
         except ProcessLookupError:
             pass
         stuck_minutes = _real_stuck
+        assert freeze_gap(1000.0, 990.0, 20.0) == 0.0 and freeze_gap(1000.0, 900.0, 20.0) == 0.0     # a normal tick, a slow one: not a freeze
+        assert freeze_gap(31000.0, 0.0, 20.0) == 30980.0                                             # an 8.6 h sleep is measured, so the budget can skip it
         chatty = [sys.executable, "-u", "-c", "import time\nwhile True:\n print('step',flush=True); time.sleep(0.1)"]
         threading.Timer(0.8, kill_cycle).start()
         try:

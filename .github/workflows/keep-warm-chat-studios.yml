@@ -36,7 +36,7 @@ jobs:
           T_AI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           echo "::add-mask::$T_CN"; echo "::add-mask::$T_AI"
-          for n in sham-trainer-1 sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do
+          for n in sham-trainer-1 coder-inference-server-2 coder-inference-server-3 sham-donor-qwen35-9b-test sham-donor-gemma4-e4b-test sham-donor-minicpmo45-test; do   # 2026-11-23: -2 (T-LDM) and -3 (motion) trainers slept 8.6 h because they were not pinged
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 25 -H "Authorization: Bearer $T_CN" "https://studio-novaai2026-$n.api-inference.modelscope.net/" || echo 000)
             echo "cn $n HTTP $code"
           done
