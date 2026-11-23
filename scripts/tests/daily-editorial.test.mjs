@@ -500,3 +500,49 @@ test("22 November Poland Kh-101 update preserves the preliminary status and even
   assert.match(arabic.paragraphs.join(" "), /لم يثبت في هذه البيانات أن الحادث كان استهدافاً مقصوداً/);
   assert.match(english.body.join(" "), /do not establish that the incident was a deliberate attack/i);
 });
+
+test("23 November WFP briefing keeps the projected humanitarian risk conditional in both languages", () => {
+  const slug = "wfp-warns-trade-route-disruptions-risk-food-aid-7-3-million-nov-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic WFP briefing is missing");
+  assert.ok(english, "English WFP briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-23");
+  assert.equal(english.date, "23 November 2026");
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("wfp.org/stories/")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/business/environment/")));
+  assert.match(arabic.contextDateLabel, /16:51 UTC/);
+  assert.match(english.contextDateLabel, /16:51 UTC/);
+  assert.match(arabic.paragraphs.join(" "), /727 مليون دولار/);
+  assert.match(english.body.join(" "), /US\\$727 million/);
+  assert.match(arabic.paragraphs.join(" "), /قد تتعرض المساعدة لـ7\\.3 ملايين شخص للخطر/);
+  assert.match(english.body.join(" "), /potentially putting assistance for 7\\.3 million people at risk/i);
+  assert.match(arabic.paragraphs.join(" "), /إذا استمرت الظروف الحالية/);
+  assert.match(english.body.join(" "), /if current conditions persist/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تعني أن التمويل خُفّض بالفعل/);
+  assert.match(english.body.join(" "), /not a confirmed funding cut/i);
+});
+
+test("23 November Amazon–Decart agreement distinguishes the signed agreement from completion and the reported price", () => {
+  const slug = "amazon-agrees-to-acquire-decart-ai-optimization-technology-november-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Amazon–Decart briefing is missing");
+  assert.ok(english, "English Amazon–Decart briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-23");
+  assert.equal(english.date, "23 November 2026");
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("aboutamazon.com")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/business/retail-consumer/")));
+  assert.match(arabic.contextDateLabel, /15:33 UTC/);
+  assert.match(english.contextDateLabel, /15:33 UTC/);
+  assert.match(arabic.paragraphs.join(" "), /لم تكشف أمازون الشروط المالية/);
+  assert.match(english.body.join(" "), /Amazon did not disclose the deal's financial terms/i);
+  assert.match(arabic.paragraphs.join(" "), /7\\.5 مليارات دولار/);
+  assert.match(english.body.join(" "), /US\\$7\\.5 billion/);
+  assert.match(arabic.paragraphs.join(" "), /أمازون لم تؤكد هذا الرقم/);
+  assert.match(english.body.join(" "), /Amazon did not confirm that figure/i);
+  assert.match(arabic.paragraphs.join(" "), /الموافقات التنظيمية/);
+  assert.match(english.body.join(" "), /regulatory clearance/i);
+});

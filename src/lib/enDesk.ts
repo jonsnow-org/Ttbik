@@ -15,6 +15,58 @@ export type DeskItem = {
 };
 
 export const EN_NEWS: DeskItem[] = [
+{
+  "slug": "wfp-warns-trade-route-disruptions-risk-food-aid-7-3-million-nov-2026",
+  "title": "WFP warns trade-route disruption could put food aid for 7.3 million people at risk",
+  "date": "23 November 2026",
+  "contextDateLabel": "UN Security Council briefing in New York: 23 November 2026; World Food Programme statement: 23 November 2026 (no publication time shown); Reuters report: 23 November 2026, 16:51 UTC (19:51 Istanbul); Sham AI item date: 23 November 2026.",
+  "dek": "The World Food Programme warned that disruption to the Strait of Hormuz, Bab el-Mandeb and the Black Sea could add US$727 million to its costs by mid-2027 if current conditions persist, potentially putting assistance for 7.3 million people at risk. These are conditional estimates, not confirmed aid cuts.",
+  "body": [
+    "World Food Programme Executive Director Luke J. Lindberg told the UN Security Council in New York on Monday, 23 November 2026, that disruption to three major trade routes—the Strait of Hormuz, Bab el-Mandeb and the Black Sea—is raising food, transport and agricultural-input costs and putting pressure on humanitarian operations. WFP's statement is dated 23 November but does not show a publication time; Reuters published its report at 16:51 UTC (19:51 Istanbul).",
+    "WFP said that, if current conditions persist, it could incur an additional US$727 million in costs by mid-2027, potentially putting assistance for 7.3 million people at risk. This is a conditional projection, not a confirmed funding cut or a statement that assistance has already stopped.",
+    "Lindberg said 266 million people worldwide already face acute hunger, with famine risks in parts of Sudan, South Sudan and Somalia. He also noted that Yemen imports about 90% of its food, leaving it exposed to disruptions in grain flows.",
+    "WFP linked the pressure to higher energy and transport costs, disrupted food and fertilizer shipments, and climate shocks such as El Niño. It said about 30% of global fertilizer supplies pass through the Strait of Hormuz and that reduced wheat and maize vessel traffic through the Bosphorus adds to supply risks.",
+    "Briefing date: 23 November 2026, UN Security Council, New York; WFP statement date: 23 November 2026; Reuters report: 23 November 2026, 16:51 UTC (19:51 Istanbul). The mid-2027 cost and assistance figures are conditional on current conditions persisting, not certain outcomes."
+  ],
+  "sources": [
+    {
+      "href": "https://www.wfp.org/stories/wfp-chief-warns-un-security-council-triple-chokepoint-driving-hunger",
+      "label": "World Food Programme — Security Council warning on trade routes and humanitarian costs, 23 November 2026"
+    },
+    {
+      "href": "https://www.wfp.org/news/wfp-executive-directors-briefing-un-security-council-ukraine-remarks-delivered",
+      "label": "World Food Programme — transcript of the Executive Director's Security Council briefing, 23 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/environment/un-food-agency-chief-warns-wars-jeopardize-food-aid-73-million-more-people-2026-11-23/",
+      "label": "Reuters — independent report on aid risks and shipping costs, 23 November 2026, 16:51 UTC"
+    }
+  ]
+},
+{
+  "slug": "amazon-agrees-to-acquire-decart-ai-optimization-technology-november-2026",
+  "title": "Amazon signs agreement to acquire Decart's AI optimization technology",
+  "date": "23 November 2026",
+  "contextDateLabel": "Amazon statement: 23 November 2026 (no publication time shown); Reuters report: 23 November 2026, 15:33 UTC (18:33 Istanbul); Sham AI item date: 23 November 2026.",
+  "dek": "Amazon announced an agreement to purchase the proprietary technology behind Decart Optimization Stack and bring Decart's founders and team to Amazon. Amazon did not disclose a deal value; completion remains subject to customary conditions, including regulatory clearance.",
+  "body": [
+    "Amazon announced on 23 November 2026 that it had signed an agreement to purchase the proprietary technology behind Decart Optimization Stack (DOS) and bring Decart's three co-founders and its team of researchers and engineers to Amazon. Amazon's statement is dated 23 November but does not show a publication time; Reuters published its report at 15:33 UTC (18:33 Istanbul).",
+    "DOS helps companies run AI systems more efficiently and switch among chips from Nvidia, Amazon and Google. Amazon said the technology would help optimize inference and custom-silicon performance, allowing customers to train and run AI models faster and at lower cost.",
+    "Amazon did not disclose the deal's financial terms or value. Reuters reported that Bloomberg cited a person familiar with the matter for a figure of about US$7.5 billion, but Amazon did not confirm that figure; it should not be presented as a value announced by either party.",
+    "Reuters said completion remains subject to customary closing conditions, including regulatory clearance. The announcement of an agreement therefore does not mean the technology transfer or the team's move has already been completed.",
+    "Announcement and Amazon statement date: 23 November 2026; Reuters report: 23 November 2026, 15:33 UTC (18:33 Istanbul). Amazon did not disclose the deal value, and completion remains conditional on customary approvals and procedures."
+  ],
+  "sources": [
+    {
+      "href": "https://www.aboutamazon.com/news/company-news/amazon-decart-ai-optimization",
+      "label": "Amazon — agreement to purchase Decart technology and bring its team to Amazon, 23 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/retail-consumer/amazon-buy-decarts-ai-chip-optimization-tech-latest-ai-talent-grab-2026-11-23/",
+      "label": "Reuters — agreement details, regulatory conditions and undisclosed value, 23 November 2026, 15:33 UTC"
+    }
+  ]
+},
   {
     "slug": "bank-israel-holds-rate-3-25-november-2026",
     "title": "Bank of Israel holds its benchmark rate at 3.25% for a second consecutive decision",
