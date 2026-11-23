@@ -123,6 +123,24 @@ export async function POST(req: NextRequest) {
   if (postError || !isPublicMediaPost(parentPost)) return NextResponse.json({ error: "not found" }, { status: 404 });
   const ownerId = String((parentPost as any)?.sharer_id || "");
 
+  // A reply must target a comment belonging to this exact public post.
+  // Without this check the FK only proved that the parent existed, so a
+  // malicious/stale client could attach a reply from post A under post B.
+  let parentReplyTo = "";
+  if (parentId) {
+    const { data: parentComment, error: parentCommentError } = await db
+      .from("media_comments")
+      .select("id,from_id")
+      .eq("id", parentId)
+      .eq("post_id", postId)
+      .maybeSingle();
+    if (parentCommentError) {
+      return NextResponse.json({ error: "reply lookup failed" }, { status: 503 });
+    }
+    if (!parentComment) return NextResponse.json({ error: "parent comment not found" }, { status: 404 });
+    parentReplyTo = String((parentComment as any).from_id || "");
+  }
+
   // A user blocked by the post's owner (or who blocked them) can't comment there.
   try {
     if (ownerId && ownerId !== fromId && (await isBlockedEitherWay(db, fromId, ownerId))) {
@@ -163,16 +181,7 @@ export async function POST(req: NextRequest) {
   // A reply notifies the parent comment's author; a top-level comment
   // notifies the post's owner. Never notify yourself.
   if (parentId) {
-    let parentFromId = (g.__comments || []).find((c) => c.id === parentId)?.from_id || "";
-    if (!parentFromId && db) {
-      try {
-        const { data } = await db.from("media_comments").select("from_id").eq("id", parentId).eq("post_id", postId).maybeSingle();
-        if (data) parentFromId = String((data as any).from_id || "");
-      } catch {
-        /* ignore */
-      }
-    }
-    if (parentFromId && persisted) await notify(db, { toId: parentFromId, fromId, fromName, type: "reply", postId, extra: text.slice(0, 80) }).catch(() => null);
+    if (parentReplyTo && persisted) await notify(db, { toId: parentReplyTo, fromId, fromName, type: "reply", postId, extra: text.slice(0, 80) }).catch(() => null);
   } else if (ownerId && persisted) {
     await notify(db, { toId: ownerId, fromId, fromName, type: "comment", postId, extra: text.slice(0, 80) }).catch(() => null);
   }
