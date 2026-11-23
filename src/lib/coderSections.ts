@@ -60,7 +60,7 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
   prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
-  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
+  agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; draftPhaseText?: string; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -1857,6 +1857,22 @@ export async function draftPulse(bot: TelegramBot, chatId: number, run: Run): Pr
   if (ok) run.draftAt = Date.now();
 }
 
+/** Live status in the draft while the model has no text yet: what the Studio itself reports (reading the prompt 62%, queue position, thinking) and how long it has been going.
+ *  Owner 2026-11-23: no fixed placeholder, the real state of the work. Only for tasks started in the chat; the first text of the answer replaces it. */
+export async function draftPhase(bot: TelegramBot, chatId: number, run: Run, phase: string): Promise<void> {
+  const api = bot.api as any;
+  if (!liveDraftOn() || run.noDraft || chatId <= 0 || typeof api.sendMessageDraft !== "function") return;
+  if (run.surface === "app" && run.origin !== "chat") return;          // Mini App / scheduled tasks keep the chat quiet
+  if (run.draftText || draftStopped(chatId)) return;                    // text is already streaming
+  const secs = Math.max(0, Math.round((Date.now() - (run.startedAt || Date.now())) / 1000));
+  const line = `⏳ ${phase} — ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  if (line === run.draftPhaseText) return;
+  run.draftId = run.draftId || 1 + Math.floor(Math.random() * 2_000_000_000);
+  let ok = await api.sendMessageDraft(chatId, run.draftId, line, { can_stop: true }).then(() => true).catch(() => false);
+  if (!ok) ok = await api.sendMessageDraft(chatId, run.draftId, line).then(() => true).catch(() => false);
+  if (ok) { run.draftAt = Date.now(); run.draftPhaseText = line; }
+}
+
 /** Telegram-side delivery of a run's text (see sendParts). `text` is everything the model has written so far in this step. */
 export async function deliverToChat(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean): Promise<void> {
   if (/<tool_call>|<function=|<[a-z_/=]{1,11}$/.test(text)) { const { hideToolMarkup } = await import("@/lib/coderXmlToolCalls"); text = hideToolMarkup(text); if (!text.trim()) return; }
@@ -2462,6 +2478,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           // only states the Studio itself reported: its model phase, its queue position, its reasoning counter, its prompt-reading progress, whether text is coming
           const [pkey, phase] = r.phase && r.phase !== "ready" ? ["prep", `جاري تجهيز النموذج (${r.phase})`] : r.queue_pos && r.queue_pos > 0 ? ["queue", `في الطابور، الترتيب ${r.queue_pos}`] : Number(r.reasoning_len || 0) > 0 && !r.total ? ["think", "جاري التفكير"] : Number(r.total || 0) > 0 || readDone ? ["write", "جاري الكتابة"] : pf >= 0 ? ["read", `جاري قراءة المهمة ${pf}%`] : ["wait", "في انتظار أول مخرجات النموذج"];
           if (run.surface === "app") await taskEvent(run.id, "info", `⏳ ${phase}`, db);
+          if (!run.progress?.msgId) await draftPhase(ioBot, chatId, run, phase);
           if (requiresProgressCard(run.goal || "") || run.progress?.msgId) {
             await refreshCard(run.surface === "app" ? bot : ioBot, chatId, run, pkey, phase);
           }
