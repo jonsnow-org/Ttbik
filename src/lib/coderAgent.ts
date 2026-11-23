@@ -28,9 +28,9 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_repo_scan", "ONE call that gives the lay of a repository or one named folder: facts, immediate folders and files, the README start and the main manifest. Set path when the user named a project folder; only that folder is listed or read.", obj({ repo: REPO, path: s("optional repository-relative folder; restricts the scan to this folder") }, ["repo"])),
   tool("github_repo_audit", "Read-only initial audit in ONE call: repository facts + a file listing + up to 8 key file excerpts selected from README, manifest, config, entry points, schema, CI and tests. Set path when the user named a project folder; only that folder is listed or read.", obj({ repo: REPO, ref: s("branch / commit, optional"), path: s("optional repository-relative folder; restricts the audit to this folder") }, ["repo"])),
   tool("github_read_files", "Read up to 4 text files of one repository in ONE call (the start of each). Use it when you already know which files you need.", obj({ repo: REPO, paths: { type: "array", items: { type: "string" }, description: "file paths, at most 4" }, ref: s("branch / sha") }, ["repo", "paths"])),
-  tool("github_list_files", "List files of a repository (recursive tree, or one folder).", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
+  tool("github_list_files", "List files of a repository (recursive tree, or one folder). Dependencies, build output, caches and binaries are left out of the tree (their count is reported); list a folder when you need it.", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a text file. Use start_line/end_line for big files.", obj({ repo: REPO, path: s("file path"), ref: s("branch / sha"), start_line: n("1-based"), end_line: n("inclusive") }, ["repo", "path"])),
-  tool("github_search_code", "Search code in one repository.", obj({ repo: REPO, query: s("search words") }, ["repo", "query"])),
+  tool("github_search_code", "Search code in one repository. Each hit comes WITH a fragment of the matching code (the exact text), so you often do not need to read the file: pass a fragment straight to github_edit_file. Use it before reading files you have not located yet.", obj({ repo: REPO, query: s("search words; GitHub code-search qualifiers work, e.g. 'symbol language:ts path:src'") }, ["repo", "query"])),
   tool("github_search_repos", "Find repositories on GitHub (any owner) by keywords/topics, best first. Use it to discover projects; then read their README with github_read_file.", obj({ query: s("search words, e.g. 'telegram bot llm' (GitHub qualifiers like language:python stars:>100 work)"), sort: s("stars (default) | updated | best-match") }, ["query"])),
   tool("github_list_branches", "List branches.", obj({ repo: REPO }, ["repo"])),
   tool("github_create_branch", "Create a branch from another branch (default branch when `from` is empty).", obj({ repo: REPO, branch: s("new branch"), from: s("source branch") }, ["repo", "branch"])),
@@ -452,13 +452,13 @@ export function parseArgs(call: CoderToolCall): Record<string, any> {
 }
 
 // ---------------------------------------------------------------- GitHub
-type Gh = (method: string, path: string, body?: unknown) => Promise<{ status: number; data: any }>;
+type Gh = (method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>) => Promise<{ status: number; data: any }>;
 
 export function githubClient(token: string, fetchImpl?: typeof fetch): Gh {
-  return async (method, path, body) => {
+  return async (method, path, body, extraHeaders) => {
     const res = await (fetchImpl || globalThis.fetch)(`${GH}${path}`, {
       method,
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "coder-bot", ...(body ? { "Content-Type": "application/json" } : {}) },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "coder-bot", ...(body ? { "Content-Type": "application/json" } : {}), ...(extraHeaders || {}) },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(20000),
     });
@@ -475,6 +475,23 @@ export function githubClient(token: string, fetchImpl?: typeof fetch): Gh {
 
 const enc = (p: string) => p.split("/").map(encodeURIComponent).join("/");
 const repoOk = (r: unknown) => typeof r === "string" && /^[\w.-]+\/[\w.-]+$/.test(r);
+
+// A repository tree read whole (recursive) is thousands of paths on a real project: dependencies, build output, caches and
+// binaries are pure weight for the model (Nova reads ~9 prompt tokens/s on its 2-core Studio), and none of them is ever a
+// file the agent edits. They are counted in the first line and left out; a named folder still lists everything in it.
+const TREE_NOISE_DIRS = new Set(["node_modules", ".git", ".next", ".nuxt", ".svelte-kit", ".output", ".turbo", ".cache", ".parcel-cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__", ".venv", "venv", "site-packages", "dist", "build", "out", "target", "vendor", "bower_components", "coverage", ".nyc_output", ".gradle", "Pods", ".terraform", "DerivedData"]);
+const TREE_NOISE_EXT = /\.(?:png|jpe?g|gif|webp|ico|bmp|tiff?|psd|ai|woff2?|ttf|otf|eot|mp[34]|wav|ogg|flac|m4a|webm|mov|avi|mkv|pdf|zip|tar|tgz|gz|bz2|xz|7z|rar|gguf|safetensors|bin|pt|pth|onnx|h5|pkl|pickle|jar|class|o|a|so|dylib|dll|exe|wasm|db|sqlite3?|xlsx?|docx?|pptx?|map)$/i;
+/** Splits a whole-repository tree into the paths worth showing the model and the count of noise paths left out. */
+export function pruneTree(paths: string[]): { kept: string[]; hidden: number } {
+  const kept: string[] = [];
+  let hidden = 0;
+  for (const p of paths) {
+    const noisy = p.split("/").some((seg) => TREE_NOISE_DIRS.has(seg)) || TREE_NOISE_EXT.test(p) || /\.min\.(?:js|css)$/i.test(p);
+    if (noisy) hidden++;
+    else kept.push(p);
+  }
+  return { kept, hidden };
+}
 
 async function defaultBranch(gh: Gh, repo: string): Promise<string> {
   const r = await gh("GET", `/repos/${repo}`);
@@ -646,7 +663,7 @@ export async function guardCall(call: CoderToolCall, gh: Gh | null, tier: "owner
 
 const clip = (x: unknown, max = RESULT_MAX) => {
   const t = typeof x === "string" ? x : JSON.stringify(x, null, 1);
-  return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars]` : t;
+  return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars: the full result is kept — recall() finds the rest by words you saw here]` : t;
 };
 
 async function writeFiles(gh: Gh, repo: string, branch: string, message: string, files: { path: string; content: string | null }[]) {
@@ -995,7 +1012,11 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         }
         const r = await gh("GET", `${R}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
         const items = (r.data?.tree || []).filter((x: any) => x.type === "blob").map((x: any) => x.path);
-        return clip(`${items.length} files${r.data?.truncated ? " (truncated)" : ""}\n${items.slice(0, 1500).join("\n")}`);
+        const { kept, hidden } = pruneTree(items);
+        const cap = Math.max(100, Number(process.env.CODER_TREE_MAX) || 800);
+        const shown = kept.slice(0, cap);
+        const more = kept.length > shown.length ? `\n…[${kept.length - shown.length} more paths: list one folder with path= to see them]` : "";
+        return clip(`${items.length} files${r.data?.truncated ? " (truncated by GitHub)" : ""}${hidden ? `; ${hidden} dependency/build/binary paths not shown (list a folder to see it)` : ""}\n${shown.join("\n")}${more}`);
       }
       case "github_read_file": {
         const ref = a.ref ? `?ref=${encodeURIComponent(a.ref)}` : "";
@@ -1004,13 +1025,29 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         const text = Buffer.from(r.data.content, "base64").toString("utf-8");
         const lines = text.split("\n");
         const from = Math.max(1, Number(a.start_line) || 1);
+        if (from > lines.length) return `${a.path} has ${lines.length} lines: start_line ${from} is past its end (read from line 1)`;
         const to = Math.min(lines.length, Number(a.end_line) || lines.length);
         const body = lines.slice(from - 1, to).map((l, i) => `${from + i}| ${l}`).join("\n");
         return clip(`${a.path} (${lines.length} lines, sha ${String(r.data.sha).slice(0, 7)})\n${body}`);
       }
       case "github_search_code": {
-        const r = await gh("GET", `/search/code?q=${encodeURIComponent(`${a.query} repo:${a.repo}`)}&per_page=30`);
-        return clip((r.data?.items || []).map((x: any) => x.path).join("\n") || `no results (${r.status})`);
+        const q = String(a.query || "").trim();
+        if (!q) return "error: query is required";
+        // text-match: GitHub also returns the code AROUND each hit, so one search answers what used to take a search step
+        // plus one or more file reads (each read is minutes of prompt on Nova's 2-core Studio).
+        const r = await gh("GET", `/search/code?q=${encodeURIComponent(`${q} repo:${a.repo}`)}&per_page=20`, undefined, { Accept: "application/vnd.github.text-match+json" });
+        const items: any[] = Array.isArray(r.data?.items) ? r.data.items : [];
+        if (r.status >= 300) {
+          const why = String(r.data?.message || "code search failed");
+          const hint = r.status === 403 ? " (GitHub code search needs a token that can read this repository and is limited to 10 requests a minute; other tools still work)" : r.status === 422 ? " (GitHub rejected the query: shorten it or drop its qualifiers)" : "";
+          return clip(`error ${r.status}: ${why}${hint}`);
+        }
+        if (!items.length) return `no results (${r.status})`;
+        const blocks = items.map((x: any, i: number) => {
+          const frags = (Array.isArray(x.text_matches) ? x.text_matches : []).map((m: any) => String(m?.fragment || "").trim().replace(/```/g, "‛‛‛")).filter(Boolean).slice(0, 2);   // a fragment never closes the fence around it
+          return `${i + 1}. ${x.path}${frags.length ? `\n\`\`\`\n${frags.map((f: string) => f.slice(0, 400)).join("\n…\n")}\n\`\`\`` : ""}`;
+        });
+        return clip(`${items.length} file(s) match "${q}" in ${a.repo}\n${blocks.join("\n")}`);
       }
       case "github_search_repos": {
         const q = String(a.query || "").trim().slice(0, 256);

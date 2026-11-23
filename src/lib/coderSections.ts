@@ -2355,8 +2355,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const batch = [call];
       if (PAR_READ.has(call.function.name) && process.env.CODER_PARALLEL_TOOLS !== "off") {
         const prefs = await loadPrefs(chatId, db);
+        // One round of reads (a scan plus the files it points at) is the most common Nova step: running up to 6 of them
+        // together saves several model steps, and each step costs the whole prompt again on a CPU Studio.
+        const maxReads = Math.max(2, Math.min(8, Number(process.env.CODER_PARALLEL_READS) || 6));
         for (const nx of rest) {
-          if (batch.length >= 4 || !PAR_READ.has(nx.function.name)) break;
+          if (batch.length >= maxReads || !PAR_READ.has(nx.function.name)) break;
           if (run.agent && !agentToolAllowed(nx.function.name, run.agentRole, run.agentDepth || 1, parseArgs(nx))) break;
           if (beforeCall(run.stall, nx) || (run.approved || []).includes(toolCallKey(nx))) break;
           const gx = await evaluateCall(nx, ctx.gh, ctx.tier, contextOf(run), prefs, [...new Set([...(run.allowCats || []), ...(await parentAllowCats(chatId, run, db))])]);

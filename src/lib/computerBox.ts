@@ -139,7 +139,7 @@ function renderBody(action: string, r: Record<string, any>): string {
     case "write":
       return `wrote ${r.path} (${r.bytes} bytes)`;
     case "read":
-      if (r.kind === "folder") return `folder ${r.path}:\n` + ((r.entries as string[]) || []).join("\n") || "(empty)";
+      if (r.kind === "folder") return `folder ${r.path}:\n` + (((r.entries as string[]) || []).join("\n") || "(empty)");
       return String(r.text ?? "") + (r.cut ? "\n…(file continues; read part of it with `sed -n 'A,Bp'` through computer_run)" : "");
     case "job_start":
       return `job ${r.id} started. Read it with computer_job action=log id=${r.id}.`;
@@ -178,8 +178,9 @@ export async function boxDo(modelId: string | undefined, session: string, args: 
     if (clean.action === "repo" && reply && reply.ok !== false && reply.job) {
       const done = await waitJob(base, session, String(reply.job), fetchImpl);
       if (done && !done.running) {
+        const summary = String(reply.summary || "").trim();          // the folder map the Studio sent with the clone: keeping it saves a search/scout step
         return done.exit_code === 0 || done.exit_code === undefined
-          ? `repository ready in ~/${reply.path} (download finished while the tool waited)\nSearch it with computer_search, read files with computer_read.`
+          ? `repository ready in ~/${reply.path} (download finished while the tool waited)${summary ? `\n${summary}` : ""}\nSearch it with computer_search, read files with computer_read.`
           : renderBoxReply("job_log", done);
       }
     }
