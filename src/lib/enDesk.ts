@@ -256,19 +256,25 @@ export const EN_NEWS: DeskItem[] = [
   },
   {
     "slug": "us-ai-tech-selloff-correction-november-2026",
-    "title": "AI-led technology sell-off pushes the S&P 500 into correction territory",
+    "title": "AI-led technology sell-off spreads from U.S. markets to South Korea",
     "date": "21 November 2026",
-    "contextDateLabel": "Market session: Friday, 20 November 2026; Reuters published: 20 November 2026, 21:17 UTC; AP report: 20 November 2026; Sham AI publication: 21 November 2026",
-    "dek": "U.S. stocks fell sharply on 20 November as technology and AI shares led a broad sell-off. The S&P 500 dropped 3.7% and entered correction territory, while the Nasdaq fell 5.3% and ended the year-to-date period in negative territory.",
+    "updatedDateIso": "2026-11-23",
+    "updatedDateLabel": "23 November 2026",
+    "contextDateLabel": "U.S. market session: Friday, 20 November 2026; Reuters publication: 20 November 2026, 21:17 UTC; AP report: 20 November 2026; South Korean market session: Monday, 23 November 2026; Reuters publication: 23 November 2026, 02:43 UTC; Yonhap closing report: 23 November 2026, 15:34 KST (06:34 UTC; 09:34 Istanbul); original Sham AI publication: 21 November 2026; last updated: 23 November 2026.",
+    "dek": "A technology- and AI-led sell-off hit U.S. stocks on 20 November and spread to South Korea on 23 November, where the KOSPI closed 3.31% lower at 4,708.54 after falling to 4,586.80 intraday.",
     "body": [
       "U.S. markets saw a broad sell-off on Friday, 20 November 2026, led by technology and artificial-intelligence shares. The Associated Press reported that the S&P 500 fell 3.7%, leaving it more than 10% below its 6 October record high — the commonly used definition of a market correction. The Nasdaq Composite dropped 5.3%, turning negative for 2026, while the Dow Jones Industrial Average fell 1.9%.",
       "Reuters published its report at 21:17 UTC on 20 November and reported a similar 5.3% daily fall in the Nasdaq and a roughly 10% weekly decline. Nvidia fell 14% on the day and 23% for the week, while the semiconductor index lost 11%, Reuters said.",
-      "Both reports linked the sell-off to investor concerns about AI-company valuations, spending on infrastructure and data centres, earnings expectations and interest rates. These are explanations and views attributed to analysts and investors; they do not establish that the AI sector has ended or that an investment bubble has definitively burst. AP said the decline also spread to Asian and European markets.",
-      "Event date: the U.S. trading session on 20 November 2026; Reuters and AP report dates: 20 November 2026; Sham AI publication date: 21 November 2026. This is market reporting, not investment advice."
+      "The volatility spread to South Korea on Monday, 23 November 2026. Yonhap reported that the KOSPI closed at 4,708.54, down 161.42 points (3.31%) from the previous session, after touching 4,586.80 intraday. Yonhap published its closing report at 15:34 KST (06:34 UTC; 09:34 Istanbul). In an earlier report that day, Reuters said the index had fallen about 5% intraday and quoted Finance Minister Lee Hyoung-il saying authorities were preparing market-stabilisation measures to be activated according to market conditions. The 5% figure describes the intraday decline, while 3.31% is the closing loss; they refer to different points in the session.",
+      "Reports linked the sell-off to investor concerns about AI-company valuations, spending on infrastructure and data centres, earnings expectations and interest rates. These are explanations and views attributed to analysts and investors; they do not establish that the AI sector has ended or that an investment bubble has definitively burst. Preparations for market-stabilisation measures do not mean that the measures were activated or that they guarantee a particular market direction.",
+      "U.S. event date: the trading session on 20 November 2026; South Korean event date: the market session on 23 November 2026; original Sham AI publication date: 21 November 2026; last updated: 23 November 2026. This is market reporting, not investment advice."
     ],
     "sources": [
       { "href": "https://www.reuters.com/business/view-nasdaq-plunges-5-day-after-anthropic-debut-investors-still-believe-ai-2026-11-20/", "label": "Reuters — 20 November market close and analysis, 21:17 UTC" },
-      { "href": "https://apnews.com/article/stock-markets-anthropic-ai-chips-boom-c4c3f4878b12989347f8a930ed813dad", "label": "Associated Press — S&P 500, Nasdaq and technology shares, 20 November 2026" }
+      { "href": "https://apnews.com/article/stock-markets-anthropic-ai-chips-boom-c4c3f4878b12989347f8a930ed813dad", "label": "Associated Press — S&P 500, Nasdaq and technology shares, 20 November 2026" },
+      { "href": "https://en.yna.co.kr/view/AEN20261123006600320", "label": "Yonhap News Agency — KOSPI close on 23 November, 15:34 KST" },
+      { "href": "https://www.reuters.com/world/asia-pacific/south-koreas-finance-minister-sees-solid-growth-next-year-flags-chip-volatility-2026-11-23/", "label": "Reuters — KOSPI decline and government stabilisation preparations, 23 November 2026, 02:43 UTC" },
+      { "href": "https://www.koreatimes.co.kr/amp/economy/20261123/seoul-stocks-lose-33-as-ai-rout-tests-govt-rescue-plans", "label": "The Korea Times — corroborating the 4,708.54 close, published 16:32 and updated 18:06 KST on 23 November" }
     ]
   },
   {

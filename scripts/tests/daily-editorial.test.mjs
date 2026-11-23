@@ -319,7 +319,7 @@ test("21 November humanitarian and security updates are bilingual, source-matche
   }
 });
 
-test("AI-led market sell-off separates the 20 November session from 21 November publication", () => {
+test("AI-led market sell-off preserves its original publication date and records the 23 November Korea follow-up", () => {
   const slug = "us-ai-tech-selloff-correction-november-2026";
   const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
   const english = EN_NEWS.find((item) => item.slug === slug);
@@ -327,13 +327,24 @@ test("AI-led market sell-off separates the 20 November session from 21 November 
   assert.ok(english);
   assert.equal(arabic.dateIso, "2026-11-21");
   assert.equal(english.date, "21 November 2026");
-  assert.match(arabic.contextDateLabel, /جلسة السوق: الجمعة 20 نوفمبر 2026/);
-  assert.match(english.contextDateLabel, /Market session: Friday, 20 November 2026/);
+  assert.equal(arabic.updatedDateIso, "2026-11-23");
+  assert.equal(english.updatedDateIso, "2026-11-23");
+  assert.equal(arabic.updatedDateLabel, "23 نوفمبر 2026");
+  assert.equal(english.updatedDateLabel, "23 November 2026");
+  assert.match(arabic.contextDateLabel, /جلسة السوق الأميركية: الجمعة 20 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /U.S. market session: Friday, 20 November 2026/);
+  assert.match(arabic.contextDateLabel, /تقرير يونهاب عن الإغلاق: 23 نوفمبر 2026، 15:34 KST/);
+  assert.match(english.contextDateLabel, /Yonhap closing report: 23 November 2026, 15:34 KST/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
-  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com")));
-  assert.ok(arabic.sources.some((source) => source.href.includes("apnews.com")));
-  assert.match(arabic.description, /3\.7%/);
-  assert.match(english.dek, /5\.3%/);
+  for (const domain of ["reuters.com", "apnews.com", "yna.co.kr", "koreatimes.co.kr"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /4,708\.54/);
+  assert.match(arabic.paragraphs.join(" "), /3\.31%/);
+  assert.match(arabic.paragraphs.join(" "), /4,586\.80/);
+  assert.match(english.body.join(" "), /4,708\.54/);
+  assert.match(english.body.join(" "), /3\.31%/);
+  assert.match(english.body.join(" "), /4,586\.80/);
   assert.match(english.body.join(" "), /not investment advice/i);
 });
 
