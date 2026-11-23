@@ -58,4 +58,5 @@ test("media stream access revocation is not delayed by long-lived lookup or prox
   assert.match(pathRoute, /status: 422, headers: \{ "cache-control": "no-store" \}/);
   assert.match(stream, /"cache-control": "private, no-store"/);
   assert.match(thumb, /"cache-control": row\.squad_code \? "private, no-store" : "public, max-age=60, s-maxage=60"/);
+  assert.equal((thumb.match(/status: 424, headers: \{ "cache-control": "no-store" \}/g) || []).length, 2);
 });
