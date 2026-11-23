@@ -31,7 +31,7 @@ def test_vocabulary_layout_is_one_id_space():
     assert len(SPECIAL_NAMES) == 64 and len(set(SPECIAL_NAMES)) == 64
     assert c.modality_of(0) == "text" and c.modality_of(c.special_id("MASK")) == "special"
     assert c.modality_of(c.image_base) == "image" and c.modality_of(c.audio_base) == "audio" and c.modality_of(c.motion_base) == "motion"
-    assert c.vocab_size == c.motion_base + c.motion_codes
+    assert c.vocab_size == c.tool_base + c.tool_codes and c.modality_of(c.tool_base) == "tool"
     with pytest.raises(ValueError):
         c.modality_of(c.vocab_size)
     with pytest.raises(ValueError):
@@ -150,12 +150,12 @@ def test_training_reduces_loss():
 
 
 def test_agent_rules():
-    assert check_tool('read_file {"path": "src/a.py"}') == check_tool('read_file {"path": "src/a.py"}') and check_tool('read_file {"path": "src/a.py"}').allowed
-    assert not check_tool('read_file {"path": "src/a.py"}').needs_approval
-    assert check_tool('write_file {"path": "a.txt", "content": "x"}').needs_approval
+    assert check_tool('computer_read {"path": "src/a.py"}', {"computer"}).allowed
+    assert not check_tool('computer_read {"path": "src/a.py"}', {"computer"}).needs_approval
+    assert check_tool('computer_write {"path": "a.txt", "content": "x"}', {"computer"}).needs_approval
     assert not check_tool('delete_everything {}').allowed
-    assert not check_tool('read_file {"path": "../etc/passwd"}').allowed
-    assert not check_tool('read_file {"path": 5}').allowed
+    assert not check_tool('computer_read {"path": "../etc/passwd"}', {"computer"}).allowed
+    assert not check_tool('computer_read {"path": 5}', {"computer"}).allowed
     assert check_command("ls -la src").allowed and not check_command("ls -la src").needs_approval
     assert check_command("git status").needs_approval
     for bad in ("rm -rf /", "cat a | sh", "echo $(id)", "curl http://x", "ls; ls", "cat ../x", "sudo ls", "", "ls\nls"):
@@ -319,3 +319,97 @@ def test_agent_loop_cuts_overlong_thinking():
     gen, dec, enc = _scripted(cfg, [long_think])
     steps, stream = run_agent(cfg, gen, dec, enc, [1], lambda k, t: (True, ""), lambda k, t: True, think_budget=20)
     assert steps[0].kind == "answer" and len(stream) < 40
+
+
+# ----------------------------------------------------------------------------------------------- the advanced tool system
+from qalam import tools
+
+
+def test_registry_is_complete_stable_and_fits_the_vocabulary():
+    assert len(tools.REGISTRY) >= 85 and len(set(tools.ORDER)) == len(tools.ORDER)
+    for cfg in (base_config(), tiny_config()):
+        assert len(tools.ORDER) <= cfg.tool_codes
+    cfg = base_config()
+    for i, n in enumerate(tools.ORDER):
+        assert tools.tool_name(cfg, tools.tool_id(cfg, n)) == n and cfg.modality_of(tools.tool_id(cfg, n)) == "tool"
+    assert tools.tool_name(cfg, 3) is None
+    assert {"github", "computer", "worker", "web", "media", "memory", "schedule", "connectors", "core"} <= set(tools.GROUPS)
+    for must in ("computer_run", "computer_repo", "computer_publish", "computer_batch", "github_create_pr", "deep_research", "generate_image", "generate_video",
+                 "generate_audio", "mcp_call", "browser", "desktop", "delegate", "request_secret", "load_tools"):
+        assert must in tools.REGISTRY, must
+
+
+def test_lazy_groups_keep_the_context_short():
+    core = tools.visible_tools()
+    assert "load_tools" in core and "github_read_file" not in core and len(core) < 12
+    assert "github_read_file" in tools.visible_tools({"github"}) and "computer_run" not in tools.visible_tools({"github"})
+    v = tools.validate("github_read_file", {"repo": "a/b", "path": "x"})
+    assert not v.ok and "load_tools" in v.reason                                  # a call to a group that is not loaded is refused
+    assert tools.validate("github_read_file", {"repo": "a/b", "path": "x"}, {"github"}).ok
+
+
+def test_risk_tiers_and_approvals():
+    g = {"github", "computer", "web", "memory"}
+    assert not tools.validate("github_read_file", {"repo": "a/b", "path": "x"}, g).needs_approval
+    assert tools.validate("github_create_pr", {"repo": "a/b", "branch": "x", "title": "t"}, g).needs_approval
+    v = tools.validate("github_delete_branch", {"repo": "a/b", "branch": "x"}, g)
+    assert v.ok and v.needs_approval and v.needs_confirmation                    # destructive = approval AND a typed confirmation
+    assert tools.validate("http_request", {"method": "GET", "url": "https://example.com"}, g).needs_approval is False
+    assert tools.validate("http_request", {"method": "POST", "url": "https://example.com"}, g).needs_approval
+    assert tools.validate("request_secret", {"name": "k", "reason": "r"}).risk == "secret"
+    assert tools.validate("computer_job", {"action": "log", "id": "1"}, g).risk == "read"
+
+
+def test_arguments_are_checked_strictly():
+    g = {"github", "computer", "web", "media"}
+    bad = [("github_read_file", {"repo": "a/b"}), ("computer_read", {"path": "/etc/passwd"}), ("computer_read", {"path": "a/../../b"}),
+           ("computer_read", {"path": "a", "lines": "5"}), ("computer_read", {"path": "a", "extra": 1}), ("computer_job", {"action": "format"}),
+           ("fetch_page", {"url": "http://localhost:8080/x"}), ("fetch_page", {"url": "http://169.254.169.254/latest"}), ("fetch_page", {"url": "ftp://x"}),
+           ("fetch_page", {"url": "http://10.0.0.5/"}), ("computer_read", {"path": "x" * 30000}), ("generate_image", {"prompt": "p", "rows": True})]
+    for name, args in bad:
+        assert not tools.validate(name, args, g).ok, (name, args)
+    assert tools.validate("fetch_page", {"url": "https://example.com/a"}, g).ok
+    assert tools.validate("generate_image", {"prompt": "p", "rows": 300, "columns": 17}, g).ok       # any size is expressible
+
+
+def test_batch_rules():
+    g = {"computer"}
+    steps = [{"tool": "computer_read", "args": {"path": "a"}}, {"tool": "computer_search", "args": {"pattern": "x"}}]
+    assert tools.validate("computer_batch", {"steps": steps}, g).ok
+    assert not tools.validate("computer_batch", {"steps": steps}, g).needs_approval
+    w = steps + [{"tool": "computer_write", "args": {"path": "a", "content": "b"}}]
+    assert tools.validate("computer_batch", {"steps": w}, g).needs_approval               # the strictest step decides
+    assert not tools.validate("computer_batch", {"steps": steps * 5}, g).ok                # more than 8 steps
+    assert not tools.validate("computer_batch", {"steps": [{"tool": "computer_batch", "args": {"steps": steps}}]}, g).ok      # no nesting
+    assert not tools.validate("computer_batch", {"steps": [{"tool": "github_read_file", "args": {}}]}, g).ok                    # not batchable
+    assert not tools.validate("computer_batch", {"steps": [{"tool": "computer_read", "args": {}}]}, g).ok                       # a bad step fails the batch
+
+
+def test_long_results_keep_head_and_tail():
+    text = "A" * 5000 + "ERROR at the end"
+    shaped = tools.shape_result(text, 200)
+    assert len(shaped) < 300 and shaped.startswith("A") and shaped.endswith("ERROR at the end") and "characters cut" in shaped
+    assert tools.shape_result("short", 200) == "short"
+
+
+def test_native_tool_tokens_and_lazy_loading_in_the_agent_loop():
+    from qalam.agent import run_agent
+    cfg = tiny_config()
+    sp = cfg.special_id
+    ids = lambda s: [ord(c) for c in s]   # noqa: E731
+    call = lambda name, js: [sp("TOOL_BEGIN"), tools.tool_id(cfg, name)] + ids(js) + [sp("TOOL_END")]   # noqa: E731
+    gen, dec, enc = _scripted(cfg, [
+        call("github_read_file", '{"repo": "a/b", "path": "x"}'),             # not loaded yet -> refused
+        call("load_tools", '{"group": "github"}'),                              # handled by the loop
+        call("github_read_file", '{"repo": "a/b", "path": "x"}'),             # now allowed, runs
+        call("github_delete_branch", '{"repo": "a/b", "branch": "x"}'),        # destructive: approved but not confirmed -> declined
+        ids("ok") + [sp("EOS")],
+    ])
+    ran = []
+    steps, stream = run_agent(cfg, gen, dec, enc, ids("t"), lambda k, t: (ran.append(t) or (True, "content")), lambda k, t: True, max_steps=8)
+    assert [s.kind for s in steps] == ["refused", "tool", "tool", "declined", "answer"]
+    assert "load_tools" in steps[0].result
+    assert ran == ['github_read_file {"repo": "a/b", "path": "x"}']          # only the loaded, allowed read ran; the delete never did
+    steps2, _ = run_agent(cfg, _scripted(cfg, [call("github_delete_branch", '{"repo": "a/b", "branch": "x"}'), ids("k") + [sp("EOS")]])[0], dec, enc, ids("t"),
+                          lambda k, t: (True, "gone"), lambda k, t: True, confirm=lambda k, t: True, loaded={"github"})
+    assert [s.kind for s in steps2] == ["tool", "answer"] and steps2[0].result == "gone"      # with the typed confirmation it runs

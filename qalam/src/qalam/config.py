@@ -30,6 +30,7 @@ class ModelConfig:
     image_codes: int = 1024
     audio_codes: int = 1024
     motion_codes: int = 512
+    tool_codes: int = 256        # one token per tool: a call is [TOOL_BEGIN, <tool id>, arguments..., TOOL_END] (shorter and exact, no spelled names)
     max_seq: int = 1024
     rope_theta: float = 10000.0
     latents: int = 16
@@ -66,8 +67,12 @@ class ModelConfig:
         return self.audio_base + self.audio_codes
 
     @property
-    def vocab_size(self) -> int:
+    def tool_base(self) -> int:
         return self.motion_base + self.motion_codes
+
+    @property
+    def vocab_size(self) -> int:
+        return self.tool_base + self.tool_codes
 
     def special_id(self, name: str) -> int:
         return self.special_base + SPECIAL_NAMES.index(name)
@@ -83,7 +88,9 @@ class ModelConfig:
             return "image"
         if token_id < self.motion_base:
             return "audio"
-        return "motion"
+        if token_id < self.tool_base:
+            return "motion"
+        return "tool"
 
     def text_and_end_ids(self) -> list[int]:
         """Ids a text/command writer may produce: text tokens plus the closing specials (never MASK, never modality codes)."""
@@ -107,4 +114,4 @@ def base_config() -> ModelConfig:
 def tiny_config() -> ModelConfig:
     """Plumbing and tests only."""
     return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96,
-                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, max_seq=128, latents=4, max_grid=64, max_time=64)
+                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=128, max_seq=128, latents=4, max_grid=64, max_time=64)
