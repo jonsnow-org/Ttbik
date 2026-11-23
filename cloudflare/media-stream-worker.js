@@ -45,7 +45,9 @@ export default {
       pathResp = env.GATE ? await env.GATE.fetch(pathKey) : await fetch(pathKey);
       if (!pathResp.ok) return new Response("not available", { status: pathResp.status === 404 ? 404 : 502, headers: cors });
       const copy = new Response(pathResp.clone().body, pathResp);
-      copy.headers.set("cache-control", "public, max-age=3000");
+      // A moderator can hide/delete a post at any time. Cache only the
+      // Telegram file-path lookup briefly so revocation takes effect quickly.
+      copy.headers.set("cache-control", "public, max-age=30");
       ctx.waitUntil(cache.put(pathKey, copy));
     }
     const { file_path, media_type } = await pathResp.json();
