@@ -1468,6 +1468,8 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
         if not re.fullmatch(r"https://codeload\.github\.com/[A-Za-z0-9_./?=&%~+-]{1,1500}", signed):
             return {"ok": False, "error": "bad download address"}
         tar_url = api_url = shell_quote(signed)
+    second_try = "false" if signed else "fetch_tar " + api_url     # the signed address is one source: asking it twice only doubles the wait
+    max_time = 420 if signed else 70            # a big private tarball over the Studio's slow GitHub link needs minutes (live bench 2026-11-23: 349 s for ~40 MB); a stall is still caught by --speed-limit
     # The Studio's links to GitHub change from hour to hour: one live probe saw `git clone` give up after 44 s while codeload answered in under a second,
     # a later bench saw both tarball sources stall (28 s lost) and the clone succeed. So the tarball (codeload, then the API tarball) and a shallow clone
     # RACE: the first complete copy wins and the other download is stopped. A tarball copy becomes a local git checkout (a baseline commit, so `changes` /
@@ -1479,9 +1481,9 @@ def repo_fetch(session: str, url: str, ref: str = "", signed_url: str = "") -> d
         #  an older checkout is therefore replaced by a fresh tarball/clone download, as a missing one is)
         f"if [ -n \"$(find {q}/.git/FETCHED_{marker} -mmin -15 2>/dev/null)\" ]; then echo \"reused the copy fetched under 15 min ago\"; "
         f"else mkdir -p {t_dir}; set +e; "
-        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time 70 \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
+        f"fetch_tar() {{ curl -fsSL --connect-timeout 10 --speed-limit 20000 --speed-time 12 --retry 2 --max-time {max_time} \"$1\" | tar xz -C {t_dir} --strip-components=1; }}; "
         f"killtree() {{ for c in $(pgrep -P \"$1\" 2>/dev/null); do killtree \"$c\"; done; kill \"$1\" 2>/dev/null; }}; "
-        f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; fetch_tar {api_url} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
+        f"( if fetch_tar {tar_url}; then touch {t_dir}.ok; else echo \"codeload failed at ${{SECONDS}}s; trying the API tarball\"; rm -rf {t_dir}; mkdir -p {t_dir}; {second_try} && touch {t_dir}.ok || echo \"tarballs failed at ${{SECONDS}}s\"; fi ) & pt=$!; "
         f"( git -c http.lowSpeedLimit=2000 -c http.lowSpeedTime=20 clone -q --depth 1 --single-branch {branch}{shell_quote(clone_url)} {g_dir} && touch {g_dir}.ok || echo \"git clone failed at ${{SECONDS}}s\" ) & pg=$!; "
         f"win=; while :; do "
         f"if [ -f {t_dir}.ok ]; then win=tar; break; fi; if [ -f {g_dir}.ok ]; then win=git; break; fi; "
