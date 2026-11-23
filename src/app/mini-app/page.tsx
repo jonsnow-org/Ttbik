@@ -172,6 +172,7 @@ export default function MiniAppPage() {
   const [statusLine, setStatusLine] = useState("محبّ للوسائط ✨");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState("");
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -234,6 +235,7 @@ export default function MiniAppPage() {
   const [viaVercel, setViaVercel] = useState<Record<string, boolean>>({});
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState("");
   const [newCount, setNewCount] = useState(0);
   const [adminSection, setAdminSection] = useState<"reports" | "chats" | "rooms" | "content" | "settings">("reports");
   const [adminConvs, setAdminConvs] = useState<{ a: string; b: string; a_name: string; b_name: string; last_body: string; last_at: number; count: number }[] | null>(null);
@@ -245,20 +247,15 @@ export default function MiniAppPage() {
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
-    const attempts = playErrorAttempts.current[id] || 0;
-    if (attempts === 0 && !viaVercel[id]) {
+    if (!viaVercel[id]) {
       playErrorAttempts.current[id] = 1;
       setViaVercel((v) => ({ ...v, [id]: true }));
       return;
     }
-    if (attempts < 2 && viaVercel[id]) {
-      playErrorAttempts.current[id] = 2;
-      setViaVercel((v) => ({ ...v, [id]: false }));
-      return;
-    }
+    playErrorAttempts.current[id] = 2;
     setPlayingId(null);
     setPlayError(id);
-    showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
+    showToast("تعذّر تشغيل المقطع عبر مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
   };
   const onAutoPreviewError = useCallback((id: string) => {
     if (!viaVercel[id] && autoPreviewAttempts.current[id] !== 1) {
@@ -303,6 +300,8 @@ export default function MiniAppPage() {
       else if (j.reason === "cooldown") showToast("انتظر قليلاً قبل الإعلان التالي");
       else if (j.reason === "daily_cap") showToast("استهلكت مكافآت اليوم — تتجدد غداً");
       else if (j.needs_migration) showToast("المكافآت بانتظار تفعيلها من المالك");
+    } catch {
+      showToast("تعذّر تسجيل المكافأة الآن. لم تُضف تحميلات إلى حسابك.");
     } finally {
       setAdBusy(false);
     }
@@ -502,6 +501,7 @@ export default function MiniAppPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFeedError("");
     setNewCount(0);
     try {
       const qs = buildQuery(0);
@@ -518,7 +518,8 @@ export default function MiniAppPage() {
         qs.set("mix", String(round));
       }
       const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
       let list: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       if (rotating && seenRef.current.size) {
         const fresh = list.filter((i) => !seenRef.current.has(i.id));
@@ -528,21 +529,27 @@ export default function MiniAppPage() {
       setItems(list);
       mergeLiked(list);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
-    } catch { setItems([]); setNextOffset(null); } finally { setLoading(false); }
+    } catch (e) {
+      setFeedError(e instanceof Error ? e.message : "تعذّر تحميل الخلاصة");
+    } finally { setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildQuery, tab, showProfile, search]);
 
   async function loadMore() {
     if (loadingMore || nextOffset == null) return;
     setLoadingMore(true);
+    setLoadMoreError("");
     try {
       const r = await fetch(`/api/media-feed?${buildQuery(nextOffset)}`, { cache: "no-store" });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
       const more: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       setItems((prev) => { const have = new Set(prev.map((i) => i.id)); return [...prev, ...more.filter((i) => !have.has(i.id))]; });
       mergeLiked(more);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
-    } catch {} finally { setLoadingMore(false); }
+    } catch (e) {
+      setLoadMoreError(e instanceof Error ? e.message : "تعذّر تحميل المزيد");
+    } finally { setLoadingMore(false); }
   }
 
   // "New posts" pill: checks every minute for posts newer than what's on
@@ -553,7 +560,9 @@ export default function MiniAppPage() {
       if (document.hidden) return;
       try {
         const qs = buildQuery(0); qs.set("sort", "latest"); qs.set("limit", "20");
-        const j = await (await fetch(`/api/media-feed?${qs}`, { cache: "no-store" })).json();
+        const response = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const j = await response.json();
         const newest = Math.max(0, ...items.map((i) => i.created_at || 0));
         const have = new Set(items.map((i) => i.id));
         setNewCount((Array.isArray(j.items) ? j.items : []).filter((i: FeedItem) => (i.created_at || 0) > newest && !have.has(i.id)).length);
@@ -622,22 +631,35 @@ export default function MiniAppPage() {
     } catch { showToast("تعذّر تنفيذ الإجراء"); }
   }
   async function hideItem(id: string) {
-    await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
-    setItems((prev) => prev.filter((x) => x.id !== id));
+    try {
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "save failed");
+      setItems((prev) => prev.filter((x) => x.id !== id));
+      showToast("تم إخفاء المنشور");
+    } catch {
+      showToast("تعذّر إخفاء المنشور؛ لم يتغير المحتوى");
+    }
   }
   async function runBroadcast() {
     if (!broadcastText.trim()) return; setAdminBusy(true);
     try {
       const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "broadcast", text: broadcastText, init_data: tgInitData() }) });
-      const j = await r.json();
-      tg()?.showAlert?.(j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل");
+      const j = await r.json().catch(() => ({}));
+      tg()?.showAlert?.(r.ok && j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل الإرسال");
+    } catch {
+      showToast("تعذّر الاتصال بالخادم؛ لم يتم تأكيد الإرسال");
     } finally { setAdminBusy(false); }
   }
   async function saveForceSub() {
     const channels = forceChans.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2); setAdminBusy(true);
     try {
-      await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) });
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "save failed");
       tg()?.showAlert?.("تم حفظ قنوات الاشتراك");
+    } catch {
+      showToast("تعذّر حفظ القنوات؛ لم يتم تغيير الإعداد");
     } finally { setAdminBusy(false); }
   }
 
@@ -792,7 +814,7 @@ export default function MiniAppPage() {
     const body = dmInput.trim(); setDmInput("");
     let r: Response | null = null;
     try { r = await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) }); } catch { r = null; }
-    if (r && r.status === 403) { showToast("لا يمكن مراسلة هذا المستخدم"); return; }
+    if (r && r.status === 403) { setDmInput(body); showToast("لا يمكن مراسلة هذا المستخدم"); return; }
     if (!r || !r.ok) { setDmInput(body); showToast("لم تُرسَل الرسالة، حاول مجدداً"); return; }   // the text stays in the box
     await loadThreadMessages(chatPeer.id);
   }
@@ -821,7 +843,7 @@ export default function MiniAppPage() {
     setCommentInput(""); setReplyTo(null);
     let r: Response | null = null;
     try { r = await fetch("/api/media-comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), post_id: commentsPost.id, parent_id: parentId, from_name: displayName || username || "مستخدم", body: bodyText }) }); } catch { r = null; }
-    if (r && r.status === 403) { showToast("لا يمكنك التعليق على هذا المنشور"); return; }
+    if (r && r.status === 403) { setCommentInput(bodyText); setReplyTo(prevReply); showToast("لا يمكنك التعليق على هذا المنشور"); return; }
     if (!r || !r.ok) { setCommentInput(bodyText); setReplyTo(prevReply); showToast("لم يُحفظ التعليق، حاول مجدداً"); return; }   // the text stays in the box
     await loadComments(commentsPost.id);
   }
@@ -1123,6 +1145,8 @@ export default function MiniAppPage() {
   };
   const playItem = (item: FeedItem) => {
     soundOnRef.current = item.media_type !== "audio" && item.media_type !== "voice";
+    playErrorAttempts.current[item.id] = 0;
+    setViaVercel((v) => ({ ...v, [item.id]: false }));
     setPlayError(null);
     setPlayingId(item.id);
     track("play", { post_id: item.id, type: item.media_type });
@@ -1649,7 +1673,13 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
+        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : feedError && visible.length === 0 ? (
+          <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-center">
+            <p className="text-sm font-bold text-rose-800">تعذّر تحميل محتوى التطبيق</p>
+            <p className="mt-2 text-xs text-rose-700">{feedError}</p>
+            <button type="button" onClick={() => void load()} className="mt-3 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">إعادة المحاولة</button>
+          </div>
+        ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <>
@@ -1765,6 +1795,18 @@ export default function MiniAppPage() {
           </>
         ))}
       </div>
+      {tab !== "admin" && !overlayOpen && feedError && visible.length > 0 && (
+        <div role="status" className="mx-3 mb-3 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="min-w-0 flex-1 text-[11px] font-semibold text-amber-800">تعذّر تحديث الخلاصة: {feedError}</p>
+          <button type="button" onClick={() => void load()} className="shrink-0 rounded-lg bg-white px-2 py-1 text-[10px] font-black text-amber-800 ring-1 ring-amber-200">إعادة</button>
+        </div>
+      )}
+      {tab !== "admin" && !overlayOpen && loadMoreError && (
+        <div role="alert" className="mx-3 mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-center">
+          <p className="text-[11px] font-semibold text-rose-700">تعذّر تحميل المزيد: {loadMoreError}</p>
+          <button type="button" onClick={() => void loadMore()} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-rose-700 ring-1 ring-rose-200">إعادة المحاولة</button>
+        </div>
+      )}
 
       {/* ⋮ menu — bottom sheet */}
       {menuItem && (
