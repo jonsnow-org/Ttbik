@@ -216,6 +216,7 @@ export function setMemorySettings(st: MemoryState, id: string, patch: Partial<Me
 /** Audience gates live in src/lib/tldmPolicy.ts, PER MODEL (env SHAM_/NOVA1_/NOVA2_TLDM_OPEN or that model's stored switch). */
 export { tldmOpenToAll, tldmAllowedFor, TLDM_MODELS, isTldmModel } from "@/lib/tldmPolicy";
 import { isTldmModel } from "@/lib/tldmPolicy";
+import { novaTldmServed } from "@/lib/novaTldmSeen";
 /** Per-chat T-LDM switch, PER MODEL: each of Sham Pro / Nova 1 / Nova 2 has its own, and one never enables another.
  *  Sham 1 (the old body) has none. Enabling a model's switch still requires tldmAllowedFor(tier, that model). */
 export type TldmState = { perModel?: Record<string, { tldm?: boolean } & Record<string, unknown>> };
@@ -227,7 +228,7 @@ export function tldmEnabled(st: TldmState, id?: string): boolean {
   if (typeof own === "boolean") return own;
   // Nova's head runs in its Studio only while that Studio serves it (NOVA_TLDM=1 there). Until the same flag is set on the app side, every Nova step would pay an
   // extra Studio call that answers "body", so Nova stays on its own plain chat. Sham Pro is automatic.
-  return m === "sham_v2" ? true : (process.env.NOVA_TLDM || "").trim() === "1";
+  return m === "sham_v2" ? true : (process.env.NOVA_TLDM || "").trim() === "1" || novaTldmServed();     // or a Nova Studio reported in its status that it serves the head (novaTldmSeen.ts)
 }
 export function setTldmEnabled(st: TldmState, on: boolean, id?: string): boolean {
   const m = canonModelId(id) || "sham_v2";

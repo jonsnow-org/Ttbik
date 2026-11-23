@@ -7,6 +7,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Env: OPEN_CODER_STUDIO_URL (required — off without it), OPEN_CODER_STUDIO_TOKEN or MODELSCOPE_API_TOKEN (private Studio),
 //      OPEN_CODER_API_PREFIX ("coder_" only for the combined single-Studio variant). Tokens are never logged.
 
+import { noteNovaTldm } from "@/lib/novaTldmSeen";
 import { getSecret, secretCached } from "@/lib/hostedSecrets";
 import { filterByTier, tierFor, type Tier } from "@/lib/coderTier";
 import { noteStudioCtx } from "@/lib/coderContext";
@@ -545,7 +546,7 @@ async function studioStatusOnce(base: string, timeoutMs: number): Promise<Record
     const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) });
     const st = res.ok ? await readCoderSse(res, parseStatusSse) : null;
     if (st && st.ctx != null) noteStudioCtx(base, st.ctx);
-    if (st) { if (st.vision === true) visionBases.add(base); else visionBases.delete(base); }        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
+    if (st) { noteNovaTldm(base, st.nova_tldm); if (st.vision === true) visionBases.add(base); else visionBases.delete(base); }        // the Studio's own context size: every budget in the bot follows it (coderContext.ts)
     return st;
   } catch {
     return null;

@@ -877,6 +877,11 @@ def status() -> str:
         mem["starts"] = []
     mem["slot_start"] = _LAST.get("start", "")
     mem["llama"] = _llama_faults()
+    try:      # Nova's own T-LDM head: the app reads this to know the head is served (no flag on the app server)
+        import nova_tldm_serve as _nt
+        mem["nova_tldm"] = "ready" if (_nt.enabled() and _nt._STATE.get("writer") is not None) else ("loading" if _nt.enabled() else "off")
+    except Exception:
+        mem["nova_tldm"] = "off"
     return json.dumps(dict(STATE, queue=q, active=active, uptime_s=int(time.time() - STATE["started_at"]), **mem), ensure_ascii=False)
 
 
