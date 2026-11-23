@@ -1,2 +1,4 @@
 # Studios that serve Nova's own T-LDM head (one name per line). Owner order 2026-11-23: Nova carries the T-LDM built for the deleted Nova and Sham Pro.
-coder-inference-server-16
+# EMPTY on purpose (2026-11-23 live measurement): on coder-inference-server-16 (15.35 GB; the 35B IQ3_XXS takes 13 GB) the head stayed "loading" for 25 minutes,
+# free memory fell 0.91 -> 0.28 GB and llama-server major page faults rose 336 -> 1459 (the model was being re-read from disk). The head needs its own Studio or a smaller body;
+# add a Studio name here only after its status shows mem_available_gb of at least 3 with nova_tldm "ready".
