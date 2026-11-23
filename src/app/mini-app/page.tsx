@@ -242,6 +242,11 @@ export default function MiniAppPage() {
   const [adminConv, setAdminConv] = useState<{ a: string; b: string; a_name: string; b_name: string; messages: { id: string; from_id: string; from_name: string; body: string; created_at: number }[] } | null>(null);
   // Posts this viewer has already had on screen — Trending shows unseen ones first on each refresh.
   const seenRef = useRef<Set<string>>(new Set());
+  // Search/tab changes can leave multiple fetches in flight. Only the newest
+  // feed request is allowed to update the visible list.
+  const feedRequestRef = useRef(0);
+  const loadMoreRequestRef = useRef(0);
+  const loadMoreBusyRef = useRef(false);
   const itemsRef = useRef<FeedItem[]>([]);
   itemsRef.current = items;
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
@@ -500,8 +505,14 @@ export default function MiniAppPage() {
   }
 
   const load = useCallback(async () => {
+    const requestId = ++feedRequestRef.current;
+    // Invalidate any older pagination request when the active query changes.
+    ++loadMoreRequestRef.current;
+    loadMoreBusyRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setFeedError("");
+    setLoadMoreError("");
     setNewCount(0);
     try {
       const qs = buildQuery(0);
@@ -520,6 +531,7 @@ export default function MiniAppPage() {
       const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
+      if (requestId !== feedRequestRef.current) return;
       let list: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       if (rotating && seenRef.current.size) {
         const fresh = list.filter((i) => !seenRef.current.has(i.id));
@@ -530,26 +542,41 @@ export default function MiniAppPage() {
       mergeLiked(list);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
     } catch (e) {
-      setFeedError(e instanceof Error ? e.message : "تعذّر تحميل الخلاصة");
-    } finally { setLoading(false); }
+      if (requestId === feedRequestRef.current) {
+        setFeedError(e instanceof Error ? e.message : "تعذّر تحميل الخلاصة");
+      }
+    } finally {
+      if (requestId === feedRequestRef.current) setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildQuery, tab, showProfile, search]);
 
   async function loadMore() {
-    if (loadingMore || nextOffset == null) return;
+    if (loadMoreBusyRef.current || nextOffset == null) return;
+    const feedRequestId = feedRequestRef.current;
+    const requestId = ++loadMoreRequestRef.current;
+    loadMoreBusyRef.current = true;
     setLoadingMore(true);
     setLoadMoreError("");
     try {
       const r = await fetch(`/api/media-feed?${buildQuery(nextOffset)}`, { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
+      if (feedRequestId !== feedRequestRef.current || requestId !== loadMoreRequestRef.current) return;
       const more: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       setItems((prev) => { const have = new Set(prev.map((i) => i.id)); return [...prev, ...more.filter((i) => !have.has(i.id))]; });
       mergeLiked(more);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
     } catch (e) {
-      setLoadMoreError(e instanceof Error ? e.message : "تعذّر تحميل المزيد");
-    } finally { setLoadingMore(false); }
+      if (feedRequestId === feedRequestRef.current && requestId === loadMoreRequestRef.current) {
+        setLoadMoreError(e instanceof Error ? e.message : "تعذّر تحميل المزيد");
+      }
+    } finally {
+      if (requestId === loadMoreRequestRef.current) {
+        loadMoreBusyRef.current = false;
+        if (feedRequestId === feedRequestRef.current) setLoadingMore(false);
+      }
+    }
   }
 
   // "New posts" pill: checks every minute for posts newer than what's on
