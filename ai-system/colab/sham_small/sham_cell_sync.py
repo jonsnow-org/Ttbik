@@ -212,7 +212,12 @@ def transform(lines: list[str]) -> list[str]:
                 banner += (f"print('🧩 الخلية تحتاج متغيرات لم تعد معرّفة (خلية سابقة عُدِّلت أو حُذفت): شُغِّلت قبلها خلايا المستودع رقم {extra}')\n")
         except Exception:
             pass
-        return (banner + new.strip("\n") + "\n").splitlines(keepends=True)
+        out = (banner + new.strip("\n") + "\n").splitlines(keepends=True)
+        # 2026-11-23: the section gate (sham_chain._gate) only looks at a cell's FIRST line. A replaced cell lost its `# SHAM_SECTION:` marker, so a cell of a
+        # section that is not today's ran anyway and died with NameError (text_dataset): the all-in-one notebook failed after ~45 s for weeks. Keep the marker first.
+        if lines and lines[0].startswith("# SHAM_SECTION:"):
+            out = [lines[0] if lines[0].endswith("\n") else lines[0] + "\n"] + [l for l in out if not l.startswith("# SHAM_SECTION:")]
+        return out
     except Exception:
         return lines  # never break a cell because of the sync
 

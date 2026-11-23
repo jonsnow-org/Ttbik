@@ -38,7 +38,7 @@ RUNNING = {"RUNNING", "QUEUED"}
 def _key(slug: str) -> str:
     return hashlib.sha1(slug.encode()).hexdigest()[:10]
 
-FIX_EPOCH = "repair-round-2026-11-08"   # 2026-11-08: repair round (Nova 1 stopped so the whole account goes back to Sham; the notebooks are checked statically, inspect shows the HTTP status) — one-time reset of every circuit breaker; a notebook that fails fast again trips it again
+FIX_EPOCH = "all-in-one-cell-sync-fix-2026-11-23"   # 2026-11-08: repair round (Nova 1 stopped so the whole account goes back to Sham; the notebooks are checked statically, inspect shows the HTTP status) — one-time reset of every circuit breaker; a notebook that fails fast again trips it again
 
 
 class HashedState(dict):
