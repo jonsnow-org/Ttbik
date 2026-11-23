@@ -21,11 +21,11 @@ describe("media-thumb upstream failure status", () => {
   const realFetch = global.fetch;
   afterEach(() => { global.fetch = realFetch; });
 
-  test("an expired CDN link (403) answers 424 with a short cache, not 502", async () => {
+  test("an expired CDN link (403) answers 424 without caching the transient failure", async () => {
     global.fetch = jest.fn(async () => new Response("denied", { status: 403, headers: { "content-type": "text/html" } })) as unknown as typeof fetch;
     const res = await GET(req());
     expect(res.status).toBe(424);
-    expect(res.headers.get("cache-control")).toContain("s-maxage=600");
+    expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
   test("a network error answers 424", async () => {
