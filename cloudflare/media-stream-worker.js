@@ -36,7 +36,7 @@ export default {
     if (!/^[A-Za-z0-9_-]{4,64}$/.test(id)) return new Response("id required", { status: 400, headers: cors });
     if (!env.BOT_TOKEN) return new Response("BOT_TOKEN secret missing", { status: 500, headers: cors });
 
-    // 1) post id -> Telegram file_path (cached at Cloudflare for 50 minutes)
+    // 1) post id -> Telegram file_path (cached at Cloudflare for 30 seconds)
     const cache = caches.default;
     const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}`, mediaPathOrigin(env)));
     let pathResp = await cache.match(pathKey);
