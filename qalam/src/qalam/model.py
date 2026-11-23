@@ -36,6 +36,18 @@ class Qalam(nn.Module):
             self.register_buffer(f"rope_{axis}_cos", cos, persistent=False)
             self.register_buffer(f"rope_{axis}_sin", sin, persistent=False)
         self.apply(self._init)
+        self._scale_residuals()
+
+    def _scale_residuals(self) -> None:
+        """Residual-branch outputs start small (1/sqrt(2 x applications)): twelve recurrent applications must not blow up the stream at step 0."""
+        k = 1.0 / math.sqrt(2 * self.cfg.unique_blocks * self.cfg.cycles)
+        with torch.no_grad():
+            for blk in self.blocks:
+                blk.attn.o.weight.mul_(k)
+                for e in blk.moe.experts:
+                    e.down.weight.mul_(k)
+                if blk.moe.shared is not None:
+                    blk.moe.shared.down.weight.mul_(k)
 
     @staticmethod
     def _init(m: nn.Module) -> None:
@@ -51,7 +63,7 @@ class Qalam(nn.Module):
         """Parameters that touch one token in one pass (2 of 8 experts), times the cycles actually run is the compute; this is the per-application figure x applications."""
         c = self.cfg
         attn = (c.width * c.heads * (c.width // c.heads) * 2) + (c.width * c.kv_heads * (c.width // c.heads) * 2)
-        moe = c.top_k * 3 * c.width * c.expert_hidden + c.width * c.experts
+        moe = c.top_k * 3 * c.width * c.expert_hidden + c.width * c.experts + 3 * c.width * c.shared_hidden
         return (attn + moe) * c.unique_blocks * c.cycles
 
     # ------------------------------------------------------------------ causal path
@@ -81,8 +93,9 @@ class Qalam(nn.Module):
         return c
 
     def forward_causal(self, ids: torch.Tensor, cache: list[KV] | None = None, cycles: int | None = None,
-                       grid: torch.Tensor | None = None) -> tuple[torch.Tensor, list[KV]]:
-        """Hidden states of `ids` (continuing `cache` if given) and the grown cache: one (K, V) per cycle x block application."""
+                       grid: torch.Tensor | None = None, segments: torch.Tensor | None = None) -> tuple[torch.Tensor, list[KV]]:
+        """Hidden states of `ids` (continuing `cache` if given) and the grown cache: one (K, V) per cycle x block application.
+        `segments` ([batch, length] document numbers) packs several documents into one row: a token attends only to earlier tokens of its own document."""
         self._check_ids(ids)
         cyc = self._cycles(cycles)
         start = 0 if cache is None else cache[0][0].shape[2]
@@ -90,19 +103,26 @@ class Qalam(nn.Module):
             raise ValueError("sequence exceeds max_seq")
         x = self.embed(ids)
         rope = self._rope(start, ids.shape[1], x, grid)
+        smask = None
+        if segments is not None:
+            if cache is not None or segments.shape != ids.shape:
+                raise ValueError("segments need the same shape as ids and no cache")
+            t = ids.shape[1]
+            smask = (segments[:, :, None] == segments[:, None, :]) & torch.tril(torch.ones(t, t, dtype=torch.bool, device=ids.device))[None]
+            smask = smask[:, None]
         new: list[KV] = []
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
             for i, blk in enumerate(self.blocks):
-                x, kv = blk(x, rope, True, None if cache is None else cache[c * len(self.blocks) + i])
+                x, kv = blk(x, rope, True, None if cache is None else cache[c * len(self.blocks) + i], smask)
                 new.append(kv)
         return self.final_norm(x), new
 
     def aux_loss(self) -> torch.Tensor:
         return torch.stack([b.moe.aux for b in self.blocks]).mean()
 
-    def forward(self, ids: torch.Tensor, cycles: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        h, _ = self.forward_causal(ids, None, cycles)
+    def forward(self, ids: torch.Tensor, cycles: int | None = None, segments: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        h, _ = self.forward_causal(ids, None, cycles, segments=segments)
         return self.lm_head(h), self.aux_loss()
 
     # ------------------------------------------------------------------ native T-LDM

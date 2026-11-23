@@ -128,9 +128,9 @@ def test_speculative_decoding_is_much_faster_when_the_writer_is_right():
     m = Qalam(tiny_config()).train()
     seq = torch.tensor([[7, 8, 9, 10] * 8 + [7, 8]])                          # a repeating pattern the model can learn completely
     opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
-    for _ in range(400):
+    for _ in range(400):                                                       # the writer needs a high loss weight early (see TRAINING_NOTEBOOKS.md): 3.0 here
         opt.zero_grad()
-        loss, _ = joint_loss(m, seq.repeat(4, 1), tldm_weight=1.0, cycle_dropout=False)
+        loss, _ = joint_loss(m, seq.repeat(4, 1), tldm_weight=3.0, cycle_dropout=False)
         loss.backward()
         opt.step()
     m.double().eval()
@@ -413,3 +413,56 @@ def test_native_tool_tokens_and_lazy_loading_in_the_agent_loop():
     steps2, _ = run_agent(cfg, _scripted(cfg, [call("github_delete_branch", '{"repo": "a/b", "branch": "x"}'), ids("k") + [sp("EOS")]])[0], dec, enc, ids("t"),
                           lambda k, t: (True, "gone"), lambda k, t: True, confirm=lambda k, t: True, loaded={"github"})
     assert [s.kind for s in steps2] == ["tool", "answer"] and steps2[0].result == "gone"      # with the typed confirmation it runs
+
+
+# ----------------------------------------------------------------------------------------------- the pre-training freeze
+def test_packed_documents_do_not_see_each_other(tiny):
+    torch.manual_seed(7)
+    a = torch.randint(0, 200, (1, 6))
+    b = torch.randint(0, 200, (1, 5))
+    other = torch.randint(0, 200, (1, 6))
+    seg = torch.tensor([[0] * 6 + [1] * 5])
+    packed, _ = tiny(torch.cat([a, b], dim=1), segments=seg)
+    alone, _ = tiny(b)
+    assert torch.allclose(packed[:, 6:], alone, atol=1e-9)                      # document b, packed after a, equals b alone
+    changed, _ = tiny(torch.cat([other, b], dim=1), segments=seg)
+    assert torch.allclose(packed[:, 6:], changed[:, 6:], atol=1e-9)             # and does not depend on the document before it
+    with pytest.raises(ValueError):
+        tiny.forward_causal(a, tiny.forward_causal(a)[1], segments=seg[:, :6])
+
+
+def test_loss_mask_trains_only_where_asked():
+    torch.manual_seed(8)
+    m = Qalam(tiny_config()).eval()
+    ids = torch.randint(0, 200, (2, 20))
+    full = joint_loss(m, ids, tldm_weight=0, cycle_dropout=False)[1]["causal"]
+    mask = torch.zeros(2, 20)
+    mask[:, 10:] = 1
+    part = joint_loss(m, ids, tldm_weight=0, cycle_dropout=False, loss_mask=mask)[1]["causal"]
+    assert full != part and part > 0
+    one = torch.ones(2, 20)
+    assert abs(joint_loss(m, ids, tldm_weight=0, cycle_dropout=False, loss_mask=one)[1]["causal"] - full) < 1e-6
+
+
+def test_freeze_contract_vocabulary_codecs_and_init():
+    c = base_config()
+    assert c.text_vocab >= 256 and c.audio_samples_per_frame == 960 and c.image_patch == 16 and c.audio_books == 4
+    assert c.max_seq >= 2048 and c.rope_theta >= 100000 and c.shared_hidden > 0
+    with pytest.raises(ValueError):
+        ModelConfig(text_vocab=100)
+    with pytest.raises(ValueError):
+        ModelConfig(audio_sample_rate=24000, audio_frame_rate=7)
+    torch.manual_seed(9)
+    m = Qalam(tiny_config())
+    k = 1.0 / (2 * m.cfg.unique_blocks * m.cfg.cycles) ** 0.5
+    assert float(m.blocks[0].attn.o.weight.std()) < 0.02 * k * 1.5               # residual outputs start small
+    with torch.device("meta"):
+        n = Qalam(c).count_parameters()
+    assert 120_000_000 <= n <= 170_000_000, n
+
+
+def test_the_frozen_architecture_has_not_changed():
+    from qalam.config import FROZEN_HASH, config_hash, small_config
+    assert config_hash(base_config()) == FROZEN_HASH["base"], "base architecture changed: this means retraining everything"
+    assert config_hash(small_config()) == FROZEN_HASH["small"], "small architecture changed: this means retraining everything"
+    assert config_hash(base_config()) != config_hash(small_config())

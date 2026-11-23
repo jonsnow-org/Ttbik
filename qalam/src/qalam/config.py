@@ -1,6 +1,8 @@
 """Model configuration and the unified vocabulary layout (text, specials, image / audio / motion codes in ONE id space)."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 
 SPECIAL_COUNT = 64
@@ -26,16 +28,23 @@ class ModelConfig:
     experts: int = 8
     top_k: int = 2
     expert_hidden: int = 1536
-    text_vocab: int = 8192
-    image_codes: int = 1024
-    audio_codes: int = 1024
+    shared_hidden: int = 768     # one always-on expert beside the routed ones (stability + shared knowledge); 0 turns it off
+    text_vocab: int = 8192       # ids 0..255 ARE the raw bytes (byte fallback: any text, code, or file is representable); 256.. are learned merges
+    image_codes: int = 4096
+    audio_codes: int = 1024      # per residual codebook
     motion_codes: int = 512
     tool_codes: int = 256        # one token per tool: a call is [TOOL_BEGIN, <tool id>, arguments..., TOOL_END] (shorter and exact, no spelled names)
-    max_seq: int = 1024
-    rope_theta: float = 10000.0
+    max_seq: int = 2048
+    rope_theta: float = 500000.0
     latents: int = 16
     max_grid: int = 1024         # rows / columns addressable by the 2-D position axes (any image size up to max_grid x max_grid tokens)
     max_time: int = 16384        # time steps addressable by the time axis (video frames / audio frames per window)
+    # --- codec contract: the media codecs (trained first, notebooks N10-N12) MUST produce exactly this; the language model learns codes, so these never change after training
+    image_patch: int = 16        # pixels per code side (a 512x512 image = 32x32 codes)
+    audio_sample_rate: int = 24000
+    audio_frame_rate: int = 25   # code frames per second (960 samples per frame)
+    audio_books: int = 4         # residual codebooks per frame (see media.delay_codes)
+    video_stride: int = 4        # video frames summarised by one temporal step of motion codes
 
     def __post_init__(self) -> None:
         if self.width % self.heads or self.heads % self.kv_heads:
@@ -46,6 +55,12 @@ class ModelConfig:
             raise ValueError("top_k must be between 1 and experts")
         if (self.width // self.heads) // 2 < 8:
             raise ValueError("head dimension must be at least 16 (four rotary axes)")
+        if self.text_vocab < 256 + 16:
+            raise ValueError("text_vocab must hold the 256 byte tokens plus merges")
+        if self.shared_hidden < 0:
+            raise ValueError("shared_hidden must be >= 0")
+        if min(self.image_patch, self.audio_sample_rate, self.audio_frame_rate, self.audio_books, self.video_stride) < 1 or self.audio_sample_rate % self.audio_frame_rate:
+            raise ValueError("codec contract values must be positive and the sample rate must divide by the frame rate")
         if min(self.unique_blocks, self.cycles, self.latents, self.max_seq, self.max_grid, self.max_time) < 1:
             raise ValueError("unique_blocks, cycles, latents and max_seq must be positive")
 
@@ -103,6 +118,10 @@ class ModelConfig:
         time = max(1, pairs // 4)
         return pairs - row - col - time, row, col, time
 
+    @property
+    def audio_samples_per_frame(self) -> int:
+        return self.audio_sample_rate // self.audio_frame_rate
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -111,7 +130,23 @@ def base_config() -> ModelConfig:
     return ModelConfig()
 
 
+def small_config() -> ModelConfig:
+    """The same architecture and the same codec contract at about a quarter of the size: the first thing every training notebook runs end to end
+    (CPU-feasible), before the full `base` is trained as compute allows."""
+    return ModelConfig(width=384, heads=6, kv_heads=2, unique_blocks=4, cycles=3, experts=8, top_k=2, expert_hidden=768, shared_hidden=384)
+
+
 def tiny_config() -> ModelConfig:
     """Plumbing and tests only."""
-    return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96,
-                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=192, max_seq=128, latents=4, max_grid=64, max_time=64)
+    return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96, shared_hidden=48,
+                       text_vocab=288, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=192, max_seq=128, latents=4, max_grid=64, max_time=64)
+
+
+def config_hash(cfg: ModelConfig) -> str:
+    """A short fingerprint of every architecture and codec-contract value. Every training notebook checks it against the frozen value, so a changed
+    configuration cannot be trained by accident (and a checkpoint trained under another hash is not resumed)."""
+    return hashlib.sha256(json.dumps(cfg.to_dict(), sort_keys=True).encode()).hexdigest()[:16]
+
+
+# The architecture is FROZEN for training (2026-11-23). Changing a value changes the hash: update these constants only on purpose, and expect to retrain.
+FROZEN_HASH = {"base": "05b2525ceed06f5b", "small": "d815d34b307ac024"}

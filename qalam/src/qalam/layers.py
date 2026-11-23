@@ -46,7 +46,8 @@ class Attention(nn.Module):
         self.v = nn.Linear(cfg.width, self.kv * self.hd, bias=False)
         self.o = nn.Linear(self.h * self.hd, cfg.width, bias=False)
 
-    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
+    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None,
+                segment_mask: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
         b, t, _ = x.shape
         q = self.q(x).view(b, t, self.h, self.hd).transpose(1, 2)
         k = self.k(x).view(b, t, self.kv, self.hd).transpose(1, 2)
@@ -58,7 +59,9 @@ class Attention(nn.Module):
         else:
             k_all, v_all = k, v
         mask, is_causal = None, False
-        if causal:
+        if segment_mask is not None:                       # packed documents: causal AND same document (a [b, 1, t, t] boolean mask); no cache
+            mask = segment_mask
+        elif causal:
             if prefix_kv is None:
                 is_causal = True
             elif t > 1:                                   # a chunk after a cache: sees every cached position, and causally the chunk itself
@@ -89,12 +92,15 @@ class MoE(nn.Module):
         self.e, self.k = cfg.experts, cfg.top_k
         self.router = nn.Linear(cfg.width, cfg.experts, bias=False)
         self.experts = nn.ModuleList(SwiGLU(cfg.width, cfg.expert_hidden) for _ in range(cfg.experts))
+        self.shared = SwiGLU(cfg.width, cfg.shared_hidden) if cfg.shared_hidden else None
         self.aux: torch.Tensor = torch.zeros(())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, t, d = x.shape
         flat = x.reshape(-1, d)
-        probs = torch.softmax(self.router(flat), dim=-1)
+        logits = self.router(flat)
+        probs = torch.softmax(logits, dim=-1)
+        z = torch.logsumexp(logits, dim=-1).pow(2).mean()                      # router z-loss: keeps router logits small and training stable
         top_p, top_i = probs.topk(self.k, dim=-1)
         top_p = top_p / top_p.sum(dim=-1, keepdim=True)
         out = torch.zeros_like(flat)
@@ -103,14 +109,18 @@ class MoE(nn.Module):
                 for j in range(self.k):
                     out[n] += top_p[n, j] * self.experts[int(top_i[n, j])](flat[n:n + 1])[0]
             load = F.one_hot(top_i, self.e).sum(dim=1).to(probs.dtype).mean(dim=0) / self.k
-            self.aux = self.e * (load * probs.mean(dim=0)).sum()
+            self.aux = self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z
+            if self.shared is not None:
+                out = out + self.shared(flat)
             return out.view(b, t, d)
         for e, expert in enumerate(self.experts):
             rows, slot = (top_i == e).nonzero(as_tuple=True)
             if rows.numel():
                 out.index_add_(0, rows, expert(flat[rows]) * top_p[rows, slot].unsqueeze(-1))
         load = F.one_hot(top_i, self.e).sum(dim=1).to(probs.dtype).mean(dim=0) / self.k      # share of assignments per expert (sums to 1)
-        self.aux = self.e * (load * probs.mean(dim=0)).sum()
+        self.aux = self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z
+        if self.shared is not None:
+            out = out + self.shared(flat)
         return out.view(b, t, d)
 
 
@@ -122,8 +132,9 @@ class Block(nn.Module):
         self.norm1, self.attn = RMSNorm(cfg.width), Attention(cfg)
         self.norm2, self.moe = RMSNorm(cfg.width), MoE(cfg)
 
-    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None) -> tuple[torch.Tensor, KV]:
-        y, kv = self.attn(self.norm1(x), rope, causal, prefix_kv)
+    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None,
+                segment_mask: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
+        y, kv = self.attn(self.norm1(x), rope, causal, prefix_kv, segment_mask)
         x = x + y
         return x + self.moe(self.norm2(x)), kv
 
