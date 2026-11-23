@@ -38,7 +38,7 @@ export default {
 
     // 1) post id -> Telegram file_path (cached at Cloudflare for 30 seconds)
     const cache = caches.default;
-    const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}`, mediaPathOrigin(env)));
+    const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}&v=2`, mediaPathOrigin(env)));
     let pathResp = await cache.match(pathKey);
     if (!pathResp) {
       // The gate is a Worker of this same account: workers.dev -> workers.dev fetches are refused (404), so use the service binding when there is one.
