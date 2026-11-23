@@ -422,7 +422,7 @@ test("22 November China margin-financing rule is bilingual, date-aligned and avo
   assert.equal(english.date, "22 November 2026");
   assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
-  for (const domain of ["sse.com.cn", "szse.cn", "reuters.com"]) {
+  for (const domain of ["sse.com.cn", "szse.cn", "bse.cn", "reuters.com"]) {
     assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
   }
   assert.match(arabic.paragraphs.join(" "), /30 نوفمبر 2026/);
@@ -450,7 +450,7 @@ test("22 November Poland Kh-101 update preserves the preliminary status and even
   }
   assert.match(arabic.paragraphs.join(" "), /20 نوفمبر 2026/);
   assert.match(english.body.join(" "), /20 November 2026/);
-  assert.match(arabic.paragraphs.join(" "), /النتائج الأولية/);
+  assert.match(arabic.paragraphs.join(" "), /الفحوص الأولية/);
   assert.match(english.body.join(" "), /preliminary investigative findings/i);
   assert.match([arabic.description, ...arabic.paragraphs].join(" "), /لا تمثل نتيجة نهائية/);
   assert.match([english.dek, ...english.body].join(" "), /not a final forensic or judicial determination/i);
