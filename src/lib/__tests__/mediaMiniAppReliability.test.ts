@@ -22,6 +22,16 @@ describe("media mini-app reliability regressions", () => {
     expect(source).toContain("تعذّر تحميل المزيد:");
   });
 
+  it("ignores stale responses after search or tab changes and serializes pagination", () => {
+    const source = page();
+    expect(source).toContain("const feedRequestRef = useRef(0)");
+    expect(source).toContain("const loadMoreRequestRef = useRef(0)");
+    expect(source).toContain("const loadMoreBusyRef = useRef(false)");
+    expect(source).toContain("if (requestId !== feedRequestRef.current) return");
+    expect(source).toContain("if (feedRequestId !== feedRequestRef.current || requestId !== loadMoreRequestRef.current) return");
+    expect(source).toContain("if (loadMoreBusyRef.current || nextOffset == null) return");
+  });
+
   it("tries the media stream fallback once and does not loop back to the failed route", () => {
     const source = page();
     expect(source).toContain("if (!viaVercel[id])");
