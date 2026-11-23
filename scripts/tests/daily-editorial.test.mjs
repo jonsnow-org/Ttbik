@@ -463,7 +463,7 @@ test("22 November Poland Kh-101 update preserves the preliminary status and even
   assert.match(english.body.join(" "), /20 November 2026/);
   assert.match(arabic.paragraphs.join(" "), /الفحوص الأولية/);
   assert.match(english.body.join(" "), /preliminary investigative findings/i);
-  assert.match([arabic.description, ...arabic.paragraphs].join(" "), /لا تمثل نتيجة نهائية/);
+  assert.match([arabic.description, ...arabic.paragraphs].join(" "), /لا تمثل النتائج حكماً جنائياً أو فنياً نهائياً/);
   assert.match([english.dek, ...english.body].join(" "), /not a final forensic or judicial determination/i);
   assert.match(arabic.paragraphs.join(" "), /لم يثبت في هذه البيانات أن الحادث كان استهدافاً مقصوداً/);
   assert.match(english.body.join(" "), /do not establish that the incident was a deliberate attack/i);
