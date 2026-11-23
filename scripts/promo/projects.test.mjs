@@ -58,11 +58,13 @@ test("coin-channel campaigns and narration are English-only", () => {
 
 test("video renderer imports the shared project-name helper used by its title scene", () => {
   const renderer = fs.readFileSync("scripts/promo/make.mjs", "utf8");
-  const commonImport = renderer.match(/^import\\s+\\{([^}]+)\\}\\s+from\\s+["']\\.\\/common\\.mjs["'];?$/m);
-  assert.ok(commonImport, "renderer must import shared promo helpers");
-  const imported = commonImport[1].split(",").map((value) => value.trim().split(/\\s+as\\s+/)[0]);
+  const commonImportLine = renderer.split("\n").find((line) => line.startsWith("import {") && line.includes('from "./common.mjs"'));
+  assert.ok(commonImportLine, "renderer must import shared promo helpers");
+  const imported = commonImportLine.slice(commonImportLine.indexOf("{") + 1, commonImportLine.indexOf("}"))
+    .split(",")
+    .map((value) => value.trim().split(" as ")[0]);
   assert.ok(imported.includes("projectName"), "renderer calls projectName but does not import it");
-  assert.match(renderer, /\\bprojectName\\(p,\\s*["']en["']\\)/);
+  assert.ok(renderer.includes('projectName(p, "en")'), "renderer title scene must use the shared helper");
   for (const project of projects) {
     assert.ok(projectName(project, "en"), `${project.id}: English project name`);
     if (projectLanguage(project) !== "en") assert.ok(projectName(project, "ar"), `${project.id}: Arabic project name`);
