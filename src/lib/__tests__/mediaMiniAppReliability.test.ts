@@ -68,6 +68,13 @@ describe("media mini-app reliability regressions", () => {
     expect(source).toContain('squad_code,hidden');
   });
 
+  it("does not accept public likes or views on hidden/private posts by guessed id", () => {
+    const source = feed();
+    expect(source).toContain('import { isPublicMediaPost } from "@/lib/mediaVisibility"');
+    expect(source).toContain('select("sharer_id,sharer_name,views,likes,hidden,squad_code")');
+    expect(source).toContain("if (!isPublicMediaPost(post)) return NextResponse.json({ ok: true, counted: false, reason: \"no-post\" });");
+  });
+
   it("rejects replies whose parent comment belongs to another post", () => {
     const source = comments();
     expect(source).toContain('.eq("id", parentId)');
