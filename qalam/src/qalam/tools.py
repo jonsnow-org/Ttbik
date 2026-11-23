@@ -127,6 +127,38 @@ _ALL += _t("schedule", "destructive", "schedule_delete", "id:str")
 _ALL += _t("connectors", "read", "mcp_list_tools", "server:str")
 _ALL += _t("connectors", "external", "mcp_call connector_api", "server:str, tool:str, arguments?:json, method?:str, path?:str", "a connected service")
 
+# ------------------------------------------------------------------ files: create / read / edit / convert documents, sheets, slides, PDFs, images, audio, video, archives, data
+# These only touch the workspace (confined by fileops.Workspace), so they are `exec`: no click needed; delivering a file out of the workspace is `send_file` (write).
+_ALL += _t("files", "read", "file_info av_info image_info archive_list", "path:path")
+_ALL += _t("files", "read", "file_read", "path:path, start?:int=1, lines?:int=200")
+_ALL += _t("files", "exec", "file_write", "path:path, content:str", "any text-based format: txt md json yaml csv tsv html xml css js py sql ...")
+_ALL += _t("files", "exec", "file_edit", "path:path, old:str, new:str", "exact single replacement in a text file")
+_ALL += _t("files", "exec", "doc_create", "path:path, blocks:list", "Word .docx from blocks: heading paragraph list table image page_break")
+_ALL += _t("files", "read", "doc_read sheet_read slides_read pdf_read", "path:path, sheet?:str, range?:str, pages?:str")
+_ALL += _t("files", "exec", "doc_edit sheet_edit slides_edit", "path:path, ops:list", "edit an existing .docx / .xlsx / .pptx in place")
+_ALL += _t("files", "exec", "sheet_create", "path:path, sheets:json", "Excel .xlsx: {sheet name: [[row], ...]}, formulas start with =")
+_ALL += _t("files", "exec", "slides_create", "path:path, slides:list", "PowerPoint .pptx: [{title, bullets?, image?, notes?}]")
+_ALL += _t("files", "exec", "pdf_create", "path:path, blocks:list", "PDF from blocks")
+_ALL += _t("files", "exec", "pdf_edit image_edit", "path:path, ops:list, out?:path", "PDF extract/delete/rotate/merge pages; image resize/crop/rotate/filter/text")
+_ALL += _t("files", "exec", "av_edit", "path:path, ops:list, out:path", "audio / video: trim scale extract_audio speed volume mute to_gif")
+_ALL += _t("files", "exec", "file_convert", "path:path, to:str", "between documents (md html docx odt rtf epub txt tex), office to pdf/csv, images, audio, video")
+_ALL += _t("files", "exec", "archive_create", "paths:list, out:path, format?:enum(zip|tar|tar.gz)=zip")
+_ALL += _t("files", "exec", "archive_extract", "path:path, to?:path", "zip / tar with zip-slip and bomb guards")
+_ALL += _t("files", "exec", "data_transform", "path:path, op:enum(to_json|to_csv|to_yaml|query|set), expr?:str, out?:path", "csv / tsv / json / yaml conversion, dotted-path query and set")
+# ------------------------------------------------------------------ dev: make software (any language), build, package, preview, ship
+_ALL += _t("dev", "exec", "project_scaffold", "kind:enum(python|node|web|static|cli|api|library|android|bot), name:str, path?:path")
+_ALL += _t("dev", "external", "install_packages", "manager:enum(pip|npm|apt|cargo|go), packages:list", "downloads software: needs approval")
+_ALL += _t("dev", "exec", "build lint format run_tests", "command?:str, cwd?:path", "the project's own build / lint / format / test commands (allowlisted programs only)")
+_ALL += _t("dev", "exec", "serve_preview", "cwd?:path, port?:int=8000, command?:str", "a local preview server, never exposed publicly by the model")
+_ALL += _t("dev", "exec", "package_release", "path:path, format?:enum(zip|tar.gz|apk|wheel|docker)=zip")
+_ALL += _t("dev", "destructive", "deploy", "target:str, path:path", "publish to a host: approval and a typed confirmation")
+# ------------------------------------------------------------------ web extras: the wider internet
+_ALL += _t("web", "external", "download_file upload_file", "url:url, path:path", "move a file between the workspace and the internet (approval)")
+_ALL += _t("web", "read", "rss_read", "url:url, limit?:int=20")
+_ALL += _t("web", "exec", "screenshot_url", "url:url, width?:int=1280, height?:int=800, path?:path")
+_ALL += _t("web", "external", "send_email", "to:str, subject:str, body:str, attachments?:list", "a message to a real person: approval every time")
+_ALL += _t("web", "external", "form_submit", "url:url, fields:json", "submit a web form (approval)")
+
 REGISTRY: dict[str, ToolSpec] = {}
 for _s in _ALL:
     if _s.name in REGISTRY:
@@ -166,6 +198,12 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "github_add_collaborator": ("repo", "user"), "github_remove_collaborator": ("repo", "user"), "github_create_release": ("repo", "tag"),
     "github_delete_release": ("repo", "tag"), "github_update_ref": ("repo", "ref"),
     "sandbox_read_file": ("path",), "sandbox_search": ("pattern",), "sandbox_write_file": ("path", "content"), "sandbox_edit_file": ("path", "old", "new"),
+    "web_search": ("query",), "deep_research": ("query",), "file_read": ("path",), "file_write": ("path", "content"), "file_edit": ("path", "old", "new"),
+    "doc_create": ("path", "blocks"), "doc_edit": ("path", "ops"), "sheet_create": ("path", "sheets"), "sheet_edit": ("path", "ops"), "slides_create": ("path", "slides"),
+    "slides_edit": ("path", "ops"), "pdf_create": ("path", "blocks"), "pdf_edit": ("path", "ops"), "image_edit": ("path", "ops"), "av_edit": ("path", "ops", "out"),
+    "file_convert": ("path", "to"), "archive_create": ("paths", "out"), "data_transform": ("path", "op"), "project_scaffold": ("kind", "name"),
+    "install_packages": ("manager", "packages"), "deploy": ("target", "path"), "download_file": ("url", "path"), "upload_file": ("url", "path"),
+    "send_email": ("to", "subject", "body"), "form_submit": ("url", "fields"), "rss_read": ("url",), "screenshot_url": ("url",),
     "web_search": ("query",), "deep_research": ("query",), "recall": ("query",), "memory_search": ("query",), "knowledge_search": ("query",),
     "mcp_call": ("server", "tool"), "connector_api": ("server", "method", "path"), "view_image": ("path",), "view_video": ("path",), "listen_audio": ("path",),
 }

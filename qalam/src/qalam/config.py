@@ -114,4 +114,4 @@ def base_config() -> ModelConfig:
 def tiny_config() -> ModelConfig:
     """Plumbing and tests only."""
     return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96,
-                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=128, max_seq=128, latents=4, max_grid=64, max_time=64)
+                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=192, max_seq=128, latents=4, max_grid=64, max_time=64)
