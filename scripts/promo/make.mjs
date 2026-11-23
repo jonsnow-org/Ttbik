@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright-core";
-import { arg, ARABIC_FONTS, LATIN_FONTS, dataUri, esc, fineLine, loadProjects, logoMarkup, narrationText, projectLanguage, site } from "./common.mjs";
+import { arg, ARABIC_FONTS, LATIN_FONTS, dataUri, esc, fineLine, loadProjects, logoMarkup, narrationText, projectLanguage, projectName, site } from "./common.mjs";
 
 const only = arg("only", ""), out = arg("out", "promo-out"), format = arg("format", "vertical");
 const [W, H] = format === "wide" ? [1920, 1080] : [1080, 1920];
