@@ -31,9 +31,10 @@ class Qalam(nn.Module):
         self.latent_queries = nn.Parameter(torch.randn(cfg.latents, cfg.width) * 0.02)
         self.compressor = CrossAttention(cfg.width, cfg.heads)
         self.reader = CrossAttention(cfg.width, cfg.heads)
-        cos, sin = rope_tables(cfg.max_seq, cfg.width // cfg.heads, cfg.rope_theta)
-        self.register_buffer("rope_cos", cos, persistent=False)
-        self.register_buffer("rope_sin", sin, persistent=False)
+        for axis, length, pairs in zip(("seq", "row", "col", "time"), (cfg.max_seq, cfg.max_grid, cfg.max_grid, cfg.max_time), cfg.rope_split()):
+            cos, sin = rope_tables(length, pairs, cfg.rope_theta)
+            self.register_buffer(f"rope_{axis}_cos", cos, persistent=False)
+            self.register_buffer(f"rope_{axis}_sin", sin, persistent=False)
         self.apply(self._init)
 
     @staticmethod
@@ -60,8 +61,18 @@ class Qalam(nn.Module):
         if ids.min().item() < 0 or ids.max().item() >= self.cfg.vocab_size:
             raise ValueError("token id outside the vocabulary")
 
-    def _rope(self, start: int, length: int, like: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.rope_cos[start:start + length].to(like.dtype), self.rope_sin[start:start + length].to(like.dtype)
+    def _rope(self, start: int, length: int, like: torch.Tensor, grid: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Rotary tables for `length` tokens starting at sequence index `start`. `grid` ([length, 3] = row, column, time) places media tokens on their own
+        axes (any image size, any video length); text uses grid 0 on those axes, so it rotates only on the sequence axis."""
+        if grid is None:
+            grid = torch.zeros(length, 3, dtype=torch.long, device=like.device)
+        if grid.shape != (length, 3):
+            raise ValueError("grid must have shape [length, 3]")
+        if grid.min().item() < 0 or grid[:, :2].max().item() >= self.cfg.max_grid or grid[:, 2].max().item() >= self.cfg.max_time:
+            raise ValueError("grid position outside max_grid / max_time")
+        cos = torch.cat([self.rope_seq_cos[start:start + length], self.rope_row_cos[grid[:, 0]], self.rope_col_cos[grid[:, 1]], self.rope_time_cos[grid[:, 2]]], dim=-1)
+        sin = torch.cat([self.rope_seq_sin[start:start + length], self.rope_row_sin[grid[:, 0]], self.rope_col_sin[grid[:, 1]], self.rope_time_sin[grid[:, 2]]], dim=-1)
+        return cos.to(like.dtype), sin.to(like.dtype)
 
     def _cycles(self, cycles: int | None) -> int:
         c = self.cfg.cycles if cycles is None else int(cycles)
@@ -69,7 +80,8 @@ class Qalam(nn.Module):
             raise ValueError("cycles must be between 1 and the configured cycles")
         return c
 
-    def forward_causal(self, ids: torch.Tensor, cache: list[KV] | None = None, cycles: int | None = None) -> tuple[torch.Tensor, list[KV]]:
+    def forward_causal(self, ids: torch.Tensor, cache: list[KV] | None = None, cycles: int | None = None,
+                       grid: torch.Tensor | None = None) -> tuple[torch.Tensor, list[KV]]:
         """Hidden states of `ids` (continuing `cache` if given) and the grown cache: one (K, V) per cycle x block application."""
         self._check_ids(ids)
         cyc = self._cycles(cycles)
@@ -77,7 +89,7 @@ class Qalam(nn.Module):
         if start + ids.shape[1] > self.cfg.max_seq:
             raise ValueError("sequence exceeds max_seq")
         x = self.embed(ids)
-        rope = self._rope(start, ids.shape[1], x)
+        rope = self._rope(start, ids.shape[1], x, grid)
         new: list[KV] = []
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
@@ -110,12 +122,13 @@ class Qalam(nn.Module):
                 x, _ = blk(x, rope, False, None)
         return x
 
-    def write(self, block_ids: torch.Tensor, cache: list[KV], latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
+    def write(self, block_ids: torch.Tensor, cache: list[KV], latents: torch.Tensor, cycles: int | None = None,
+              grid: torch.Tensor | None = None) -> torch.Tensor:
         """Logits for a (partly masked) block that follows the cached prefix. Bidirectional inside the block; the prefix is read from the cache."""
         cyc = self._cycles(cycles)
         start = cache[0][0].shape[2]
         x = self.embed(block_ids)
-        rope = self._rope(start, block_ids.shape[1], x)
+        rope = self._rope(start, block_ids.shape[1], x, grid)
         for c in range(cyc):
             x = x + self.cycle_embed.weight[c]
             x = x + self.reader(x, latents)
@@ -143,11 +156,14 @@ class Qalam(nn.Module):
 
     @torch.no_grad()
     def _draft(self, cache: list[KV], hidden: torch.Tensor, block: int, steps: int, allowed: list[int], cyc: int,
-               fixed: torch.Tensor | None = None) -> torch.Tensor:
-        """A block of `block` tokens; `fixed` (optional, [batch, f]) are known tokens at its start, never overwritten."""
+               fixed: torch.Tensor | None = None, template: torch.Tensor | None = None, grid: torch.Tensor | None = None) -> torch.Tensor:
+        """A block of `block` tokens; `fixed` ([batch, f]) are known tokens at its start, and `template` ([batch, block], MASK where to write) fixes any
+        other positions (a row end, a frame end). Known tokens are never overwritten. `grid` places the block on the media axes."""
         mask_id = self.cfg.special_id("MASK")
         latents = self.think(self.compress(hidden), cyc)
         out = torch.full((hidden.shape[0], block), mask_id, dtype=torch.long, device=hidden.device)
+        if template is not None:
+            out = template.clone()
         if fixed is not None:
             out[:, :fixed.shape[1]] = fixed
         keep = torch.full((self.cfg.vocab_size,), float("-inf"), device=hidden.device, dtype=hidden.dtype)
@@ -156,7 +172,7 @@ class Qalam(nn.Module):
             masked = out.eq(mask_id)
             if not bool(masked.any()):
                 break
-            probs = torch.softmax(self.write(out, cache, latents, cyc) + keep, dim=-1)
+            probs = torch.softmax(self.write(out, cache, latents, cyc, grid) + keep, dim=-1)
             conf, pred = probs.max(dim=-1)
             for row in range(out.shape[0]):
                 pos = masked[row].nonzero(as_tuple=True)[0]

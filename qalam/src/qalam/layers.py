@@ -20,9 +20,9 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
 
 
-def rope_tables(length: int, head_dim: int, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
-    """cos/sin for positions 0..length-1, computed once in float64 (the model keeps them as buffers)."""
-    inv = 1.0 / (theta ** (torch.arange(0, head_dim, 2, dtype=torch.float64) / head_dim))
+def rope_tables(length: int, pairs: int, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """cos/sin [length, pairs] for positions 0..length-1 on ONE axis, computed once in float64 (the model keeps them as buffers)."""
+    inv = 1.0 / (theta ** (torch.arange(pairs, dtype=torch.float64) / pairs))
     ang = torch.arange(length, dtype=torch.float64)[:, None] * inv[None, :]
     return ang.cos(), ang.sin()
 

@@ -199,3 +199,123 @@ def test_int8_copy_stays_close_and_does_not_touch_the_original():
     assert float(cos) > 0.97 and torch.equal(before, m.blocks[0].moe.experts[0].up.weight)
     h, cache = q.forward_causal(ids[:, :10])
     assert q.forward_causal(ids[:, 10:11], cache)[0].shape == (1, 1, q.cfg.width)        # the single-token decode path works quantised too
+
+
+# ----------------------------------------------------------------------------------------------- media: no fixed sizes
+from qalam import media
+
+
+@pytest.mark.parametrize("h,w", [(1, 1), (3, 17), (23, 5), (9, 9)])
+def test_image_of_any_size_round_trips(h, w):
+    cfg = tiny_config()
+    codes = torch.randint(0, cfg.image_codes, (h, w))
+    lay = media.image_layout(cfg, codes)
+    assert len(lay) == h * (w + 1) + 2 and lay.grid.shape == (len(lay), 3)
+    assert torch.equal(media.parse_image(cfg, lay.ids), codes)
+    assert lay.grid[1].tolist() == [0, 0, 0] and lay.grid[-2].tolist() == [h - 1, w, 0]
+
+
+@pytest.mark.parametrize("f,h,w", [(1, 2, 2), (5, 3, 4), (30, 1, 6)])
+def test_video_of_any_length_and_continuation_window(f, h, w):
+    cfg = tiny_config()
+    codes = torch.randint(0, cfg.image_codes, (f, h, w))
+    lay = media.video_layout(cfg, codes, time_offset=7)
+    assert torch.equal(media.parse_video(cfg, lay.ids), codes)
+    assert int(lay.grid[:, 2].max()) == 7 + f and int(lay.grid[:, 2].min()) == 7        # time axis is positional, frames carry their own index
+
+
+@pytest.mark.parametrize("f,k", [(1, 1), (10, 4), (50, 8)])
+def test_audio_delay_pattern_round_trips_any_duration(f, k):
+    cfg = tiny_config()
+    codes = torch.randint(0, cfg.audio_codes, (f, k))
+    assert torch.equal(media.undelay_codes(media.delay_codes(codes, -1), f), codes)
+    lay = media.audio_layout(cfg, codes)
+    assert len(lay) == (f + k - 1) * k + 2 and torch.equal(media.parse_audio(cfg, lay.ids, k, f), codes)
+
+
+def test_media_rejects_bad_input():
+    cfg = tiny_config()
+    with pytest.raises(ValueError):
+        media.image_layout(cfg, torch.full((2, 2), cfg.image_codes))
+    with pytest.raises(ValueError):
+        media.parse_image(cfg, torch.tensor([cfg.special_id("IMG_BEGIN"), cfg.image_base, cfg.special_id("IMG_END")]))
+
+
+def test_grid_positions_are_felt_by_the_model(tiny):
+    cfg = tiny.cfg
+    codes = torch.randint(0, cfg.image_codes, (3, 4))
+    lay = media.image_layout(cfg, codes)
+    a, _ = tiny.forward_causal(lay.ids[None], grid=lay.grid)
+    shifted = lay.grid.clone()
+    shifted[:, 0] += 5
+    assert torch.allclose(a, tiny.forward_causal(lay.ids[None], grid=shifted)[0], atol=1e-9)      # rotary is relative: moving the whole picture changes nothing
+    moved = lay.grid.clone()
+    moved[7:, 0] += 5
+    b, _ = tiny.forward_causal(lay.ids[None], grid=moved)
+    assert not torch.allclose(a, b)                                         # but changing the geometry between tokens changes the result
+    c, cache = tiny.forward_causal(lay.ids[None, :7], grid=lay.grid[:7])
+    d, _ = tiny.forward_causal(lay.ids[None, 7:], cache, grid=lay.grid[7:])
+    assert torch.allclose(torch.cat([c, d], dim=1), a, atol=1e-9)           # cache + grid stays exact
+    with pytest.raises(ValueError):
+        tiny.forward_causal(lay.ids[None], grid=torch.full_like(lay.grid, 999))
+
+
+@pytest.mark.parametrize("rows,cols", [(1, 1), (4, 9), (13, 3)])
+def test_parallel_image_generation_of_any_size(tiny, rows, cols):
+    cfg = tiny.cfg
+    prefix = torch.randint(0, 200, (1, 5))
+    a = media.generate_image_codes(tiny, prefix, rows, cols, steps=3)
+    b = media.generate_image_codes(tiny, prefix, rows, cols, steps=3)
+    assert a.shape == (rows, cols) and int(a.min()) >= 0 and int(a.max()) < cfg.image_codes and torch.equal(a, b)
+    with pytest.raises(ValueError):
+        media.generate_image_codes(tiny, prefix, cfg.max_grid + 1, 2)
+
+
+# ----------------------------------------------------------------------------------------------- the agent loop
+def _scripted(cfg, script):
+    """A fake generator that returns the next scripted reply (as ids) - the loop is tested without a trained model."""
+    it = iter(script)
+    enc = lambda s: [ord(c) % cfg.text_vocab for c in s]   # noqa: E731
+    dec = lambda ids: "".join(chr(i) for i in ids if i < cfg.text_vocab)   # noqa: E731
+    return (lambda stream, n: next(it)), dec, enc
+
+
+def test_agent_loop_runs_allowed_commands_and_feeds_results_back():
+    from qalam.agent import run_agent
+    cfg = tiny_config()
+    sp = cfg.special_id
+    ids = lambda s: [ord(c) for c in s]   # noqa: E731
+    gen, dec, enc = _scripted(cfg, [
+        [sp("THINK_BEGIN")] + ids("look") + [sp("THINK_END"), sp("CMD_BEGIN")] + ids("ls src") + [sp("CMD_END")],
+        ids("done") + [sp("EOS")],
+    ])
+    seen = []
+    steps, stream = run_agent(cfg, gen, dec, enc, ids("task"), lambda k, t: (seen.append((k, t)) or (True, "a.py")), lambda k, t: False)
+    assert [s.kind for s in steps] == ["command", "answer"] and seen == [("command", "ls src")] and steps[1].text == "done"
+    assert sp("RESULT_BEGIN") in stream and sp("OK") in stream
+
+
+def test_agent_loop_refuses_declines_and_stops_on_budget():
+    from qalam.agent import run_agent
+    cfg = tiny_config()
+    sp = cfg.special_id
+    ids = lambda s: [ord(c) for c in s]   # noqa: E731
+    cmd = lambda s: [sp("CMD_BEGIN")] + ids(s) + [sp("CMD_END")]   # noqa: E731
+    ran = []
+    gen, dec, enc = _scripted(cfg, [cmd("rm -rf /"), cmd("git status"), cmd("ls"), cmd("ls"), cmd("ls")])
+    steps, stream = run_agent(cfg, gen, dec, enc, ids("t"), lambda k, t: (ran.append(t) or (True, "ok")), lambda k, t: False, max_steps=5)
+    kinds = [s.kind for s in steps]
+    assert kinds[:2] == ["refused", "declined"] and "command" in kinds and kinds[-1] == "budget"
+    assert "rm -rf /" not in ran and "git status" not in ran                      # neither was ever executed
+    assert sp("FAIL") in stream
+
+
+def test_agent_loop_cuts_overlong_thinking():
+    from qalam.agent import run_agent
+    cfg = tiny_config()
+    sp = cfg.special_id
+    long_think = [sp("THINK_BEGIN")] + [65] * 500 + [sp("THINK_END")] + [66, sp("EOS")]
+    seen = {}
+    gen, dec, enc = _scripted(cfg, [long_think])
+    steps, stream = run_agent(cfg, gen, dec, enc, [1], lambda k, t: (True, ""), lambda k, t: True, think_budget=20)
+    assert steps[0].kind == "answer" and len(stream) < 40

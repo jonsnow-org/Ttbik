@@ -11,6 +11,7 @@ SPECIAL_NAMES: tuple[str, ...] = (
     "TOOL_BEGIN", "TOOL_END",         # one allowlisted tool call
     "RESULT_BEGIN", "RESULT_END", "OK", "FAIL",
     "IMG_BEGIN", "IMG_END", "AUD_BEGIN", "AUD_END", "VID_BEGIN", "VID_END", "MOT_BEGIN", "MOT_END",
+    "ROW_END", "FRAME_END", "SCALE_BEGIN", "SCALE_END",   # media geometry: a row, a video frame, one scale of a coarse-to-fine image
 )
 SPECIAL_NAMES = SPECIAL_NAMES + tuple(f"RESERVED_{i}" for i in range(SPECIAL_COUNT - len(SPECIAL_NAMES)))
 
@@ -32,6 +33,8 @@ class ModelConfig:
     max_seq: int = 1024
     rope_theta: float = 10000.0
     latents: int = 16
+    max_grid: int = 1024         # rows / columns addressable by the 2-D position axes (any image size up to max_grid x max_grid tokens)
+    max_time: int = 16384        # time steps addressable by the time axis (video frames / audio frames per window)
 
     def __post_init__(self) -> None:
         if self.width % self.heads or self.heads % self.kv_heads:
@@ -40,7 +43,9 @@ class ModelConfig:
             raise ValueError("head dimension must be even (RoPE)")
         if not 1 <= self.top_k <= self.experts:
             raise ValueError("top_k must be between 1 and experts")
-        if min(self.unique_blocks, self.cycles, self.latents, self.max_seq) < 1:
+        if (self.width // self.heads) // 2 < 8:
+            raise ValueError("head dimension must be at least 16 (four rotary axes)")
+        if min(self.unique_blocks, self.cycles, self.latents, self.max_seq, self.max_grid, self.max_time) < 1:
             raise ValueError("unique_blocks, cycles, latents and max_seq must be positive")
 
     # ---- unified vocabulary: [text | specials | image | audio | motion]
@@ -84,6 +89,13 @@ class ModelConfig:
         """Ids a text/command writer may produce: text tokens plus the closing specials (never MASK, never modality codes)."""
         return list(range(self.text_vocab)) + [self.special_id(n) for n in ("EOS", "CMD_END", "TOOL_END", "RESULT_END", "THINK_END")]
 
+    def rope_split(self) -> tuple[int, int, int, int]:
+        """Rotary pairs given to the four position axes: (sequence order, row, column, time). They add up to head_dim / 2."""
+        pairs = (self.width // self.heads) // 2
+        row = col = max(1, pairs // 6)
+        time = max(1, pairs // 4)
+        return pairs - row - col - time, row, col, time
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -95,4 +107,4 @@ def base_config() -> ModelConfig:
 def tiny_config() -> ModelConfig:
     """Plumbing and tests only."""
     return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96,
-                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, max_seq=128, latents=4)
+                       text_vocab=256, image_codes=16, audio_codes=16, motion_codes=16, max_seq=128, latents=4, max_grid=64, max_time=64)
