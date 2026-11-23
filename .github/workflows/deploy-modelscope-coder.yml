@@ -174,6 +174,8 @@ jobs:
           rm -rf ms-studio/tldm && mkdir -p ms-studio/tldm && cp -r ai-system/tldm/sham_tldm ms-studio/tldm/ && mkdir -p ms-studio/tldm/data && cp ai-system/tldm/data/augment.py ms-studio/tldm/data/ && find ms-studio/tldm -name __pycache__ -prune -exec rm -rf {} +
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
+          # a Studio listed in NOVA_TLDM_STUDIOS serves Nova's T-LDM head (nova_tldm_serve.py): the marker file switches it on, any other Studio has none
+          if grep -qxF "${REPO}" ai-system/modelscope-coder/NOVA_TLDM_STUDIOS 2>/dev/null; then echo on > ms-studio/nova_tldm.on; else rm -f ms-studio/nova_tldm.on; fi
           # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
           line=$(grep -E "^${REPO} " ai-system/modelscope-coder/MODEL_OVERRIDES 2>/dev/null | head -1 || true)
           if [ -n "$line" ]; then echo "$line" | cut -d' ' -f2- > ms-studio/model.override; else rm -f ms-studio/model.override; fi
@@ -186,6 +188,7 @@ jobs:
           rm -f llama-${LLAMA_BUILD}.part*
           cp ../llama-${LLAMA_BUILD}.part* .
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
+          if [ -f nova_tldm.on ]; then git add nova_tldm.on; else git rm -q --cached --ignore-unmatch nova_tldm.on; fi
           git add app.py requirements.txt nova_tldm_serve.py tldm .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
