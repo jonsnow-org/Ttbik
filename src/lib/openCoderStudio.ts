@@ -34,7 +34,7 @@ export type CoderReply = {
   error?: string;
   timings?: { prompt_n?: number; predicted_n?: number; predicted_per_second?: number };   // llama.cpp's own token counts (done jobs)
 };
-export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" | "auth"; status?: number; detail?: string };   // auth = the server refused our token (401/403): waiting does not fix it
+export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" | "auth"; status?: number; detail?: string; submitted?: boolean };   // auth = the server refused our token (401/403): waiting does not fix it
 
 export function coderStudioUrl(): string {
   return (process.env.OPEN_CODER_STUDIO_URL || "").trim().replace(/\/+$/, "");
@@ -271,7 +271,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
       return i ? tagJob(last, i) : last;
     }
     // the hub's rate limit is not a sick Studio: no cooling, no failover (the other Studio holds no cache for this conversation: a cold read of the whole prompt is minutes); the caller waits and asks again, the same Studio first
-    if (last.status === 429) return last;
+    if (last.status === 429 || last.submitted) return last;
     studioCooling.set(b, Date.now() + COOL_MS);
   }
   return last;
@@ -362,35 +362,49 @@ async function hubSlot<T>(fn: () => Promise<T>): Promise<T> {
 const HUB_RETRY_MS = (): number[] => (process.env.NODE_ENV === "test" ? [0, 0] : [1500, 3500, 7000]);
 
 async function callOne(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
-  const started = Date.now();
+  const deadline = Date.now() + timeoutMs;
   const waits = HUB_RETRY_MS();
   for (let k = 0; ; k++) {
-    const o = await hubSlot(() => callOnce(base, api, payload, timeoutMs));
-    if (o.status !== 429 || k >= waits.length) return o;
+    const o = await hubSlot(() => callOnce(base, api, payload, deadline - Date.now()));
+    if (o.submitted || o.status !== 429 || k >= waits.length) return o;
     const pause = waits[k] + (waits[k] ? Math.random() * 600 : 0);
-    if (Date.now() + pause + 1500 > started + timeoutMs) return o;           // no room left in this call's own time budget: the caller's own pause takes over
+    if (Date.now() + pause + 1500 > deadline) return o;           // no room left in this call's own time budget: the caller's own pause takes over
     await new Promise((res) => setTimeout(res, pause));
   }
 }
 
 async function callOnce(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
+  if (timeoutMs <= 0) return { reply: null, failure: "timeout" };
+  const deadline = Date.now() + timeoutMs;
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = await tokenForAsync(base);
   if (tok) headers.Authorization = `Bearer ${tok}`;
-  const deadline = Date.now() + timeoutMs;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return { reply: null, failure: "timeout" };
+  const signal = AbortSignal.timeout(remaining);
+  let submitted = false;
   try {
-    const sub = await fetch(`${base}/gradio_api/call/v2/${name}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
+    const sub = await fetch(`${base}/gradio_api/call/v2/${name}`, { method: "POST", headers, body: JSON.stringify(fitWait(payload, remaining)), signal });
     if (!sub.ok) return { reply: null, failure: sub.status === 401 || sub.status === 403 ? "auth" : "http", status: sub.status, detail: await errorDetail(sub) };
+    submitted = true;
     const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return { reply: null, failure: "http" };
-    const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
-    if (!res.ok) return { reply: null, failure: res.status === 401 || res.status === 403 ? "auth" : "http", status: res.status, detail: await errorDetail(res) };
+    if (!event_id) return { reply: null, failure: "http", submitted };
+    // Once Gradio accepts a submission, retry the result URL, not the POST: another POST would enqueue duplicate work.
+    const url = `${base}/gradio_api/call/${name}/${event_id}`;
+    let res = await fetch(url, { headers, signal });
+    for (const pause of HUB_RETRY_MS()) {
+      if (res.status !== 429 || Date.now() + pause + 1500 > deadline) break;
+      await res.body?.cancel().catch(() => undefined);
+      if (pause) await new Promise((resolve) => setTimeout(resolve, pause));
+      res = await fetch(url, { headers, signal });
+    }
+    if (!res.ok) return { reply: null, failure: res.status === 401 || res.status === 403 ? "auth" : "http", status: res.status, detail: await errorDetail(res), submitted: true };
     const reply = await readCoderSse(res, parseCoderSse);
-    return reply ? { reply } : { reply: null, failure: "unreadable" };
+    return reply ? { reply } : { reply: null, failure: "unreadable", submitted };
   } catch (e) {
     const n = (e as { name?: string })?.name || "";
-    return { reply: null, failure: n === "TimeoutError" || n === "AbortError" ? "timeout" : "network" };
+    return { reply: null, failure: n === "TimeoutError" || n === "AbortError" ? "timeout" : "network", submitted };
   }
 }
 

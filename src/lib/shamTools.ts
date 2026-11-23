@@ -89,13 +89,17 @@ export function parseShamToolCalls(text: string, tools: CoderTool[]): { text: st
   const calls: CoderToolCall[] = [];
   // the body goes on to INVENT the tool's result ("نتيجة الأداة x: ...") and even further calls after a real one: everything after the first such line is its own fiction, never real
   const inv = text.search(/\n\s*نتيجة الأداة/);
-  let rest = inv > 0 ? text.slice(0, inv) : text;
+  let rest = inv >= 0 ? text.slice(0, inv) : text;
   const take = (raw: string): boolean => {
     try {
       const o = JSON.parse(raw);
       const name = String(o?.name ?? o?.tool ?? "");
       if (!known.has(name)) return false;
-      const a = normaliseShamArgs(o.arguments ?? o.args ?? o.parameters ?? {});
+      const rawArgs = o.arguments ?? o.args ?? o.parameters ?? {};
+      // `arguments` can itself be a JSON string; normalize the decoded fields just as for structured calls.
+      let args = rawArgs;
+      if (typeof rawArgs === "string") { try { args = JSON.parse(rawArgs); } catch { /* validator handles malformed JSON */ } }
+      const a = normaliseShamArgs(args);
       calls.push({ id: `sham_${Date.now().toString(36)}_${calls.length}`, type: "function", function: { name, arguments: typeof a === "string" ? a : JSON.stringify(a) } });
       return true;
     } catch { return false; }
@@ -167,7 +171,7 @@ export function validateShamCall(call: CoderToolCall, tools: CoderTool[]): strin
 /** A `<tool_call>` that is still in the words after parsing is a call Sham tried to write and did not get right (bad JSON, unknown tool). */
 export function brokenCallAttempt(leftover: string): boolean {
   // also a call that was CUT OFF by the Studio's answer limit (`{"name": "sandbox_write_file", "arguments": {"path": ...` with no end): it is shown to the user as raw JSON otherwise
-  return /<tool_call>/.test(leftover) || /^\s*(?:```(?:json)?\s*)?\{\s*"name"\s*:\s*"[A-Za-z_]+"/.test(leftover);
+  return /<tool_call>/.test(leftover) || /^\s*(?:(?:شام|sham)\s*[:：]\s*)?(?:```(?:json)?\s*)?\{\s*"(?:name|tool)"\s*:\s*"[A-Za-z_][\w-]*"/i.test(leftover);
 }
 
 /** What the engine tells Sham when its call cannot run. Not an answer to the user: only the reason, so the model rewrites the call (or asks the user for what is missing). */

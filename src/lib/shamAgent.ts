@@ -96,8 +96,10 @@ export async function shamAgentRun(opts: {
     opts.agentAsk || (!opts.ask && v2
       ? ((p, n, t, activeTools = opts.tools) => shamModeCtx.run(effMode, async () => {
           // Keep a compatibility fallback during Studio redeploys; the new endpoint is preferred and never routes to v1/Nova.
+          const deadline = Date.now() + t;
           const structured = await shamGenerateAgentStep(p, activeTools, n, t, `${opts.ctx.chatId}:${opts.ctx.modelId}`);
-          return structured || shamGenerateAny(p, n, t);
+          const remaining = deadline - Date.now();
+          return structured || (remaining > 1500 ? shamGenerateAny(p, n, remaining, { bypassContentHeuristics: Boolean(opts.ctx.owner) }) : null);
         }))
       : rawAsk);
   const stepAsk = (p: string, n: number, t: number, activeTools: CoderTool[] = opts.tools): Promise<ShamReply | null> => {
@@ -455,7 +457,10 @@ export async function shamAgentRun(opts: {
     if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
-      const final = (p.text || text).trim();
+      if (p.calls.length || brokenCallAttempt(p.text)) {
+        return { kind: "text", text: "لم يُنفّذ الاستدعاء الأخير: لم أتمكّن من تكوين طلب صالح للأداة. أعد المحاولة أو حدّد المعلومات الناقصة.", used, steps: steps + 1 };
+      }
+      const final = p.text.trim();
       if (!final) shamNoteFailure("the Studio answered with empty text (raw: " + JSON.stringify(text).slice(0, 80) + ")");
       // Explicit VERIFY phase: cross-check the proposed final answer against tool outputs.
       // Never claim a write, test, or deployment succeeded without a successful tool result.
