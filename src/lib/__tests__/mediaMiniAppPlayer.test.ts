@@ -80,3 +80,23 @@ describe("media mini-app reels (full review follow-ups)", () => {
     expect(app("mini-app.css")).toContain(".media-reels > .media-reel-ad");
   });
 });
+
+describe("media stream cache and playback revocation", () => {
+  const root = path.join(__dirname, "..", "..", "..");
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+  it("uses a short Worker lookup cache and does not cache the gate's media capability", () => {
+    const worker = read("cloudflare/media-stream-worker.js");
+    const pathRoute = read("src/app/api/media-path/route.ts");
+    expect(worker).toContain('copy.headers.set("cache-control", "public, max-age=30")');
+    expect(worker).not.toContain('copy.headers.set("cache-control", "public, max-age=3000")');
+    expect(pathRoute).toContain('"cache-control": "private, no-store"');
+  });
+
+  it("does not cache fallback stream bytes after a post has been hidden", () => {
+    const stream = read("src/app/api/media-stream/route.ts");
+    const thumb = read("src/app/api/media-thumb/route.ts");
+    expect(stream).toContain('"cache-control": "private, no-store"');
+    expect(thumb).toContain('"cache-control": row.squad_code ? "private, no-store" : "public, max-age=60, s-maxage=60"');
+  });
+});
