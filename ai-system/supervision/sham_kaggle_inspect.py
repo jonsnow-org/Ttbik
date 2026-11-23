@@ -110,6 +110,16 @@ def main() -> int:
         size = getattr(b, "total_bytes", None) or getattr(b, "totalBytes", None) or 0
         upd = getattr(b, "last_updated", None) or getattr(b, "lastUpdated", None)
         print(f"{ref.split('/')[-1]} | v{vn} | {str(upd)[:19]} UTC | {int(size or 0) / 1e9:.2f} GB")
+    print("\n===== كل دفاتر الحساب (جرد، أسماء حقيقية) =====")
+    try:
+        import sham_registry as reg
+        kernels, _ = reg.discover(api, work, with_logs=False)
+        reg.assign_roles(kernels)
+        for k in sorted(kernels, key=lambda k: (k.track or "~", k.ref)):
+            print(f"{k.ref} | https://www.kaggle.com/code/{k.ref} | مسار={k.track or '-'} | دور={k.role or '-'} | {k.status} | "
+                  f"{'GPU' if k.gpu else 'CPU'} | آخر تشغيل {k.last_run[:16]} | مدخلات: {', '.join(k.inputs)[:160]}")
+    except Exception as exc:
+        print("inventory failed:", why(exc))
     return 0
 
 
