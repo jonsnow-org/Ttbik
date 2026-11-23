@@ -102,7 +102,7 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
             log(f"تعذّرت قراءة حالة دفتر ({type(exc).__name__}) — لا إجراء")
     running = sum(1 for v in statuses.values() if v in RUNNING) + outside_running            # notebooks of the same account that this watcher does not push (Nova 1) take slots too
     for i, slug in enumerate(slugs, 1):
-        label = f"دفتر {i}"
+        label = f"دفتر {i} [{slug} — https://www.kaggle.com/code/{slug}]"  # owner 2026-11-23: real names and links in the log
         entry = nbs.setdefault(_key(slug), {})
         status = statuses[slug]
         if not status:
