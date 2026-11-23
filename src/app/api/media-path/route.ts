@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const filePath = j?.result?.file_path;
   if (!filePath) {
     // Most often: file over Telegram's 20MB Bot API download limit.
-    return NextResponse.json({ error: j?.description || "file unavailable" }, { status: 422, headers: { "cache-control": "public, s-maxage=600" } });
+    return NextResponse.json({ error: j?.description || "file unavailable" }, { status: 422, headers: { "cache-control": "no-store" } });
   }
   return NextResponse.json(
     { file_path: filePath, media_type: String(row.media_type || "video") },
