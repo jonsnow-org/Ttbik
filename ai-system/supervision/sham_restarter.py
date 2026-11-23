@@ -157,8 +157,7 @@ EXTRA_KERNELS = {
     "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
     # 5th notebook (2026-10-16, additive): the separate repair + re-merge tool (own dataset sham-repair-remerge-checkpoint)
     "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
-    # 6th notebook (2026-10-26, owner): Sham v2 training (donor body + Sham's media rows). GPU first (its kernel-metadata says enable_gpu), CPU when the quota is out.
-    "jonsnowjonsnow/sham-v2-train": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "sham_v2",
+    # (2026-11-23, owner: Kaggle is only for the original Sham; Sham Pro and Nova train on the Chinese ModelScope) the Sham v2 notebook is no longer watched or pushed.
 }
 
 
@@ -247,7 +246,7 @@ def main() -> int:
         outside = 1 if NOVA not in watch and _status(api, NOVA) in _R else 0
     except Exception:
         pass
-    notes = run(watch, api, state, resume, first=gpu_slugs | {"jonsnowjonsnow/sham-v2-train"}, outside_running=outside)
+    notes = run(watch, api, state, resume, first=gpu_slugs, outside_running=outside)
     notes = _nova_notes + notes
     if live or not files:
         up = work / "upload"
