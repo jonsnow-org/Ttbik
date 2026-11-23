@@ -85,6 +85,8 @@ async def publish_feed_item(
             logger.info("feed API status=%s body=%s", r.status_code, r.text[:300])
             if r.status_code >= 400:
                 # retry without optional fields (older table schema)
+                # Keep visibility metadata even on the compatibility retry.
+                # Dropping squad_code here would publish a private-room share publicly.
                 minimal = {
                     "id": item["id"],
                     "file_id": item["file_id"],
@@ -95,6 +97,7 @@ async def publish_feed_item(
                     "sharer_name": item["sharer_name"],
                     "sharer_id": item["sharer_id"],
                     "clones": 0,
+                    "squad_code": item["squad_code"],
                     "created_at": item["created_at"],
                 }
                 r2 = await client.post(
@@ -105,12 +108,18 @@ async def publish_feed_item(
                 logger.info("feed API retry status=%s body=%s", r2.status_code, r2.text[:300])
                 if r2.status_code < 400:
                     data = r2.json()
-                    if isinstance(data, dict) and data.get("id"):
+                    if isinstance(data, dict) and data.get("ok") and data.get("persisted", True) and data.get("id"):
                         item["id"] = data["id"]
+                    else:
+                        logger.error("feed compatibility retry was not durably saved: %s", str(data)[:240])
+                else:
+                    logger.error("feed compatibility retry failed: %s %s", r2.status_code, r2.text[:240])
             else:
                 data = r.json()
-                if isinstance(data, dict) and data.get("id"):
+                if isinstance(data, dict) and data.get("ok") and data.get("persisted", True) and data.get("id"):
                     item["id"] = data["id"]
+                else:
+                    logger.error("feed API returned a non-persistent result: %s", str(data)[:240])
     except Exception as e:
         logger.warning("feed publish failed: %s", e)
 
