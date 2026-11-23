@@ -55,6 +55,7 @@ export const NEWS_ITEMS: NewsItem[] = [
     "sources": [
       { "href": "https://www.sse.com.cn/lawandrules/sselawsrules2025/trade/specific/margin/c/c_20261122_10838633.shtml", "label": "بورصة شنغهاي — نص الإشعار الرسمي رقم 108 لسنة 2026، 22 نوفمبر" },
       { "href": "https://www.szse.cn/aboutus/trends/news/t20261122_623983.html", "label": "بورصة شنتشن — توضيح رسمي للتعديل، 22 نوفمبر 2026" },
+      { "href": "https://www.bse.cn/jygl_list/200029860.html", "label": "بورصة بكين — الإشعار الرسمي رقم 46 لسنة 2026، 22 نوفمبر" },
       { "href": "https://www.reuters.com/world/chinese-exchanges-ease-margin-trading-requirements-aid-stock-markets-2026-11-22/", "label": "رويترز — تغطية مستقلة للتعديلات، 22 نوفمبر 2026، 13:09 UTC" }
     ]
   },
