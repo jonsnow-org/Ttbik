@@ -77,7 +77,7 @@ def main() -> int:
     api = KaggleApi(); api.authenticate()
     work = Path(tempfile.mkdtemp())
     for i, ref in enumerate(slugs(api, work), 1):
-        print(f"\n===== دفتر {i} =====")
+        print(f"\n===== دفتر {i} | {ref} | https://www.kaggle.com/code/{ref} =====")
         try:
             st = with_retry(lambda: api.kernels_status(ref))
             print("status:", getattr(st, "status", st), "|", getattr(st, "failure_message", "") or "")
