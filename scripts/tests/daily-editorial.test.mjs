@@ -515,9 +515,9 @@ test("23 November WFP briefing keeps the projected humanitarian risk conditional
   assert.match(arabic.contextDateLabel, /16:51 UTC/);
   assert.match(english.contextDateLabel, /16:51 UTC/);
   assert.match(arabic.paragraphs.join(" "), /727 مليون دولار/);
-  assert.match(english.body.join(" "), /US\\$727 million/);
-  assert.match(arabic.paragraphs.join(" "), /قد تتعرض المساعدة لـ7\\.3 ملايين شخص للخطر/);
-  assert.match(english.body.join(" "), /potentially putting assistance for 7\\.3 million people at risk/i);
+  assert.match(english.body.join(" "), /US\$727 million/);
+  assert.match(arabic.paragraphs.join(" "), /قد تتعرض المساعدة لـ7\.3 ملايين شخص للخطر/);
+  assert.match(english.body.join(" "), /potentially putting assistance for 7\.3 million people at risk/i);
   assert.match(arabic.paragraphs.join(" "), /إذا استمرت الظروف الحالية/);
   assert.match(english.body.join(" "), /if current conditions persist/i);
   assert.match(arabic.paragraphs.join(" "), /لا تعني أن التمويل خُفّض بالفعل/);
@@ -539,8 +539,8 @@ test("23 November Amazon–Decart agreement distinguishes the signed agreement f
   assert.match(english.contextDateLabel, /15:33 UTC/);
   assert.match(arabic.paragraphs.join(" "), /لم تكشف أمازون الشروط المالية/);
   assert.match(english.body.join(" "), /Amazon did not disclose the deal's financial terms/i);
-  assert.match(arabic.paragraphs.join(" "), /7\\.5 مليارات دولار/);
-  assert.match(english.body.join(" "), /US\\$7\\.5 billion/);
+  assert.match(arabic.paragraphs.join(" "), /7\.5 مليارات دولار/);
+  assert.match(english.body.join(" "), /US\$7\.5 billion/);
   assert.match(arabic.paragraphs.join(" "), /أمازون لم تؤكد هذا الرقم/);
   assert.match(english.body.join(" "), /Amazon did not confirm that figure/i);
   assert.match(arabic.paragraphs.join(" "), /الموافقات التنظيمية/);
