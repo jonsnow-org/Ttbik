@@ -43,3 +43,33 @@ test("private squad feed filtering requires the signed Telegram owner admin view
   assert.match(source, /else if \(!includeHidden\) items = items\.filter\(\(i\) => !i\.squad_code\)/);
   assert.match(source, /Telegram-signed owner identity/);
 });
+
+test("media feed compatibility reads and writes always retain privacy columns", () => {
+  const route = readFileSync(path.join(root, "src/app/api/media-feed/route.ts"), "utf8");
+  const bot = readFileSync(path.join(root, "media-bot/services/feed.py"), "utf8");
+
+  // The legacy fallback may omit optional metadata, never moderation/privacy.
+  assert.match(route, /select\("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at,squad_code,hidden"\)/);
+  assert.match(route, /if \(r\.error\) return null/);
+  assert.match(route, /databaseConfigured && fromDb === null/);
+  assert.match(route, /g\.__mediaFeed = mapped/);
+
+  // Refeeding an existing id may change the Telegram file, not its privacy state.
+  assert.match(route, /select\("id,squad_code,hidden"\)/);
+  assert.match(route, /const effectiveSquadCode = existingRow/);
+  assert.match(route, /hidden: existingRow \? !!existingRow\.hidden : false/);
+  assert.match(route, /squad_code: effectiveSquadCode/);
+  assert.match(route, /persisted: false/);
+
+  // The bot's schema-compatibility retry must not drop the squad access code.
+  assert.match(bot, /"squad_code": item\["squad_code"\]/);
+  assert.match(bot, /data\.get\("persisted", True\)/);
+});
+
+test("media comment replies cannot attach to comments on a different post", () => {
+  const route = readFileSync(path.join(root, "src/app/api/media-comments/route.ts"), "utf8");
+  assert.match(route, /\.eq\("id", parentId\)/);
+  assert.match(route, /\.eq\("post_id", postId\)/);
+  assert.match(route, /parent comment not found/);
+  assert.match(route, /parentReplyTo/);
+});
