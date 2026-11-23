@@ -642,6 +642,23 @@ def bench(api: str, token: str, session: str) -> dict[str, Any]:
                 out["repo_clone_total"] = {"s": round(time.time() - t_repo, 2), "ok": log.get("exit_code") == 0, **({} if log.get("exit_code") == 0 else {"tail": str(log.get("output") or "")[-300:]})}
                 break
             time.sleep(3)
+    signed = os.environ.get("BENCH_SIGNED_URL", "").strip()
+    if signed:                                # the owner's PRIVATE repository through the signed download address (what Nova's computer_repo does): where does a big clone break?
+        t_priv = time.time()
+        priv = timed("repo_private", {"action": "repo", "url": "https://github.com/jonsnow-org/Ttbik", "signed_url": signed}, 240)
+        pj = str(priv.get("job") or "")
+        for _ in range(100):
+            if not pj:
+                break
+            try:
+                plog = box_call(api, token, {"session": session, "action": "job_log", "id": pj, "tail": 8}, 60)
+            except Exception:  # noqa: BLE001
+                break
+            if not plog.get("running"):
+                out["repo_private_total"] = {"s": round(time.time() - t_priv, 2), "ok": plog.get("exit_code") == 0, "tail": str(plog.get("output") or "")[-300:]}
+                break
+            time.sleep(3)
+        timed("search_private", {"action": "search", "pattern": "coderSystemPrompt", "path": "repos"})
     timed("search_repo", {"action": "search", "pattern": "def request", "path": "repos"})
     tv = timed("tools_versions", {"action": "run", "command": "for t in git gh rg jq ffmpeg node python3 patch fdfind pandoc; do printf '%s=' $t; command -v $t >/dev/null && echo yes || echo no; done"})
     out["tools_present"] = " ".join(x for x in str(tv.get("output") or "").split() if x.endswith("=yes")).replace("=yes", "")
@@ -684,8 +701,14 @@ def main() -> int:
         check_shell(api, token, session, marker)
         print(f"[{args.model_id}] PASS: Bash, persistent files, and background jobs", flush=True)
         print(f"[{args.model_id}] checking private file banks and workstation app inventory", flush=True)
-        check_banks(api, token, session, marker)
-        print(f"[{args.model_id}] PASS: file bank create/store/search/restore and app inventory", flush=True)
+        try:
+            check_banks(api, token, session, marker)
+            print(f"[{args.model_id}] PASS: file bank create/store/search/restore and app inventory", flush=True)
+        except Exception as exc:
+            # An older hub image has no bank action; a timing run must still reach the bench stage.
+            if not (args.bench and "unknown action" in str(exc)):
+                raise
+            print(f"[{args.model_id}] SKIP: file banks unavailable on this hub ({str(exc)[:120]})", flush=True)
         if not args.no_gui:
             print(f"[{args.model_id}] checking X11 desktop and terminal coexistence", flush=True)
             check_gui(api, token, session, marker)

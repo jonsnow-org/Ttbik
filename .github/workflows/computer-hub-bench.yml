@@ -32,8 +32,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Signed download address of this private repository (as Nova's computer_repo makes it; never printed)
+        id: signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          loc=$(curl -s -o /dev/null -D - -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/tarball/claude/free-services-marketplace-h6rwk2" | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')
+          echo "::add-mask::$loc"
+          echo "signed=$loc" >> "$GITHUB_OUTPUT"
+          [ -n "$loc" ] && echo "signed address: obtained" || echo "signed address: NOT obtained"
       - name: Time the common operations on the live hub
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          BENCH_SIGNED_URL: ${{ steps.signed.outputs.signed }}
         run: |
           python3 scripts/ops/modelscope_computer_smoke.py --api https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai --model-id computer_hub --no-gui --bench
