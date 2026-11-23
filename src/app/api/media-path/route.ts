@@ -25,10 +25,12 @@ export async function GET(req: NextRequest) {
   const filePath = j?.result?.file_path;
   if (!filePath) {
     // Most often: file over Telegram's 20MB Bot API download limit.
-    return NextResponse.json({ error: j?.description || "file unavailable" }, { status: 422, headers: { "cache-control": "public, s-maxage=600" } });
+    return NextResponse.json({ error: j?.description || "file unavailable" }, { status: 422, headers: { "cache-control": "no-store" } });
   }
   return NextResponse.json(
     { file_path: filePath, media_type: String(row.media_type || "video") },
-    { headers: { "cache-control": "public, max-age=0, s-maxage=3000" } }
+    // This is a short-lived access capability, not a public media asset.
+    // Keep the gate/CDN from extending it beyond the Worker’s short local cache.
+    { headers: { "cache-control": "private, no-store" } }
   );
 }

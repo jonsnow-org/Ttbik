@@ -172,6 +172,7 @@ export default function MiniAppPage() {
   const [statusLine, setStatusLine] = useState("محبّ للوسائط ✨");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState("");
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -234,31 +235,32 @@ export default function MiniAppPage() {
   const [viaVercel, setViaVercel] = useState<Record<string, boolean>>({});
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState("");
   const [newCount, setNewCount] = useState(0);
   const [adminSection, setAdminSection] = useState<"reports" | "chats" | "rooms" | "content" | "settings">("reports");
   const [adminConvs, setAdminConvs] = useState<{ a: string; b: string; a_name: string; b_name: string; last_body: string; last_at: number; count: number }[] | null>(null);
   const [adminConv, setAdminConv] = useState<{ a: string; b: string; a_name: string; b_name: string; messages: { id: string; from_id: string; from_name: string; body: string; created_at: number }[] } | null>(null);
   // Posts this viewer has already had on screen — Trending shows unseen ones first on each refresh.
   const seenRef = useRef<Set<string>>(new Set());
+  // Search/tab changes can leave multiple fetches in flight. Only the newest
+  // feed request is allowed to update the visible list.
+  const feedRequestRef = useRef(0);
+  const loadMoreRequestRef = useRef(0);
+  const loadMoreBusyRef = useRef(false);
   const itemsRef = useRef<FeedItem[]>([]);
-  itemsRef.current = items;
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const playErrorAttempts = useRef<Record<string, number>>({});
   const onPlayError = (id: string) => {
-    const attempts = playErrorAttempts.current[id] || 0;
-    if (attempts === 0 && !viaVercel[id]) {
+    if (!viaVercel[id]) {
       playErrorAttempts.current[id] = 1;
       setViaVercel((v) => ({ ...v, [id]: true }));
       return;
     }
-    if (attempts < 2 && viaVercel[id]) {
-      playErrorAttempts.current[id] = 2;
-      setViaVercel((v) => ({ ...v, [id]: false }));
-      return;
-    }
+    playErrorAttempts.current[id] = 2;
     setPlayingId(null);
     setPlayError(id);
-    showToast("تعذّر تشغيل المقطع بعد تجربة مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
+    showToast("تعذّر تشغيل المقطع عبر مساري البث. قد يكون محذوفاً أو غير متاح مؤقتاً.");
   };
   const onAutoPreviewError = useCallback((id: string) => {
     if (!viaVercel[id] && autoPreviewAttempts.current[id] !== 1) {
@@ -303,6 +305,8 @@ export default function MiniAppPage() {
       else if (j.reason === "cooldown") showToast("انتظر قليلاً قبل الإعلان التالي");
       else if (j.reason === "daily_cap") showToast("استهلكت مكافآت اليوم — تتجدد غداً");
       else if (j.needs_migration) showToast("المكافآت بانتظار تفعيلها من المالك");
+    } catch {
+      showToast("تعذّر تسجيل المكافأة الآن. لم تُضف تحميلات إلى حسابك.");
     } finally {
       setAdBusy(false);
     }
@@ -364,6 +368,21 @@ export default function MiniAppPage() {
   }
 
   useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const oldRoot = root.style.overscrollBehaviorY;
+    const oldBody = body.style.overscrollBehaviorY;
+    root.style.setProperty("overscroll-behavior-y", "none");
+    body.style.setProperty("overscroll-behavior-y", "none");
+    return () => {
+      if (oldRoot) root.style.setProperty("overscroll-behavior-y", oldRoot);
+      else root.style.removeProperty("overscroll-behavior-y");
+      if (oldBody) body.style.setProperty("overscroll-behavior-y", oldBody);
+      else body.style.removeProperty("overscroll-behavior-y");
+    };
+  }, []);
+
+  useEffect(() => {
     const onScroll = () => setShowTopBtn(window.scrollY > 280);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -388,7 +407,7 @@ export default function MiniAppPage() {
     }
     setLiked(loadJSON(LS.liked, {}));
     seenRef.current = new Set(loadJSON<string[]>(LS.seen, []));
-    try { document.documentElement.style.overscrollBehaviorY = "none"; document.body.style.overscrollBehaviorY = "none"; } catch {}
+    // The overscroll style is synchronized in its own effect below.
     // Autoplay defaults on, except when the phone asks to save data.
     const saveData = !!(navigator as any).connection?.saveData;
     setAutoplay(loadJSON(LS.autoplay, !saveData));
@@ -426,6 +445,13 @@ export default function MiniAppPage() {
     if (n) setViewUserName(n);
   }, [viewUserId, viewUserName, names, items]);
 
+  async function social(action: string, extra: Record<string, unknown> = {}) {
+    const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, init_data: tgInitData(), ...extra }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || "failed"), { status: r.status, needsMigration: !!j.needs_migration });
+    return j;
+  }
+
   const loadRelations = useCallback(async (profileId?: string | null) => {
     if (!userId) return;
     try {
@@ -457,20 +483,16 @@ export default function MiniAppPage() {
           // failed IDs remain in the legacy local list for a future retry.
           if (!migration.pendingIds.length) {
             saveJSON(LS.followMigrated, true);
-            void loadRelations(profileId);
+            setRelations((prev) => ({
+              ...prev,
+              following: Array.from(new Set([...prev.following, ...ids])),
+            }));
           }
         }
       }
     } catch { setSocialReady(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  async function social(action: string, extra: Record<string, unknown> = {}) {
-    const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, init_data: tgInitData(), ...extra }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error(j.error || "failed"), { status: r.status, needsMigration: !!j.needs_migration });
-    return j;
-  }
 
   const profileTargetId = viewUserId || (tab === "me" ? userId : null);
   const isOwnProfile = !!profileTargetId && profileTargetId === userId;
@@ -501,7 +523,14 @@ export default function MiniAppPage() {
   }
 
   const load = useCallback(async () => {
+    const requestId = ++feedRequestRef.current;
+    // Invalidate any older pagination request when the active query changes.
+    ++loadMoreRequestRef.current;
+    loadMoreBusyRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
+    setFeedError("");
+    setLoadMoreError("");
     setNewCount(0);
     try {
       const qs = buildQuery(0);
@@ -518,7 +547,9 @@ export default function MiniAppPage() {
         qs.set("mix", String(round));
       }
       const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
+      if (requestId !== feedRequestRef.current) return;
       let list: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       if (rotating && seenRef.current.size) {
         const fresh = list.filter((i) => !seenRef.current.has(i.id));
@@ -528,21 +559,42 @@ export default function MiniAppPage() {
       setItems(list);
       mergeLiked(list);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
-    } catch { setItems([]); setNextOffset(null); } finally { setLoading(false); }
+    } catch (e) {
+      if (requestId === feedRequestRef.current) {
+        setFeedError(e instanceof Error ? e.message : "تعذّر تحميل الخلاصة");
+      }
+    } finally {
+      if (requestId === feedRequestRef.current) setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildQuery, tab, showProfile, search]);
 
   async function loadMore() {
-    if (loadingMore || nextOffset == null) return;
+    if (loadMoreBusyRef.current || nextOffset == null) return;
+    const feedRequestId = feedRequestRef.current;
+    const requestId = ++loadMoreRequestRef.current;
+    loadMoreBusyRef.current = true;
     setLoadingMore(true);
+    setLoadMoreError("");
     try {
       const r = await fetch(`/api/media-feed?${buildQuery(nextOffset)}`, { cache: "no-store" });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(String(j.error || `HTTP ${r.status}`));
+      if (feedRequestId !== feedRequestRef.current || requestId !== loadMoreRequestRef.current) return;
       const more: FeedItem[] = Array.isArray(j.items) ? j.items : [];
       setItems((prev) => { const have = new Set(prev.map((i) => i.id)); return [...prev, ...more.filter((i) => !have.has(i.id))]; });
       mergeLiked(more);
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
-    } catch {} finally { setLoadingMore(false); }
+    } catch (e) {
+      if (feedRequestId === feedRequestRef.current && requestId === loadMoreRequestRef.current) {
+        setLoadMoreError(e instanceof Error ? e.message : "تعذّر تحميل المزيد");
+      }
+    } finally {
+      if (requestId === loadMoreRequestRef.current) {
+        loadMoreBusyRef.current = false;
+        if (feedRequestId === feedRequestRef.current) setLoadingMore(false);
+      }
+    }
   }
 
   // "New posts" pill: checks every minute for posts newer than what's on
@@ -553,7 +605,9 @@ export default function MiniAppPage() {
       if (document.hidden) return;
       try {
         const qs = buildQuery(0); qs.set("sort", "latest"); qs.set("limit", "20");
-        const j = await (await fetch(`/api/media-feed?${qs}`, { cache: "no-store" })).json();
+        const response = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const j = await response.json();
         const newest = Math.max(0, ...items.map((i) => i.created_at || 0));
         const have = new Set(items.map((i) => i.id));
         setNewCount((Array.isArray(j.items) ? j.items : []).filter((i: FeedItem) => (i.created_at || 0) > newest && !have.has(i.id)).length);
@@ -562,7 +616,6 @@ export default function MiniAppPage() {
     return () => clearInterval(t);
   }, [buildQuery, items, tab, showProfile]);
 
-  useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   useEffect(() => { void loadRelations(showProfile ? profileTargetId : null); }, [loadRelations, showProfile, profileTargetId]);
   useEffect(() => { if (isOwnProfile && userId) void loadReward(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isOwnProfile, userId]);
 
@@ -600,6 +653,7 @@ export default function MiniAppPage() {
       if (Array.isArray(j.reports)) setReports(j.reports);
     } catch {}
   }
+  useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   async function loadAdminConvs() {
     try {
       const j = await (await fetch(`/api/media-messages?admin=1&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })).json();
@@ -622,22 +676,35 @@ export default function MiniAppPage() {
     } catch { showToast("تعذّر تنفيذ الإجراء"); }
   }
   async function hideItem(id: string) {
-    await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
-    setItems((prev) => prev.filter((x) => x.id !== id));
+    try {
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "save failed");
+      setItems((prev) => prev.filter((x) => x.id !== id));
+      showToast("تم إخفاء المنشور");
+    } catch {
+      showToast("تعذّر إخفاء المنشور؛ لم يتغير المحتوى");
+    }
   }
   async function runBroadcast() {
     if (!broadcastText.trim()) return; setAdminBusy(true);
     try {
       const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "broadcast", text: broadcastText, init_data: tgInitData() }) });
-      const j = await r.json();
-      tg()?.showAlert?.(j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل");
+      const j = await r.json().catch(() => ({}));
+      tg()?.showAlert?.(r.ok && j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل الإرسال");
+    } catch {
+      showToast("تعذّر الاتصال بالخادم؛ لم يتم تأكيد الإرسال");
     } finally { setAdminBusy(false); }
   }
   async function saveForceSub() {
     const channels = forceChans.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2); setAdminBusy(true);
     try {
-      await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) });
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "save failed");
       tg()?.showAlert?.("تم حفظ قنوات الاشتراك");
+    } catch {
+      showToast("تعذّر حفظ القنوات؛ لم يتم تغيير الإعداد");
     } finally { setAdminBusy(false); }
   }
 
@@ -792,7 +859,7 @@ export default function MiniAppPage() {
     const body = dmInput.trim(); setDmInput("");
     let r: Response | null = null;
     try { r = await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) }); } catch { r = null; }
-    if (r && r.status === 403) { showToast("لا يمكن مراسلة هذا المستخدم"); return; }
+    if (r && r.status === 403) { setDmInput(body); showToast("لا يمكن مراسلة هذا المستخدم"); return; }
     if (!r || !r.ok) { setDmInput(body); showToast("لم تُرسَل الرسالة، حاول مجدداً"); return; }   // the text stays in the box
     await loadThreadMessages(chatPeer.id);
   }
@@ -821,7 +888,7 @@ export default function MiniAppPage() {
     setCommentInput(""); setReplyTo(null);
     let r: Response | null = null;
     try { r = await fetch("/api/media-comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), post_id: commentsPost.id, parent_id: parentId, from_name: displayName || username || "مستخدم", body: bodyText }) }); } catch { r = null; }
-    if (r && r.status === 403) { showToast("لا يمكنك التعليق على هذا المنشور"); return; }
+    if (r && r.status === 403) { setCommentInput(bodyText); setReplyTo(prevReply); showToast("لا يمكنك التعليق على هذا المنشور"); return; }
     if (!r || !r.ok) { setCommentInput(bodyText); setReplyTo(prevReply); showToast("لم يُحفظ التعليق، حاول مجدداً"); return; }   // the text stays in the box
     await loadComments(commentsPost.id);
   }
@@ -851,6 +918,48 @@ export default function MiniAppPage() {
     return list;
   }, [items, tab, trendKind, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
+  // View counting:
+  // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
+  // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
+  // Server dedupes once per verified Telegram user and ignores the sharer's own views.
+  // Client only locks an id after the server confirms counted:true so a failed request can retry.
+  // id -> when the server last counted it for this person (or refused for good). A post counts again after the server's cooldown.
+  const viewedRef = useRef<Map<string, number>>(new Map());
+  const viewPendingRef = useRef<Set<string>>(new Set());
+  const viewTriesRef = useRef<Map<string, number>>(new Map());
+  const VIEW_COOLDOWN_MS = 30 * 60_000;
+  const recentlyViewed = (id: string) => { const t = viewedRef.current.get(id); return t !== undefined && Date.now() - t < VIEW_COOLDOWN_MS; };
+  const markViewed = (item: FeedItem, seconds: number, force = false) => {
+    if (!item?.id) return;
+    if (recentlyViewed(item.id) || viewPendingRef.current.has(item.id)) return;
+    if (!force && seconds < 1.5) return;
+    viewPendingRef.current.add(item.id);
+    const lock = () => viewedRef.current.set(item.id, Date.now());
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        viewPendingRef.current.delete(item.id);
+        if (j?.counted) {
+          lock();
+          setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 } : it));
+          track("view", { post_id: item.id, type: item.media_type });
+        } else if (j?.reason === "cooldown" || j?.reason === "no-post") {
+          lock();                                    // counted recently / nothing to count: do not ask again for now
+          if (typeof j.views === "number") setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: Math.max(it.views || 0, j.views) } : it));
+        } else {
+          // no-auth / no-db / storage / network: the view did NOT count. Try again a few times instead of silently giving up.
+          const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+          viewTriesRef.current.set(item.id, n);
+          if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
+        }
+      })
+      .catch(() => {
+        viewPendingRef.current.delete(item.id);
+        const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+        viewTriesRef.current.set(item.id, n);
+        if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
+      });
+  };
   // Picks the one video card most in view (≥60% visible) for the muted
   // autoplay preview — only one at a time — and stops the full player
   // (with sound) when the user scrolls it off-screen so audio never stacks.
@@ -1030,7 +1139,7 @@ export default function MiniAppPage() {
       following: profileCounts?.following ?? 0,
     };
   }, [items, profileTargetId, profileCounts]);
-  notifsRef.current = notifs;
+  useEffect(() => { notifsRef.current = notifs; }, [notifs]);
   useEffect(() => { if (!showNotifs && freshIds.size) setFreshIds(new Set()); }, [showNotifs, freshIds]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
   const openReports = useMemo(() => reports.filter((r) => r.status === "open"), [reports]);
@@ -1079,50 +1188,10 @@ export default function MiniAppPage() {
       .catch(undo);
     track(was ? "unlike" : "like", { post_id: id });
   };
-  // View counting:
-  // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
-  // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
-  // Server dedupes once per verified Telegram user and ignores the sharer's own views.
-  // Client only locks an id after the server confirms counted:true so a failed request can retry.
-  // id -> when the server last counted it for this person (or refused for good). A post counts again after the server's cooldown.
-  const viewedRef = useRef<Map<string, number>>(new Map());
-  const viewPendingRef = useRef<Set<string>>(new Set());
-  const viewTriesRef = useRef<Map<string, number>>(new Map());
-  const VIEW_COOLDOWN_MS = 30 * 60_000;
-  const recentlyViewed = (id: string) => { const t = viewedRef.current.get(id); return t !== undefined && Date.now() - t < VIEW_COOLDOWN_MS; };
-  const markViewed = (item: FeedItem, seconds: number, force = false) => {
-    if (!item?.id) return;
-    if (recentlyViewed(item.id) || viewPendingRef.current.has(item.id)) return;
-    if (!force && seconds < 1.5) return;
-    viewPendingRef.current.add(item.id);
-    const lock = () => viewedRef.current.set(item.id, Date.now());
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
-      .then(async (r) => {
-        const j = await r.json().catch(() => ({}));
-        viewPendingRef.current.delete(item.id);
-        if (j?.counted) {
-          lock();
-          setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 } : it));
-          track("view", { post_id: item.id, type: item.media_type });
-        } else if (j?.reason === "cooldown" || j?.reason === "no-post") {
-          lock();                                    // counted recently / nothing to count: do not ask again for now
-          if (typeof j.views === "number") setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: Math.max(it.views || 0, j.views) } : it));
-        } else {
-          // no-auth / no-db / storage / network: the view did NOT count. Try again a few times instead of silently giving up.
-          const n = (viewTriesRef.current.get(item.id) || 0) + 1;
-          viewTriesRef.current.set(item.id, n);
-          if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
-        }
-      })
-      .catch(() => {
-        viewPendingRef.current.delete(item.id);
-        const n = (viewTriesRef.current.get(item.id) || 0) + 1;
-        viewTriesRef.current.set(item.id, n);
-        if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
-      });
-  };
   const playItem = (item: FeedItem) => {
     soundOnRef.current = item.media_type !== "audio" && item.media_type !== "voice";
+    playErrorAttempts.current[item.id] = 0;
+    setViaVercel((v) => ({ ...v, [item.id]: false }));
     setPlayError(null);
     setPlayingId(item.id);
     track("play", { post_id: item.id, type: item.media_type });
@@ -1649,7 +1718,13 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
+        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : feedError && visible.length === 0 ? (
+          <div role="alert" className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-center">
+            <p className="text-sm font-bold text-rose-800">تعذّر تحميل محتوى التطبيق</p>
+            <p className="mt-2 text-xs text-rose-700">{feedError}</p>
+            <button type="button" onClick={() => void load()} className="mt-3 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">إعادة المحاولة</button>
+          </div>
+        ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <>
@@ -1765,6 +1840,18 @@ export default function MiniAppPage() {
           </>
         ))}
       </div>
+      {tab !== "admin" && !overlayOpen && feedError && visible.length > 0 && (
+        <div role="status" className="mx-3 mb-3 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="min-w-0 flex-1 text-[11px] font-semibold text-amber-800">تعذّر تحديث الخلاصة: {feedError}</p>
+          <button type="button" onClick={() => void load()} className="shrink-0 rounded-lg bg-white px-2 py-1 text-[10px] font-black text-amber-800 ring-1 ring-amber-200">إعادة</button>
+        </div>
+      )}
+      {tab !== "admin" && !overlayOpen && loadMoreError && (
+        <div role="alert" className="mx-3 mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-center">
+          <p className="text-[11px] font-semibold text-rose-700">تعذّر تحميل المزيد: {loadMoreError}</p>
+          <button type="button" onClick={() => void loadMore()} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-rose-700 ring-1 ring-rose-200">إعادة المحاولة</button>
+        </div>
+      )}
 
       {/* ⋮ menu — bottom sheet */}
       {menuItem && (
@@ -1928,7 +2015,7 @@ function LazyFeedAd() {
 function LoadMoreSentinel({ onVisible, loading }: { onVisible: () => void; loading: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const cb = useRef(onVisible);
-  cb.current = onVisible;
+  useEffect(() => { cb.current = onVisible; }, [onVisible]);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") return;

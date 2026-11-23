@@ -36,16 +36,18 @@ export default {
     if (!/^[A-Za-z0-9_-]{4,64}$/.test(id)) return new Response("id required", { status: 400, headers: cors });
     if (!env.BOT_TOKEN) return new Response("BOT_TOKEN secret missing", { status: 500, headers: cors });
 
-    // 1) post id -> Telegram file_path (cached at Cloudflare for 50 minutes)
+    // 1) post id -> Telegram file_path (cached at Cloudflare for 30 seconds)
     const cache = caches.default;
-    const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}`, mediaPathOrigin(env)));
+    const pathKey = new Request(new URL(`/api/media-path?id=${encodeURIComponent(id)}&v=2`, mediaPathOrigin(env)));
     let pathResp = await cache.match(pathKey);
     if (!pathResp) {
       // The gate is a Worker of this same account: workers.dev -> workers.dev fetches are refused (404), so use the service binding when there is one.
       pathResp = env.GATE ? await env.GATE.fetch(pathKey) : await fetch(pathKey);
       if (!pathResp.ok) return new Response("not available", { status: pathResp.status === 404 ? 404 : 502, headers: cors });
       const copy = new Response(pathResp.clone().body, pathResp);
-      copy.headers.set("cache-control", "public, max-age=3000");
+      // A moderator can hide/delete a post at any time. Cache only the
+      // Telegram file-path lookup briefly so revocation takes effect quickly.
+      copy.headers.set("cache-control", "public, max-age=30");
       ctx.waitUntil(cache.put(pathKey, copy));
     }
     const { file_path, media_type } = await pathResp.json();

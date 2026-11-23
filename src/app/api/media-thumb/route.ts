@@ -42,15 +42,16 @@ export async function GET(req: NextRequest) {
   try {
     const img = await fetch(imageUrl, { cache: "no-store" });
     const type = img.headers.get("content-type") || "";
-    if (!img.ok || !type.startsWith("image/")) return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "public, max-age=300, s-maxage=600" } });
+    if (!img.ok || !type.startsWith("image/")) return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "no-store" } });
     return new NextResponse(img.body, {
       headers: {
         "content-type": type,
-        // TikTok URLs expire in hours; keep our cached copy well inside that.
-        "cache-control": row.squad_code ? "private, no-store" : "public, max-age=3600, s-maxage=21600, stale-while-revalidate=86400",
+        // Thumbnails follow the post's visibility too. A short cache keeps
+        // hidden/deleted posts from lingering in public previews for hours.
+        "cache-control": row.squad_code ? "private, no-store" : "public, max-age=60, s-maxage=60",
       },
     });
   } catch {
-    return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "public, max-age=300, s-maxage=600" } });
+    return new NextResponse("upstream failed", { status: 424, headers: { "cache-control": "no-store" } });
   }
 }

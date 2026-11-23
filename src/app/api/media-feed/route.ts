@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
 import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, resolveRealTitle } from "@/lib/mediaSocial";
 import { notify, notifyFollowers } from "@/lib/mediaNotify";
+import { isPublicMediaPost } from "@/lib/mediaVisibility";
 import { recordError as recordMediaError, write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
@@ -86,12 +87,11 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // `r` is deliberately re-assigned below with a narrower column list as
-    // a fallback for databases that haven't run the newer migration yet
-    // (see the resilient-insert commit) -- the two selects have different
-    // shapes on purpose, and every field is read defensively further down
-    // regardless of which one ran, so this is typed loosely rather than
-    // pinned to the first query's shape.
+    // Compatibility fallback may omit optional counters/metadata, but it MUST
+    // retain both visibility columns. Falling back without hidden/squad_code
+    // turns private and hidden posts into apparently public rows when the
+    // service-role key bypasses RLS. If either visibility column is missing,
+    // fail closed instead of returning an unsafe feed.
     let r: any = await db
       .from("media_feed")
       .select(
@@ -103,14 +103,16 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
     if (r.error) {
       r = await db
         .from("media_feed")
-        .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at")
+        .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at,squad_code,hidden")
         .order("created_at", { ascending: false })
         .limit(200);
       if (r.error) return null;
     }
 
     const mapped = (r.data || []).map(mapRow);
-    if (mapped.length) g.__mediaFeed = mapped;
+    // The database result is authoritative even when it is an empty array.
+    // This also clears records deleted/hidden after a previous request.
+    g.__mediaFeed = mapped;
     return mapped;
   } catch {
     return null;
@@ -127,6 +129,21 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
+    const { data: existing, error: existingError } = await db
+      .from("media_feed")
+      .select("id,squad_code,hidden")
+      .eq("id", item.id)
+      .maybeSingle();
+    if (existingError) {
+      return { id: null, error: `visibility preflight failed: ${existingError.message}` };
+    }
+    const existingRow = existing as { id?: string; squad_code?: string | null; hidden?: boolean | null } | null;
+    // Re-feed replaces a file, not its privacy settings. Never let an
+    // incomplete bot payload move a private item into the public feed.
+    const effectiveSquadCode = existingRow
+      ? String(existingRow.squad_code || item.squad_code || "")
+      : String(item.squad_code || "");
+
     const row: Record<string, unknown> = {
       id: item.id,
       file_id: item.file_id,
@@ -140,15 +157,19 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
       views: item.views || 0,
       likes: item.likes || 0,
       tags: item.tags || [],
-      squad_code: item.squad_code || "",
+      squad_code: effectiveSquadCode,
       duration_sec: item.duration_sec || 0,
       quality: item.quality || "",
-      hidden: false,
+      // Keep the existing moderation state on re-feed; new rows start visible.
+      hidden: existingRow ? !!existingRow.hidden : false,
       created_at: new Date((item.created_at || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     };
 
     let { data, error } = await db.from("media_feed").upsert(row, { onConflict: "id" }).select("id").single();
     if (error) {
+      // Older schemas may lack counters/tags/quality, but visibility columns
+      // are mandatory for a safe retry. The existing row's moderation state
+      // is carried forward; a new row starts public.
       const minimal = {
         id: item.id,
         file_id: item.file_id,
@@ -159,6 +180,9 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
         sharer_name: item.sharer_name,
         sharer_id: item.sharer_id,
         clones: item.clones || 0,
+        squad_code: effectiveSquadCode,
+        hidden: existingRow ? !!existingRow.hidden : false,
+        created_at: row.created_at,
       };
       const r2 = await db.from("media_feed").upsert(minimal, { onConflict: "id" }).select("id").single();
       data = r2.data;
@@ -215,12 +239,19 @@ export async function GET(req: NextRequest) {
   const wantsAdmin = req.nextUrl.searchParams.get("admin") === "1";
   const includeHidden = wantsAdmin && verifyTelegramOwner(req.nextUrl.searchParams.get("init_data") || "", botToken, OWNER);
 
+  const databaseConfigured = !!sbCreds();
   const fromDb = await loadFromSupabase();
-  const byId = new Map<string, FeedItem>();
-  for (const it of fromDb || []) byId.set(it.id, it);
-  for (const it of g.__mediaFeed || []) {
-    if (!byId.has(it.id)) byId.set(it.id, it);
+  if (databaseConfigured && fromDb === null) {
+    // Do not serve a stale in-memory snapshot when the authoritative database
+    // failed. It may predate a hide, deletion, or a private-room transition.
+    return NextResponse.json(
+      { error: "media feed temporarily unavailable", items: [], count: 0, total: 0, next_offset: null, source: "unavailable" },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
   }
+  const sourceItems = fromDb !== null ? fromDb : (g.__mediaFeed || []);
+  const byId = new Map<string, FeedItem>();
+  for (const it of sourceItems) byId.set(it.id, it);
   let items = Array.from(byId.values());
 
   if (!includeHidden) items = items.filter((i) => !i.hidden);
@@ -360,7 +391,7 @@ export async function GET(req: NextRequest) {
     count: publicItems.length,
     total,
     next_offset: offset + publicItems.length < total ? offset + publicItems.length : null,
-    source: fromDb ? "supabase" : "memory",
+    source: fromDb !== null ? "supabase" : "memory",
   });
 }
 
@@ -396,7 +427,16 @@ export async function POST(req: NextRequest) {
   }
 
   const saved = await saveToSupabase(item);
-  if (saved.id) item.id = saved.id;
+  if (!saved.id) {
+    // A feed item without durable visibility metadata cannot safely be served
+    // or played by another site instance. Report failure to the bot instead
+    // of presenting an ephemeral success that disappears or leaks later.
+    return NextResponse.json(
+      { ok: false, id: item.id, persisted: false, error: saved.error || "media feed persistence failed" },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
+  item.id = saved.id;
   g.__mediaFeed = [item, ...(g.__mediaFeed || []).filter((x) => x.id !== item.id)].slice(0, 200);
 
   // Followers get a bot message about the new share (private squad posts excluded).
@@ -490,8 +530,9 @@ export async function PATCH(req: NextRequest) {
     const viewer = mediaUser(String(body.init_data || ""));
     if (!viewer) return NextResponse.json({ ok: true, counted: false, reason: "no-auth" });
     if (!db) return NextResponse.json({ ok: true, counted: false, reason: "no-db" });
-    const { data: post } = await db.from("media_feed").select("sharer_id,sharer_name,views,likes").eq("id", id).maybeSingle();
-    if (!post) return NextResponse.json({ ok: true, counted: false, reason: "no-post" });
+    const { data: post } = await db.from("media_feed").select("sharer_id,sharer_name,views,likes,hidden,squad_code").eq("id", id).maybeSingle();
+    // Public counters must not be usable against a guessed hidden/private post id.
+    if (!isPublicMediaPost(post)) return NextResponse.json({ ok: true, counted: false, reason: "no-post" });
 
     if (action === "view") {
       const now = Date.now();

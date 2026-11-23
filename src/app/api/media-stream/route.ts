@@ -76,7 +76,10 @@ export async function GET(req: NextRequest) {
     const fallbackType = mediaType === "audio" || mediaType === "voice" ? "audio/mpeg" : "video/mp4";
     const headers: Record<string, string> = {
       "content-type": mediaResp.headers.get("content-type") || fallbackType,
-      "cache-control": req.nextUrl.searchParams.get("squad") ? "private, no-store" : "public, max-age=3600, immutable",
+      // Re-check visibility for every stream request. Public media playback
+      // normally uses the Cloudflare Worker; this route is the fallback and
+      // must not keep serving a cached response after moderation hides a post.
+      "cache-control": "private, no-store",
     };
     // Only advertise byte-range support when the upstream actually provides
     // it. Some Telegram/CDN responses ignore Range and return the full file
