@@ -15,6 +15,7 @@ describe("media mini-app visual refresh", () => {
     expect(styles).toContain("env(safe-area-inset-bottom");
     expect(styles).toContain(".media-reels");
     expect(styles).toContain(".media-reel-actions");
+    expect(styles).toContain('.media-mini-app-nav-item[aria-current="page"] > span:nth-child(2)');
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
