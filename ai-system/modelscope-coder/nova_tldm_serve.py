@@ -40,7 +40,8 @@ _LOCK = threading.Lock()
 
 
 def enabled() -> bool:
-    return os.environ.get("NOVA_TLDM", "0").strip() == "1"
+    # the Studio has no settable environment: the deploy workflow writes the marker file nova_tldm.on next to app.py for the Studios listed in NOVA_TLDM_STUDIOS (owner order 2026-11-23: Nova carries T-LDM)
+    return os.environ.get("NOVA_TLDM", "0").strip() == "1" or (HERE / "nova_tldm.on").is_file()
 
 
 def error_json(text: str) -> str:
