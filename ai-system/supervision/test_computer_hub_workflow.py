@@ -19,6 +19,14 @@ class ComputerHubWorkflowTests(unittest.TestCase):
         self.assertIn("computer-hub-16gb-2026-11-22-r10-banks", app)
         self.assertIn("computer-hub-16gb-2026-11-22-r10-banks", workflow)
 
+    def test_sham_v2_deploy_is_isolated_from_computer_changes_and_never_creates_studios(self):
+        source = (ROOT / ".github" / "workflows" / "deploy-modelscope-sham-v2.yml").read_text(encoding="utf-8")
+        self.assertNotIn("ai-system/modelscope-media/computer_box.py", source)
+        self.assertNotIn(".github/workflows/deploy-modelscope-sham-v2.yml", source)
+        self.assertIn("Require the existing owner-provisioned Studio (read-only)", source)
+        self.assertNotIn("Create the Studio if missing", source)
+        self.assertNotIn('curl -sS -o create.json', source)
+
     def test_real_browser_smoke_runs_after_a_successful_computer_deploy(self):
         source = (ROOT / ".github" / "workflows" / "computer-hub-terminal-browser-smoke.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", source)
