@@ -24,3 +24,27 @@ describe("Nova self-test skill", () => {
     expect(NOVA_SKILL_NAMES).toContain("self_test");
   });
 });
+
+describe("Nova self-improvement skill", () => {
+  const skill = novaSkillText("self_improve");
+
+  it("defines an evidence-driven loop and model isolation", () => {
+    for (const term of ["bounded, evidence-driven improvement loop", "OWN code", "coder or nova2", "implemented/configured/connected/verified/blocked/not tested", "feature branch", "regression tests"]) {
+      expect(skill).toContain(term);
+    }
+    expect(skill).toContain("Never modify Sham");
+  });
+
+  it("requires real connections and protects credentials and external data", () => {
+    for (const term of ["connector_api", "request_secret", "hosted secret vault", "never ask for secrets in chat", "harmless read-only call", "paid resources"]) {
+      expect(skill).toContain(term);
+    }
+  });
+
+  it("preserves approvals, resource limits and CI gates", () => {
+    for (const term of ["Never weaken authentication", "owner approves", "wait for all required CI checks", "branch protection", "production deployment", "do not loop"]) {
+      expect(skill).toContain(term);
+    }
+    expect(NOVA_SKILL_NAMES).toContain("self_improve");
+  });
+});
