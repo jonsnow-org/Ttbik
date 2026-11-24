@@ -138,7 +138,10 @@ export async function deleteMemory(chatId: number | string, id: number, db: Db =
 export function memorySearchTerms(text: string): string[] {
   return memTerms(String(text || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2")).map((raw) => {
     let w = raw.replace(/[أإآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
-    if (/^[\\u0600-\\u06FF]+$/.test(w) && w.startsWith("ال") && w.length > 4) w = w.slice(2);
+    if (/^[\u0600-\u06FF]+$/.test(w)) {
+      if (/^[وف]/.test(w) && w.length > 4) w = w.slice(1);
+      if (w.startsWith("ال") && w.length > 4) w = w.slice(2);
+    }
     if (/^[a-z]+$/.test(w)) {
       if (w.length > 5 && w.endsWith("ies")) w = w.slice(0, -3) + "y";
       else if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
@@ -179,7 +182,7 @@ export function rankMemories(rows: Memory[], query: string, repo?: string, now =
     const fuzzy = q.size && docSet.size ? overlap / (q.size + docSet.size - overlap) : 0;
     const normalisedDoc = doc.join(" ");
     const phrase = queryPhrase.length >= 5 && normalisedDoc.includes(queryPhrase) ? 1.5 : 0;
-    const ageDays = Math.max(0, (now - Date.parse(m.updated_at.replace(" ", "T").replace(/\\+00$/, "Z"))) / 86400000) || 0;
+    const ageDays = Math.max(0, (now - Date.parse(m.updated_at.replace(" ", "T").replace(/\+00$/, "Z"))) / 86400000) || 0;
     const recency = 0.25 * Math.exp(-ageDays / 60);
     const scope = repoScope && m.scope === repoScope ? 0.65 : 0;
     const preference = m.kind === "preference" ? 0.2 : 0;
