@@ -17,6 +17,29 @@ export function madeChanges(toolNames: string[]): boolean {
   return toolNames.some((n) => CHANGE_TOOL.test(n));
 }
 
+type GateMessage = {
+  role?: string;
+  content?: unknown;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id?: string; function?: { name?: string } }>;
+};
+const FAILED_TOOL_OUTPUT = /^(?:error\b|failed\b|failure\b|HTTP [45]\d{2}\b|DENIED\b|NOT PERMITTED\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i;
+
+/** A write attempt is not proof of a change: require its matching tool result and reject failed/denied outputs. */
+export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
+  for (const message of messages || []) {
+    for (const call of message.tool_calls || []) {
+      const name = call?.function?.name || "";
+      if (!call?.id || !CHANGE_TOOL.test(name)) continue;
+      const result = (messages || []).find((m) => m.role === "tool" && m.tool_call_id === call.id);
+      const output = String(result?.content || "").trim();
+      if (!output || FAILED_TOOL_OUTPUT.test(output) || /\\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|AUTO_DENIED)\\b/i.test(output)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
 const CLAIM = /(تم\s+(?:إصلاح|اصلاح|تنفيذ|تطوير|تحسين|تعديل|إضافة|اضافة|إنشاء|انشاء|نشر|دمج|كتابة)|قمت\s+ب(?:إصلاح|اصلاح|تعديل|تطوير|إضافة|اضافة|تحسين)|تحسينات\s+في\s+\S+\.(?:py|ts|tsx|js|json)|I(?:'ve| have)\s+(?:fixed|implemented|updated|added|improved|refactored))/i;
 
 /** True when the answer reports that something was changed. */
@@ -43,14 +66,15 @@ export function isQuestionLike(text: string): boolean {
 }
 
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
-export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number): string {
+export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number, messages?: GateMessage[]): string {
+  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
   if (nudges >= 3) return "";
   // An answer that says "تم إصلاح / تم تنفيذ …" while no edit, write or publish call was ever made is a false report (live 2026-11-16: five files "improved", zero change calls).
-  if (claimsChanges(text) && !madeChanges(toolNames)) {
+  if (claimsChanges(text) && !changed) {
     return "[harness] Your answer says things were fixed or changed, but this run made NO edit, write, patch or publish call: nothing was changed. Never report work you did not do. "
       + "Do the work now (computer_read the file, computer_edit it, computer_test, computer_publish), or say plainly that nothing was changed yet and why. Write in the owner's language (Arabic).";
   }
-  if (!isActionGoal(goal) || madeChanges(toolNames)) return "";
+  if (!isActionGoal(goal) || changed) return "";
   if (String(text || "").trim().length < 20) return "";
   return "[harness] The owner has already authorised you to ACT on this request and does not want a menu of options or a report. Do not ask which step to start with. "
     + "Now: bring the repository to the computer (computer_repo), find the exact bug or missing feature, edit the files (computer_edit / computer_write), run the tests (computer_test / computer_run), "
@@ -71,13 +95,15 @@ export function stalledActionNote(goal: string, toolNames: string[]): string {
 
 /** A repeated-reply guard must trigger a recovery plan before it gives up on an authorised action. */
 export const BLOCKED_REPLY_RECOVERIES = 2;
-export function shouldRecoverBlockedAction(goal: string, toolNames: string[], recoveries: number): boolean {
-  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !madeChanges(toolNames);
+export function shouldRecoverBlockedAction(goal: string, toolNames: string[], recoveries: number, messages?: GateMessage[]): boolean {
+  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
+  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !changed;
 }
 
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */
-export function worthALesson(goal: string, toolNames: string[]): boolean {
-  return !isActionGoal(goal) || madeChanges(toolNames);
+export function worthALesson(goal: string, toolNames: string[], messages?: GateMessage[]): boolean {
+  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
+  return !isActionGoal(goal) || changed;
 }
 
 /**
