@@ -137,6 +137,16 @@ function mediaHeaders(base: string): Record<string, string> {
   return headers;
 }
 
+/** Configuration-only preflight for the selected model's own Studio; it does not probe runtime health. */
+export function novaMediaConfigured(base?: string, model?: string): boolean {
+  const endpoint = String(base === undefined ? novaMediaUrl() : base).trim().replace(/\/+$/, "");
+  const nova2Endpoint = String(process.env.NOVA2_MEDIA_STUDIO_URL || "").trim().replace(/\/+$/, "");
+  const isNova2Endpoint = Boolean(nova2Endpoint && endpoint === nova2Endpoint);
+  // Never let an endpoint configured for Nova 2 borrow credentials or be advertised as Nova's own route (or vice versa).
+  if ((model === "nova2") !== isNova2Endpoint) return false;
+  return /^https:\/\//i.test(endpoint) && Boolean(mediaToken(endpoint));
+}
+
 /** Starts one clip as the Studio's OWN background job (video_start) and returns its id, so the caller can poll it across short
  *  serverless legs instead of holding one request open for minutes. This is what lets a clip FINISH in the bot (owner 2026-11-05). */
 export async function novaVideoStart(

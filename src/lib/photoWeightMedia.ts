@@ -43,6 +43,14 @@ export function photoWeightEndpoint(profile: PhotoWeightProfile): string {
 function photoToken(): string {
   return (process.env.OPEN_CODER_STUDIO_TOKEN || process.env.MODELSCOPE_API_TOKEN || process.env.MODELSCOPE_TOKEN || "").trim();
 }
+
+/** Configuration-only preflight. This does not claim the Studio is live or that its checkpoint is ready. */
+export function photoWeightConfigured(model: string | undefined): boolean {
+  const profile = photoWeightProfile(model);
+  if (!profile) return false;
+  const endpoint = photoWeightEndpoint(profile);
+  return /^https:\/\//i.test(endpoint) && Boolean(photoToken());
+}
 function dataValues(sse: string): unknown[] {
   const out: unknown[] = [];
   for (const line of sse.split(/\r?\n/)) {

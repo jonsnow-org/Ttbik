@@ -3,8 +3,8 @@
  * each on ITS OWN Studio and weights; nothing silently falls back to another model's generator).
  *   Nova (coder):  image = its photoreal Studio (photoWeightMedia "coder"); speech + video = Nova's media Studio (NOVA_MEDIA_URL).
  */
-import { makePhotoMedia, photoWeightProfile } from "@/lib/photoWeightMedia";
-import { novaMakeMedia, novaMediaUrl, type MediaReply } from "@/lib/novaMedia";
+import { makePhotoMedia, photoWeightConfigured, photoWeightProfile } from "@/lib/photoWeightMedia";
+import { novaMakeMedia, novaMediaConfigured, novaMediaUrl, type MediaReply } from "@/lib/novaMedia";
 import { nova2Urls } from "@/lib/openCoderStudio";
 
 export type MediaKind = "image" | "audio" | "video";
@@ -37,11 +37,12 @@ export function ownMediaBase(model: string | undefined): string {
 const MODEL_NAMES: Record<string, string> = { coder: "Nova", nova2: "Nova 2", sham_v2: "Sham v2" };
 export const mediaModelName = (model: string | undefined): string => MODEL_NAMES[model || "coder"] || String(model);
 
-/** Can this model make this kind of media on its own Studio right now (configured, not running)? */
+/** Is the selected model's own route configured with an HTTPS endpoint and matching credentials? This is not a live health probe. */
 export function modelMediaConfigured(model: string | undefined, kind: MediaKind): boolean {
   const id = model || "coder";
-  if (kind === "image" && photoWeightProfile(id)) return true;
-  return Boolean(ownMediaBase(id));
+  if (kind === "image" && photoWeightProfile(id)) return photoWeightConfigured(id);
+  const base = ownMediaBase(id);
+  return Boolean(base && novaMediaConfigured(base, id));
 }
 
 /** Makes media with the selected model's OWN generator. A model without one gets a typed error, never another model's output. */
