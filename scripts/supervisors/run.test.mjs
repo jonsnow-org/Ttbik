@@ -177,3 +177,34 @@ test("promo-projects artifact API failures warn rather than implying review asse
   assert.equal(check.level, "warn");
   assert.match(check.detail, /HTTP 403/);
 });
+
+
+test("monitor excludes its own active run when measuring monitor freshness", () => {
+  const monitorDef = ["monitor.yml", "Monitor (this report)", 4];
+  const self = {
+    id: 987654,
+    status: "in_progress",
+    created_at: new Date(NOW - 5 * 60000).toISOString(),
+    html_url: "current-monitor-run",
+  };
+  const previous = run("success", 10);
+  const check = evaluate({ workflows: [{ def: monitorDef, runs: [self, previous] }] }, NOW, "987654")
+    .find((item) => item.name === "Workflow: Monitor (this report)");
+  assert.equal(check.level, "fail");
+  assert.match(check.detail, /last success 10h ago/);
+  assert.doesNotMatch(check.detail, /current-monitor-run|in_progress/);
+});
+
+test("monitor continues to report active runs belonging to other workflows", () => {
+  const active = {
+    id: 123456,
+    status: "in_progress",
+    created_at: new Date(NOW - 5 * 60000).toISOString(),
+    html_url: "other-active-run",
+  };
+  const check = evaluate({ workflows: [{ def, runs: [active, run("success", 10)] }] }, NOW, "987654")
+    .find((item) => item.name === "Workflow: A");
+  assert.equal(check.level, "ok");
+  assert.match(check.detail, /in_progress/);
+  assert.match(check.detail, /other-active-run/);
+});
