@@ -315,7 +315,7 @@ const compactOn = (): boolean => (process.env.CODER_TOOLS_COMPACT || "").toLower
  */
 export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[], keep: string[] = []): CoderTool[] {
   const mode = (process.env.CODER_TOOL_GROUPS || "").toLowerCase();
-  if (mode === "off") return coderTools(github, connectors);
+  if (mode === "off" && !toolGroupsLazy()) return coderTools(github, connectors);
   const groups = toolGroups(github, connectors);
   if (!toolGroupsLazy()) {
     const all = [ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).flatMap((g) => groups[g])];

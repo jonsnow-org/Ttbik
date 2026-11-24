@@ -71,6 +71,25 @@ describe("fixed tool list (default)", () => {
   });
 });
 
+describe("small-context tool schema safety", () => {
+  it.each(["fixed", "off"])("keeps lazy loading when a 16k Studio is configured as %s", (mode) => {
+    const oldCtx = process.env.CODER_CTX_TOKENS;
+    const oldMode = process.env.CODER_TOOL_GROUPS;
+    process.env.CODER_CTX_TOKENS = "16384";
+    process.env.CODER_TOOL_GROUPS = mode;
+    try {
+      const tools = coderToolsFor(true, false, [{ role: "user", content: "ابدأ المهمة" }]);
+      const toolNames = names(tools);
+      expect(toolNames).toContain("load_tools");
+      expect(toolNames).not.toContain("github_repo_audit");
+      expect(toolNames).not.toContain("sandbox_exec");
+    } finally {
+      if (oldCtx === undefined) delete process.env.CODER_CTX_TOKENS; else process.env.CODER_CTX_TOKENS = oldCtx;
+      if (oldMode === undefined) delete process.env.CODER_TOOL_GROUPS; else process.env.CODER_TOOL_GROUPS = oldMode;
+    }
+  });
+});
+
 describe("tool groups the model loads itself (CODER_TOOL_GROUPS=lazy)", () => {
   it("a fresh conversation carries only load_tools, ask_user and delegate, with the groups available here", () => {
     const t = coderToolsFor(true, false, [{ role: "user", content: "من انت" }]);
