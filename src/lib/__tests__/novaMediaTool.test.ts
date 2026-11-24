@@ -109,7 +109,7 @@ describe("the make_media tool in a Nova task", () => {
     expect((api as any).sendPhoto).not.toHaveBeenCalled();
     expect(urls.some((u) => u.includes("sham.test"))).toBe(false);
     const st = await loadState(CHAT, db);
-    expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/disabled/);
+    expect((st.messages.find((m: any) => m.role === "tool" && m.name === "make_media") as any).content).toMatch(/no dedicated image generator configured/i);
   });
 
   it("a legacy stored media=false is ignored: make_media still makes and sends the picture", async () => {

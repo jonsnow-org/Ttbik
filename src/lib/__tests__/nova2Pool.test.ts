@@ -126,6 +126,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
     const priorHub = process.env.COMPUTER_STUDIO_URL;
     const priorMedia = process.env.NOVA2_MEDIA_STUDIO_URL;
     const priorNovaMedia = process.env.NOVA_MEDIA_STUDIO_URL;
+    const priorMediaToken = process.env.NOVA2_MEDIA_STUDIO_TOKEN;
     const priorNovaImage = process.env.NOVA_IMAGE_STUDIO_URL;
     const priorShamMedia = process.env.SHAM_MEDIA_STUDIO_URL;
     const priorSham2Media = process.env.SHAM_V2_MEDIA_STUDIO_URL;
@@ -137,6 +138,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
       process.env.NOVA2_COMPUTER_STUDIO_URL = "https://studio-jonjithup-nova2-computer.api-inference.modelscope.ai";
       process.env.COMPUTER_STUDIO_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net";
       process.env.NOVA2_MEDIA_STUDIO_URL = "https://studio-jonjithup-nova2-media.api-inference.modelscope.ai";
+      process.env.NOVA2_MEDIA_STUDIO_TOKEN = "test-nova2-media-token";
       process.env.NOVA_MEDIA_STUDIO_URL = "https://studio-novaai2026-nova-media-server.api-inference.modelscope.net";
       expect(browserStudioFor("nova2")).toBe(process.env.NOVA2_COMPUTER_STUDIO_URL);
       expect(browserStudioFor("nova2")).not.toBe(browserStudioFor("coder"));
@@ -159,6 +161,7 @@ describe("Nova 2: its own model (35B on the international Studio) beside Nova", 
       if (priorHub === undefined) delete process.env.COMPUTER_STUDIO_URL; else process.env.COMPUTER_STUDIO_URL = priorHub;
       if (priorMedia === undefined) delete process.env.NOVA2_MEDIA_STUDIO_URL; else process.env.NOVA2_MEDIA_STUDIO_URL = priorMedia;
       if (priorNovaMedia === undefined) delete process.env.NOVA_MEDIA_STUDIO_URL; else process.env.NOVA_MEDIA_STUDIO_URL = priorNovaMedia;
+      if (priorMediaToken === undefined) delete process.env.NOVA2_MEDIA_STUDIO_TOKEN; else process.env.NOVA2_MEDIA_STUDIO_TOKEN = priorMediaToken;
       if (priorNovaImage === undefined) delete process.env.NOVA_IMAGE_STUDIO_URL; else process.env.NOVA_IMAGE_STUDIO_URL = priorNovaImage;
       if (priorShamMedia === undefined) delete process.env.SHAM_MEDIA_STUDIO_URL; else process.env.SHAM_MEDIA_STUDIO_URL = priorShamMedia;
       if (priorSham2Media === undefined) delete process.env.SHAM_V2_MEDIA_STUDIO_URL; else process.env.SHAM_V2_MEDIA_STUDIO_URL = priorSham2Media;
