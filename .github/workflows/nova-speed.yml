@@ -1,5 +1,5 @@
 name: Nova speed (time to first token and tokens/s, through the live Studio)
-# Measures what the user waits for on Nova 1 (cn coder-inference-server Studios, Qwen3.5-4B) or Nova 2 (international
+# Measures what the user waits for on the Nova (international
 # coder-inference-server-16, Qwen3.6-35B-A3B): the bot's REAL texts (scripts/nova-speed/dump-start.ts) sent the way the bot sends them.
 # Steps: lite = the greeting path ("hello", no tools), lite2 = the same path warm, full = a new conversation with the whole start
 # (system + tools), full2 = another new conversation (is the start reused?), gen = generation speed. Manual only; prints no token.

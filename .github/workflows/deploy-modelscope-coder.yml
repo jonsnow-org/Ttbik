@@ -171,7 +171,7 @@ jobs:
           git clone "https://oauth2:${T}@${MS#https://}/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
           cp ai-system/modelscope-coder/app.py ai-system/modelscope-coder/requirements.txt ai-system/modelscope-coder/nova_tldm_serve.py ms-studio/
           # Nova's own T-LDM (nova_tldm_serve.py): the head's library is copied next to it; the head file (nova2_heads.pt) comes from the head repo at first use. Off unless NOVA_TLDM=1.
-          rm -rf ms-studio/tldm && mkdir -p ms-studio/tldm && cp -r ai-system/tldm/sham_tldm ms-studio/tldm/ && mkdir -p ms-studio/tldm/data && cp ai-system/tldm/data/augment.py ms-studio/tldm/data/ && find ms-studio/tldm -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf ms-studio/tldm && mkdir -p ms-studio/tldm && cp -r ai-system/tldm/sham_tldm ms-studio/tldm/ && find ms-studio/tldm -name __pycache__ -prune -exec rm -rf {} +
           # a Studio listed in VISION_STUDIOS reads pictures: the marker file next to app.py switches it on (app.py loads the model's vision file); any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
           # a Studio listed in NOVA_TLDM_STUDIOS serves Nova's T-LDM head (nova_tldm_serve.py): the marker file switches it on, any other Studio has none
