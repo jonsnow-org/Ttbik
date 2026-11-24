@@ -173,6 +173,8 @@ describe("verified changes require a successful matching tool result", () => {
     expect(madeSuccessfulActions(messages)).toBe(true);
     expect(madeSuccessfulChanges(messages)).toBe(false);
     expect(finishNudge(GOAL, ["github_create_branch"], "وجدت البوت وأنشأت فرعًا للعمل عليه.", 0, messages)).toBe("");
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إنشاء فرع nova/audit للعمل عليه.", 0, messages)).toBe("");
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إنشاء ملف src/index.ts.", 0, messages)).toMatch(/nothing was changed/i);
     expect(finishNudge(GOAL, ["github_create_branch"], "تم إصلاح البوت بالكامل.", 0, messages)).toMatch(/nothing was changed/i);
     expect(shouldRecoverBlockedAction(GOAL, ["github_create_branch"], 0, messages)).toBe(false);
     expect(worthALesson(GOAL, ["github_create_branch"], messages)).toBe(false);
