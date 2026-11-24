@@ -16,6 +16,35 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "cuba-who-immunization-support-2026",
+  "title": "WHO announces $2 million for immunization support in Cuba",
+  "date": "24 November 2026",
+  "contextDateLabel": "The Director-General's visit began on 22 November 2026; WHO/PAHO release: 24 November 2026 (no publication time shown); Reuters report: 24 November 2026, 19:26 UTC (22:26 Istanbul); Sham AI item date: 24 November 2026.",
+  "dek": "WHO announced a US$2 million contribution to support Cuba's national immunization programme and provide essential medical equipment. This briefing separates the visit's 22 November start from the 24 November release and attributes the competing positions on fuel restrictions.",
+  "body": [
+    "WHO Director-General Tedros Adhanom Ghebreyesus announced in Havana on 24 November 2026 a US$2 million contribution to strengthen Cuba's national immunization activities and provide essential medical equipment to health facilities. His official visit began on 22 November at the invitation of Cuba's public-health minister.",
+    "WHO and the Pan American Health Organization said the funding will focus on the National Immunization Program and support vaccination for about 62,000 newborns, more than 780,000 girls and boys, and over 110,000 people in other risk groups, as well as rabies prevention and control. They said coverage, which had remained above 98% for many years, fell to 95% in 2025.",
+    "During the visit, Tedros toured the William Soler University Pediatric Hospital and its pediatric cardiocenter. The delegation delivered basic medical-care kits and equipment including blood-pressure monitors and pulse oximeters. The announced contribution does not mean fuel, medicine or equipment shortages have ended.",
+    "In a Reuters report published on 24 November at 19:26 UTC, the news agency said Tedros called for the lifting of US fuel restrictions on Cuba, warning of health effects on the population and children. Reuters also reported Washington's position that food and medicine exports are covered by legal exemptions and that the energy restrictions are intended to push political change. These are attributed positions, not an independent legal ruling on the measures.",
+    "Visit date: began on 22 November 2026; WHO/PAHO release: 24 November 2026 (no publication time shown); Reuters report: 24 November 2026, 19:26 UTC (22:26 Istanbul). The US$2 million is an announced contribution for immunization and equipment, not proof that Cuba's wider health-service crisis has been resolved."
+  ],
+  "sources": [
+    {
+      "href": "https://www.who.int/singapore/news/detail-global/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba",
+      "label": "World Health Organization — support for vaccines and medical equipment during the Cuba visit, 24 November 2026"
+    },
+    {
+      "href": "https://www.paho.org/es/noticias/24-11-2026-director-general-oms-anuncia-apoyo-vacunas-equipos-medicos-durante-visita",
+      "label": "Pan American Health Organization — Spanish release on immunization and medical-equipment support, 24 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/legal/government/who-chief-calls-us-lift-oil-blockade-cuba-citing-health-impact-2026-11-24/",
+      "label": "Reuters — WHO chief's position on Cuba fuel restrictions and immunization support, 24 November 2026, 19:26 UTC"
+    }
+  ]
+},
+
+{
   "slug": "japan-november-consumer-spending-assessment-2026",
   "title": "Japan lowers its assessment of consumer spending as recovery momentum pauses",
   "date": "24 November 2026",

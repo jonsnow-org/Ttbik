@@ -20,7 +20,6 @@ import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
 import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 import { OWNER_PANEL_TEMPLATES, ownerId, ownerPanelTransformer } from "@/lib/ownerPanel";
-import { takeOwnerPassphraseMessage, redactOwnerPassphraseInUpdate, refreshOwnerIds } from "@/lib/ownerIdentity";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
@@ -106,22 +105,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
-      rawBody = redactOwnerPassphraseInUpdate(body);
-      void refreshOwnerIds().catch(() => null);
-      const priv = body.message;
-      const unlockText = typeof priv?.text === "string" ? priv.text : typeof priv?.caption === "string" ? priv.caption : "";
-      if (priv?.chat?.type === "private" && priv?.from?.id && priv?.chat?.id && unlockText) {
-        const taken = await takeOwnerPassphraseMessage({
-          text: unlockText,
-          accountId: String(priv.from.id),
-          chatId: priv.chat.id,
-          deleteMessage: () => bot.api.deleteMessage(priv.chat.id, priv.message_id),
-          reply: (t: string) => bot.api.sendMessage(priv.chat.id, t),
-        });
-        if (taken.handled) {
-          return NextResponse.json({ status: "ok" });
-        }
-      }
       void notifyGrok(botRow.id, botRow.template, botRow.ownerId, rawBody);
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a

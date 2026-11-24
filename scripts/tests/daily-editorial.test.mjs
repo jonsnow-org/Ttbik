@@ -592,3 +592,35 @@ test("24 November Japan economic assessment is bilingual and does not turn a qua
   assert.match(arabic.paragraphs.join(" "), /لا تقدم توصية مالية أو استثمارية/);
   assert.match(english.body.join(" "), /not financial or investment advice/i);
 });
+
+
+test("24 November WHO Cuba support briefing is bilingual and attributes contested fuel-policy claims", () => {
+  const slug = "cuba-who-immunization-support-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic WHO Cuba briefing is missing");
+  assert.ok(english, "English WHO Cuba briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /22 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /22 November 2026/);
+  assert.match(arabic.contextDateLabel, /19:26 UTC/);
+  assert.match(english.contextDateLabel, /19:26 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["who.int", "paho.org", "reuters.com"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /62,000 مولود/);
+  assert.match(english.body.join(" "), /62,000 newborns/);
+  assert.match(arabic.paragraphs.join(" "), /780,000/);
+  assert.match(english.body.join(" "), /780,000/);
+  assert.match(arabic.paragraphs.join(" "), /110,000/);
+  assert.match(english.body.join(" "), /110,000/);
+  assert.match(arabic.paragraphs.join(" "), /98%.*95%/);
+  assert.match(english.body.join(" "), /98%.*95%/);
+  assert.match(arabic.paragraphs.join(" "), /مواقف منسوبة إلى أصحابها/);
+  assert.match(english.body.join(" "), /attributed positions/i);
+  assert.match(arabic.paragraphs.join(" "), /لا يثبت وحده حل أزمة الخدمات الصحية/);
+  assert.match(english.body.join(" "), /not proof that Cuba's wider health-service crisis has been resolved/i);
+});
