@@ -38,7 +38,6 @@ describe("agent-decided Git branching", () => {
       expect(description(name)).not.toMatch(/single-branch policy|only claude\/free-services|do not create another branch/i);
     }
   });
-  });
 
   it("creates a focused task branch in Ttbik through the real GitHub tool handler", async () => {
     const requests: Array<{ method: string; path: string; body?: any }> = [];
