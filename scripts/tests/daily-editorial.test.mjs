@@ -546,3 +546,24 @@ test("23 November Amazon–Decart agreement distinguishes the signed agreement f
   assert.match(arabic.paragraphs.join(" "), /الموافقات التنظيمية/);
   assert.match(english.body.join(" "), /regulatory clearance/i);
 });
+
+test("24 November Euclid quasar discovery is bilingual and separates the cosmic epoch from publication time", () => {
+  const slug = "euclid-dun-aonghasa-quasar-record-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Euclid quasar briefing is missing");
+  assert.ok(english, "English Euclid quasar briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(english.contextDateLabel), dateNumbers(arabic.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /14:11 UTC/);
+  assert.match(english.contextDateLabel, /14:11 UTC/);
+  assert.match(arabic.contextDateLabel, /630 مليون سنة/);
+  assert.match(english.contextDateLabel, /630 million years/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("esa.int")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("doi.org/10.1051/0004-6361/202662243")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/science/")));
+  assert.match(arabic.paragraphs.join(" "), /لا نتيجة أثبتتها هذه المشاهدات/);
+  assert.match(english.body.join(" "), /not a formation pathway established by these observations/);
+});

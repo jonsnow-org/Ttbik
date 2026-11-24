@@ -16,6 +16,35 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "euclid-dun-aonghasa-quasar-record-2026",
+  "title": "Euclid identifies the most distant quasar yet, powered by a 360-million-solar-mass black hole",
+  "date": "24 November 2026",
+  "contextDateLabel": "European Space Agency release: 24 November 2026 (no publication time shown); Astronomy & Astrophysics paper: published 24 November 2026; Reuters report: 24 November 2026, 14:11 UTC (17:11 Istanbul). Cosmic epoch observed: the universe was about 630 million years old after the Big Bang; this is not the news publication date.",
+  "dek": "ESA says Euclid identified quasar J1504+6252, nicknamed Dún Aonghasa, at redshift 8.13, when the universe was about 630 million years old. Follow-up observations with the James Webb Space Telescope estimate its black hole at about 360 million solar masses; the finding does not yet explain how it grew so quickly.",
+  "body": [
+    "The European Space Agency published its announcement on 24 November 2026 about quasar J1504+6252, nicknamed Dún Aonghasa. It was identified among millions of objects in about 18 months of Euclid space-telescope data, then studied in follow-up observations from ground- and space-based observatories.",
+    "Follow-up with the W. M. Keck Observatory, the Large Binocular Telescope, Hubble and Webb confirmed its nature as a quasar. Redshift 8.13 places the light at an epoch when the universe was about 630 million years old—more than 13.1 billion years ago. That is the age of the universe at the time, not a claim that the object was observed 630 million years ago.",
+    "Webb data put the central black hole at about 360 million solar masses. A quasar is an intensely bright galactic nucleus powered by matter falling toward a supermassive black hole, not a single star.",
+    "The large mass at such an early epoch raises questions about how the first black holes grew. The team reports a relatively low feeding rate, making the object's rapid growth difficult to explain. Direct collapse of a large gas cloud is one proposed scenario, not a formation pathway established by these observations.",
+    "The European Space Agency announcement and the research paper are dated 24 November 2026; Reuters published its independent report on 24 November 2026 at 14:11 UTC (17:11 Istanbul). The observed cosmic epoch was when the universe was about 630 million years old. The black-hole mass is an observational estimate of about 360 million solar masses."
+  ],
+  "sources": [
+    {
+      "href": "https://www.esa.int/articles/about-us/directorates/science/euclid/euclid-breaks-own-quasar-record-by-40-million-years",
+      "label": "European Space Agency — Euclid breaks its quasar record, 24 November 2026"
+    },
+    {
+      "href": "https://doi.org/10.1051/0004-6361/202662243",
+      "label": "Astronomy & Astrophysics — discovery paper on the quasar at redshift 8.13, 24 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/science/astronomers-spot-record-setting-quasar-early-universe-2026-11-24/",
+      "label": "Reuters — independent report on the early-universe quasar, 24 November 2026, 14:11 UTC"
+    }
+  ]
+},
+
+{
   "slug": "wfp-warns-trade-route-disruptions-risk-food-aid-7-3-million-nov-2026",
   "title": "WFP warns trade-route disruption could put food aid for 7.3 million people at risk",
   "date": "23 November 2026",

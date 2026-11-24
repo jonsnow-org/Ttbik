@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { evaluate, overall, render, SECTIONS, decideRerun, RERUN_OK } from "./run.mjs";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
@@ -134,4 +135,45 @@ test("the ONE monitoring report: every section in one body, overall status first
   // the monitor never includes the removed supervisor as a separate workflow.
   assert.ok(!JSON.stringify(SECTIONS).includes("error-triage"));
   assert.equal(RERUN_OK.size, 0);
+});
+
+test("promotion operations documentation points to the unified monitor and retired workflows stay out of the runbook", () => {
+  const notebook = readFileSync(new URL("../../docs/REPO_NOTEBOOK.md", import.meta.url), "utf8");
+  const promoGuide = readFileSync(new URL("../../docs/agents/promo.md", import.meta.url), "utf8");
+  assert.match(notebook, /monitor.*hourly at minute 11 UTC/);
+  assert.match(notebook, /Monitoring: all systems/);
+  assert.doesNotMatch(notebook, /promo-supervisor\.yml|error-triage\.yml/);
+  assert.match(promoGuide, /scripts\/supervisors\/run\.mjs/);
+  assert.match(promoGuide, /Monitoring: all systems/);
+  assert.match(promoGuide, /promo-projects.*production-branch runs/);
+  assert.match(promoGuide, /promo-videos.*promo-images.*promo-copy.*promo-handoff/);
+  assert.match(promoGuide, /do not dispatch or rerun any workflow/);
+  assert.doesNotMatch(promoGuide, /promo-supervisor\.yml|error-triage\.yml/);
+});
+
+test("promo-projects success requires all four non-empty, non-expired review artifacts", () => {
+  const names = ["promo-videos", "promo-images", "promo-copy", "promo-handoff"];
+  const artifact = (name) => ({ name, expired: false, size_in_bytes: 1024 });
+  const check = (artifacts) => evaluate({
+    promoArtifacts: { conclusion: "success", runUrl: "production-run", artifacts },
+  }, NOW).find((item) => item.name === "Promo review artifacts");
+
+  assert.equal(check(names.map(artifact)).level, "ok");
+  const missing = check(names.filter((name) => name !== "promo-images").map(artifact));
+  assert.equal(missing.level, "fail");
+  assert.match(missing.detail, /promo-images/);
+  const expired = check(names.map((name) => name === "promo-copy" ? { ...artifact(name), expired: true } : artifact(name)));
+  assert.equal(expired.level, "fail");
+  assert.match(expired.detail, /promo-copy/);
+  const empty = check(names.map((name) => name === "promo-handoff" ? { ...artifact(name), size_in_bytes: 0 } : artifact(name)));
+  assert.equal(empty.level, "fail");
+  assert.match(empty.detail, /promo-handoff/);
+});
+
+test("promo-projects artifact API failures warn rather than implying review assets exist", () => {
+  const check = evaluate({
+    promoArtifacts: { conclusion: "success", runUrl: "production-run", error: "HTTP 403" },
+  }, NOW).find((item) => item.name === "Promo review artifacts");
+  assert.equal(check.level, "warn");
+  assert.match(check.detail, /HTTP 403/);
 });

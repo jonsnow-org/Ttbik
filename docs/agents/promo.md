@@ -6,29 +6,29 @@ Section id: `promo` · its checks are now the `promo` section of the single `mon
 Every project of the owner is promoted continuously and honestly: the public channel `@ttbik5` (Arabic-first desk posts), the coins channel `@Zenobiaton` (**English only**), promo videos (Telegram + GitHub Releases + YouTube v3), and announcements. Every new tool/feature the team ships must automatically enter the promotion. You verify that, fix gaps and add content.
 
 ## Read first
-`promo/README.md` (system map) · `scripts/promo/supervise.mjs` (what the daily report checks) · the open issue "Promo supervisor: daily report" (label `promo-supervisor`).
+`promo/README.md` (system map) · `scripts/supervisors/run.mjs` and `scripts/supervisors/run.test.mjs` (the active unified monitor) · the open issue `Monitoring: all systems` (label `supervisor-all`). The older `scripts/promo/supervise.mjs` is legacy and is not the scheduled supervisor.
 
 ## Territory
-`promo/**` (manifests: `promo/platform-features.json`, `promo/remotion/episodes.json`, `promo/projects.json`, README, `PROMO_BOARD.md`), `src/lib/{channelPool,channelChangelog,channelPublisher,channelRotation,coinsChannel,announce,freeTools,enFreeTools,indexNow}.ts`, `src/app/api/cron/{telegram-post,coins-channel-post,promo-publish,announce,indexnow}`, `src/lib/youtubePublish.ts` + `src/app/api/youtube/oauth` (YouTube upload), workflows `channel-post.yml`, `coins-channel-post.yml`, `announce.yml`, `promo-remotion.yml`, `promo-projects.yml`, `promo-supervisor.yml`, `scripts/promo/**`, tests `channelPool*.test.ts`, `coinsFeatures.test.ts`, `promo-supervise` node tests (`node --test scripts/promo/supervise.test.mjs`).
+`promo/**` (manifests: `promo/platform-features.json`, `promo/remotion/episodes.json`, `promo/projects.json`, README, `PROMO_BOARD.md`), `src/lib/{channelPool,channelChangelog,channelPublisher,channelRotation,coinsChannel,announce,freeTools,enFreeTools,indexNow}.ts`, `src/app/api/cron/{telegram-post,coins-channel-post,promo-publish,announce,indexnow}`, `src/lib/youtubePublish.ts` + `src/app/api/youtube/oauth` (YouTube upload), workflows `channel-post.yml`, `coins-channel-post.yml`, `announce.yml`, `promo-remotion.yml`, `promo-projects.yml`, and the unified read-only `monitor.yml`; `scripts/promo/**`; tests `channelPool*.test.ts`, `coinsFeatures.test.ts`, and `node --test scripts/supervisors/run.test.mjs`.
 
 ## Never
 Secrets (`CRON_SECRET`, OAuth client/refresh token, bot tokens), spending, `promo/PUBLISH_ON` switch (owner's: it turns video publishing on), changing coin art, profit/return language, Arabic text in the coins channel, invented numbers, copying other publishers' text/images/videos (headlines + link out only).
 
 ## Health checks
-1. The daily report issue: read its latest comment; every ✗ is yours to explain or fix.
+1. Read the single `Monitoring: all systems` issue (label `supervisor-all`); inspect the `promo` section and `needs-attention` label. There is no separate daily promo-supervisor issue.
 2. Coverage: every tool in `src/app/free-tools/*` is in `freeTools.ts` (auto-promoted via `channelPool`); every public page in `public/zenobia/*.html` is in `promo/platform-features.json` or its `exempt` list. New things without a post → add the post/changelog entry (`channelChangelog.ts` for one-time announcements).
-3. Workflow freshness (`channel-post`, `coins-channel-post`, `promo-remotion`): GitHub throttles schedules — hours late is normal; > 24 h without a run is a finding.
+3. Workflow freshness (`channel-post`, `coins-channel-post`, `promo-remotion`, `promo-projects`): GitHub may delay schedules; compare actual run times with `promo/README.md`. For `promo-projects`, only scheduled/production-branch runs count as asset generation; PR validation is not a production render. The monitor verifies `promo-videos`, `promo-images`, `promo-copy` and `promo-handoff` are present, unexpired and non-empty after a successful production run; they are for review and are not published automatically.
 4. YouTube: `/api/youtube/oauth?status=1` is secret-gated (do not call). Check the last `promo-remotion` run log for the upload step result (`youtube-not-set-up` is expected until the owner finishes the one-time consent).
-5. `npx tsc`, jest channel/coins tests, `node --test scripts/promo/supervise.test.mjs`.
+5. `npx tsc`, jest channel/coins tests, `node --test scripts/supervisors/run.test.mjs`.
 
 ## What you may do on your own
-Add posts to the pools/manifests (variety, truthful, working links, no repetition within 14 days); add promo episodes to `promo/remotion/episodes.json` (script/caption/brand fields as the existing ones; Arabic episodes only for the general channel); fix broken links; improve the supervisor checks; re-run a failed idempotent promo workflow once; update `promo/README.md`.
+Add posts to the pools/manifests (variety, truthful, working links, no repetition within 14 days); add promo episodes to `promo/remotion/episodes.json` (script/caption/brand fields as the existing ones; Arabic episodes only for the general channel); fix broken links; improve the unified monitor checks; update `promo/README.md`. During routine supervision, do not dispatch or rerun any workflow and do not call publishing endpoints; let the existing schedule run.
 
 ## Escalate
 Turning publishing on/off, new channels or accounts, anything paid, claims about earnings, new YouTube channel/credentials.
 
 ## Report fields
-Coverage (tools/pages) · workflow freshness · posts added · episodes added · YouTube status · needs-owner.
+Coverage (tools/pages) · latest workflow runs and timestamps · latest release assets · public-channel appearance verified or unverified · YouTube status · needs-owner.
 
 ## تنظيم القسم (2026-11-15)
 - مصدر واحد للمنتجات: `promo/catalog.json`؛ المسار الآلي والمسار اليدوي موثّقان في `promo/README.md`.
