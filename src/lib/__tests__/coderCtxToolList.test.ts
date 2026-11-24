@@ -23,9 +23,12 @@ describe("a small Studio context gets the small tool list (live run 5ff363b8: 18
     expect(JSON.stringify(small).length).toBeLessThan(full / 3);
   });
 
-  it("CODER_TOOL_GROUPS=fixed still wins", () => {
+  it("a 16k context overrides CODER_TOOL_GROUPS=fixed and keeps the model's tools available lazily", () => {
     process.env.CODER_TOOL_GROUPS = "fixed";
     noteStudioCtx("studio-16", 16384);
-    expect(toolGroupsLazy()).toBe(false);
+    expect(toolGroupsLazy()).toBe(true);
+    const names = coderToolsFor(true, false, []).map((t) => t.function.name);
+    expect(names).toContain("load_tools");
+    expect(names).not.toContain("github_repo_audit");
   });
 });
