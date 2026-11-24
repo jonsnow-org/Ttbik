@@ -272,13 +272,13 @@ function Home() {
 }
 
 function PlatformServicesAccess() {
-  const { reset } = useApp();
+  const { push } = useApp();
   return (
     <>
       <div className="mb-2 mt-5 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>خدمات المنصة</div>
       <div className="space-y-2.5">
-        <PlatformServiceTile icon="💸" title="حوالات USDT" sub="أرسل حوالة USDT وتابع حالتها خطوة بخطوة" tone="#059669" onClick={() => reset({ name: "remit" })} />
-        <PlatformServiceTile icon="📣" title="بورصة القنوات والجروبات" sub="اشترِ إعلاناً في قناة موثّقة أو اعرض قناتك للبيع" tone="#7c3aed" onClick={() => reset({ name: "exchange" })} />
+        <PlatformServiceTile icon="💸" title="حوالات USDT" sub="أرسل حوالة USDT وتابع حالتها خطوة بخطوة" tone="#059669" onClick={() => push({ name: "remit" })} />
+        <PlatformServiceTile icon="📣" title="بورصة القنوات والجروبات" sub="اشترِ إعلاناً في قناة موثّقة أو اعرض قناتك للبيع" tone="#7c3aed" onClick={() => push({ name: "exchange" })} />
       </div>
     </>
   );
