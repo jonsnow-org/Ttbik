@@ -54,7 +54,7 @@ export function isToolError(out: string): boolean {
   try {
     const parsed = JSON.parse(head);
     if (parsed && typeof parsed === "object") {
-      if (parsed.ok === false || parsed.success === false || parsed.error || parsed.errors) return true;
+      if (parsed.ok === false || parsed.success === false || Boolean(parsed.error) || (Array.isArray(parsed.errors) ? parsed.errors.length > 0 : Boolean(parsed.errors))) return true;
       if (typeof parsed.status === "number" && parsed.status >= 400) return true;
     }
   } catch { /* most tools return plain text */ }
