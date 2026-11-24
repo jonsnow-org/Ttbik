@@ -6,6 +6,8 @@
 const GITHUB_READ = new Set(["github_repo_scan", "github_list_files", "github_search_code", "github_repo_audit"]);
 const redirected = new Map<string, number>();
 const GITHUB_FILE_READ = new Set(["github_read_file", "github_read_files"]);
+const LOOKUP_QUERY = /^@?[\p{L}\p{N}_.-]{2,40}$/u;     // a handle or a name (@Slaselbot, Slaselbot, streakBotLogic)
+const REPO_SHAPE = /^[\w.-]+\/[\w.-]+$/;
 const repoReady = new Set<string>();      // runs whose repository is already on the computer
 
 /** Called when computer_repo succeeded for a run: from then on single-file GitHub reads are answered with computer_read too (the files are right there). */
@@ -21,6 +23,10 @@ export function isGithubRead(name: string): boolean {
 
 export function computerFirstRedirect(name: string, args: Record<string, unknown>, tier: string | undefined, runId: string | undefined, hasComputer: boolean): string {
   if (tier !== "owner" || !hasComputer || !runId) return "";
+  // ONE identifier inside ONE named repository is a lookup, not a repository read: live 2026-11-24 the owner asked for the Telegram bot
+  // «@Slaselbot» inside «مستودعنا», the model's github_search_code was replaced by "call computer_repo", the clone never finished and the
+  // task died without reaching the repository. Keeping this narrow (a short handle, not a phrase) means bulk reads still go to the computer.
+  if (name === "github_search_code" && LOOKUP_QUERY.test(String(args.query || "").trim()) && REPO_SHAPE.test(String(args.repo || ""))) return "";
   if (GITHUB_FILE_READ.has(name) && repoReady.has(runId)) {
     return "[harness] Not executed: this repository is already on YOUR computer. Read the file with computer_read (path under the folder computer_repo reported) or find it with computer_search; GitHub API reads are not used for files you already have.";
   }
