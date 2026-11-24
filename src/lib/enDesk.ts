@@ -16,6 +16,93 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "gaza-meningitis-epidemic-alert-2026",
+  "title": "Gaza issues meningitis epidemic alert after 272 cases were reported in October",
+  "date": "24 November 2026",
+  "contextDateLabel": "Gaza Ministry of Health briefing: 24 November 2026 (conference time not stated); WAFA: 24 November 2026, 11:24 a.m. as displayed on the page (time zone not specified); Anadolu Agency and Al Jazeera: 24 November 2026 (no publication time displayed); OCHA report: published 13 November 2026, covering probable cases from 27 September to 31 October and individual line-listing through 5 November; Sham AI item date: 24 November 2026.",
+  "dek": "Gaza health authorities said 272 meningitis infections were recorded in October, more than eight times the usual monthly range. This briefing keeps that ministry figure separate from OCHA's earlier probable-case surveillance for a different reporting period.",
+  "body": [
+    "Gaza's Ministry of Health declared an epidemic alert on 24 November 2026 after a rise in meningitis cases. Health official Nidal Ghoneim told a news conference that 272 infections were reported in October, more than eight times the usual monthly range of 30 to 50. WAFA and Anadolu Agency reported the announcement; Al Jazeera also covered it.",
+    "Ghoneim said 15 people had died from meningitis since the start of 2026. These figures are attributed to local health officials and are not an independently audited case-by-case count.",
+    "In its humanitarian situation report published on 13 November, OCHA recorded 413 probable cases between 27 September and 31 October: 294 probable viral and 119 probable bacterial. It said 68% were in Gaza governorate. Of 202 cases individually documented through 5 November, 77% were infants under one year and 10 bacterial cases had been laboratory-confirmed. These dates and surveillance categories differ from the ministry's 272 October infections; the figures should not be added or treated as one dataset.",
+    "OCHA linked the increase to crowded tents and schools, worsening shelter and sanitation conditions, and exposure to unsafe water. It also described shortages of medicines and health supplies. Those are findings attributed to the UN humanitarian report; the ministry's alert figures remain attributed to Gaza health officials.",
+    "Publication dates: WAFA, 24 November 2026 at 11:24 a.m. as displayed on its page (time zone not specified); Anadolu Agency and Al Jazeera, 24 November 2026 (no publication time shown); OCHA, 13 November 2026. OCHA's data period was 27 September to 31 October, with individual documentation through 5 November."
+  ],
+  "sources": [
+    {
+      "href": "https://english.wafa.ps/Pages/Details/177264",
+      "label": "WAFA — Health sources report 272 Gaza meningitis cases in October, 24 November 2026, 11:24 a.m."
+    },
+    {
+      "href": "https://www.aa.com.tr/en/middle-east/health-ministry-declares-epidemic-alert-in-gaza-amid-sharp-rise-in-meningitis-infections/4135586",
+      "label": "Anadolu Agency — Gaza Health Ministry declares epidemic alert amid meningitis rise, 24 November 2026"
+    },
+    {
+      "href": "https://www.aljazeera.com/news/2026/11/24/israeli-air-strikes-in-gaza-kill-7-as-doctors-warn-of-meningitis-outbreak",
+      "label": "Al Jazeera — Gaza health officials warn of meningitis outbreak, 24 November 2026"
+    },
+    {
+      "href": "https://www.ochaopt.org/content/humanitarian-situation-report-13-november-2026",
+      "label": "UN Office for the Coordination of Humanitarian Affairs — Humanitarian Situation Report, 13 November 2026"
+    }
+  ]
+},
+
+{
+  "slug": "cuba-who-immunization-support-2026",
+  "title": "WHO announces $2 million for immunization support in Cuba",
+  "date": "24 November 2026",
+  "contextDateLabel": "The Director-General's visit began on 22 November 2026; WHO/PAHO release: 24 November 2026 (no publication time shown); Reuters report: 24 November 2026, 19:26 UTC (22:26 Istanbul); Sham AI item date: 24 November 2026.",
+  "dek": "WHO announced a US$2 million contribution to support Cuba's national immunization programme and provide essential medical equipment. This briefing separates the visit's 22 November start from the 24 November release and attributes the competing positions on fuel restrictions.",
+  "body": [
+    "WHO Director-General Tedros Adhanom Ghebreyesus announced in Havana on 24 November 2026 a US$2 million contribution to strengthen Cuba's national immunization activities and provide essential medical equipment to health facilities. His official visit began on 22 November at the invitation of Cuba's public-health minister.",
+    "WHO and the Pan American Health Organization said the funding will focus on the National Immunization Program and support vaccination for about 62,000 newborns, more than 780,000 girls and boys, and over 110,000 people in other risk groups, as well as rabies prevention and control. They said coverage, which had remained above 98% for many years, fell to 95% in 2025.",
+    "During the visit, Tedros toured the William Soler University Pediatric Hospital and its pediatric cardiocenter. The delegation delivered basic medical-care kits and equipment including blood-pressure monitors and pulse oximeters. The announced contribution does not mean fuel, medicine or equipment shortages have ended.",
+    "In a Reuters report published on 24 November at 19:26 UTC, the news agency said Tedros called for the lifting of US fuel restrictions on Cuba, warning of health effects on the population and children. Reuters also reported Washington's position that food and medicine exports are covered by legal exemptions and that the energy restrictions are intended to push political change. These are attributed positions, not an independent legal ruling on the measures.",
+    "Visit date: began on 22 November 2026; WHO/PAHO release: 24 November 2026 (no publication time shown); Reuters report: 24 November 2026, 19:26 UTC (22:26 Istanbul). The US$2 million is an announced contribution for immunization and equipment, not proof that Cuba's wider health-service crisis has been resolved."
+  ],
+  "sources": [
+    {
+      "href": "https://www.who.int/news/item/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba",
+      "label": "World Health Organization — support for vaccines and medical equipment during the Cuba visit, 24 November 2026"
+    },
+    {
+      "href": "https://www.paho.org/es/noticias/24-11-2026-director-general-oms-anuncia-apoyo-vacunas-equipos-medicos-durante-visita",
+      "label": "Pan American Health Organization — Spanish release on immunization and medical-equipment support, 24 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/legal/government/who-chief-calls-us-lift-oil-blockade-cuba-citing-health-impact-2026-11-24/",
+      "label": "Reuters — WHO chief's position on Cuba fuel restrictions and immunization support, 24 November 2026, 19:26 UTC"
+    }
+  ]
+},
+
+{
+  "slug": "japan-november-consumer-spending-assessment-2026",
+  "title": "Japan lowers its assessment of consumer spending as recovery momentum pauses",
+  "date": "24 November 2026",
+  "contextDateLabel": "Japan Cabinet Office monthly report: November 2026 (the English page is marked as a provisional translation and shows no release day or publication time); Reuters report: 24 November 2026, 08:21 UTC (11:21 Istanbul); Sham AI item date: 24 November 2026.",
+  "dek": "Japan's November monthly report lowers the government's assessment of consumer spending while retaining its view that the economy is recovering moderately. It says private consumption appears to be pausing for picking up; this is a qualitative assessment, not a measured fall in spending.",
+  "body": [
+    "The Japan Cabinet Office's November 2026 monthly report says the economy is recovering moderately overall, but describes private consumption as 'appearing to be pausing for picking up.' This is a qualitative assessment of the trend, not an announcement of a measured fall in spending.",
+    "Reuters reported that the government lowered its assessment of consumer spending in November for the first time since February 2024. In October, the government had said spending was 'showing movements of picking up.' The Cabinet Office summary gives no figure showing that spending fell, so the change in wording should not be converted into a percentage decline.",
+    "In contrast, the report upgraded its assessment of exports to 'showing movements of picking up' and industrial production to 'picking up as a whole.' It said business investment continued to pick up while imports remained flat. Reuters linked stronger exports to shipments to the United States and the European Union, and the industrial-production assessment to machinery output, including semiconductor-manufacturing equipment.",
+    "The government kept its overall assessment that the economy is recovering moderately. It expects improving employment and income conditions to support the recovery, while urging attention to developments in the Middle East and fluctuations in financial and capital markets. These are conditional assessments and prospects, not guaranteed growth outcomes.",
+    "The Cabinet Office page is a provisional English translation of the November 2026 report and shows no exact release day or publication time. Reuters published its report on 24 November 2026 at 08:21 UTC (11:21 Istanbul). This briefing summarizes the government's assessment and is not financial or investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://www5.cao.go.jp/keizai3/getsurei-e/2026nov.html",
+      "label": "Japan Cabinet Office — Monthly Economic Report executive summary, November 2026 (provisional English translation)"
+    },
+    {
+      "href": "https://www.reuters.com/markets/asia/japan-cuts-view-consumer-spending-1st-time-since-2024-2026-11-24/",
+      "label": "Reuters — Japan lowers consumer-spending assessment for the first time since February 2024, 24 November 2026, 08:21 UTC"
+    }
+  ]
+},
+
+{
   "slug": "euclid-dun-aonghasa-quasar-record-2026",
   "title": "Euclid identifies the most distant quasar yet, powered by a 360-million-solar-mass black hole",
   "date": "24 November 2026",
@@ -789,6 +876,33 @@ export const EN_NEWS: DeskItem[] = [
 ];
 
 export const EN_EVENTS: DeskItem[] = [
+{
+  "slug": "sixteen-days-activism-gender-based-violence-2026",
+  "title": "16 Days of Activism against Gender-Based Violence 2026",
+  "date": "2026-11-25",
+  "endDate": "2026-12-10",
+  "dateLabel": "25 November – 10 December 2026",
+  "category": "Global UN campaign",
+  "dek": "The global campaign runs from 25 November, the International Day for the Elimination of Violence against Women, through 10 December, Human Rights Day. Its 2026 theme calls for justice, survivor protection and an end to impunity.",
+  "body": [
+    "WHO lists the 2026 16 Days of Activism against Gender-Based Violence campaign among its events for 25 November to 10 December 2026. It begins on the International Day for the Elimination of Violence against Women and ends on Human Rights Day.",
+    "UN Women's official 2026 concept note sets the global theme: 'UNiTE to End Violence Against Women and Girls: Ensure Justice, Protect Survivors, End Impunity.'",
+    "The campaign is global and multi-country, not a single venue-based conference. Local organizations may hold different events during the period; WHO's listing gives no single start time or time zone.",
+    "Status as of 24 November 2026: upcoming; it begins the following day, 25 November, and runs through 10 December. Location: global. No unified time has been published.",
+    "Campaign period: 25 November–10 December 2026. This is the global campaign window, not a common timetable for every local activity."
+  ],
+  "sources": [
+    {
+      "href": "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026",
+      "label": "World Health Organization — 2026 campaign page, 25 November–10 December 2026"
+    },
+    {
+      "href": "https://chile.unwomen.org/sites/default/files/2026-08/unite_2026_concept_note_en.pdf",
+      "label": "UN Women — 2026 UNiTE campaign concept note and global theme"
+    }
+  ]
+},
+
   {
     "slug": "iffi-goa-2026",
     "title": "57th International Film Festival of India in Goa",

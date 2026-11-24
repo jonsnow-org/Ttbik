@@ -413,5 +413,85 @@ class Sham2HeadsFromTrainer(unittest.TestCase):
         self.assertTrue(out["tldm"])
 
 
+class IdentityGate(unittest.TestCase):
+    """2026-11-24: the identity LoRA is attached only on a turn that asks who / what the model is."""
+
+    def test_identity_questions(self):
+        for q in ("من أنت؟", "مين انت", "ما اسمك؟", "شو اسمك", "اسمك ايه", "عرّف بنفسك", "من صنعك؟", "مين طورك", "هل أنت Qwen؟", "أي نموذج أنت؟",
+                  "Who are you?", "What is your name?", "who made you", "Are you ChatGPT?", "Introduce yourself.", "What model am I chatting with?",
+                  "Were you developed by Alibaba?", "Tell me your name.", "من الشركة التي طورتك؟", "ما هو اسمك الحقيقي؟", "هل أنت تونغيي أو Qwen؟", "Who built you?"):
+            self.assertTrue(S.asks_identity(q), q)
+        for q in ("مرحبا", "ما عاصمة سوريا؟", "اكتب دالة بايثون تعيد مضروب عدد.", "كم يساوي 17 ضرب 23؟", "اشرح باختصار ما هو التعلم الآلي.",
+                  "What is the capital of Japan?", "اعرض الملفات في المجلد الحالي على حاسوبك.", "هل أنت متأكد؟", "how are you?", "من أنتج فيلم التيتانيك؟",
+                  "write a story about a robot who names itself", ""):
+            self.assertFalse(S.asks_identity(q), q)
+
+    def _body(self):
+        import torch
+        from torch import nn
+
+        class Ad(nn.Module):
+            def __init__(self, base):
+                super().__init__()
+                self.base = base
+                self.adapter_down = nn.Parameter(torch.ones(1, base.in_features))
+                self.adapter_up = nn.Parameter(torch.ones(base.out_features, 1))
+                self.scale = 1.0
+
+            def forward(self, x):
+                return self.base(x) + (x @ self.adapter_down.t()) @ self.adapter_up.t() * self.scale
+
+        class Body(nn.Module):
+            def __init__(self):
+                super().__init__()
+                torch.manual_seed(0)
+                self.q = Ad(nn.Linear(4, 4))
+                self.k = Ad(nn.Linear(4, 4))
+
+            def forward(self, x):
+                return self.k(self.q(x))
+
+        return Body()
+
+    def test_gate_attaches_only_inside_the_block(self):
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("torch not installed")
+        body = self._body()
+        x = torch.ones(1, 4)
+        with torch.no_grad():
+            with_lora = body(x).clone()
+            plain = body.k.base(body.q.base(x)).clone()
+        self.assertEqual(S.gate_identity(body), 2)
+        self.assertEqual(S.gate_identity(body), 2)                        # idempotent
+        with torch.no_grad():
+            self.assertTrue(torch.allclose(body(x), plain))              # ordinary turn: plain donor projections
+            with S.identity_for(body, "من أنت؟") as on:
+                self.assertTrue(on)
+                self.assertTrue(torch.allclose(body(x), with_lora))      # identity turn: the trained adapter
+            self.assertTrue(torch.allclose(body(x), plain))              # restored
+            with S.identity_for(body, "ما عاصمة سوريا؟") as on:
+                self.assertFalse(on)
+                self.assertTrue(torch.allclose(body(x), plain))
+            with S.identity_for(body, True):
+                self.assertTrue(torch.allclose(body(x), with_lora))      # the T-LDM head reads the body WITH the adapter
+            body._identity_frozen = True                                  # llama.cpp export in progress
+            with S.identity_for(body, "Who are you?") as on:
+                self.assertFalse(on)
+            body._identity_frozen = False
+        self.assertNotIn("q.adapter_down", dict(body.named_parameters()))
+
+    def test_body_without_adapters_is_untouched(self):
+        try:
+            from torch import nn
+        except ImportError:
+            self.skipTest("torch not installed")
+        body = nn.Sequential(nn.Linear(2, 2))
+        self.assertEqual(S.gate_identity(body), 0)
+        with S.identity_for(body, "من أنت؟") as on:
+            self.assertFalse(on)
+
+
 if __name__ == "__main__":
     unittest.main()

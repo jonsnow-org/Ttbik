@@ -52,6 +52,7 @@ test("current and upcoming global events have matching English dates and sources
     { slug: "apec-economic-leaders-meeting-shenzhen-2026", dateIso: "2026-11-18", endDateIso: "2026-11-19", date: "2026-11-18", endDate: "2026-11-19", dateLabel: "18–19 November 2026" },
     { slug: "world-toilet-day-2026", dateIso: "2026-11-19", date: "2026-11-19", dateLabel: "19 November 2026" },
     { slug: "world-childrens-day-2026", dateIso: "2026-11-20", date: "2026-11-20", dateLabel: "20 November 2026" },
+    { slug: "sixteen-days-activism-gender-based-violence-2026", dateIso: "2026-11-25", endDateIso: "2026-12-10", date: "2026-11-25", endDate: "2026-12-10", dateLabel: "25 November – 10 December 2026" },
     { slug: "iffi-goa-2026", dateIso: "2026-11-20", endDateIso: "2026-11-28", date: "2026-11-20", endDate: "2026-11-28", dateLabel: "20–28 November 2026" },
     { slug: "world-television-day-2026", dateIso: "2026-11-21", date: "2026-11-21", dateLabel: "21 November 2026" }
   ];
@@ -566,4 +567,125 @@ test("24 November Euclid quasar discovery is bilingual and separates the cosmic 
   assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/science/")));
   assert.match(arabic.paragraphs.join(" "), /لا نتيجة أثبتتها هذه المشاهدات/);
   assert.match(english.body.join(" "), /not a formation pathway established by these observations/);
+});
+
+
+test("24 November Japan economic assessment is bilingual and does not turn a qualitative downgrade into a measured spending decline", () => {
+  const slug = "japan-november-consumer-spending-assessment-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Japan economic briefing is missing");
+  assert.ok(english, "English Japan economic briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /08:21 UTC/);
+  assert.match(english.contextDateLabel, /08:21 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("cao.go.jp/keizai3/getsurei-e/2026nov.html")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/markets/asia/japan-cuts-view-consumer-spending")));
+  assert.match(arabic.description, /لا يثبت انخفاضاً رقمياً/);
+  assert.match(english.dek, /not a measured fall in spending/i);
+  assert.match(arabic.paragraphs.join(" "), /للمرة الأولى منذ فبراير 2024/);
+  assert.match(english.body.join(" "), /first time since February 2024/i);
+  assert.match(arabic.paragraphs.join(" "), /معدات تصنيع أشباه الموصلات/);
+  assert.match(english.body.join(" "), /semiconductor-manufacturing equipment/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تقدم توصية مالية أو استثمارية/);
+  assert.match(english.body.join(" "), /not financial or investment advice/i);
+});
+
+
+test("24 November WHO Cuba support briefing is bilingual and attributes contested fuel-policy claims", () => {
+  const slug = "cuba-who-immunization-support-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic WHO Cuba briefing is missing");
+  assert.ok(english, "English WHO Cuba briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /22 نوفمبر 2026/);
+  assert.match(english.contextDateLabel, /22 November 2026/);
+  assert.match(arabic.contextDateLabel, /19:26 UTC/);
+  assert.match(english.contextDateLabel, /19:26 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["who.int", "paho.org", "reuters.com"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /62,000 مولود/);
+  assert.match(english.body.join(" "), /62,000 newborns/);
+  assert.match(arabic.paragraphs.join(" "), /780,000/);
+  assert.match(english.body.join(" "), /780,000/);
+  assert.match(arabic.paragraphs.join(" "), /110,000/);
+  assert.match(english.body.join(" "), /110,000/);
+  assert.match(arabic.paragraphs.join(" "), /98%.*95%/);
+  assert.match(english.body.join(" "), /98%.*95%/);
+  assert.match(arabic.paragraphs.join(" "), /مواقف منسوبة إلى أصحابها/);
+  assert.match(english.body.join(" "), /attributed positions/i);
+  assert.match(arabic.paragraphs.join(" "), /لا يثبت وحده حل أزمة الخدمات الصحية/);
+  assert.match(english.body.join(" "), /not proof that Cuba's wider health-service crisis has been resolved/i);
+});
+
+
+test("16 Days campaign is upcoming and then current only within its official date range", () => {
+  const slug = "sixteen-days-activism-gender-based-violence-2026";
+  const arabic = EVENT_EXTRAS.find((event) => event.slug === slug);
+  const english = EN_EVENTS.find((event) => event.slug === slug);
+  assert.ok(arabic, "Arabic 16 Days event is missing");
+  assert.ok(english, "English 16 Days event is missing");
+  assert.equal(arabic.dateIso, "2026-11-25");
+  assert.equal(arabic.endDateIso, "2026-12-10");
+  assert.equal(english.date, "2026-11-25");
+  assert.equal(english.endDate, "2026-12-10");
+  assert.equal(arabic.dateLabel, "25 نوفمبر – 10 ديسمبر 2026");
+  assert.equal(english.dateLabel, "25 November – 10 December 2026");
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("unwomen.org/sites/default/files/2026-08")));
+  assert.equal(isEventCurrent(arabic, "2026-11-24"), false);
+  assert.equal(isEventUpcomingOrCurrent(arabic, "2026-11-24"), true);
+  assert.equal(isEventCurrent(arabic, "2026-11-25"), true);
+  assert.equal(isEventCurrent(arabic, "2026-12-10"), true);
+  assert.equal(isEventUpcomingOrCurrent(arabic, "2026-12-11"), false);
+  assert.match(arabic.paragraphs.join(" "), /لا تعلن.*ساعة بداية موحدة/);
+  assert.match(english.body.join(" "), /no single start time or time zone/i);
+  assert.match(arabic.paragraphs.join(" "), /ضمان العدالة، حماية الناجيات، وإنهاء الإفلات من العقاب/);
+  assert.match(english.body.join(" "), /Ensure Justice, Protect Survivors, End Impunity/);
+});
+
+
+test("24 November Gaza meningitis alert keeps Ministry and OCHA surveillance windows distinct in both languages", () => {
+  const slug = "gaza-meningitis-epidemic-alert-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Gaza meningitis briefing is missing");
+  assert.ok(english, "English Gaza meningitis briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /11:24/);
+  assert.match(english.contextDateLabel, /11:24/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["wafa.ps", "aa.com.tr", "aljazeera.com", "ochaopt.org"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /272 إصابة/);
+  assert.match(english.body.join(" "), /272 infections/);
+  assert.match(arabic.paragraphs.join(" "), /413 حالة محتملة/);
+  assert.match(english.body.join(" "), /413 probable cases/);
+  assert.match(arabic.paragraphs.join(" "), /لا تُجمع الأرقام ولا تُعامل كإحصاء واحد/);
+  assert.match(english.body.join(" "), /should not be added or treated as one dataset/i);
+});
+
+test("Cuba's WHO release and the 16 Days event use direct official WHO pages", () => {
+  const cuba = NEWS_ITEMS.find((item) => item.slug === "cuba-who-immunization-support-2026");
+  const eventAr = EVENT_EXTRAS.find((item) => item.slug === "sixteen-days-activism-gender-based-violence-2026");
+  const eventEn = EN_EVENTS.find((item) => item.slug === "sixteen-days-activism-gender-based-violence-2026");
+  assert.ok(cuba);
+  assert.ok(eventAr);
+  assert.ok(eventEn);
+  assert.ok(cuba.sources.some((source) => source.href === "https://www.who.int/news/item/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba"));
+  assert.ok(eventAr.sources.some((source) => source.href === "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026"));
+  assert.ok(eventEn.sources.some((source) => source.href === "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026"));
+  assert.deepEqual(sourceUrls(eventAr), sourceUrls(eventEn));
 });
