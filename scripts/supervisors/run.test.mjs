@@ -191,7 +191,7 @@ test("monitor excludes its own active run when measuring monitor freshness", () 
   const check = evaluate({ workflows: [{ def: monitorDef, runs: [self, previous] }] }, NOW, "987654")
     .find((item) => item.name === "Workflow: Monitor (this report)");
   assert.equal(check.level, "fail");
-  assert.match(check.detail, /last success 10h ago/);
+  assert.match(check.detail, /no successful run for 10h \\(limit 4h\\)/);
   assert.doesNotMatch(check.detail, /current-monitor-run|in_progress/);
 });
 
