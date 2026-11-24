@@ -305,17 +305,21 @@ export async function extractMemories(
 export async function memoryTool(chatId: number | string, name: string, a: Record<string, any>, runId?: string, db: Db = prismaDb): Promise<string> {
   if (name === "memory_save") {
     const r = await saveMemory(chatId, { text: a.text, kind: a.kind, repo: a.repo, replaces: a.replaces, source: runId ?? null }, db);
-    return r.action === "invalid" ? "error: nothing to save (text too short)" : `${r.action} memory #${r.id}${r.previous ? ` (was: ${r.previous})` : ""}`;
+    return r.action === "invalid" ? "error: nothing to save (text too short)" : r.action === "error" ? "error: long-term memory storage is unavailable; nothing was saved" : `${r.action} memory #${r.id}${r.previous ? ` (was: ${r.previous})` : ""}`;
   }
   if (name === "memory_search") {
-    const rows = await searchMemories(chatId, String(a.query || ""), a.repo ? String(a.repo) : undefined, Math.min(20, Number(a.limit) || 10), db);
-    return rows.length ? rows.map((m) => `#${m.id} [${m.kind} ${m.scope}] ${m.text}`).join("\n") : "no matching memories";
+    try {
+      const rows = await searchMemories(chatId, String(a.query || ""), a.repo ? String(a.repo) : undefined, Math.min(20, Number(a.limit) || 10), db);
+      return rows.length ? rows.map((m) => `#${m.id} [${m.kind} ${m.scope}] ${m.text}`).join("\n") : "no matching memories";
+    } catch { return "error: long-term memory storage is unavailable; no conclusion can be drawn about saved memories"; }
   }
   if (name === "memory_forget") {
-    let id = Number(a.id) || 0;
-    if (!id && a.query) id = (await searchMemories(chatId, String(a.query), a.repo ? String(a.repo) : undefined, 1, db))[0]?.id || 0;
-    if (!id) return "error: no such memory";
-    return (await deleteMemory(chatId, id, db)) ? `forgot memory #${id}` : "error: no such memory";
+    try {
+      let id = Number(a.id) || 0;
+      if (!id && a.query) id = (await searchMemories(chatId, String(a.query), a.repo ? String(a.repo) : undefined, 1, db))[0]?.id || 0;
+      if (!id) return "error: no such memory";
+      return (await deleteMemory(chatId, id, db)) ? `forgot memory #${id}` : "error: no such memory";
+    } catch { return "error: long-term memory storage is unavailable; nothing was forgotten"; }
   }
   return `error: unknown memory tool ${name}`;
 }
