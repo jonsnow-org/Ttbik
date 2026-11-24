@@ -124,6 +124,14 @@ describe("verified changes require a successful matching tool result", () => {
     ])).toBe(false);
     expect(madeSuccessfulChanges([
       { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "result: File not found" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "Already up to date; no changes to commit" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
       { role: "tool", tool_call_id: "edit-1", content: "DENIED by the user's standing policy" },
     ])).toBe(false);
     expect(madeSuccessfulChanges([
