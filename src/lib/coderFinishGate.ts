@@ -5,7 +5,8 @@
  * to work (at most twice), and a run that made no change is never stored as a lesson.
  */
 const ACTION_GOAL = /(أصلح|اصلح|إصلاح|اصلاح|صحّح|صحح|طوّر|طور|تطوير|عدّل|عدل |نفّذ|نفذ|ادمج|ادفع|انشر|أنشئ|أضف|حسّن|حسن |fix\b|implement|develop|improve|refactor|merge|publish|deploy|build\b)/i;
-const CHANGE_TOOL = /^(computer_(write|edit|patch|publish|batch)|sandbox_(write_file|edit_file|push)|github_(edit_file|write_files|merge_pr|delete_files|update_ref))$/;
+const CHANGE_TOOL = /^(computer_(write|edit|patch|publish|batch)|sandbox_(write_file|edit_file|push)|github_(create_branch|create_pr|edit_file|write_files|merge_pr|delete_files|update_ref|run_workflow|comment|create_issue|update_repo))$/;
+const CODE_CHANGE_TOOL = /^(computer_(write|edit|patch|publish)|sandbox_(write_file|edit_file|push)|github_(edit_file|write_files|merge_pr|delete_files|update_ref))$/;
 
 export function toolNamesIn(messages: Array<{ tool_calls?: Array<{ function?: { name?: string } }> }>): string[] {
   const out: string[] = [];
@@ -33,28 +34,35 @@ function toolOutputFailed(output: string): boolean {
   return /^(?:file|path|directory|repository|branch|resource)\s+(?:not found|was not found|does not exist)\b|(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b|could not\b|cannot\b|timed? out\b)/i.test(t);
 }
 
-/** A write attempt is not proof of a change: require its matching tool result and reject failed/denied outputs. */
-export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
+/** A tool call is progress only when its matching result confirms success. */
+function madeSuccessfulToolAction(messages: GateMessage[], allowed: RegExp): boolean {
   for (const message of messages || []) {
     for (const call of message.tool_calls || []) {
       const name = call?.function?.name || "";
       if (!call?.id) continue;
-      let isWrite = CHANGE_TOOL.test(name);
+      let allowedCall = allowed.test(name);
       if (name === "computer_batch") {
         try {
           const args = JSON.parse(call.function?.arguments || "{}");
-          const writeTool = /^(computer_(write|edit|patch|publish)|sandbox_(write_file|edit_file|push)|github_(edit_file|write_files|delete_files|update_ref|merge_pr))$/;
-          isWrite = Array.isArray(args.steps) && args.steps.some((step: { tool?: string }) => writeTool.test(String(step?.tool || "")));
-        } catch { isWrite = false; }
+          allowedCall = Array.isArray(args.steps) && args.steps.some((step: { tool?: string }) => allowed.test(String(step?.tool || "")));
+        } catch { allowedCall = false; }
       }
-      if (!isWrite) continue;
+      if (!allowedCall) continue;
       const result = (messages || []).find((m) => m.role === "tool" && m.tool_call_id === call.id);
-      const output = String(result?.content || "").trim();
-      if (toolOutputFailed(output)) continue;
-      return true;
+      if (!toolOutputFailed(String(result?.content || ""))) return true;
     }
   }
   return false;
+}
+
+/** Successful side effect (branch/PR/comment or code write); useful for deciding whether the run made a concrete step. */
+export function madeSuccessfulActions(messages: GateMessage[]): boolean {
+  return madeSuccessfulToolAction(messages, CHANGE_TOOL);
+}
+
+/** Successful source/data change; required before claiming a fix or storing an owner run as a training lesson. */
+export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
+  return madeSuccessfulToolAction(messages, CODE_CHANGE_TOOL);
 }
 
 const CLAIM = /(تم\s+(?:إصلاح|اصلاح|تنفيذ|تطوير|تحسين|تعديل|إضافة|اضافة|إنشاء|انشاء|نشر|دمج|كتابة)|قمت\s+ب(?:إصلاح|اصلاح|تعديل|تطوير|إضافة|اضافة|تحسين)|تحسينات\s+في\s+\S+\.(?:py|ts|tsx|js|json)|I(?:'ve| have)\s+(?:fixed|implemented|updated|added|improved|refactored))/i;
@@ -84,14 +92,15 @@ export function isQuestionLike(text: string): boolean {
 
 /** The harness message that sends an owner's run back to work, or "" when the run may end (no action asked, something was changed, or already nudged twice). */
 export function finishNudge(goal: string, toolNames: string[], text: string, nudges: number, messages?: GateMessage[]): string {
-  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
+  const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
+  const codeChanged = messages ? madeSuccessfulChanges(messages) : toolNames.some((n) => CODE_CHANGE_TOOL.test(n));
   if (nudges >= 3) return "";
-  // An answer that says "تم إصلاح / تم تنفيذ …" while no edit, write or publish call was ever made is a false report (live 2026-11-16: five files "improved", zero change calls).
-  if (claimsChanges(text) && !changed) {
+  // A branch/PR is a real step, but it is not proof that the code was fixed.
+  if (claimsChanges(text) && !codeChanged) {
     return "[harness] Your answer says things were fixed or changed, but this run made NO edit, write, patch or publish call: nothing was changed. Never report work you did not do. "
       + "Do the work now (computer_read the file, computer_edit it, computer_test, computer_publish), or say plainly that nothing was changed yet and why. Write in the owner's language (Arabic).";
   }
-  if (!isActionGoal(goal) || changed) return "";
+  if (!isActionGoal(goal) || acted) return "";
   if (String(text || "").trim().length < 20) return "";
   return "[harness] The owner has already authorised you to ACT on this request and does not want a menu of options or a report. Do not ask which step to start with. "
     + "Now: bring the repository to the computer (computer_repo), find the exact bug or missing feature, edit the files (computer_edit / computer_write), run the tests (computer_test / computer_run), "
@@ -104,8 +113,9 @@ export function finishNudge(goal: string, toolNames: string[], text: string, nud
  * copy and the chat received the engine's own «تعذّر تكوين جواب مناسب لهذه الرسالة» three times, then the task ended silently.
  * That placeholder describes the engine, not the task: the honest line says nothing was changed and how to go on.
  */
-export function stalledActionNote(goal: string, toolNames: string[]): string {
-  if (!isActionGoal(goal) || madeChanges(toolNames)) return "";
+export function stalledActionNote(goal: string, toolNames: string[], messages?: GateMessage[]): string {
+  const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
+  if (!isActionGoal(goal) || acted) return "";
   return "⏹️ توقفت قبل تنفيذ أي خطوة: النموذج أعاد نفس الجملة ولم يستدعِ أي أداة، فلم يُغيَّر أي ملف. "
     + "اكتب «تابع» وسأكمل من أول خطوة فعلية: البحث داخل المستودع عن الاسم الذي ذكرته ثم قراءة الملفات التي يجدها.";
 }
@@ -113,13 +123,13 @@ export function stalledActionNote(goal: string, toolNames: string[]): string {
 /** A repeated-reply guard must trigger a recovery plan before it gives up on an authorised action. */
 export const BLOCKED_REPLY_RECOVERIES = 2;
 export function shouldRecoverBlockedAction(goal: string, toolNames: string[], recoveries: number, messages?: GateMessage[]): boolean {
-  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
-  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !changed;
+  const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
+  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !acted;
 }
 
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */
 export function worthALesson(goal: string, toolNames: string[], messages?: GateMessage[]): boolean {
-  const changed = messages ? madeSuccessfulChanges(messages) : madeChanges(toolNames);
+  const changed = messages ? madeSuccessfulChanges(messages) : toolNames.some((n) => CODE_CHANGE_TOOL.test(n));
   return !isActionGoal(goal) || changed;
 }
 
