@@ -16,6 +16,31 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "japan-november-consumer-spending-assessment-2026",
+  "title": "Japan lowers its assessment of consumer spending as recovery momentum pauses",
+  "date": "24 November 2026",
+  "contextDateLabel": "Japan Cabinet Office monthly report: November 2026 (the English page is marked as a provisional translation and shows no release day or publication time); Reuters report: 24 November 2026, 08:21 UTC (11:21 Istanbul); Sham AI item date: 24 November 2026.",
+  "dek": "Japan's November monthly report lowers the government's assessment of consumer spending while retaining its view that the economy is recovering moderately. It says private consumption appears to be pausing for picking up; this is a qualitative assessment, not a measured fall in spending.",
+  "body": [
+    "The Japan Cabinet Office's November 2026 monthly report says the economy is recovering moderately overall, but describes private consumption as 'appearing to be pausing for picking up.' This is a qualitative assessment of the trend, not an announcement of a measured fall in spending.",
+    "Reuters reported that the government lowered its assessment of consumer spending in November for the first time since February 2024. In October, the government had said spending was 'showing movements of picking up.' The Cabinet Office summary gives no figure showing that spending fell, so the change in wording should not be converted into a percentage decline.",
+    "In contrast, the report upgraded its assessment of exports to 'showing movements of picking up' and industrial production to 'picking up as a whole.' It said business investment continued to pick up while imports remained flat. Reuters linked stronger exports to shipments to the United States and the European Union, and the industrial-production assessment to machinery output, including semiconductor-manufacturing equipment.",
+    "The government kept its overall assessment that the economy is recovering moderately. It expects improving employment and income conditions to support the recovery, while urging attention to developments in the Middle East and fluctuations in financial and capital markets. These are conditional assessments and prospects, not guaranteed growth outcomes.",
+    "The Cabinet Office page is a provisional English translation of the November 2026 report and shows no exact release day or publication time. Reuters published its report on 24 November 2026 at 08:21 UTC (11:21 Istanbul). This briefing summarizes the government's assessment and is not financial or investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://www5.cao.go.jp/keizai3/getsurei-e/2026nov.html",
+      "label": "Japan Cabinet Office — Monthly Economic Report executive summary, November 2026 (provisional English translation)"
+    },
+    {
+      "href": "https://www.reuters.com/markets/asia/japan-cuts-view-consumer-spending-1st-time-since-2024-2026-11-24/",
+      "label": "Reuters — Japan lowers consumer-spending assessment for the first time since February 2024, 24 November 2026, 08:21 UTC"
+    }
+  ]
+},
+
+{
   "slug": "euclid-dun-aonghasa-quasar-record-2026",
   "title": "Euclid identifies the most distant quasar yet, powered by a 360-million-solar-mass black hole",
   "date": "24 November 2026",

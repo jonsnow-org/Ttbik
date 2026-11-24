@@ -9,6 +9,8 @@ import { MAIN_TABS, sectionScreen } from "@/lib/botApp/jobsNav";
 import { AppFrame, AppProvider, Btn, Chips, Copyable, Empty, Field, Loading, MainAction, Pill, Row, ScreenTitle, Section, getTg, inputCls, inputStyle, money, useApp, type Screen } from "./ui";
 import { StoreScreen, ProductScreen, WantedScreen, ListingForm, WantedForm, ShopsScreen, ShopScreen, MyShopScreen, OrdersScreen } from "./JobsStore";
 import { WorkScreen, JobScreen, ProScreen, TendersScreen, TenderBidsScreen, TenderBidScreen } from "./JobsWork";
+import RemitSection from "./Remit";
+import ExchangeSection from "./Exchange";
 
 export type JobsInit = {
   ok: boolean; error?: string; code?: string; gate: { channel: string } | null; phoneVerified: boolean;
@@ -28,7 +30,7 @@ export const ago = (iso: string) => {
 };
 export const shareLink = (url: string, text: string) => `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
 
-export default function JobsMiniApp({ botId, section, slug, item }: { botId: string; section: string; slug: string | null; item: string | null }) {
+export default function JobsMiniApp({ botId, section, slug, item, pay }: { botId: string; section: string; slug: string | null; item: string | null; pay?: string | null }) {
   const [ready, setReady] = useState(false);
   const setLang = useCallback(() => {}, []);
   useEffect(() => {
@@ -36,7 +38,7 @@ export default function JobsMiniApp({ botId, section, slug, item }: { botId: str
     try { tg?.ready(); tg?.expand(); tg?.disableVerticalSwipes?.(); } catch { /* old clients */ }
     setReady(true);
   }, []);
-  const initial: Screen = item ? { name: "product", params: { id: item } } : section === "shop" && slug ? { name: "shop", params: { slug } } : sectionScreen(section);
+  const initial: Screen = item ? { name: "product", params: { id: item } } : section === "shop" && slug ? { name: "shop", params: { slug } } : ["remit", "exchange"].includes(section) ? { name: section, params: section === "remit" && pay ? { pay } : {} } : sectionScreen(section);
   return (
     <AppFrame lang="ar">
       {ready && (
@@ -96,7 +98,11 @@ function Shell() {
       </main>
     );
   }
-  if (!init.phoneVerified) {
+  const cur = stack[stack.length - 1];
+  // Platform services are independent of the Jobs marketplace profile and wallet.
+  // Only the asset-market flows inside the exchange apply their own identity checks.
+  const isPlatformService = cur.name === "remit" || cur.name === "exchange";
+  if (!init.phoneVerified && !isPlatformService) {
     const checkPhone = async (alreadyLocked = false) => {
       if (!alreadyLocked) {
         if (phoneFlowInFlight.current) return;
@@ -162,8 +168,7 @@ function Shell() {
       </main>
     );
   }
-  const cur = stack[stack.length - 1];
-  const needsProfile = !init.profile && cur.name !== "home";
+  const needsProfile = !init.profile && cur.name !== "home" && !isPlatformService;
   // The bottom bar shows on the five main sections only (never inside a product, form or order, which have their own Back).
   const onRoot = !!init.profile && stack.length <= 2 && MAIN_TABS.some((t) => t.name === cur.name);
   return (
@@ -172,7 +177,7 @@ function Shell() {
         {stack.length > 1 && !native && !onRoot && (
           <button type="button" onClick={() => void back()} className="mb-3 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-bold active:opacity-70" style={{ background: "var(--app-chip)", color: "var(--app-link)" }}>رجوع ›</button>
         )}
-        {!init.profile ? <ProfileForm first /> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} />}
+        {!init.profile && !isPlatformService ? <><ProfileForm first /><PlatformServicesAccess /></> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} />}
       </main>
       {onRoot && <BottomBar current={cur.name} badge={init.counts.offersWaiting} />}
     </InitCtx.Provider>
@@ -202,6 +207,7 @@ function BottomBar({ current, badge }: { current: string; badge: number }) {
 
 function Screens({ cur }: { cur: Screen }) {
   const p = cur.params || {};
+  const { init } = useInit();
   switch (cur.name) {
     case "home": return <Home />;
     case "store": return <StoreScreen tab={p.tab} otab={p.otab} />;
@@ -223,6 +229,8 @@ function Screens({ cur }: { cur: Screen }) {
     case "wallet": return <WalletScreen />;
     case "profile_edit": return <ProfileForm />;
     case "info": return <InfoScreen />;
+    case "remit": return <RemitSection pay={p.pay || null} />;
+    case "exchange": return <ExchangeSection username={init.user.username} />;
   }
   return <Home />;
 }
@@ -258,7 +266,34 @@ function Home() {
         <Tile icon="🛍" title="متاجر البائعين" sub="تسوّق من متجر بائع" tone="#d97706" onClick={() => push({ name: "shops" })} />
         <Tile icon="ℹ️" title="معلومات" sub="اقتراح، مراسلة الإدارة، مشاركة البوت" tone="#64748b" onClick={() => push({ name: "info" })} />
       </div>
+      <PlatformServicesAccess />
     </>
+  );
+}
+
+function PlatformServicesAccess() {
+  const { push } = useApp();
+  return (
+    <>
+      <div className="mb-2 mt-5 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>خدمات المنصة</div>
+      <div className="space-y-2.5">
+        <PlatformServiceTile icon="💸" title="حوالات USDT" sub="أرسل حوالة USDT وتابع حالتها خطوة بخطوة" tone="#059669" onClick={() => push({ name: "remit" })} />
+        <PlatformServiceTile icon="📣" title="بورصة القنوات والجروبات" sub="اشترِ إعلاناً في قناة موثّقة أو اعرض قناتك للبيع" tone="#7c3aed" onClick={() => push({ name: "exchange" })} />
+      </div>
+    </>
+  );
+}
+
+function PlatformServiceTile({ icon, title, sub, tone, onClick }: { icon: string; title: string; sub: string; tone: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-2xl p-4 text-start transition active:scale-[0.99]" style={{ background: "var(--app-card)" }}>
+      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl" style={{ background: `color-mix(in srgb, ${tone} 16%, transparent)` }}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[16px] font-extrabold" style={{ color: "var(--app-text)" }}>{title}</span>
+        <span className="mt-0.5 block text-xs leading-5" style={{ color: "var(--app-hint)" }}>{sub}</span>
+      </span>
+      <span className="app-chev inline-block text-lg" aria-hidden style={{ color: "var(--app-hint)" }}>‹</span>
+    </button>
   );
 }
 

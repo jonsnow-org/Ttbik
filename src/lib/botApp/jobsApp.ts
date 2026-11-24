@@ -2,7 +2,7 @@
  * The jobs/store bot's own Mini App (JOBS_BOT, @Saragptbotbot), server side. Every action runs for the Telegram user proven by
  * initData signed with THIS bot's token (checked by /api/bot-app/[botId]). The rules are the chat's own (src/lib/jobs/core.ts,
  * src/lib/jobsTenders.ts, src/lib/jobs/shop.ts): the same gates (ban, mute, required channel, verified phone, profile), the same
- * roles, the same escrow, offers, disputes, featured listings and tenders. Chat notifications go out through src/lib/jobs/notify.ts.
+ * roles, the same escrow, offers, disputes, featured listings and tenders. Chat notifications go out through src/lib/jobs/notify.ts. The shared platform services (USDT remittances and channel/group exchange) are dispatched to src/lib/botApp/platformServices.ts and never use the Jobs balance ledger.
  */
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow, JobsProfile } from "@prisma/client";
@@ -25,6 +25,7 @@ import {
 import { STAR_DEPOSIT_TIERS, STARS_PER_USD, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
+import { handlePlatformServiceAction, isPlatformServiceAction } from "@/lib/botApp/platformServices";
 
 export type AppResult = { ok: true; [k: string]: unknown } | { ok: false; error: string; code?: string; [k: string]: unknown };
 const fail = (error: string, code?: string): AppResult => ({ ok: false, error, ...(code ? { code } : {}) });
@@ -110,6 +111,13 @@ export async function handleJobsAppAction(botRow: BotRow, tg: TgWebAppUser, acti
     };
   }
   if (!(await passesChannelGate(bot, botRow, uid))) return fail("انضم إلى قناة البوت أولاً.", "gate");
+  if (isPlatformServiceAction(action)) {
+    const service = await handlePlatformServiceAction(botRow, tg, action, body, {
+      firstName: tg.firstName || "", lastName: tg.lastName || null, username: tg.username || null,
+      phoneNumber: user.phoneNumber || null, phoneVerified: !!user.phoneVerified,
+    });
+    if (service) return service;
+  }
   // Same as the chat: verifying the phone number is mandatory before using the bot (shared from Telegram's own contact button).
   if (!user.phoneVerified) return fail("📱 التحقق من رقم الهاتف خطوة إلزامية قبل استخدام هذا البوت.", "phone");
 

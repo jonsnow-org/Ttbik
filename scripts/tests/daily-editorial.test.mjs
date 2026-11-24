@@ -567,3 +567,28 @@ test("24 November Euclid quasar discovery is bilingual and separates the cosmic 
   assert.match(arabic.paragraphs.join(" "), /لا نتيجة أثبتتها هذه المشاهدات/);
   assert.match(english.body.join(" "), /not a formation pathway established by these observations/);
 });
+
+
+test("24 November Japan economic assessment is bilingual and does not turn a qualitative downgrade into a measured spending decline", () => {
+  const slug = "japan-november-consumer-spending-assessment-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Japan economic briefing is missing");
+  assert.ok(english, "English Japan economic briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /08:21 UTC/);
+  assert.match(english.contextDateLabel, /08:21 UTC/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("cao.go.jp/keizai3/getsurei-e/2026nov.html")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("reuters.com/markets/asia/japan-cuts-view-consumer-spending")));
+  assert.match(arabic.description, /لا يثبت انخفاضاً رقمياً/);
+  assert.match(english.dek, /not a measured fall in spending/i);
+  assert.match(arabic.paragraphs.join(" "), /للمرة الأولى منذ فبراير 2024/);
+  assert.match(english.body.join(" "), /first time since February 2024/i);
+  assert.match(arabic.paragraphs.join(" "), /معدات تصنيع أشباه الموصلات/);
+  assert.match(english.body.join(" "), /semiconductor-manufacturing equipment/i);
+  assert.match(arabic.paragraphs.join(" "), /لا تقدم توصية مالية أو استثمارية/);
+  assert.match(english.body.join(" "), /not financial or investment advice/i);
+});

@@ -19,6 +19,7 @@ export default async function BotAppPage({ params, searchParams }: { params: Pro
   const { botId } = await params;
   const sp = await searchParams;
   const s = appSection(sp.s);
+  const pay = typeof sp.pay === "string" ? remitPayPayload(`pay_${sp.pay}`) : null;
   const row = await prisma.bot.findUnique({ where: { id: botId }, select: { template: true } }).catch(() => null);
   if (row?.template === "STREAK_BOT") {
     const k = typeof sp.k === "string" && /^[a-z2-9]{8}$|^\d{1,12}$/.test(sp.k) ? sp.k : null;
@@ -26,10 +27,9 @@ export default async function BotAppPage({ params, searchParams }: { params: Pro
   }
   if (row?.template === "JOBS_BOT") {
     const str = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : null);
-    const jobsSections = ["store", "shops", "shop", "myshop", "orders", "work", "tenders", "account"] as const;
+    const jobsSections = ["store", "shops", "shop", "myshop", "orders", "work", "tenders", "account", "remit", "exchange"] as const;
     const js = (jobsSections as readonly string[]).includes(s) ? (s as (typeof jobsSections)[number]) : "home";
-    return <JobsMiniApp botId={botId} section={js} slug={str(sp.slug, /^[a-z2-9]{7}$/)} item={str(sp.item, /^[0-9a-f-]{36}$/i)} />;
+    return <JobsMiniApp botId={botId} section={js} slug={str(sp.slug, /^[a-z2-9]{7}$/)} item={str(sp.item, /^[0-9a-f-]{36}$/i)} pay={js === "remit" ? pay : null} />;
   }
-  const pay = typeof sp.pay === "string" ? remitPayPayload(`pay_${sp.pay}`) : null;
   return <BotMiniApp botId={botId} section={["home", "earn", "create", "ads", "wallet", "referrals", "remit", "exchange"].includes(s) ? s : "home"} pay={pay} />;
 }
