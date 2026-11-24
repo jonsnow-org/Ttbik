@@ -1,5 +1,5 @@
 // Long-term memory of the coder, per user (owner's order, 2026-10-21). Zero cost: rows in the site's own Postgres, ranking in code
-// (keyword overlap + recency + scope), extraction by the same free coder model. Strictly per user: every query is keyed by the user's
+// (Arabic-aware BM25 + phrase/fuzzy overlap + recency + repo scope), extraction by the same free coder model. Strictly per user: every query is keyed by the user's
 // chat key and an id from another user never matches. Kinds: preference / fact (project fact) / decision. Scope: global or one repo.
 // Facts are extracted at the end of a task only from what the USER said and the coder's own replies — never from tool output
 // (web pages, files, issues), so a fetched page cannot plant a "memory".
@@ -55,17 +55,19 @@ function ensureTable(db: Db): Promise<void> {
   return ready;
 }
 
-export async function listMemories(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
-  try {
-    await ensureTable(db);
-    const rows = await db.query<Memory>(`SELECT id, scope, kind, text, source_run, created_at, updated_at FROM coder_memories WHERE chat_key = $1 ORDER BY updated_at DESC LIMIT 500`, keyOf(chatId));
-    return rows.map((r) => ({ ...r, id: Number(r.id), created_at: String(r.created_at), updated_at: String(r.updated_at) }));
-  } catch {
-    return [];
-  }
+/** Strict read used by the agent: storage outages must not look like an empty memory store. */
+export async function listMemoriesStrict(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
+  await ensureTable(db);
+  const rows = await db.query<Memory>('SELECT id, scope, kind, text, source_run, created_at, updated_at FROM coder_memories WHERE chat_key = $1 ORDER BY updated_at DESC LIMIT 500', keyOf(chatId));
+  return rows.map((r) => ({ ...r, id: Number(r.id), created_at: String(r.created_at), updated_at: String(r.updated_at) }));
 }
 
-export type SaveResult = { action: "added" | "updated" | "unchanged" | "invalid"; id?: number; previous?: string };
+/** Safe display fallback for non-critical UI callers; agent paths use listMemoriesStrict. */
+export async function listMemories(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
+  try { return await listMemoriesStrict(chatId, db); } catch { return []; }
+}
+
+export type SaveResult = { action: "added" | "updated" | "unchanged" | "invalid" | "error"; id?: number; previous?: string };
 /**
  * Saves one memory with de-duplication: the same thing again only refreshes it; a fact on the same subject that says something else
  * (high overlap, same kind and scope) replaces the old one — the newest statement wins. `replaces` points at an old memory explicitly.
@@ -79,7 +81,7 @@ export async function saveMemory(
   const scope = normScope(m.scope, m.repo);
   try {
     await ensureTable(db);
-    const mine = await listMemories(chatId, db);
+    const mine = await listMemoriesStrict(chatId, db);
     let best: Memory | null = null;
     let bestSim = 0;
     let dup: Memory | null = null;
@@ -102,13 +104,13 @@ export async function saveMemory(
     const rows = await db.query<{ id: number }>(`INSERT INTO coder_memories (chat_key, scope, kind, text, source_run) VALUES ($1, $2, $3, $4, $5) RETURNING id`, keyOf(chatId), scope, kind, text, m.source ?? null);
     return { action: "added", id: Number(rows[0]?.id) };
   } catch {
-    return { action: "invalid" };
+    return { action: "error" };
   }
 }
 
 /** Edit from the Mini App or /memory (only the user's own row). */
 export async function updateMemory(chatId: number | string, id: number, patch: { text?: string; kind?: unknown; scope?: unknown }, db: Db = prismaDb): Promise<boolean> {
-  const rows = (await listMemories(chatId, db)).filter((x) => x.id === Number(id));
+  const rows = (await listMemoriesStrict(chatId, db)).filter((x) => x.id === Number(id));
   if (!rows.length) return false;
   const cur = rows[0];
   const text = patch.text !== undefined ? String(patch.text).replace(/\s+/g, " ").trim().slice(0, MEMORY_TEXT_MAX) : cur.text;
