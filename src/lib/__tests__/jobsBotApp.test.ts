@@ -435,6 +435,18 @@ describe("phone verification contact webhook", () => {
     expect(api.sendMessage).toHaveBeenCalledWith(9001, expect.stringContaining("تم التحقق"), expect.any(Object));
   });
 
+  it("opens a shared receive link in this Jobs bot before its phone/profile gate", async () => {
+    user("4242", 0, { phoneVerified: false });
+    const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
+      message: { message_id: 904, chat: { id: 4242, type: "private" }, from: { id: 4242, first_name: "Sam" }, text: `/start pay_${address}` },
+    });
+    const sent = api.sendMessage.mock.calls.find((call: any[]) => String(call[1]).includes("حوالة USDT جاهزة"));
+    expect(sent).toBeTruthy();
+    expect(JSON.stringify(sent?.[2]?.reply_markup)).toContain("pay=" + address);
+    expect(JSON.stringify(sent?.[2]?.reply_markup)).toContain("remit");
+  });
+
   it("does not verify a different person's contact", async () => {
     user("4242", 0, { phoneVerified: false });
     await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
