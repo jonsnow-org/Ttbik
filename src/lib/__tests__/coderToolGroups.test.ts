@@ -81,7 +81,8 @@ describe("small-context tool schema safety", () => {
     process.env.CODER_TOOL_GROUPS = mode;
     try {
       noteStudioCtx("ctx-error", 16384);
-      const tools = coderToolsFor(true, false, [{ role: "user", content: "ابدأ المهمة" }]);
+      const allStickyGroups = Object.keys(toolGroups(true, false));
+      const tools = coderToolsFor(true, false, [{ role: "user", content: "ابدأ المهمة" }], allStickyGroups);
       const toolNames = names(tools);
       expect(toolNames).toContain("load_tools");
       expect(toolNames).not.toContain("github_repo_audit");

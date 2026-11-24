@@ -5,7 +5,7 @@
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
 import { NOVA_SKILL_NAMES, novaSkillText } from "@/lib/skillsNova";
-import { historyChars } from "@/lib/coderContext";
+import { ctxTokens, historyChars } from "@/lib/coderContext";
 import { AGENT_SYSTEM, AGENT_TOOL_NAMES, HELPER_IDS, TESTER_TOOL_NAMES, agentsEnabled, maxParallelAgentsForStudios, toolGroupsLazy, type AgentRole } from "@/lib/coderAgents";
 import { agentsAllowedFor, coderStudioUrls, type CoderMessage, type CoderTool, type CoderToolCall } from "@/lib/openCoderStudio";
 import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
@@ -322,7 +322,8 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
     return compactOn() ? all.map(compactTool) : all;
   }
   const loaded = loadedGroups(msgs, groups);
-  for (const g of keep) if (groups[g]) loaded.add(g);                       // groups used before a segment break stay loaded (the new context starts empty)
+  // At <=16k, stale sticky groups from earlier tasks can recreate the oversized schema list. The model can reload what it needs via load_tools.
+  if (ctxTokens() > 16384) for (const g of keep) if (groups[g]) loaded.add(g); // larger contexts retain groups across segment breaks
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
   return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
 }
