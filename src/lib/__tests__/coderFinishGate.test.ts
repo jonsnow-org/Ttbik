@@ -21,6 +21,8 @@ describe("owner finish gate", () => {
     expect(worthALesson(GOAL, ["computer_publish"])).toBe(true);
     expect(worthALesson("من انت", [])).toBe(true);
     expect(madeChanges(["computer_run", "computer_test"])).toBe(false);
+    expect(madeChanges(["github_create_branch", "github_create_pr", "github_run_workflow"])).toBe(false);
+    expect(madeChanges(["sandbox_write_file"])).toBe(true);
   });
   test("tool names are read from the messages", () => {
     expect(toolNamesIn([{ tool_calls: [{ function: { name: "computer_edit" } }] }, {}])).toEqual(["computer_edit"]);
@@ -147,6 +149,27 @@ describe("verified changes require a successful matching tool result", () => {
     expect(madeSuccessfulChanges(messages)).toBe(true);
     expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0, messages)).toBe(false);
     expect(worthALesson(GOAL, ["computer_edit"], messages)).toBe(true);
+  });
+
+
+  test("sandbox writes count, but read-only computer batches and PR creation do not", () => {
+    const sandbox = { id: "sbx-1", type: "function" as const, function: { name: "sandbox_write_file", arguments: "{}" } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [sandbox] },
+      { role: "tool", tool_call_id: "sbx-1", content: "wrote /tmp/task.txt" },
+    ])).toBe(true);
+
+    const batch = { id: "batch-1", type: "function" as const, function: { name: "computer_batch", arguments: JSON.stringify({ steps: [{ tool: "computer_read", path: "README.md" }] }) } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [batch] },
+      { role: "tool", tool_call_id: "batch-1", content: "read README.md" },
+    ])).toBe(false);
+
+    const pr = { id: "pr-1", type: "function" as const, function: { name: "github_create_pr", arguments: "{}" } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [pr] },
+      { role: "tool", tool_call_id: "pr-1", content: "Created pull request #12" },
+    ])).toBe(false);
   });
 
   test("a false claim after a failed write is sent back for real work", () => {
