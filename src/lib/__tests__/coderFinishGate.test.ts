@@ -1,4 +1,4 @@
-import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES, madeSuccessfulChanges } from "../coderFinishGate";
+import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES, madeSuccessfulActions, madeSuccessfulChanges } from "../coderFinishGate";
 
 const GOAL = "اذهب للمستودع وابحث عن بوت سلاسل يومية يوجد له تطبيق مصغر قم باصلاح وتطوير البوت والتطبيق المصغر بشكل كامل";
 const MENU = "بناءً على تحليلي وجدت البوت. هل تريد أن أقوم بإصلاح الكود؟ أخبرني بالخطوة التي تريد البدء بها!";
@@ -21,7 +21,7 @@ describe("owner finish gate", () => {
     expect(worthALesson(GOAL, ["computer_publish"])).toBe(true);
     expect(worthALesson("من انت", [])).toBe(true);
     expect(madeChanges(["computer_run", "computer_test"])).toBe(false);
-    expect(madeChanges(["github_create_branch", "github_create_pr", "github_run_workflow"])).toBe(false);
+    expect(madeChanges(["github_create_branch", "github_create_pr", "github_run_workflow"])).toBe(true);
     expect(madeChanges(["sandbox_write_file"])).toBe(true);
   });
   test("tool names are read from the messages", () => {
@@ -164,6 +164,19 @@ describe("verified changes require a successful matching tool result", () => {
   });
 
 
+  test("a successful branch/PR action counts as progress but not as a code fix or training lesson", () => {
+    const branch = { id: "branch-1", type: "function" as const, function: { name: "github_create_branch", arguments: "{}" } };
+    const messages = [
+      { role: "assistant", tool_calls: [branch] },
+      { role: "tool", tool_call_id: "branch-1", content: "Created branch nova/audit" },
+    ];
+    expect(madeSuccessfulActions(messages)).toBe(true);
+    expect(madeSuccessfulChanges(messages)).toBe(false);
+    expect(finishNudge(GOAL, ["github_create_branch"], "وجدت البوت وأنشأت فرعًا للعمل عليه.", 0, messages)).toBe("");
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إصلاح البوت بالكامل.", 0, messages)).toMatch(/nothing was changed/i);
+    expect(shouldRecoverBlockedAction(GOAL, ["github_create_branch"], 0, messages)).toBe(false);
+    expect(worthALesson(GOAL, ["github_create_branch"], messages)).toBe(false);
+  });
   test("sandbox writes count, but read-only computer batches and PR creation do not", () => {
     const sandbox = { id: "sbx-1", type: "function" as const, function: { name: "sandbox_write_file", arguments: "{}" } };
     expect(madeSuccessfulChanges([
