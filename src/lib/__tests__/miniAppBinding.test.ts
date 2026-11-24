@@ -108,7 +108,8 @@ describe("server: per-model computer and sessions", () => {
       { run_id: "e", slot: "sham_v1", thread_id: null },
     ];
     const ids = async (m: any) => (await tasksOfModel(OWNER, m, tasks, db)).map((t) => t.run_id);
-    expect(await ids("coder")).toEqual(["a", "c"]);
+    expect(await ids("coder")).toEqual(["a", "b", "c"]);            // a run the old "Nova 2" entry started is Nova's run now: it stays visible and stoppable (review note #1198 §2.2)
+
     expect(await ids("nova2")).toEqual(["b"]);
     expect(await ids("sham_v2")).toEqual(["d"]);
     expect(await ids("sham")).toEqual(["e"]);

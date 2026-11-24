@@ -130,21 +130,26 @@ export async function chatMessages(chatId: number, model: ChatModelId, id: strin
 }
 
 type TaskLike = { slot?: string | null; thread_id?: string | null };
+/** `model:nova2` is the slot the app wrote while it still showed Nova 2 as its own entry; the one Nova owns those runs now. */
+const LEGACY_NOVA2_SLOT = "model:nova2";
+
 /**
  * Only the tasks of ONE model (owner 2026-11-18: nothing from another model shows up after a switch).
  * Sham / Sham 2 runs carry their own slot; Nova and Nova 2 runs are told apart by the thread they belong to
  * (each keeps its threads under its own chat id), and Nova also owns its scheduled runs (slot "s:<id>").
+ *
+ * Nova is ONE model (review note #1198 §2.2 item 3): a run started while the old "Nova 2" entry existed belongs to Nova.
+ * Leaving it out of Nova's list made it impossible to stop or carry on with it from the app while it kept using the Studio.
  */
 export async function tasksOfModel<T extends TaskLike>(chatId: number, model: ChatModelId, tasks: T[], db: Db): Promise<T[]> {
   const slotOf = (t: T) => String(t.slot || "");
   if (model === "sham") return tasks.filter((t) => slotOf(t) === "sham" || slotOf(t) === "sham_v1");
   if (model === "sham_v2") return tasks.filter((t) => slotOf(t) === "sham_v2");
   const novaFamily = tasks.filter((t) => slotOf(t) === "" || slotOf(t).startsWith("s:") || slotOf(t) === `model:${model}`);
+  // Nova keeps every run of the Nova family, including the ones the old second entry filed under `model:nova2` (and any run
+  // left in a thread of the old private chat id): the identity changed, the work and the account did not.
+  if (model === "coder") return tasks.filter((t) => { const s = slotOf(t); return s === "" || s.startsWith("s:") || s === "model:coder" || s === LEGACY_NOVA2_SLOT; });
   const idsOf = async (m: ChatModelId) => new Set((await N.listThreads(modelChatId(chatId, m), { limit: 100, archived: "include" }, db).catch(() => [])).map((r) => r.id));
-  if (model === "coder") {
-    const others = new Set<string>([...(await idsOf("nova2"))]);
-    return novaFamily.filter((t) => slotOf(t) !== "model:nova2" && !(t.thread_id && others.has(t.thread_id)));
-  }
   const own = await idsOf(model);
   return novaFamily.filter((t) => slotOf(t) === `model:${model}` || Boolean(t.thread_id && own.has(t.thread_id)));
 }
