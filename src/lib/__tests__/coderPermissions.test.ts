@@ -1,4 +1,4 @@
-import { classifyCall, classifyWorkflow, guardCall, githubClient } from "@/lib/coderAgent";
+import { branchAllowedForWrite, branchPolicyError, classifyCall, classifyWorkflow, guardCall, githubClient } from "@/lib/coderAgent";
 import { decryptToken, encryptToken, resolveConnections, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 
 const call = (name: string, args: object) => ({ id: "c", type: "function" as const, function: { name, arguments: JSON.stringify(args) } });
@@ -26,6 +26,20 @@ const gh = githubClient("t");
 const asks = async (tier: "owner" | "user", c: ReturnType<typeof call>) => (await guardCall(c, gh, tier)).confirm;
 
 beforeEach(mockGithub);
+
+describe("Ttbik persistent branch policy", () => {
+  it("allows only the established work branch for Ttbik writes", () => {
+    const branch = "claude/free-services-marketplace-h6rwk2";
+    expect(branchAllowedForWrite("jonsnow-org/Ttbik", branch)).toBe(true);
+    expect(branchAllowedForWrite("JONSNOW-ORG/TTBIK", "fix/session-branch")).toBe(false);
+    expect(branchPolicyError("jonsnow-org/Ttbik", "fix/session-branch")).toContain(branch);
+  });
+
+  it("does not impose the Ttbik branch rule on unrelated repositories", () => {
+    expect(branchAllowedForWrite("another-org/another-repo", "feature-x")).toBe(true);
+    expect(branchPolicyError("another-org/another-repo", "feature-x")).toBeNull();
+  });
+});
 
 describe("regular user tier", () => {
   it("runs reading, planning, branches, feature pushes, PRs, CI checks and test workflows without asking", async () => {
