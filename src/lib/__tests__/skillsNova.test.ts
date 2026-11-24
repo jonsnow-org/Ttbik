@@ -25,6 +25,17 @@ describe("Nova self-test skill", () => {
   });
 });
 
+describe("Nova Git workflow skill", () => {
+  const skill = novaSkillText("git");
+
+  it("lets Nova choose between resuming a branch and creating a focused task branch", () => {
+    for (const term of ["Inspect the repository's default branch", "resume a branch that already contains related work", "create a focused task branch", "Nova is free to create one when engineering judgment calls for it", "selected-target-branch"]) {
+      expect(skill).toContain(term);
+    }
+    expect(skill).not.toMatch(/Never create a new branch|sole working branch|only .*existing-working-branch/i);
+  });
+});
+
 describe("Nova self-improvement skill", () => {
   const skill = novaSkillText("self_improve");
 
