@@ -69,6 +69,12 @@ export function stalledActionNote(goal: string, toolNames: string[]): string {
     + "اكتب «تابع» وسأكمل من أول خطوة فعلية: البحث داخل المستودع عن الاسم الذي ذكرته ثم قراءة الملفات التي يجدها.";
 }
 
+/** A repeated-reply guard must trigger a recovery plan before it gives up on an authorised action. */
+export const BLOCKED_REPLY_RECOVERIES = 2;
+export function shouldRecoverBlockedAction(goal: string, toolNames: string[], recoveries: number): boolean {
+  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !madeChanges(toolNames);
+}
+
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */
 export function worthALesson(goal: string, toolNames: string[]): boolean {
   return !isActionGoal(goal) || madeChanges(toolNames);
