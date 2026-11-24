@@ -493,5 +493,14 @@ class IdentityGate(unittest.TestCase):
             self.assertFalse(on)
 
 
+
+class UnfilledSlots(unittest.TestCase):
+    def test_slot_pattern(self):
+        for bad in ("$ echo @T1", "الخرج: @T1", "python3 -c 'for i in range(@N1,@N2+1)'", "cat @F1"):
+            self.assertTrue(S.UNFILLED_SLOT.search(bad), bad)
+        for ok in ("$ echo SHAM_OK", "user@host", "a@b.com", "$ ls -la", "الخرج: 391"):
+            self.assertFalse(S.UNFILLED_SLOT.search(ok), ok)
+
+
 if __name__ == "__main__":
     unittest.main()

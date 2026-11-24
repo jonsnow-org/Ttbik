@@ -477,6 +477,10 @@ def build_feature_head(state: dict, cfg: dict, d_in: int, block: int):
     return head
 
 
+UNFILLED_SLOT = re.compile(r"@[A-Z]\d")
+NO_STEP_REPLY = "تعذّر عليّ تحديد أمر مناسب لهذا الطلب."
+
+
 def make_feature_writer(body, tok, cfg: dict, heads: dict):
     """writer(task, hist) -> "$ <command>" or the reply, from the cached-mode heads.
 
@@ -502,7 +506,12 @@ def make_feature_writer(body, tok, cfg: dict, heads: dict):
             dt, _, slots = AUG.delex(task or "")
             dh = [(AUG.apply_slots(c, slots), AUG.apply_slots(r, slots)) for c, r in pairs]
             n = int(cfg.get("loop_in_len", 96))
-            return AUG.relex(write(loop, loop_ids(tok, dt, dh, n), n), slots)
+            out = AUG.relex(write(loop, loop_ids(tok, dt, dh, n), n), slots)
+            # live 2026-11-24: «شغّل الأمر echo SHAM_OK» -> the head wrote "$ echo @T1" (a slot the task never had: it was trained on templated tasks
+            # with tokens like ZX7Q-4821) and replied «الخرج: @T1». A command or reply still holding a slot invents its argument: it is not run.
+            if UNFILLED_SLOT.search(out or ""):
+                return NO_STEP_REPLY
+            return out
         if pairs:
             return pairs[-1][1].strip() or "Done."
         n = int(cfg.get("in_len", 64))
