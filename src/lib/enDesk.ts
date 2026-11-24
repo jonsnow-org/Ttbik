@@ -48,7 +48,6 @@ export const EN_NEWS: DeskItem[] = [
   ]
 },
 
-export const EN_NEWS: DeskItem[] = [
 {
   "slug": "cuba-who-immunization-support-2026",
   "title": "WHO announces $2 million for immunization support in Cuba",

@@ -50,7 +50,6 @@ export const NEWS_ITEMS: NewsItem[] = [
   ]
 },
 
-export const NEWS_ITEMS: NewsItem[] = [
 {
   "slug": "cuba-who-immunization-support-2026",
   "title": "منظمة الصحة العالمية تعلن دعماً بقيمة مليوني دولار للتحصين في كوبا",
