@@ -38,15 +38,17 @@ function toolOutputFailed(output: string): boolean {
 function madeSuccessfulToolAction(messages: GateMessage[], allowed: RegExp): boolean {
   for (const result of messages || []) {
     if (result.role !== "tool" || !result.tool_call_id) continue;
-    const name = String((result as GateMessage & { name?: string }).name || "");
+    let callName = "";
+    let callArgs = "";
+    for (const message of messages || []) {
+      const call = (message.tool_calls || []).find((item) => item.id === result.tool_call_id);
+      if (call) { callName = String(call.function?.name || ""); callArgs = String(call.function?.arguments || ""); break; }
+    }
+    const name = String((result as GateMessage & { name?: string }).name || callName);
     if (!allowed.test(name)) continue;
     if (name === "computer_batch") {
-      // A batch only counts when its output contains at least one successful write-like step.
       let args: { steps?: Array<{ tool?: string }> } | undefined;
-      for (const message of messages || []) {
-        const call = (message.tool_calls || []).find((item) => item.id === result.tool_call_id);
-        if (call) { try { args = JSON.parse(call.function?.arguments || "{}"); } catch { args = undefined; } break; }
-      }
+      try { args = JSON.parse(callArgs || "{}"); } catch { args = undefined; }
       if (!args?.steps?.some((step) => allowed.test(String(step?.tool || "")))) continue;
     }
     if (!toolOutputFailed(String(result.content || ""))) return true;
