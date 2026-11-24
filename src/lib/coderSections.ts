@@ -49,7 +49,7 @@ import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskS
 import { defaultTz } from "@/lib/coderCron";
 import { beginStep, clock12, endStep, renderTimeline, stepLabel, understandRequest, understandingPrompt, type Step } from "@/lib/agentCard";
 import { isolateLegacyCarryState } from "@/lib/coderChats";
-import { priorAssistantReplies, visibleNovaReply } from "@/lib/novaReplyGuard";
+import { collapseAdjacentDuplicateSentences, priorAssistantReplies, visibleNovaReply } from "@/lib/novaReplyGuard";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -2618,10 +2618,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // the model only announced what it will do ("سأقوم الآن بالبحث...") and stopped: not an answer. The text is still sent (a streamed draft that is not finalised vanishes in Telegram); the model is then told to act now (twice at most).
       if (!completedCalls.length && !run.agent && (run.announceNudges || 0) < 2 && text.trim().length < 900 && /(?:سأقوم|سوف أقوم|سأبدأ|سأبحث|سأحاول|سأستخدم|لذلك،? سأ)|\b(?:I(?:'ll| will) (?:now )?(?:search|try|run|use|look)|Let me (?:search|try|look))/i.test(text) && !/[؟?]\s*$/.test(text.trim())) {
         run.announceNudges = (run.announceNudges || 0) + 1;
-        const announcementKey = text.trim().replace(/\s+/g, " ");
-        if (announcementKey !== run.lastAnnouncement) {
-          await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
-          st.messages.push({ role: "assistant", content: text });
+        // This path runs before the final-reply guard, so collapse duplicate blocks here too.
+        const announcementText = collapseAdjacentDuplicateSentences(text);
+        const announcementKey = announcementText.replace(/\s+/g, " ");
+        if (announcementKey && announcementKey !== run.lastAnnouncement) {
+          await sendParts(run.surface === "app" ? bot : ioBot, chatId, announcementText, run, true, db);
+          st.messages.push({ role: "assistant", content: announcementText });
           run.lastAnnouncement = announcementKey;
         } else {
           await taskEvent(run.id, "info", "↩️ تم تجاهل إعلان مكرر؛ أُعيد توجيه النموذج إلى تنفيذ الأداة بدلاً من تكرار الرسالة.", db);

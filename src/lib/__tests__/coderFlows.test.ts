@@ -1,5 +1,6 @@
 // Permission policy, "allow for the rest of this task", task history, scheduled runs in their own slot, and the schedule store.
 import { drive, handleCoderSections, loadState, resolvePending, saveState, startScheduledRun, type Db } from "@/lib/coderSections";
+import { collapseAdjacentDuplicateSentences } from "@/lib/novaReplyGuard";
 import { setPref } from "@/lib/coderPrefs";
 import { claimDue, createSchedule, deleteSchedule, eventSummary, fanOut, listSchedules, scheduleChatId, setPaused, updateSchedule, verifyHubSignature, verifyRun } from "@/lib/coderSchedules";
 import { createHmac } from "crypto";
@@ -515,6 +516,24 @@ describe("research fast path for GitHub requests", () => {
 });
 
 describe("announce-only replies", () => {
+  it("collapses duplicate announcement blocks and suppresses the same announcement when the model repeats it on the next step", async () => {
+    const block = "SHAM AI:\nسأبدأ فوراً بتنفيذ المهمة. دعني أحلل المستودع وأبدأ بالتنفيذ.";
+    const duplicate = block + "\n\n" + block;
+    expect(collapseAdjacentDuplicateSentences(duplicate)).toBe(block);
+    studio([
+      { type: "done", job: "j1", text: duplicate, tool_calls: [] },
+      { type: "done", job: "j2", text: duplicate, tool_calls: [] },
+      { type: "done", job: "j3", text: "تم تنفيذ المهمة والتحقق منها بنجاح.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, st0("نفّذ المهمة", run("announce-duplicate")), db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    const all = sent.map((entry) => entry.text).join("\n");
+    expect((all.match(/سأبدأ فوراً/g) || [])).toHaveLength(1);
+    expect(all).toContain("تم تنفيذ المهمة والتحقق منها بنجاح.");
+  });
+
   it("a reply that only says it will search is still shown (a streamed draft must be finalised), then the model is told to act and the real answer follows", async () => {
     const calls = studio([
       { type: "done", job: "j1", text: "النتائج غير موجودة. سأقوم الآن بالبحث عن مقالات تقنية.", tool_calls: [] },
