@@ -1,5 +1,5 @@
 // Long-term memory: store with de-duplication and conflict updates, ranking, per-user isolation, extraction, tools, prompt, app ops.
-import { explicitMemories, extractMemories, extractionConvo, listMemories, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, memTerms, memorySearchTerms, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
+import { explicitMemories, extractMemories, extractionConvo, listMemories, listMemoriesStrict, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, memTerms, memorySearchTerms, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
 import { appOp } from "@/lib/coderApp";
 import { classifyCall } from "@/lib/coderAgent";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -47,6 +47,21 @@ describe("store", () => {
   });
 });
 
+describe("memory storage outages are not reported as an empty store", () => {
+  const brokenDb = () => ({
+    exec: jest.fn(async () => undefined),
+    query: jest.fn(async () => { throw new Error("database offline"); }),
+  }) as any;
+
+  it("fails closed and tells the model that memory could not be read or written", async () => {
+    const db = brokenDb();
+    await expect(listMemoriesStrict(A, db)).rejects.toThrow("database offline");
+    expect((await saveMemory(A, { text: "A durable project fact", kind: "fact" }, db)).action).toBe("error");
+    expect(await memoryTool(A, "memory_search", { query: "project" }, "r", db)).toMatch(/storage is unavailable/);
+    expect(await memoryTool(A, "memory_save", { text: "A durable project fact", kind: "fact" }, "r", db)).toMatch(/nothing was saved/);
+    expect(await memoryPrompt(A, "project", undefined, db)).toMatch(/temporarily unavailable/);
+  });
+});
 describe("ranking and prompt", () => {
   const mem = (id: number, text: string, kind: Memory["kind"], scope = "global", daysAgo = 0): Memory => {
     const d = new Date(Date.parse("2026-10-21T00:00:00Z") - daysAgo * 86400000).toISOString();
