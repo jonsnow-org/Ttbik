@@ -159,6 +159,10 @@ describe("verified changes require a successful matching tool result", () => {
       { role: "assistant", tool_calls: [editCall] },
       { role: "tool", tool_call_id: "edit-1", content: "{\"ok\":true,\"errors\":[]}" },
     ])).toBe(true);
+    // Some Studio adapters persist the named tool result but omit the assistant call object.
+    expect(madeSuccessfulChanges([
+      { role: "tool", tool_call_id: "edit-1", name: "computer_edit", content: "Edited src/app.ts successfully" } as any,
+    ])).toBe(true);
     expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0, messages)).toBe(false);
     expect(worthALesson(GOAL, ["computer_edit"], messages)).toBe(true);
   });
