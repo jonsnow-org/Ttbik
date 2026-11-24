@@ -62,7 +62,7 @@ class Desktop(unittest.TestCase):
         return json.loads(desktop.api_desktop_do(json.dumps(body)))
 
     def test_taskbar_browser_launcher_fails_closed_without_proxy(self):
-        with patch.object(desktop, "_proxy_flags", return_value=[]):
+        with patch.object(desktop, "_proxy_flags", side_effect=RuntimeError("proxy unavailable")):
             script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
         self.assertIn("disabled", script.lower())
         self.assertNotIn("find ", script)
