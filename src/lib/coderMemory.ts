@@ -122,15 +122,10 @@ export async function updateMemory(chatId: number | string, id: number, patch: {
 }
 
 export async function deleteMemory(chatId: number | string, id: number, db: Db = prismaDb): Promise<boolean> {
-  try {
-    await ensureTable(db);
-    const rows = await db.query<{ id: number }>(`DELETE FROM coder_memories WHERE chat_key = $1 AND id = $2 RETURNING id`, keyOf(chatId), Number(id));
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+  await ensureTable(db);
+  const rows = await db.query<{ id: number }>(`DELETE FROM coder_memories WHERE chat_key = $1 AND id = $2 RETURNING id`, keyOf(chatId), Number(id));
+  return rows.length > 0;
 }
-
 // ---------------------------------------------------------------- retrieval
 /**
  * Search-only normalisation: keep stored text untouched while making common Arabic spelling variants,
@@ -196,12 +191,14 @@ export function rankMemories(rows: Memory[], query: string, repo?: string, now =
 }
 
 export async function searchMemories(chatId: number | string, query: string, repo?: string, limit = MEMORY_PROMPT_MAX, db: Db = prismaDb): Promise<Memory[]> {
-  return rankMemories(await listMemories(chatId, db), query, repo).slice(0, limit).map((x) => x.m);
+  return rankMemories(await listMemoriesStrict(chatId, db), query, repo).slice(0, limit).map((x) => x.m);
 }
 
 /** The block added to the system prompt at the start of a task (empty when nothing relevant). */
 export async function memoryPrompt(chatId: number | string, query: string, repo?: string, db: Db = prismaDb): Promise<string> {
-  const top = await searchMemories(chatId, query, repo, MEMORY_PROMPT_MAX, db);
+  let top: Memory[];
+  try { top = await searchMemories(chatId, query, repo, MEMORY_PROMPT_MAX, db); }
+  catch { return "Long-term memory storage is temporarily unavailable. Do not assume the user has no saved memories; continue the task without memory and report this only if it materially affects the result."; }
   if (!top.length) return "";
   const lines = top.map((m) => `- #${m.id} [${m.kind}${m.scope === "global" ? "" : ` ${m.scope.slice(5)}`}] ${m.text}`);
   return `What you remember about this user (long-term memory; follow preferences, but the current request wins on conflict; correct stale ones with memory_save, remove wrong ones with memory_forget):\n${lines.join("\n").slice(0, 2500)}`;
