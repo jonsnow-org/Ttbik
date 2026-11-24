@@ -155,6 +155,10 @@ describe("verified changes require a successful matching tool result", () => {
       { role: "tool", tool_call_id: "edit-1", content: "Edited src/app.ts successfully" },
     ];
     expect(madeSuccessfulChanges(messages)).toBe(true);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "{\"ok\":true,\"errors\":[]}" },
+    ])).toBe(true);
     expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0, messages)).toBe(false);
     expect(worthALesson(GOAL, ["computer_edit"], messages)).toBe(true);
   });
