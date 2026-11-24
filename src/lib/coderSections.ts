@@ -2685,7 +2685,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
-        text = gate.stalledActionNote(goal, usedTools) || text;
+        text = gate.stalledActionNote(goal, usedTools, st.messages as never) || text;
       }
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
