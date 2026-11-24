@@ -10,6 +10,7 @@ describe("stall detection", () => {
     expect(isToolError("repository ready in /home/user/repo")).toBe(false);
     expect(isToolError("not executed: repository is already on your computer")).toBe(false);
     expect(isToolError("{\"ok\":true,\"path\":\"/home/user/repos/project\"}")).toBe(false);
+    expect(isToolError("{\"ok\":true,\"errors\":[]}")).toBe(false);
     expect(isToolError("Found 12 matching files")).toBe(false);
   });
 
