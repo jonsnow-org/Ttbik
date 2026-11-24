@@ -927,8 +927,8 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (!path.startsWith("/")) return "error: path must start with /";
       const method = String(a.method || "GET").toUpperCase();
       if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO && !["GET", "HEAD"].includes(method)) {
-        if (path === "/git/refs" || /^\\/git\\/refs\\/heads\\//.test(path)) return "error: single-branch policy blocks raw ref creation or mutation";
-        if (/^\\/contents\\//.test(path)) {
+        if (path === "/git/refs" || /^\/git\/refs\/heads\//.test(path)) return "error: single-branch policy blocks raw ref creation or mutation";
+        if (/^\/contents\//.test(path)) {
           const policyError = branchPolicyError(String(a.repo), String(a.body?.branch || TTBK_WORK_BRANCH));
           if (policyError) return "error: " + policyError;
         }
@@ -1182,7 +1182,7 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO && String(a.base || "").trim() === TTBK_WORK_BRANCH) return "error: do not open a PR from the working branch into itself";
         const base = String(a.base || "").trim();
         if (!base) return "error: base is required: name the branch this pull request must merge INTO (the one the user told you; ask the user if they did not).";
-        if (String(a.head || "").trim() === base) return "error: head and base are the same branch; push your changes to a new branch first (sandbox_push or github_write_files), then open the pull request from that branch.";
+        if (String(a.head || "").trim() === base) return String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO ? "error: a routine PR cannot target the persistent working branch itself; do not create another branch" : "error: head and base must differ; use an existing source branch";
         const r = await gh("POST", `${R}/pulls`, { head: a.head, base, title: a.title, body: a.body || "" });
         return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url} (${a.head} → ${base}; ${r.data.changed_files ?? "?"} files changed, +${r.data.additions ?? "?"} -${r.data.deletions ?? "?"})` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
       }
