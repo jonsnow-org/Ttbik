@@ -33,8 +33,8 @@ export const EVENT_EXTRAS: EventItem[] = [
   ],
   "sources": [
     {
-      "href": "https://www.who.int/news-room",
-      "label": "منظمة الصحة العالمية — إدراج حملة 16 يوماً ضمن فعاليات 25 نوفمبر–10 ديسمبر 2026"
+      "href": "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026",
+      "label": "منظمة الصحة العالمية — صفحة حملة 16 يوماً لعام 2026، 25 نوفمبر–10 ديسمبر 2026"
     },
     {
       "href": "https://chile.unwomen.org/sites/default/files/2026-08/unite_2026_concept_note_en.pdf",

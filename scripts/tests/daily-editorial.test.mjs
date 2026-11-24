@@ -640,7 +640,7 @@ test("16 Days campaign is upcoming and then current only within its official dat
   assert.equal(arabic.dateLabel, "25 نوفمبر – 10 ديسمبر 2026");
   assert.equal(english.dateLabel, "25 November – 10 December 2026");
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
-  assert.ok(arabic.sources.some((source) => source.href.includes("who.int/news-room")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026")));
   assert.ok(arabic.sources.some((source) => source.href.includes("unwomen.org/sites/default/files/2026-08")));
   assert.equal(isEventCurrent(arabic, "2026-11-24"), false);
   assert.equal(isEventUpcomingOrCurrent(arabic, "2026-11-24"), true);
@@ -651,4 +651,41 @@ test("16 Days campaign is upcoming and then current only within its official dat
   assert.match(english.body.join(" "), /no single start time or time zone/i);
   assert.match(arabic.paragraphs.join(" "), /ضمان العدالة، حماية الناجيات، وإنهاء الإفلات من العقاب/);
   assert.match(english.body.join(" "), /Ensure Justice, Protect Survivors, End Impunity/);
+});
+
+
+test("24 November Gaza meningitis alert keeps Ministry and OCHA surveillance windows distinct in both languages", () => {
+  const slug = "gaza-meningitis-epidemic-alert-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Gaza meningitis briefing is missing");
+  assert.ok(english, "English Gaza meningitis briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-24");
+  assert.equal(english.date, "24 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /11:24/);
+  assert.match(english.contextDateLabel, /11:24/);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const domain of ["wafa.ps", "aa.com.tr", "aljazeera.com", "ochaopt.org"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(domain)), `Missing source ${domain}`);
+  }
+  assert.match(arabic.paragraphs.join(" "), /272 إصابة/);
+  assert.match(english.body.join(" "), /272 infections/);
+  assert.match(arabic.paragraphs.join(" "), /413 حالة محتملة/);
+  assert.match(english.body.join(" "), /413 probable cases/);
+  assert.match(arabic.paragraphs.join(" "), /لا تُجمع الأرقام ولا تُعامل كإحصاء واحد/);
+  assert.match(english.body.join(" "), /should not be added or treated as one dataset/i);
+});
+
+test("Cuba's WHO release and the 16 Days event use direct official WHO pages", () => {
+  const cuba = NEWS_ITEMS.find((item) => item.slug === "cuba-who-immunization-support-2026");
+  const eventAr = EVENT_EXTRAS.find((item) => item.slug === "sixteen-days-activism-gender-based-violence-2026");
+  const eventEn = EN_EVENTS.find((item) => item.slug === "sixteen-days-activism-gender-based-violence-2026");
+  assert.ok(cuba);
+  assert.ok(eventAr);
+  assert.ok(eventEn);
+  assert.ok(cuba.sources.some((source) => source.href === "https://www.who.int/news/item/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba"));
+  assert.ok(eventAr.sources.some((source) => source.href === "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026"));
+  assert.ok(eventEn.sources.some((source) => source.href === "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026"));
+  assert.deepEqual(sourceUrls(eventAr), sourceUrls(eventEn));
 });

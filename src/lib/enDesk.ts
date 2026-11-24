@@ -16,6 +16,40 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "gaza-meningitis-epidemic-alert-2026",
+  "title": "Gaza issues meningitis epidemic alert after 272 cases were reported in October",
+  "date": "24 November 2026",
+  "contextDateLabel": "Gaza Ministry of Health briefing: 24 November 2026 (conference time not stated); WAFA: 24 November 2026, 11:24 a.m. as displayed on the page (time zone not specified); Anadolu Agency and Al Jazeera: 24 November 2026 (no publication time displayed); OCHA report: published 13 November 2026, covering probable cases from 27 September to 31 October and individual line-listing through 5 November; Sham AI item date: 24 November 2026.",
+  "dek": "Gaza health authorities said 272 meningitis infections were recorded in October, more than eight times the usual monthly range. This briefing keeps that ministry figure separate from OCHA's earlier probable-case surveillance for a different reporting period.",
+  "body": [
+    "Gaza's Ministry of Health declared an epidemic alert on 24 November 2026 after a rise in meningitis cases. Health official Nidal Ghoneim told a news conference that 272 infections were reported in October, more than eight times the usual monthly range of 30 to 50. WAFA and Anadolu Agency reported the announcement; Al Jazeera also covered it.",
+    "Ghoneim said 15 people had died from meningitis since the start of 2026. These figures are attributed to local health officials and are not an independently audited case-by-case count.",
+    "In its humanitarian situation report published on 13 November, OCHA recorded 413 probable cases between 27 September and 31 October: 294 probable viral and 119 probable bacterial. It said 68% were in Gaza governorate. Of 202 cases individually documented through 5 November, 77% were infants under one year and 10 bacterial cases had been laboratory-confirmed. These dates and surveillance categories differ from the ministry's 272 October infections; the figures should not be added or treated as one dataset.",
+    "OCHA linked the increase to crowded tents and schools, worsening shelter and sanitation conditions, and exposure to unsafe water. It also described shortages of medicines and health supplies. Those are findings attributed to the UN humanitarian report; the ministry's alert figures remain attributed to Gaza health officials.",
+    "Publication dates: WAFA, 24 November 2026 at 11:24 a.m. as displayed on its page (time zone not specified); Anadolu Agency and Al Jazeera, 24 November 2026 (no publication time shown); OCHA, 13 November 2026. OCHA's data period was 27 September to 31 October, with individual documentation through 5 November."
+  ],
+  "sources": [
+    {
+      "href": "https://english.wafa.ps/Pages/Details/177264",
+      "label": "WAFA — Health sources report 272 Gaza meningitis cases in October, 24 November 2026, 11:24 a.m."
+    },
+    {
+      "href": "https://www.aa.com.tr/en/middle-east/health-ministry-declares-epidemic-alert-in-gaza-amid-sharp-rise-in-meningitis-infections/4135586",
+      "label": "Anadolu Agency — Gaza Health Ministry declares epidemic alert amid meningitis rise, 24 November 2026"
+    },
+    {
+      "href": "https://www.aljazeera.com/news/2026/11/24/israeli-air-strikes-in-gaza-kill-7-as-doctors-warn-of-meningitis-outbreak",
+      "label": "Al Jazeera — Gaza health officials warn of meningitis outbreak, 24 November 2026"
+    },
+    {
+      "href": "https://www.ochaopt.org/content/humanitarian-situation-report-13-november-2026",
+      "label": "UN Office for the Coordination of Humanitarian Affairs — Humanitarian Situation Report, 13 November 2026"
+    }
+  ]
+},
+
+export const EN_NEWS: DeskItem[] = [
+{
   "slug": "cuba-who-immunization-support-2026",
   "title": "WHO announces $2 million for immunization support in Cuba",
   "date": "24 November 2026",
@@ -30,7 +64,7 @@ export const EN_NEWS: DeskItem[] = [
   ],
   "sources": [
     {
-      "href": "https://www.who.int/singapore/news/detail-global/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba",
+      "href": "https://www.who.int/news/item/24-11-2026-who-director-general--announces-support-for-vaccines--medical-equipment-during-official-visit-to-cuba",
       "label": "World Health Organization — support for vaccines and medical equipment during the Cuba visit, 24 November 2026"
     },
     {
@@ -860,8 +894,8 @@ export const EN_EVENTS: DeskItem[] = [
   ],
   "sources": [
     {
-      "href": "https://www.who.int/news-room",
-      "label": "World Health Organization — listing for the 16 Days campaign, 25 November–10 December 2026"
+      "href": "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026",
+      "label": "World Health Organization — 2026 campaign page, 25 November–10 December 2026"
     },
     {
       "href": "https://chile.unwomen.org/sites/default/files/2026-08/unite_2026_concept_note_en.pdf",
