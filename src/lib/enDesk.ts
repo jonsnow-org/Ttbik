@@ -843,6 +843,33 @@ export const EN_NEWS: DeskItem[] = [
 ];
 
 export const EN_EVENTS: DeskItem[] = [
+{
+  "slug": "sixteen-days-activism-gender-based-violence-2026",
+  "title": "16 Days of Activism against Gender-Based Violence 2026",
+  "date": "2026-11-25",
+  "endDate": "2026-12-10",
+  "dateLabel": "25 November – 10 December 2026",
+  "category": "Global UN campaign",
+  "dek": "The global campaign runs from 25 November, the International Day for the Elimination of Violence against Women, through 10 December, Human Rights Day. Its 2026 theme calls for justice, survivor protection and an end to impunity.",
+  "body": [
+    "WHO lists the 2026 16 Days of Activism against Gender-Based Violence campaign among its events for 25 November to 10 December 2026. It begins on the International Day for the Elimination of Violence against Women and ends on Human Rights Day.",
+    "UN Women's official 2026 concept note sets the global theme: 'UNiTE to End Violence Against Women and Girls: Ensure Justice, Protect Survivors, End Impunity.'",
+    "The campaign is global and multi-country, not a single venue-based conference. Local organizations may hold different events during the period; WHO's listing gives no single start time or time zone.",
+    "Status as of 24 November 2026: upcoming; it begins the following day, 25 November, and runs through 10 December. Location: global. No unified time has been published.",
+    "Campaign period: 25 November–10 December 2026. This is the global campaign window, not a common timetable for every local activity."
+  ],
+  "sources": [
+    {
+      "href": "https://www.who.int/news-room",
+      "label": "World Health Organization — listing for the 16 Days campaign, 25 November–10 December 2026"
+    },
+    {
+      "href": "https://chile.unwomen.org/sites/default/files/2026-08/unite_2026_concept_note_en.pdf",
+      "label": "UN Women — 2026 UNiTE campaign concept note and global theme"
+    }
+  ]
+},
+
   {
     "slug": "iffi-goa-2026",
     "title": "57th International Film Festival of India in Goa",

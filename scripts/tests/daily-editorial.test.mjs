@@ -52,6 +52,7 @@ test("current and upcoming global events have matching English dates and sources
     { slug: "apec-economic-leaders-meeting-shenzhen-2026", dateIso: "2026-11-18", endDateIso: "2026-11-19", date: "2026-11-18", endDate: "2026-11-19", dateLabel: "18–19 November 2026" },
     { slug: "world-toilet-day-2026", dateIso: "2026-11-19", date: "2026-11-19", dateLabel: "19 November 2026" },
     { slug: "world-childrens-day-2026", dateIso: "2026-11-20", date: "2026-11-20", dateLabel: "20 November 2026" },
+    { slug: "sixteen-days-activism-gender-based-violence-2026", dateIso: "2026-11-25", endDateIso: "2026-12-10", date: "2026-11-25", endDate: "2026-12-10", dateLabel: "25 November – 10 December 2026" },
     { slug: "iffi-goa-2026", dateIso: "2026-11-20", endDateIso: "2026-11-28", date: "2026-11-20", endDate: "2026-11-28", dateLabel: "20–28 November 2026" },
     { slug: "world-television-day-2026", dateIso: "2026-11-21", date: "2026-11-21", dateLabel: "21 November 2026" }
   ];
@@ -623,4 +624,31 @@ test("24 November WHO Cuba support briefing is bilingual and attributes conteste
   assert.match(english.body.join(" "), /attributed positions/i);
   assert.match(arabic.paragraphs.join(" "), /لا يثبت وحده حل أزمة الخدمات الصحية/);
   assert.match(english.body.join(" "), /not proof that Cuba's wider health-service crisis has been resolved/i);
+});
+
+
+test("16 Days campaign is upcoming and then current only within its official date range", () => {
+  const slug = "sixteen-days-activism-gender-based-violence-2026";
+  const arabic = EVENT_EXTRAS.find((event) => event.slug === slug);
+  const english = EN_EVENTS.find((event) => event.slug === slug);
+  assert.ok(arabic, "Arabic 16 Days event is missing");
+  assert.ok(english, "English 16 Days event is missing");
+  assert.equal(arabic.dateIso, "2026-11-25");
+  assert.equal(arabic.endDateIso, "2026-12-10");
+  assert.equal(english.date, "2026-11-25");
+  assert.equal(english.endDate, "2026-12-10");
+  assert.equal(arabic.dateLabel, "25 نوفمبر – 10 ديسمبر 2026");
+  assert.equal(english.dateLabel, "25 November – 10 December 2026");
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("who.int/news-room")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("unwomen.org/sites/default/files/2026-08")));
+  assert.equal(isEventCurrent(arabic, "2026-11-24"), false);
+  assert.equal(isEventUpcomingOrCurrent(arabic, "2026-11-24"), true);
+  assert.equal(isEventCurrent(arabic, "2026-11-25"), true);
+  assert.equal(isEventCurrent(arabic, "2026-12-10"), true);
+  assert.equal(isEventUpcomingOrCurrent(arabic, "2026-12-11"), false);
+  assert.match(arabic.paragraphs.join(" "), /لا تعلن.*ساعة بداية موحدة/);
+  assert.match(english.body.join(" "), /no single start time or time zone/i);
+  assert.match(arabic.paragraphs.join(" "), /ضمان العدالة، حماية الناجيات، وإنهاء الإفلات من العقاب/);
+  assert.match(english.body.join(" "), /Ensure Justice, Protect Survivors, End Impunity/);
 });
