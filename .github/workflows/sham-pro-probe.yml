@@ -1,0 +1,40 @@
+name: Sham Pro live probe (read-only)
+
+# The bot's own path on Sham Pro's Studio (generate_tldm, then generate_chat / generate_chat_stream), timed per prompt,
+# and whether non-identity prompts still announce «شام برو». Read-only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "prompts separated by | (empty = the default set)"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - "ai-system/supervision/sham_pro_probe.py"
+      - ".github/workflows/sham-pro-probe.yml"
+
+concurrency:
+  group: sham-pro-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Probe Sham Pro
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+          PROBE_ONLY: ${{ inputs.only }}
+        run: python ai-system/supervision/sham_pro_probe.py
