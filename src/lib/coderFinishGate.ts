@@ -30,7 +30,7 @@ function toolOutputFailed(output: string): boolean {
     const parsed = JSON.parse(t);
     if (parsed && typeof parsed === "object" && (parsed.ok === false || parsed.success === false || parsed.error || parsed.errors || (typeof parsed.status === "number" && parsed.status >= 400))) return true;
   } catch { /* tools may return plain text or a multi-line batch report */ }
-  return /(?:^|[\n;]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i.test(t);
+  return /(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i.test(t);
 }
 
 /** A write attempt is not proof of a change: require its matching tool result and reject failed/denied outputs. */
