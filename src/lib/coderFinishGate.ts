@@ -24,13 +24,13 @@ type GateMessage = {
   tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
 };
 function toolOutputFailed(output: string): boolean {
-  const t = String(output || "").trim();
-  if (!t || /\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|AUTO_DENIED|NOT PERMITTED|DENIED)\b/i.test(t)) return true;
+  const t = String(output || "").trim().replace(/^(?:result|output)\s*:\s*/i, "");
+  if (!t || /\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|NO CHANGES|NOTHING TO COMMIT|ALREADY UP TO DATE|AUTO_DENIED|NOT PERMITTED|DENIED)\b/i.test(t)) return true;
   try {
     const parsed = JSON.parse(t);
     if (parsed && typeof parsed === "object" && (parsed.ok === false || parsed.success === false || parsed.error || parsed.errors || (typeof parsed.status === "number" && parsed.status >= 400))) return true;
   } catch { /* tools may return plain text or a multi-line batch report */ }
-  return /(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i.test(t);
+  return /^(?:file|path|directory|repository|branch|resource)\s+(?:not found|was not found|does not exist)\b|(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b|could not\b|cannot\b|timed? out\b)/i.test(t);
 }
 
 /** A write attempt is not proof of a change: require its matching tool result and reject failed/denied outputs. */
