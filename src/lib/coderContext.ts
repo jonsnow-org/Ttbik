@@ -14,8 +14,12 @@ export function forgetStudioCtx(): void { seen.clear(); }
 
 export function ctxTokens(): number {
   const forced = Number(process.env.CODER_CTX_TOKENS);
-  if (Number.isFinite(forced) && forced >= 8192) return Math.floor(forced);
-  return seen.size ? Math.min(...seen.values()) : DEFAULT_CTX;
+  const configured = Number.isFinite(forced) && forced >= 8192 ? Math.floor(forced) : DEFAULT_CTX;
+  // A real context-overflow response is stronger evidence than a stale/manual deployment override.
+  // Keep the override as a ceiling, but never plan a prompt larger than the server just rejected.
+  const rejected = seen.get("ctx-error");
+  if (rejected && rejected >= 8192) return Math.min(configured, rejected);
+  return seen.size ? Math.min(configured, ...seen.values()) : configured;
 }
 const scaled = (perCtx: number) => Math.round((ctxTokens() * perCtx) / DEFAULT_CTX);
 /** What the model sees of the history each step. */

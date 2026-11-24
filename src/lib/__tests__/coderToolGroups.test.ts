@@ -1,5 +1,6 @@
 import { coderTools, coderToolsFor, loadedGroups, runTool, toolGroups } from "@/lib/coderAgent";
 import { maxParallelAgentsForStudios } from "@/lib/coderAgents";
+import { forgetStudioCtx, noteStudioCtx } from "@/lib/coderContext";
 import { withEngineModel } from "@/lib/openCoderStudio";
 
 const names = (ts: { function: { name: string } }[]) => ts.map((t) => t.function.name);
@@ -72,18 +73,21 @@ describe("fixed tool list (default)", () => {
 });
 
 describe("small-context tool schema safety", () => {
-  it.each(["fixed", "off"])("keeps lazy loading when a 16k Studio is configured as %s", (mode) => {
+  it.each(["fixed", "off"])("keeps lazy loading after a 16k overflow even when mode=%s and the configured context is stale", (mode) => {
     const oldCtx = process.env.CODER_CTX_TOKENS;
     const oldMode = process.env.CODER_TOOL_GROUPS;
-    process.env.CODER_CTX_TOKENS = "16384";
+    forgetStudioCtx();
+    process.env.CODER_CTX_TOKENS = "32768"; // stale deployment override must not defeat the server's rejection
     process.env.CODER_TOOL_GROUPS = mode;
     try {
+      noteStudioCtx("ctx-error", 16384);
       const tools = coderToolsFor(true, false, [{ role: "user", content: "ابدأ المهمة" }]);
       const toolNames = names(tools);
       expect(toolNames).toContain("load_tools");
       expect(toolNames).not.toContain("github_repo_audit");
       expect(toolNames).not.toContain("sandbox_exec");
     } finally {
+      forgetStudioCtx();
       if (oldCtx === undefined) delete process.env.CODER_CTX_TOKENS; else process.env.CODER_CTX_TOKENS = oldCtx;
       if (oldMode === undefined) delete process.env.CODER_TOOL_GROUPS; else process.env.CODER_TOOL_GROUPS = oldMode;
     }
