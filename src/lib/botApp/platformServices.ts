@@ -106,13 +106,13 @@ export async function handlePlatformServiceAction(
         const q = await quoteAmount(c, 0, key).catch(() => null);
         return fail("اكتب المبلغ بالأرقام فقط، مثل 100 أو 0.005", "amount", { min: q?.min ?? null });
       }
-      if (!rateLimit(`adapp-rq:${tgId}`, 40, 60_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:rq:${tgId}`, 40, 60_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const q = await quoteAmount(c, amount, key);
       if (!q.ok) return fail(q.reason === "min" ? `أقل مبلغ لهذه العملة الآن ${rfmt(q.min || 0)} ${c.label}.` : "تعذّر حساب السعر الآن. جرّب مبلغاً آخر أو بعد قليل.", q.reason, { min: q.min });
       return { ok: true, quote: q.quote, min: q.min };
     }
     case "remit_create": {
-      if (!rateLimit(`adapp-rc:${tgId}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:rc:${tgId}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const key = await remitKey();
       if (!key) return fail("الحوالات تُفعَّل قريباً.", "off");
       const c = coinById(String(body?.coin || ""));
@@ -185,7 +185,7 @@ export async function handlePlatformServiceAction(
       }
     }
     case "ex_asset_create": {
-      if (!rateLimit(`adapp-asset-create:${tgId}`, 4, 600_000)) return fail("طلبات كثيرة. حاول بعد دقائق.");
+      if (!rateLimit(`platform:${botRow.id}:asset-create:${tgId}`, 4, 600_000)) return fail("طلبات كثيرة. حاول بعد دقائق.");
       const r = await createAssetListing({
         assetType: String(body?.assetType || "").toUpperCase() as any,
         identifier: String(body?.identifier || ""), title: String(body?.title || ""),
@@ -195,7 +195,7 @@ export async function handlePlatformServiceAction(
       return r.ok ? { ok: true, id: r.id, status: r.status, verificationMode: r.verificationMode } : fail(r.error);
     }
     case "ex_asset_buy": {
-      if (!rateLimit(`adapp-asset-buy:${tgId}`, 5, 600_000)) return fail("طلبات شراء كثيرة. تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:asset-buy:${tgId}`, 5, 600_000)) return fail("طلبات شراء كثيرة. تمهّل قليلاً.");
       const r = await createAssetSale(String(body?.listingId || ""), tgId);
       return r.ok ? { ...r } : fail(r.error);
     }
@@ -224,7 +224,7 @@ export async function handlePlatformServiceAction(
       }
     }
     case "ex_deal_create": {
-      if (!rateLimit(`adapp-exd:${tgId}`, 10, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:exd:${tgId}`, 10, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const r = await createAdDeal({ channel: String(body?.channel || ""), adText: String(body?.adText || ""), targetUrl: String(body?.targetUrl || ""), contact: String(body?.contact || ""), advertiserTgId: tgId });
       return r.ok ? { ok: true, code: r.code, price: r.price } : fail(r.error);
     }
@@ -241,12 +241,12 @@ export async function handlePlatformServiceAction(
       return { ok: true, deal: { code: d.code, kind: d.kind, channel: d.channel, price: d.price, status: d.status, postLink: d.post_link, paymentReference: d.payment_reference || null, settlementReference: d.settlement_reference || null, createdAt: d.created_at } };
     }
     case "ex_list_request": {
-      if (!rateLimit(`adapp-exl:${tgId}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:exl:${tgId}`, 6, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const r = await requestListing({ channel: String(body?.channel || ""), ownerContact: String(body?.ownerContact || ""), payoutAddress: String(body?.payoutAddress || ""), price: Number(body?.price), ownerTgId: tgId });
       return r.ok ? { ok: true, username: r.username, verifyCode: r.verifyCode, token: r.manageUrl.split("/").pop() } : fail(r.error);
     }
     case "ex_list_verify": {
-      if (!rateLimit(`adapp-exv:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:exv:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const r: any = await verifyListing(String(body?.token || ""), tgId);
       return r.ok ? { ok: true, already: !!r.already } : fail(r.error);
     }
@@ -261,7 +261,7 @@ export async function handlePlatformServiceAction(
       };
     }
     case "ex_post": {
-      if (!rateLimit(`adapp-exp:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
+      if (!rateLimit(`platform:${botRow.id}:exp:${tgId}`, 20, 600_000)) return fail("طلبات كثيرة، تمهّل قليلاً.");
       const r: any = await submitPost(String(body?.token || ""), String(body?.code || "").toUpperCase(), String(body?.link || ""), tgId);
       return r.ok ? { ok: true, verified: !!r.verified } : fail(r.error);
     }
