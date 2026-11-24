@@ -595,17 +595,12 @@ def egress_secure() -> bool:
     return str(STATE.get("egress", "")).startswith("private IPv4/IPv6 ranges")
 
 
-def egress_strict_enabled() -> bool:
-    """Strict network refusal is opt-in; the default preserves full computer availability."""
-    value = os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip().lower()
-    return value not in {"0", "false", "off", "no"}
-
-
 def egress_gate() -> dict | None:
-    """Attempt private/metadata firewall rules; refuse shell execution only when strict mode is explicitly enabled."""
+    """Review note #1198 (P0): with COMPUTER_EGRESS_STRICT=1 a command is REFUSED while the host's private network is reachable (fail closed). Off by default so an
+    existing computer on a host without iptables is not switched off by a deploy; the state is always visible in /status (`egress_secure`) so the owner flips it knowingly."""
     install_egress_rules()
-    if egress_strict_enabled() and not egress_secure():
-        return {"ok": False, "error": "egress_not_secure: shell execution is disabled because private/metadata egress protection is unavailable. " + str(STATE.get("egress", ""))}
+    if os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not egress_secure():
+        return {"ok": False, "error": "egress_not_secure: the computer cannot block the host's private network here, so it refuses to run commands (COMPUTER_EGRESS_STRICT=1). " + str(STATE.get("egress", ""))}
     return None
 
 
@@ -1568,7 +1563,7 @@ def status(session: str = "") -> dict:
                         "minimum_available_mb": MIN_AVAILABLE_MB},
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
-             "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": egress_strict_enabled(),
+             "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1",
              "storage_mode": "persistent" if str(ROOT).startswith("/mnt/workspace") else "ephemeral",
              "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:

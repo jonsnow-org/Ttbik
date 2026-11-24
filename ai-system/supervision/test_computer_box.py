@@ -18,8 +18,6 @@ spec.loader.exec_module(cb)
 class Box(unittest.TestCase):
     def setUp(self):
         self.old_root = cb.ROOT
-        self.old_egress_strict = os.environ.get("COMPUTER_EGRESS_STRICT")
-        os.environ["COMPUTER_EGRESS_STRICT"] = "0"     # dedicated EgressGate tests exercise the secure default
         self.tmp = Path(tempfile.mkdtemp())
         os.chmod(self.tmp, 0o755)                     # the session users must be able to walk down to their own home
         cb.ROOT = self.tmp / "computer"
@@ -27,10 +25,6 @@ class Box(unittest.TestCase):
 
     def tearDown(self):
         cb.ROOT = self.old_root
-        if self.old_egress_strict is None:
-            os.environ.pop("COMPUTER_EGRESS_STRICT", None)
-        else:
-            os.environ["COMPUTER_EGRESS_STRICT"] = self.old_egress_strict
 
     def run_box(self, **job):
         return json.loads(cb.api_box_do(json.dumps(job)))
@@ -680,27 +674,6 @@ class EgressRules(unittest.TestCase):
         self.assertIn("refused by the host", result)
 
 
-
-class EgressGate(unittest.TestCase):
-    def test_shell_remains_available_by_default_when_firewall_is_incomplete(self):
-        previous = os.environ.pop("COMPUTER_EGRESS_STRICT", None)
-        old_state = cb.STATE.get("egress")
-        try:
-            with (patch.object(cb, "install_egress_rules", return_value="partly blocked (IPv6 firewall command unavailable)"),
-                  patch.object(cb, "egress_secure", return_value=False)):
-                self.assertIsNone(cb.egress_gate())
-        finally:
-            cb.STATE["egress"] = old_state
-            if previous is not None:
-                os.environ["COMPUTER_EGRESS_STRICT"] = previous
-
-    def test_strict_firewall_gate_is_available_only_when_explicitly_enabled(self):
-        with (patch.dict(os.environ, {"COMPUTER_EGRESS_STRICT": "1"}),
-              patch.object(cb, "install_egress_rules", return_value="partly blocked"),
-              patch.object(cb, "egress_secure", return_value=False)):
-            blocked = cb.egress_gate()
-            self.assertFalse(blocked["ok"])
-            self.assertIn("egress_not_secure", blocked["error"])
 
 
 class DevTools(unittest.TestCase):

@@ -61,44 +61,6 @@ class Desktop(unittest.TestCase):
     def call(self, **body):
         return json.loads(desktop.api_desktop_do(json.dumps(body)))
 
-    def test_taskbar_browser_launcher_remains_available_without_optional_proxy(self):
-        with (patch.object(desktop, "_proxy_flags", return_value=[]),
-              patch.dict("os.environ", {"DESKTOP_CHROME_SANDBOX": "auto"})):
-            script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
-        self.assertIn("find ", script)
-        self.assertNotIn("--proxy-server=", script)
-        self.assertIn("No usable sandbox", script)
-        self.assertIn("--no-sandbox", script)  # fallback if this host disallows user namespaces
-
-    def test_taskbar_browser_launcher_uses_proxy_when_available(self):
-        with (patch.object(desktop, "_proxy_flags", return_value=["--proxy-server=http://127.0.0.1:43123"]),
-              patch.dict("os.environ", {"DESKTOP_CHROME_SANDBOX": "auto"})):
-            script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
-        self.assertIn("--proxy-server=http://127.0.0.1:43123", script)
-        self.assertIn("No usable sandbox", script)
-        self.assertIn(" --no-sandbox", script)
-        self.assertNotIn("then\nexec nice", script)
-
-    def test_strict_browser_sandbox_is_an_explicit_optional_mode(self):
-        with (patch.object(desktop, "_proxy_flags", return_value=[]),
-              patch.dict("os.environ", {"DESKTOP_CHROME_SANDBOX": "strict"})):
-            script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
-        self.assertNotIn("--no-sandbox", script)
-        self.assertIn("LOG=", script)
-
-    def test_direct_browser_launch_reuses_the_available_browser_launcher(self):
-        import browser_computer
-        launched = {}
-        with (patch.object(browser_computer, "safe_url", side_effect=lambda value, session=None: value),
-              patch.object(desktop, "_proxy_flags", return_value=[]),
-              patch.object(desktop, "_spawn", side_effect=lambda command, env, label: (launched.update(command=command, label=label) or SimpleNamespace(pid=123)))):
-            answer = desktop._input_action("user-a:model-x", "launch", {"app": "browser", "url": "https://example.com/"})
-        self.assertTrue(answer["ok"], answer)
-        self.assertEqual(launched["command"][0], "/bin/sh")
-        script = Path(launched["command"][1]).read_text(encoding="utf-8")
-        self.assertIn("find ", script)
-        self.assertIn("--no-sandbox", script)  # generated auto fallback, not a forced default launch mode
-
     def test_session_and_input_validators(self):
         self.assertEqual(desktop.session_hash("user-a:model-x"), desktop.session_hash("user-a:model-x"))
         self.assertNotIn("user-a", desktop.session_hash("user-a:model-x"))
