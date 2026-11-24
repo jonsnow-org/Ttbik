@@ -67,17 +67,19 @@ describe("Sham's own agent loop", () => {
     } finally { tldm.mockRestore(); chat.mockRestore(); stream.mockRestore(); }
   });
 
-  it.each(["قم بجولة بحث في الإنترنت عن موقع أكواد ضخم", "اعرض الملفات في المجلد الحالي على حاسوبك.", "شغّل echo hi"])("keeps the selected T-LDM route active for work: %s", async (question) => {
+  it.each(["قم بجولة بحث في الإنترنت عن موقع أكواد ضخم", "اعرض الملفات في المجلد الحالي على حاسوبك.", "شغّل echo hi"])("work (%s) goes to the T-LDM head first; when it ran nothing, Sham Pro's body's own tool loop answers", async (question) => {
     const studio = await import("@/lib/shamStudio");
-    const spy = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValue({ type: "text", text: "جواب صادر عن T-LDM", tldm: true } as any);
+    const spy = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValue({ type: "text", text: "It@pخl ج @T11", tldm: true } as any);
+    const seen: string[] = [];
     try {
       const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({
-        text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000,
+        text: question, ctx, tools: shamToolDefs(false), budgetMs: 30000, agentAsk: script([say("جواب جسم شام برو بأدواته")], seen),
       })));
-      expect(r).toMatchObject({ kind: "text", text: "جواب صادر عن T-LDM" });
       expect(spy).toHaveBeenCalledTimes(1);
       const messages = spy.mock.calls[0][0];
       expect(messages[messages.length - 1]).toMatchObject({ role: "user", content: question });
+      expect(seen.length).toBeGreaterThanOrEqual(1);                       // the body's agent step ran (with its tools), not a tool-less chat
+      expect(r).toMatchObject({ kind: "text", text: "جواب جسم شام برو بأدواته" });
     } finally { spy.mockRestore(); }
   });
 
@@ -106,17 +108,6 @@ describe("Sham's own agent loop", () => {
     } finally { spy.mockRestore(); }
   });
 
-  it("a work turn where the head ran nothing and called nothing is spoken by Sham Pro's body, not by the head's short command-writer", async () => {
-    const studio = await import("@/lib/shamStudio");
-    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "مرحبا! أنا شام برو...مرحبا! أنا شام برو...والبحثبحث", tldm: true } as any);
-    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "أنا بخير، شكرًا! أنا شام برو. كيف أساعدك؟" } as any);
-    try {
-      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "اعرض الملفات في المجلد الحالي", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
-      expect(r).toMatchObject({ kind: "text", text: "أنا بخير، شكرًا! أنا شام برو. كيف أساعدك؟" });
-      expect((chat.mock.calls[0] as any[])[3]).toMatchObject({ direct: true });
-    } finally { tldm.mockRestore(); chat.mockRestore(); }
-  });
-
   it("when the head ran a command on its computer, its own short reply stands (the body is not asked)", async () => {
     const studio = await import("@/lib/shamStudio");
     const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: ZX7Q-4821", tldm: true, computer_steps: [{ command: "echo ZX7Q-4821", ok: true, result: "ZX7Q-4821" }] } as any);
@@ -128,18 +119,19 @@ describe("Sham's own agent loop", () => {
     } finally { tldm.mockRestore(); chat.mockRestore(); }
   });
 
-  it("broken head commands (bash syntax errors) and garbled head text never become the reply: the body answers (2026-11-24 live probe)", async () => {
+  it("broken head commands (bash syntax errors) and garbled head text never become the reply: Sham Pro's body's tool loop takes the work (2026-11-24 live probe)", async () => {
     const studio = await import("@/lib/shamStudio");
     const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: 811", tldm: true,
       computer_steps: [{ command: "python3 -c \"pornt iu eaageeahh,,N2++)\" )))\"", ok: false, result: "bash: -c: line 1: syntax error near unexpected token `)'" }] } as any);
-    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "def factorial(n):\n    return 1 if n < 2 else n * factorial(n - 1)" } as any);
     const steps: string[] = [];
+    const seen: string[] = [];
     try {
-      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "اكتب ملف بايثون فيه دالة تعيد مضروب عدد", ctx, tools: shamToolDefs(false), budgetMs: 30000, onStep: (e) => steps.push(e.type) })));
-      expect(r).toMatchObject({ kind: "text", text: "def factorial(n):\n    return 1 if n < 2 else n * factorial(n - 1)", used: [] });
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "اكتب ملف بايثون فيه دالة تعيد مضروب عدد", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+        onStep: (e) => steps.push(e.type), agentAsk: script([say("def factorial(n):\n    return 1 if n < 2 else n * factorial(n - 1)")], seen) })));
+      expect(r).toMatchObject({ kind: "text", text: "def factorial(n):\n    return 1 if n < 2 else n * factorial(n - 1)" });
       expect(steps).not.toContain("tool_start");                     // the broken command is not shown as the model's work
-      expect((chat.mock.calls[0] as any[])[0].at(-1).content).toBe("اكتب ملف بايثون فيه دالة تعيد مضروب عدد");      // no failed output handed to the body
-    } finally { tldm.mockRestore(); chat.mockRestore(); }
+      expect(seen.join("\n")).not.toContain("pornt");                 // and its output is not handed to the body
+    } finally { tldm.mockRestore(); }
   });
 
   it("a working command with a garbled head reply: the body writes the answer from the command's real output", async () => {

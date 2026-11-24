@@ -147,7 +147,8 @@ export async function shamAgentRun(opts: {
   const tldmPlainTurn = v2 && !opts.resume && directChatIntent && !needsFreshFacts(opts.text) && !tldmComputerTask;
   // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
-  if (v2 && shamTldmOn() && !tldmPlainTurn) {
+  let tldmHandedOff = false;
+  tldmHead: if (v2 && shamTldmOn() && !tldmPlainTurn) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -261,6 +262,13 @@ export async function shamAgentRun(opts: {
       // results of the commands that did work (the head's own text is a short, often garbled command log, kept only as the last fallback).
       // a head reply that is readable and backed by commands that worked stands as it is (fast); garbled bytes (U+FFFD) or no working command -> the body writes it
       const headReadable = answer.length >= 2 && !/\uFFFD/.test(answer);
+      // The head did no working step at all (live probe 2026-11-24: on «اعرض الملفات في المجلد الحالي» it wrote garbled bytes and ran nothing): the work is handed to
+      // Sham Pro's body's own permission-checked tool loop below (computer_run, files, web: agent_step), the same model, instead of a tool-less chat answer.
+      if (!ran.length && !used.length && tldmSteps === 1 && !opts.resume) {
+        opts.onEvent?.("info", "T-LDM: the head ran no working step; Sham Pro's body continues with its own tools");
+        tldmHandedOff = true;
+        break tldmHead;
+      }
       if (!(ran.length && headReadable) && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
         const last = chatMessages[chatMessages.length - 1];
         const turns = ran.length && last?.role === "user"
@@ -289,7 +297,7 @@ export async function shamAgentRun(opts: {
     lastResumeMessage?.role === "user" &&
     !resumeMessages.some((message) => message.role === "tool" || Boolean(message.tool_calls?.length))
   );
-  if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
+  if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text) && !tldmHandedOff) {
     const chatMessages = shamDirectChatMessages(opts.history, opts.text);
     if (lastUserContent(chatMessages) !== opts.text) {
       chatMessages.push({ role: "user", content: opts.text });
