@@ -20,7 +20,8 @@ import {
 import {
   appLink, depositLink, notifyAcceptOutcome, notifyDisputeOpened, notifyDisputeReady, notifyOfferRejected, notifyOfferToOtherParty, notifyReceived,
 } from "@/lib/jobs/notify";
-import { APP_BUTTON } from "@/lib/botApp/buttons";
+import { APP_BUTTON, EXCHANGE_BUTTON, EXCHANGE_INTRO, remitPayPayload } from "@/lib/botApp/buttons";
+import { REMIT_BUTTON, REMIT_INTRO } from "@/lib/remit/remit";
 import { setBotAppMenu } from "@/lib/builderOwnerBot";
 import { gateUrl } from "@/lib/hostingOps";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
@@ -264,7 +265,7 @@ export { settleEscrow, escrowFeeBreakdown };
 // The bot's own Mini App (/bot-app/<botId>, src/lib/botApp/jobsApp.ts): the chat's main menu button and /app open it, and the
 // Telegram menu button is pointed at it once per process (the same mechanism as the other bots' apps).
 export const SHOPS_BUTTON = "🛍 متاجر البائعين";
-const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك في مكان واحد داخل تيليجرام. اختر:";
+const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك، بالإضافة إلى حوالات USDT وبورصة القنوات والجروبات، في مكان واحد داخل تيليجرام. اختر:";
 const appMenuSet = new Set<string>();
 function ensureJobsAppMenu(botRow: BotRow) {
   if (appMenuSet.has(botRow.id)) return;
@@ -1301,6 +1302,28 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (msg.successful_payment) { await handleJobsStarsPayment(bot, botRow, msg); return; }
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
+  const startPayload = String(msg.text || "").startsWith("/start ") ? String(msg.text).slice(7).trim() : "";
+  const startPayTo = remitPayPayload(startPayload);
+  const startServiceSection = startPayload === "remit" || startPayload === "exchange" ? startPayload : null;
+  // Platform services are intentionally usable without a Jobs profile or phone check. The Mini App
+  // API still enforces this bot's ban/mute/channel gates, and the asset market asks for its own
+  // verified phone before a listing or purchase is allowed.
+  if (startPayTo || startServiceSection) {
+    await ensureJobsUser(botRow.id, tgUserId);
+    await recordBotVisit(botRow.id, tgUserId);
+    await setPending(tgUserId, null);
+    if (startServiceSection) {
+      const exchange = startServiceSection === "exchange";
+      await bot.api.sendMessage(chatId, exchange ? EXCHANGE_INTRO : REMIT_INTRO, {
+        reply_markup: new InlineKeyboard().webApp(exchange ? EXCHANGE_BUTTON : REMIT_BUTTON, appLink(botRow.id, startServiceSection)),
+      });
+    } else {
+      await bot.api.sendMessage(chatId, "💸 حوالة USDT جاهزة لهذا المستلم. اضغط الزر لإكمالها:", {
+        reply_markup: new InlineKeyboard().webApp(REMIT_BUTTON, appLink(botRow.id, "remit", { pay: startPayTo! })),
+      });
+    }
+    return;
+  }
 
   let ownerAdminView = !!SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID;
   if (ownerAdminView) {

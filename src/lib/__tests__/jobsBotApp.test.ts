@@ -106,6 +106,10 @@ jest.mock("grammy", () => {
 });
 jest.mock("@/lib/botApp/adApp", () => ({ handleAdAppAction: jest.fn(async () => ({ ok: true, app: "ad" })) }));
 jest.mock("@/lib/botApp/streakApp", () => ({ handleStreakAppAction: jest.fn(async () => ({ ok: true, app: "streak" })) }));
+jest.mock("@/lib/botApp/platformServices", () => ({
+  isPlatformServiceAction: (action: string) => action.startsWith("remit_") || action.startsWith("ex_"),
+  handlePlatformServiceAction: jest.fn(async (botRow: any, _tg: any, action: string) => ({ ok: true, app: "platform", action, botId: botRow.id })),
+}));
 const mockSetBotAppMenu = jest.fn(async () => true);
 jest.mock("@/lib/builderOwnerBot", () => ({
   ...jest.requireActual("@/lib/builderOwnerBot"),
@@ -120,6 +124,7 @@ import { POST } from "@/app/api/bot-app/[botId]/route";
 import { POST as UPLOAD } from "@/app/api/bot-app/[botId]/upload/route";
 import { GET as PHOTO } from "@/app/api/bot-app/[botId]/photo/route";
 import { handleJobsAppAction } from "@/lib/botApp/jobsApp";
+import { handlePlatformServiceAction } from "@/lib/botApp/platformServices";
 import { acceptOfferCore, confirmReceivedCore, createOfferCore, saveListingCore, submitDisputeCore, openDisputeCore, settleEscrow } from "@/lib/jobs/core";
 import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 
@@ -159,6 +164,20 @@ describe("jobs Mini App auth and gates", () => {
     expect(await handleJobsAppAction(bots["bot-j"], tgUser("3"), "store_list", {})).toMatchObject({ ok: false, code: "profile" });
     const saved: any = await handleJobsAppAction(bots["bot-j"], tgUser("3"), "profile_save", { profile: { name: "سامي", age: "25", country: "سوريا", governorate: "حلب", city: "حلب", contactMethod: "TELEGRAM", contactValue: "@sami", roleType: "TRADER" } });
     expect(saved).toMatchObject({ ok: true, profile: { roleType: "TRADER", contactValue: "sami" } });
+  });
+  it("routes shared platform services through this JOBS_BOT token without a Jobs profile/phone or touching its ledger", async () => {
+    user("55", 2, { phoneVerified: false });
+    const wrongBot = await call("bot-j", { initData: initFor(TOKEN_A, 55), action: "remit_home" });
+    expect(wrongBot.status).toBe(401);
+    const response = await call("bot-j", { initData: initFor(TOKEN_J, 55), action: "remit_home" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, app: "platform", action: "remit_home", botId: "bot-j" });
+    expect(handlePlatformServiceAction).toHaveBeenCalledWith(
+      bots["bot-j"], expect.objectContaining({ id: "55" }), "remit_home", expect.objectContaining({ action: "remit_home" }),
+      expect.objectContaining({ phoneNumber: null, phoneVerified: false }),
+    );
+    expect(T("jobsUser").get("55")!.balance).toBe(2);
+    expect(T("jobsTransaction").size).toBe(0);
   });
   it("Stars deposit uses the chat's JOBS_DEPOSIT:<user> payload, XTR, only the listed tiers", async () => {
     user("5"); profile("5");
@@ -414,6 +433,18 @@ describe("phone verification contact webhook", () => {
     });
     expect(T("jobsUser").get("9001")).toMatchObject({ phoneNumber: "+963922222222", phoneVerified: true });
     expect(api.sendMessage).toHaveBeenCalledWith(9001, expect.stringContaining("تم التحقق"), expect.any(Object));
+  });
+
+  it("opens a shared receive link in this Jobs bot before its phone/profile gate", async () => {
+    user("4242", 0, { phoneVerified: false });
+    const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+    await handleJobsBotUpdate({ api } as any, bots["bot-j"], {
+      message: { message_id: 904, chat: { id: 4242, type: "private" }, from: { id: 4242, first_name: "Sam" }, text: `/start pay_${address}` },
+    });
+    const sent = api.sendMessage.mock.calls.find((call: any[]) => String(call[1]).includes("حوالة USDT جاهزة"));
+    expect(sent).toBeTruthy();
+    expect(JSON.stringify(sent?.[2]?.reply_markup)).toContain("pay=" + address);
+    expect(JSON.stringify(sent?.[2]?.reply_markup)).toContain("remit");
   });
 
   it("does not verify a different person's contact", async () => {
