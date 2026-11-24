@@ -1269,28 +1269,6 @@ async function openShopStart(bot: TelegramBot, chatId: number, userId: string, p
 async function handleJobsStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any): Promise<void> {
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
-  const startPayload = String(msg.text || "").startsWith("/start ") ? String(msg.text).slice(7).trim() : "";
-  const startPayTo = remitPayPayload(startPayload);
-  const startServiceSection = startPayload === "remit" || startPayload === "exchange" ? startPayload : null;
-  // Platform services are intentionally usable without a Jobs profile or phone check. The Mini App
-  // API still enforces this bot's ban/mute/channel gates, and the asset market asks for its own
-  // verified phone before a listing or purchase is allowed.
-  if (startPayTo || startServiceSection) {
-    await ensureJobsUser(botRow.id, tgUserId);
-    await recordBotVisit(botRow.id, tgUserId);
-    await setPending(tgUserId, null);
-    if (startServiceSection) {
-      const exchange = startServiceSection === "exchange";
-      await bot.api.sendMessage(chatId, exchange ? EXCHANGE_INTRO : REMIT_INTRO, {
-        reply_markup: new InlineKeyboard().webApp(exchange ? EXCHANGE_BUTTON : REMIT_BUTTON, appLink(botRow.id, startServiceSection)),
-      });
-    } else {
-      await bot.api.sendMessage(chatId, "💸 حوالة USDT جاهزة لهذا المستلم. اضغط الزر لإكمالها:", {
-        reply_markup: new InlineKeyboard().webApp(REMIT_BUTTON, appLink(botRow.id, "remit", { pay: startPayTo! })),
-      });
-    }
-    return;
-  }
   await ensureJobsUser(botRow.id, tgUserId);
   const sp = msg.successful_payment;
   const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
@@ -1324,6 +1302,28 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (msg.successful_payment) { await handleJobsStarsPayment(bot, botRow, msg); return; }
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
+  const startPayload = String(msg.text || "").startsWith("/start ") ? String(msg.text).slice(7).trim() : "";
+  const startPayTo = remitPayPayload(startPayload);
+  const startServiceSection = startPayload === "remit" || startPayload === "exchange" ? startPayload : null;
+  // Platform services are intentionally usable without a Jobs profile or phone check. The Mini App
+  // API still enforces this bot's ban/mute/channel gates, and the asset market asks for its own
+  // verified phone before a listing or purchase is allowed.
+  if (startPayTo || startServiceSection) {
+    await ensureJobsUser(botRow.id, tgUserId);
+    await recordBotVisit(botRow.id, tgUserId);
+    await setPending(tgUserId, null);
+    if (startServiceSection) {
+      const exchange = startServiceSection === "exchange";
+      await bot.api.sendMessage(chatId, exchange ? EXCHANGE_INTRO : REMIT_INTRO, {
+        reply_markup: new InlineKeyboard().webApp(exchange ? EXCHANGE_BUTTON : REMIT_BUTTON, appLink(botRow.id, startServiceSection)),
+      });
+    } else {
+      await bot.api.sendMessage(chatId, "💸 حوالة USDT جاهزة لهذا المستلم. اضغط الزر لإكمالها:", {
+        reply_markup: new InlineKeyboard().webApp(REMIT_BUTTON, appLink(botRow.id, "remit", { pay: startPayTo! })),
+      });
+    }
+    return;
+  }
 
   let ownerAdminView = !!SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID;
   if (ownerAdminView) {
