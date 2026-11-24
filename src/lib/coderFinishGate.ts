@@ -57,6 +57,18 @@ export function finishNudge(goal: string, toolNames: string[], text: string, nud
     + "and publish the change with computer_publish as a branch and pull request. The request is broad, so do NOT try to finish everything: take the FIRST concrete item of your own list, make that one change now with computer_edit (read the file with computer_read first), run its test, then publish it; further items can follow in later steps. Report only after something was really changed and verified. Write in the language of the owner's request (Arabic) and make the tool call in THIS step, through the tool interface, never as <tool_call> text. If the repository holds several candidates, choose the one that matches the owner's own words (search the code for them).";
 }
 
+/**
+ * The line for an owner action run that is ending because the model kept repeating the same sentence and never called a tool.
+ * Live 2026-11-24: after the owner named the repository, Nova answered «سأبدأ الآن …» again and again; the reply guard blocked the
+ * copy and the chat received the engine's own «تعذّر تكوين جواب مناسب لهذه الرسالة» three times, then the task ended silently.
+ * That placeholder describes the engine, not the task: the honest line says nothing was changed and how to go on.
+ */
+export function stalledActionNote(goal: string, toolNames: string[]): string {
+  if (!isActionGoal(goal) || madeChanges(toolNames)) return "";
+  return "⏹️ توقفت قبل تنفيذ أي خطوة: النموذج أعاد نفس الجملة ولم يستدعِ أي أداة، فلم يُغيَّر أي ملف. "
+    + "اكتب «تابع» وسأكمل من أول خطوة فعلية: البحث داخل المستودع عن الاسم الذي ذكرته ثم قراءة الملفات التي يجدها.";
+}
+
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */
 export function worthALesson(goal: string, toolNames: string[]): boolean {
   return !isActionGoal(goal) || madeChanges(toolNames);

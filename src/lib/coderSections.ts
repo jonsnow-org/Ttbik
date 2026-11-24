@@ -2630,16 +2630,47 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // repeated blocks collapsed, and a reply copied from a previous turn or a raw status/inventory dump is replaced with an honest line
       // before it is shown or stored. The rewrite is skipped when it would drop text already streamed/committed this step (delivery is
       // offset-based): never lose shown text.
+      // The owner's action request is the run's own goal plus their recent messages: a follow-up like «البوت هو @Slaselbot» carries no
+      // action verb of its own but continues the action request (coderFinishGate.ts).
+      let gateMod: typeof import("@/lib/coderFinishGate") | null = null;
+      const gateOf = async () => (gateMod ||= await import("@/lib/coderFinishGate"));
+      const ownerGoal = async (): Promise<string> => {
+        if (tierFor(chatId) !== "owner" || run.agent) return "";
+        const g = run.goal || "";
+        const gate = await gateOf();
+        if (gate.isChitChat(g) || gate.isQuestionLike(g)) return g;
+        const recentOwner = st.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !String(m.content).startsWith("[harness]")).slice(-6).map((m) => String(m.content)).join("\n");
+        return [g, recentOwner].join("\n");
+      };
+      let blocked = false;
       if (!calls.length && !run.agent) {
         const vis = visibleNovaReply(text, priorAssistantReplies(st.messages));
         const shown = Math.max(run.botSent || 0, run.sent || 0, run.logged || 0);
         if (vis.text && (vis.blocked || vis.text.length >= shown)) {
           if (vis.blocked) {
+            blocked = true;
             await taskEvent(run.id, "info", vis.blocked === "report" ? "استُبدل ردّ خام (تقرير/جرد) بردّ صادق." : "استُبدل ردّ مكرّر من دور سابق بردّ صادق.", db);
             run.botSent = 0; run.sent = 0; run.logged = 0;         // the honest line is delivered fresh instead of being swallowed by the offsets of the text it replaces
           }
           text = vis.text;
         }
+      }
+      // A blocked (copied) reply is not an answer to the owner's action request: the task goes back to work instead of showing the
+      // engine's own «تعذّر تكوين جواب مناسب لهذه الرسالة» (live 2026-11-24: after the owner named the repository, Nova repeated
+      // «سأبدأ الآن…» until the guard blocked it, the chat got that line three times and the task ended with nothing changed).
+      if (blocked) {
+        const gate = await gateOf();
+        const goal = await ownerGoal();
+        const nudge = gate.finishNudge(goal, gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        if (nudge) {
+          run.nudges = (run.nudges || 0) + 1;
+          await taskEvent(run.id, "info", `↩️ ردّ مكرّر لم يُعرَض؛ أُعيد إلى التنفيذ — المحاولة ${run.nudges}.`, db);
+          st.messages.push({ role: "user", content: nudge });
+          run.job = undefined; run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined; run.logged = 0;
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        text = gate.stalledActionNote(goal, gate.toolNamesIn(st.messages as never)) || text;
       }
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
@@ -2681,10 +2712,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         }
       }
       if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
-        const gate = await import("@/lib/coderFinishGate");
-        // the goal is the run's own request plus the owner's recent messages: a follow-up like «البوت هو @Slaselbot» carries no action verb of its own but continues the action request
-        const recentOwner = st.messages.filter((m) => m.role === "user" && typeof m.content === "string" && !String(m.content).startsWith("[harness]")).slice(-6).map((m) => String(m.content)).join("\n");
-        const nudge = gate.finishNudge(gate.isChitChat(run.goal || "") || gate.isQuestionLike(run.goal || "") ? (run.goal || "") : [run.goal || "", recentOwner].join("\n"), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const gate = await gateOf();
+        const nudge = gate.finishNudge(await ownerGoal(), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
