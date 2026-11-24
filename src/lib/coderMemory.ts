@@ -130,22 +130,62 @@ export async function deleteMemory(chatId: number | string, id: number, db: Db =
 }
 
 // ---------------------------------------------------------------- retrieval
-/** Keyword overlap + recency + scope (and a small bonus for preferences, which apply to everything). */
+/**
+ * Search-only normalisation: keep stored text untouched while making common Arabic spelling variants,
+ * the definite article, and simple English inflections match. This is lexical normalisation, not an
+ * embedding model; it is deterministic, local, and has no external-service or privacy dependency.
+ */
+export function memorySearchTerms(text: string): string[] {
+  return memTerms(String(text || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2")).map((raw) => {
+    let w = raw.replace(/[أإآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
+    if (/^[\\u0600-\\u06FF]+$/.test(w) && w.startsWith("ال") && w.length > 4) w = w.slice(2);
+    if (/^[a-z]+$/.test(w)) {
+      if (w.length > 5 && w.endsWith("ies")) w = w.slice(0, -3) + "y";
+      else if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
+      else if (w.length > 4 && w.endsWith("ed")) w = w.slice(0, -2);
+      else if (w.length > 4 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
+    }
+    return w;
+  }).filter(Boolean);
+}
+
+/** BM25 lexical relevance + phrase/fuzzy overlap + repo scope + recency + durable preferences. */
 export function rankMemories(rows: Memory[], query: string, repo?: string, now = Date.now()): { m: Memory; score: number }[] {
-  const q = new Set(memTerms(query));
-  const df = new Map<string, number>();
-  for (const r of rows) for (const w of new Set(memTerms(r.text))) df.set(w, (df.get(w) || 0) + 1);
   const repoScope = repo ? normScope("", repo) : "";
-  return rows
-    .filter((r) => r.scope === "global" || r.scope === repoScope)
-    .map((r) => {
-      let kw = 0;
-      for (const w of new Set(memTerms(r.text))) if (q.has(w)) kw += Math.log(1 + rows.length / (df.get(w) || 1));
-      const ageDays = Math.max(0, (now - Date.parse(r.updated_at.replace(" ", "T").replace(/\+00$/, "Z"))) / 86400000) || 0;
-      const score = kw + 0.6 * Math.exp(-ageDays / 45) + (r.scope === repoScope && repoScope ? 1 : 0) + (r.kind === "preference" ? 0.5 : 0);
-      return { m: r, score, kw };
-    })
-    .filter((x) => x.kw > 0 || x.m.kind === "preference" || (repoScope && x.m.scope === repoScope))
+  const eligible = rows.filter((r) => r.scope === "global" || r.scope === repoScope);
+  const qTerms = memorySearchTerms(query);
+  const q = new Set(qTerms);
+  const docs = eligible.map((r) => memorySearchTerms(r.text));
+  const df = new Map<string, number>();
+  for (const doc of docs) for (const w of new Set(doc)) df.set(w, (df.get(w) || 0) + 1);
+  const avgLen = docs.length ? docs.reduce((n, d) => n + d.length, 0) / docs.length : 0;
+  const queryPhrase = qTerms.join(" ");
+  return eligible.map((m, i) => {
+    const doc = docs[i];
+    const tf = new Map<string, number>();
+    for (const w of doc) tf.set(w, (tf.get(w) || 0) + 1);
+    let bm25 = 0;
+    for (const w of q) {
+      const f = tf.get(w) || 0;
+      if (!f) continue;
+      const n = df.get(w) || 0;
+      const idf = Math.log(1 + (eligible.length - n + 0.5) / (n + 0.5));
+      const k1 = 1.2, b = 0.75;
+      bm25 += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (avgLen ? doc.length / avgLen : 0)));
+    }
+    const docSet = new Set(doc);
+    let overlap = 0;
+    for (const w of q) if (docSet.has(w)) overlap++;
+    const fuzzy = q.size && docSet.size ? overlap / (q.size + docSet.size - overlap) : 0;
+    const normalisedDoc = doc.join(" ");
+    const phrase = queryPhrase.length >= 5 && normalisedDoc.includes(queryPhrase) ? 1.5 : 0;
+    const ageDays = Math.max(0, (now - Date.parse(m.updated_at.replace(" ", "T").replace(/\\+00$/, "Z"))) / 86400000) || 0;
+    const recency = 0.25 * Math.exp(-ageDays / 60);
+    const scope = repoScope && m.scope === repoScope ? 0.65 : 0;
+    const preference = m.kind === "preference" ? 0.2 : 0;
+    return { m, score: bm25 + fuzzy * 0.8 + phrase + recency + scope + preference, relevant: bm25 > 0 || fuzzy > 0 || phrase > 0 };
+  })
+    .filter((x) => x.relevant || x.m.kind === "preference")
     .sort((a, b) => b.score - a.score)
     .map(({ m, score }) => ({ m, score }));
 }
