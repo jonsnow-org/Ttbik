@@ -59,7 +59,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
-  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; lastAnnouncement?: string; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; draftPhaseText?: string; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -2618,9 +2618,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       // the model only announced what it will do ("سأقوم الآن بالبحث...") and stopped: not an answer. The text is still sent (a streamed draft that is not finalised vanishes in Telegram); the model is then told to act now (twice at most).
       if (!completedCalls.length && !run.agent && (run.announceNudges || 0) < 2 && text.trim().length < 900 && /(?:سأقوم|سوف أقوم|سأبدأ|سأبحث|سأحاول|سأستخدم|لذلك،? سأ)|\b(?:I(?:'ll| will) (?:now )?(?:search|try|run|use|look)|Let me (?:search|try|look))/i.test(text) && !/[؟?]\s*$/.test(text.trim())) {
         run.announceNudges = (run.announceNudges || 0) + 1;
-        await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
-        st.messages.push({ role: "assistant", content: text });
-        st.messages.push({ role: "user", content: "[harness] You only announced a plan and stopped. Do NOT announce: call the tool NOW, or, if the sources you already have are enough, write the final answer from them. Never repeat an earlier message." });
+        const announcementKey = text.trim().replace(/\s+/g, " ");
+        if (announcementKey !== run.lastAnnouncement) {
+          await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
+          st.messages.push({ role: "assistant", content: text });
+          run.lastAnnouncement = announcementKey;
+        } else {
+          await taskEvent(run.id, "info", "↩️ تم تجاهل إعلان مكرر؛ أُعيد توجيه النموذج إلى تنفيذ الأداة بدلاً من تكرار الرسالة.", db);
+        }
+        st.messages.push({ role: "user", content: "[harness] You only announced a plan and stopped. Do NOT announce: call the tool NOW, or, if the sources you already have are enough, write the final answer from them. Your previous announcement was already shown; never repeat it." });
         run.job = undefined; run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined; run.logged = 0;
         await saveState(chatId, st, db, slot);
         continue;
