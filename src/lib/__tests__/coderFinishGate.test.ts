@@ -124,6 +124,14 @@ describe("verified changes require a successful matching tool result", () => {
       { role: "assistant", tool_calls: [editCall] },
       { role: "tool", tool_call_id: "edit-1", content: "DENIED by the user's standing policy" },
     ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "{\"ok\":false,\"error\":\"permission denied\"}" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "step 1: wrote file\nstep 2: error: disk full" },
+    ])).toBe(false);
     expect(madeSuccessfulChanges([{ role: "assistant", tool_calls: [editCall] }])).toBe(false);
   });
 
