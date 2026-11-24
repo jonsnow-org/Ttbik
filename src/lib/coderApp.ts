@@ -770,13 +770,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true };
     }
     case "memories": {
-      const { listMemories } = await import("@/lib/coderMemory");
-      return { memories: (await listMemories(await memoryOwnerOf(chatId, body, db), db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
+      const { listMemoriesStrict } = await import("@/lib/coderMemory");
+      return { memories: (await listMemoriesStrict(await memoryOwnerOf(chatId, body, db), db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
     }
     case "memory_add": {
       const { saveMemory } = await import("@/lib/coderMemory");
       const r = await saveMemory(await memoryOwnerOf(chatId, body, db), { text: String(body.text || ""), kind: body.kind, repo: body.repo, source: "app" }, db);
       if (r.action === "invalid") throw new AppError(400, "text too short");
+      if (r.action === "error") throw new AppError(503, "memory storage unavailable; nothing was saved");
       return { ok: true, ...r };
     }
     case "memory_update": {
