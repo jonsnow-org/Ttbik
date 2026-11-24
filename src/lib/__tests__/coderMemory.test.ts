@@ -1,5 +1,5 @@
 // Long-term memory: store with de-duplication and conflict updates, ranking, per-user isolation, extraction, tools, prompt, app ops.
-import { explicitMemories, extractMemories, extractionConvo, listMemories, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, memTerms, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
+import { explicitMemories, extractMemories, extractionConvo, listMemories, memoryPrompt, memoryTool, parseExtraction, rankMemories, repoOf, saveMemory, searchMemories, similarity, memTerms, memorySearchTerms, updateMemory, deleteMemory, type Memory } from "@/lib/coderMemory";
 import { appOp } from "@/lib/coderApp";
 import { classifyCall } from "@/lib/coderAgent";
 import { fakeBot, fakeDb } from "./coderFakes";
@@ -74,6 +74,27 @@ describe("ranking and prompt", () => {
     expect(memTerms("في من the a المستودع يستخدم إطار Next")).toEqual(["في", "من", "the", "a", "المستودع", "يستخدم", "إطار", "next"]);
     expect(memTerms("مستودع يستخدم اطار next")).toEqual(["مستودع", "يستخدم", "اطار", "next"]);
     expect(similarity("المستودع يستخدم إطار Next", "مستودع يستخدم اطار next")).toBeCloseTo(1 / 3);
+  });
+
+  it("search normalisation matches common Arabic spelling/article variants without rewriting stored text", () => {
+    expect(memorySearchTerms("إعدادات المستودع والذاكرة")).toEqual(["اعدادات", "مستودع", "ذاكره"]);
+    expect(memorySearchTerms("اعدادات مستودع وذاكره")).toEqual(["اعدادات", "مستودع", "ذاكره"]);
+    expect(memorySearchTerms("memorySettings")).toEqual(["memory", "setting"]);
+  });
+
+  it("hybrid retrieval finds Arabic variants and exact phrases, and excludes unrelated repositories", () => {
+    const rows = [
+      mem(1, "إعدادات المستودع تحفظ الذاكرة طويلة المدى", "fact", "repo:acme/web"),
+      mem(2, "memory settings control long term recall", "fact", "repo:acme/web"),
+      mem(3, "إعدادات المستودع في مشروع آخر", "fact", "repo:acme/api"),
+      mem(4, "A preference that always applies", "preference"),
+      mem(5, "Unrelated cooking recipe", "fact"),
+    ];
+    const result = rankMemories(rows, "اعدادات مستودع وذاكره", "acme/web", now).map((x) => x.m.id);
+    expect(result[0]).toBe(1);
+    expect(result).toContain(4);
+    expect(result).not.toContain(3);
+    expect(result).not.toContain(5);
   });
 
   it("the system-prompt block lists relevant memories with ids; empty when there are none", async () => {
