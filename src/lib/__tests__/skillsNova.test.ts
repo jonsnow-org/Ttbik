@@ -18,7 +18,7 @@ describe("Nova self-test skill", () => {
   });
 
   it("tests actual abilities and reports evidence rather than promising universal ability", () => {
-    for (const term of ["computer_tools", "github_whoami", "web_search", "fetch_page", "memory_search", "view_image", "view_video", "NOVA_TLDM", "generate_tldm", "connector", "verified/conditional/unavailable/not tested"]) {
+    for (const term of ["computer_tools", "github_whoami", "web_search", "fetch_page", "memory_search", "view_image", "view_video", "NOVA_TLDM", "generate_tldm", "connector", "delegate", "schedule_list", "computer_bank", "NOT a financial bank account", "verified/conditional/unavailable/not tested"]) {
       expect(skill).toContain(term);
     }
     expect(NOVA_SKILL_NAMES).toContain("self_test");
