@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -124,7 +125,8 @@ def main() -> int:
         msgs = json.dumps([{"role": "user", "content": "شغّل الأمر echo SHAM_OK على حاسوبك"}], ensure_ascii=False)
         out, secs, _ = call("generate_tldm", {"messages_json": msgs, "session": "probe-w-" + str(int(time.time())), "max_new_tokens": 512, "tldm_flag": 1, "owner": 0, "deny_list": "rm -rf /"})
         o = _j(out)
-        work.append({"path": "head", "s": round(secs, 2), "type": o.get("type"), "text": str(o.get("text") or "")[:200], "steps": o.get("computer_steps") or [], "command": o.get("command")})
+        work.append({"path": "head", "s": round(secs, 2), "type": o.get("type"), "text": str(o.get("text") or "")[:200], "steps": o.get("computer_steps") or [], "command": o.get("command"),
+                     "unfilled_slot": bool(re.search(r"@[A-Z]\d", json.dumps(o, ensure_ascii=False)))})
     except Exception as exc:
         work.append({"path": "head", "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
     tools = [{"type": "function", "function": {"name": "computer_run", "description": "Run a bash command in your private persistent Linux workspace.",
