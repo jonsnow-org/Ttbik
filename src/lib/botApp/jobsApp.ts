@@ -2,7 +2,7 @@
  * The jobs/store bot's own Mini App (JOBS_BOT, @Saragptbotbot), server side. Every action runs for the Telegram user proven by
  * initData signed with THIS bot's token (checked by /api/bot-app/[botId]). The rules are the chat's own (src/lib/jobs/core.ts,
  * src/lib/jobsTenders.ts, src/lib/jobs/shop.ts): the same gates (ban, mute, required channel, verified phone, profile), the same
- * roles, the same escrow, offers, disputes, featured listings and tenders. Chat notifications go out through src/lib/jobs/notify.ts.
+ * roles, the same escrow, offers, disputes, featured listings and tenders. Chat notifications go out through src/lib/jobs/notify.ts. The shared platform services (USDT remittances and channel/group exchange) are dispatched to src/lib/botApp/platformServices.ts and never use the Jobs balance ledger.
  */
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow, JobsProfile } from "@prisma/client";
