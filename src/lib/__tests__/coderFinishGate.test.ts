@@ -1,4 +1,4 @@
-import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES } from "../coderFinishGate";
+import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES, madeSuccessfulActions, madeSuccessfulChanges } from "../coderFinishGate";
 
 const GOAL = "اذهب للمستودع وابحث عن بوت سلاسل يومية يوجد له تطبيق مصغر قم باصلاح وتطوير البوت والتطبيق المصغر بشكل كامل";
 const MENU = "بناءً على تحليلي وجدت البوت. هل تريد أن أقوم بإصلاح الكود؟ أخبرني بالخطوة التي تريد البدء بها!";
@@ -21,6 +21,8 @@ describe("owner finish gate", () => {
     expect(worthALesson(GOAL, ["computer_publish"])).toBe(true);
     expect(worthALesson("من انت", [])).toBe(true);
     expect(madeChanges(["computer_run", "computer_test"])).toBe(false);
+    expect(madeChanges(["github_create_branch", "github_create_pr", "github_run_workflow"])).toBe(true);
+    expect(madeChanges(["sandbox_write_file"])).toBe(true);
   });
   test("tool names are read from the messages", () => {
     expect(toolNamesIn([{ tool_calls: [{ function: { name: "computer_edit" } }] }, {}])).toEqual(["computer_edit"]);
@@ -109,5 +111,103 @@ describe("recovery after a blocked repeated action reply", () => {
   test("does not recover after a real change or for a question", () => {
     expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0)).toBe(false);
     expect(shouldRecoverBlockedAction("ما أفضل لغة برمجة؟", [], 0)).toBe(false);
+  });
+});
+
+
+describe("verified changes require a successful matching tool result", () => {
+  const editCall = { id: "edit-1", type: "function" as const, function: { name: "computer_edit", arguments: "{}" } };
+  test("failed or denied write attempts do not count as changes", () => {
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "error: file not found" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "result: File not found" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "Already up to date; no changes to commit" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "DENIED by the user's standing policy" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "{\"ok\":false,\"error\":\"permission denied\"}" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "step 1: wrote file\nstep 2: error: disk full" },
+    ])).toBe(false);
+    expect(madeSuccessfulChanges([{ role: "assistant", tool_calls: [editCall] }])).toBe(false);
+  });
+
+  test("a successful matching write result counts, and an unrelated result does not", () => {
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "other-call", content: "file updated" },
+    ])).toBe(false);
+    const messages = [
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "Edited src/app.ts successfully" },
+    ];
+    expect(madeSuccessfulChanges(messages)).toBe(true);
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "{\"ok\":true,\"errors\":[]}" },
+    ])).toBe(true);
+    // Some Studio adapters persist the named tool result but omit the assistant call object.
+    expect(madeSuccessfulChanges([
+      { role: "tool", tool_call_id: "edit-1", name: "computer_edit", content: "Edited src/app.ts successfully" } as any,
+    ])).toBe(true);
+    expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0, messages)).toBe(false);
+    expect(worthALesson(GOAL, ["computer_edit"], messages)).toBe(true);
+  });
+
+
+  test("a successful branch/PR action counts as progress but not as a code fix or training lesson", () => {
+    const branch = { id: "branch-1", type: "function" as const, function: { name: "github_create_branch", arguments: "{}" } };
+    const messages = [
+      { role: "assistant", tool_calls: [branch] },
+      { role: "tool", tool_call_id: "branch-1", content: "Created branch nova/audit" },
+    ];
+    expect(madeSuccessfulActions(messages)).toBe(true);
+    expect(madeSuccessfulChanges(messages)).toBe(false);
+    expect(finishNudge(GOAL, ["github_create_branch"], "وجدت البوت وأنشأت فرعًا للعمل عليه.", 0, messages)).toBe("");
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إنشاء فرع nova/audit للعمل عليه.", 0, messages)).toBe("");
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إنشاء ملف src/index.ts.", 0, messages)).toMatch(/nothing was changed/i);
+    expect(finishNudge(GOAL, ["github_create_branch"], "تم إصلاح البوت بالكامل.", 0, messages)).toMatch(/nothing was changed/i);
+    expect(shouldRecoverBlockedAction(GOAL, ["github_create_branch"], 0, messages)).toBe(false);
+    expect(worthALesson(GOAL, ["github_create_branch"], messages)).toBe(false);
+  });
+  test("sandbox writes count, but read-only computer batches and PR creation do not", () => {
+    const sandbox = { id: "sbx-1", type: "function" as const, function: { name: "sandbox_write_file", arguments: "{}" } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [sandbox] },
+      { role: "tool", tool_call_id: "sbx-1", content: "wrote /tmp/task.txt" },
+    ])).toBe(true);
+
+    const batch = { id: "batch-1", type: "function" as const, function: { name: "computer_batch", arguments: JSON.stringify({ steps: [{ tool: "computer_read", path: "README.md" }] }) } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [batch] },
+      { role: "tool", tool_call_id: "batch-1", content: "read README.md" },
+    ])).toBe(false);
+
+    const pr = { id: "pr-1", type: "function" as const, function: { name: "github_create_pr", arguments: "{}" } };
+    expect(madeSuccessfulChanges([
+      { role: "assistant", tool_calls: [pr] },
+      { role: "tool", tool_call_id: "pr-1", content: "Created pull request #12" },
+    ])).toBe(false);
+  });
+
+  test("a false claim after a failed write is sent back for real work", () => {
+    const messages = [
+      { role: "assistant", tool_calls: [editCall] },
+      { role: "tool", tool_call_id: "edit-1", content: "error: permission denied" },
+    ];
+    expect(finishNudge(GOAL, ["computer_edit"], "تم إصلاح المشكلة", 0, messages)).toMatch(/nothing was changed/i);
   });
 });

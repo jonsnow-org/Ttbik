@@ -2661,7 +2661,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (blocked) {
         const gate = await gateOf();
         const goal = await ownerGoal();
-        const nudge = gate.finishNudge(goal, gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const nudge = gate.finishNudge(goal, gate.toolNamesIn(st.messages as never), text, run.nudges || 0, st.messages as never);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ ردّ مكرّر لم يُعرَض؛ أُعيد إلى التنفيذ — المحاولة ${run.nudges}.`, db);
@@ -2671,7 +2671,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           continue;
         }
         const usedTools = gate.toolNamesIn(st.messages as never);
-        if (gate.shouldRecoverBlockedAction(goal, usedTools, run.replyGuardRecoveries || 0)) {
+        if (gate.shouldRecoverBlockedAction(goal, usedTools, run.replyGuardRecoveries || 0, st.messages as never)) {
           run.replyGuardRecoveries = (run.replyGuardRecoveries || 0) + 1;
           run.stall.level++;
           await onStall(
@@ -2685,7 +2685,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
-        text = gate.stalledActionNote(goal, usedTools) || text;
+        text = gate.stalledActionNote(goal, usedTools, st.messages as never) || text;
       }
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
@@ -2728,7 +2728,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
         const gate = await gateOf();
-        const nudge = gate.finishNudge(await ownerGoal(), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const nudge = gate.finishNudge(await ownerGoal(), gate.toolNamesIn(st.messages as never), text, run.nudges || 0, st.messages as never);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
@@ -2748,7 +2748,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db, st);
       if (run.agent) st.agentResult = { status: "done", text: text.trim() || "(empty report)", at: Date.now() };
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham"
-        && await import("@/lib/coderFinishGate").then((g) => g.worthALesson(run.goal || "", g.toolNamesIn(st.messages as never)))) {
+        && await import("@/lib/coderFinishGate").then((g) => g.worthALesson(run.goal || "", g.toolNamesIn(st.messages as never), st.messages as never))) {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
         const snap = [...st.messages], id = run.id, steps = run.step;
         later(() => import("@/lib/coderLessons").then((m) => m.recordLessonStatus(id, steps, snap, db)).then((r) => taskEvent(id, "info", r === "saved" ? "📚 حُفظ درس هذه المهمة للتدريب." : `📚 لم يُحفظ الدرس: ${r}`, db)).then(() => undefined).catch(() => undefined));

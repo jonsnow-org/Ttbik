@@ -49,7 +49,16 @@ export function outSig(out: string): string {
 /** Tool failures have several shapes across computer, GitHub and browser backends. A failed read is not task progress. */
 export function isToolError(out: string): boolean {
   const head = String(out || "").trim().replace(/^(?:result|output)\s*:\s*/i, "");
-  return /^(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|(?:file|path|directory|repository|branch|resource|command|job|request|tool)\s+(?:not found|was not found|does not exist)\b|not found\b|no such (?:file|directory|repository)\b|permission denied\b|unauthorized\b|forbidden\b|timed? out\b|timeout\b|network error\b|could not\b|cannot\b|not executed\b|service unavailable\b|bad gateway\b|rate limit(?:ed)?\b)/i.test(head);
+  // "not executed: already on disk" is an idempotent no-op, not a failure; the caller should use the existing checkout.
+  if (/^(?:not executed\s*:\s*)?(?:repository|repo)\s+(?:is\s+)?already\s+(?:on your computer|cloned|available)\b/i.test(head)) return false;
+  try {
+    const parsed = JSON.parse(head);
+    if (parsed && typeof parsed === "object") {
+      if (parsed.ok === false || parsed.success === false || Boolean(parsed.error) || (Array.isArray(parsed.errors) ? parsed.errors.length > 0 : Boolean(parsed.errors))) return true;
+      if (typeof parsed.status === "number" && parsed.status >= 400) return true;
+    }
+  } catch { /* most tools return plain text */ }
+  return /^(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|(?:file|path|directory|repository|branch|resource|command|job|request|tool)\s+(?:not found|was not found|does not exist)\b|not found\b|no such (?:file|directory|repository)\b|permission denied\b|unauthorized\b|forbidden\b|timed? out\b|timeout\b|network error\b|could not\b|cannot\b|service unavailable\b|bad gateway\b|rate limit(?:ed)?\b)/i.test(head);
 }
 
 /** Before running a call: an identical (non-polling) call already made STALL_REPEAT times is not run again — its earlier result is returned. */

@@ -770,23 +770,39 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true };
     }
     case "memories": {
-      const { listMemories } = await import("@/lib/coderMemory");
-      return { memories: (await listMemories(await memoryOwnerOf(chatId, body, db), db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
+      const { listMemoriesStrict } = await import("@/lib/coderMemory");
+      let rows: Awaited<ReturnType<typeof listMemoriesStrict>>;
+      try { rows = await listMemoriesStrict(await memoryOwnerOf(chatId, body, db), db); }
+      catch { throw new AppError(503, "memory storage unavailable"); }
+      return { memories: rows.map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
     }
     case "memory_add": {
       const { saveMemory } = await import("@/lib/coderMemory");
       const r = await saveMemory(await memoryOwnerOf(chatId, body, db), { text: String(body.text || ""), kind: body.kind, repo: body.repo, source: "app" }, db);
       if (r.action === "invalid") throw new AppError(400, "text too short");
+      if (r.action === "error") throw new AppError(503, "memory storage unavailable; nothing was saved");
       return { ok: true, ...r };
     }
     case "memory_update": {
       const { updateMemory } = await import("@/lib/coderMemory");
-      if (!(await updateMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db))) throw new AppError(404, "no such memory");
+      try {
+        const updated = await updateMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db);
+        if (!updated) throw new AppError(404, "no such memory");
+      } catch (e) {
+        if (e instanceof AppError) throw e;
+        throw new AppError(503, "memory storage unavailable; nothing was updated");
+      }
       return { ok: true };
     }
     case "memory_delete": {
       const { deleteMemory } = await import("@/lib/coderMemory");
-      if (!(await deleteMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), db))) throw new AppError(404, "no such memory");
+      try {
+        const deleted = await deleteMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), db);
+        if (!deleted) throw new AppError(404, "no such memory");
+      } catch (e) {
+        if (e instanceof AppError) throw e;
+        throw new AppError(503, "memory storage unavailable; nothing was deleted");
+      }
       return { ok: true };
     }
     // ---------------------------------------------------------------- owner control panel (src/lib/coderPanel.ts)

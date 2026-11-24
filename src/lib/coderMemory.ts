@@ -1,5 +1,5 @@
 // Long-term memory of the coder, per user (owner's order, 2026-10-21). Zero cost: rows in the site's own Postgres, ranking in code
-// (keyword overlap + recency + scope), extraction by the same free coder model. Strictly per user: every query is keyed by the user's
+// (Arabic-aware BM25 + phrase/fuzzy overlap + recency + repo scope), extraction by the same free coder model. Strictly per user: every query is keyed by the user's
 // chat key and an id from another user never matches. Kinds: preference / fact (project fact) / decision. Scope: global or one repo.
 // Facts are extracted at the end of a task only from what the USER said and the coder's own replies — never from tool output
 // (web pages, files, issues), so a fetched page cannot plant a "memory".
@@ -55,17 +55,19 @@ function ensureTable(db: Db): Promise<void> {
   return ready;
 }
 
-export async function listMemories(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
-  try {
-    await ensureTable(db);
-    const rows = await db.query<Memory>(`SELECT id, scope, kind, text, source_run, created_at, updated_at FROM coder_memories WHERE chat_key = $1 ORDER BY updated_at DESC LIMIT 500`, keyOf(chatId));
-    return rows.map((r) => ({ ...r, id: Number(r.id), created_at: String(r.created_at), updated_at: String(r.updated_at) }));
-  } catch {
-    return [];
-  }
+/** Strict read used by the agent: storage outages must not look like an empty memory store. */
+export async function listMemoriesStrict(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
+  await ensureTable(db);
+  const rows = await db.query<Memory>('SELECT id, scope, kind, text, source_run, created_at, updated_at FROM coder_memories WHERE chat_key = $1 ORDER BY updated_at DESC LIMIT 500', keyOf(chatId));
+  return rows.map((r) => ({ ...r, id: Number(r.id), created_at: String(r.created_at), updated_at: String(r.updated_at) }));
 }
 
-export type SaveResult = { action: "added" | "updated" | "unchanged" | "invalid"; id?: number; previous?: string };
+/** Safe display fallback for non-critical UI callers; agent paths use listMemoriesStrict. */
+export async function listMemories(chatId: number | string, db: Db = prismaDb): Promise<Memory[]> {
+  try { return await listMemoriesStrict(chatId, db); } catch { return []; }
+}
+
+export type SaveResult = { action: "added" | "updated" | "unchanged" | "invalid" | "error"; id?: number; previous?: string };
 /**
  * Saves one memory with de-duplication: the same thing again only refreshes it; a fact on the same subject that says something else
  * (high overlap, same kind and scope) replaces the old one — the newest statement wins. `replaces` points at an old memory explicitly.
@@ -79,7 +81,7 @@ export async function saveMemory(
   const scope = normScope(m.scope, m.repo);
   try {
     await ensureTable(db);
-    const mine = await listMemories(chatId, db);
+    const mine = await listMemoriesStrict(chatId, db);
     let best: Memory | null = null;
     let bestSim = 0;
     let dup: Memory | null = null;
@@ -102,13 +104,13 @@ export async function saveMemory(
     const rows = await db.query<{ id: number }>(`INSERT INTO coder_memories (chat_key, scope, kind, text, source_run) VALUES ($1, $2, $3, $4, $5) RETURNING id`, keyOf(chatId), scope, kind, text, m.source ?? null);
     return { action: "added", id: Number(rows[0]?.id) };
   } catch {
-    return { action: "invalid" };
+    return { action: "error" };
   }
 }
 
 /** Edit from the Mini App or /memory (only the user's own row). */
 export async function updateMemory(chatId: number | string, id: number, patch: { text?: string; kind?: unknown; scope?: unknown }, db: Db = prismaDb): Promise<boolean> {
-  const rows = (await listMemories(chatId, db)).filter((x) => x.id === Number(id));
+  const rows = (await listMemoriesStrict(chatId, db)).filter((x) => x.id === Number(id));
   if (!rows.length) return false;
   const cur = rows[0];
   const text = patch.text !== undefined ? String(patch.text).replace(/\s+/g, " ").trim().slice(0, MEMORY_TEXT_MAX) : cur.text;
@@ -120,43 +122,83 @@ export async function updateMemory(chatId: number | string, id: number, patch: {
 }
 
 export async function deleteMemory(chatId: number | string, id: number, db: Db = prismaDb): Promise<boolean> {
-  try {
-    await ensureTable(db);
-    const rows = await db.query<{ id: number }>(`DELETE FROM coder_memories WHERE chat_key = $1 AND id = $2 RETURNING id`, keyOf(chatId), Number(id));
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+  await ensureTable(db);
+  const rows = await db.query<{ id: number }>(`DELETE FROM coder_memories WHERE chat_key = $1 AND id = $2 RETURNING id`, keyOf(chatId), Number(id));
+  return rows.length > 0;
+}
+// ---------------------------------------------------------------- retrieval
+/**
+ * Search-only normalisation: keep stored text untouched while making common Arabic spelling variants,
+ * the definite article, and simple English inflections match. This is lexical normalisation, not an
+ * embedding model; it is deterministic, local, and has no external-service or privacy dependency.
+ */
+export function memorySearchTerms(text: string): string[] {
+  return memTerms(String(text || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2")).map((raw) => {
+    let w = raw.replace(/[أإآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
+    if (/^[\u0600-\u06FF]+$/.test(w)) {
+      if (/^[وف]/.test(w) && w.length > 4) w = w.slice(1);
+      if (w.startsWith("ال") && w.length > 4) w = w.slice(2);
+    }
+    if (/^[a-z]+$/.test(w)) {
+      if (w.length > 5 && w.endsWith("ies")) w = w.slice(0, -3) + "y";
+      else if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
+      else if (w.length > 4 && w.endsWith("ed")) w = w.slice(0, -2);
+      else if (w.length > 4 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
+    }
+    return w;
+  }).filter(Boolean);
 }
 
-// ---------------------------------------------------------------- retrieval
-/** Keyword overlap + recency + scope (and a small bonus for preferences, which apply to everything). */
+/** BM25 lexical relevance + phrase/fuzzy overlap + repo scope + recency + durable preferences. */
 export function rankMemories(rows: Memory[], query: string, repo?: string, now = Date.now()): { m: Memory; score: number }[] {
-  const q = new Set(memTerms(query));
-  const df = new Map<string, number>();
-  for (const r of rows) for (const w of new Set(memTerms(r.text))) df.set(w, (df.get(w) || 0) + 1);
   const repoScope = repo ? normScope("", repo) : "";
-  return rows
-    .filter((r) => r.scope === "global" || r.scope === repoScope)
-    .map((r) => {
-      let kw = 0;
-      for (const w of new Set(memTerms(r.text))) if (q.has(w)) kw += Math.log(1 + rows.length / (df.get(w) || 1));
-      const ageDays = Math.max(0, (now - Date.parse(r.updated_at.replace(" ", "T").replace(/\+00$/, "Z"))) / 86400000) || 0;
-      const score = kw + 0.6 * Math.exp(-ageDays / 45) + (r.scope === repoScope && repoScope ? 1 : 0) + (r.kind === "preference" ? 0.5 : 0);
-      return { m: r, score, kw };
-    })
-    .filter((x) => x.kw > 0 || x.m.kind === "preference" || (repoScope && x.m.scope === repoScope))
+  const eligible = rows.filter((r) => r.scope === "global" || r.scope === repoScope);
+  const qTerms = memorySearchTerms(query);
+  const q = new Set(qTerms);
+  const docs = eligible.map((r) => memorySearchTerms(r.text));
+  const df = new Map<string, number>();
+  for (const doc of docs) for (const w of new Set(doc)) df.set(w, (df.get(w) || 0) + 1);
+  const avgLen = docs.length ? docs.reduce((n, d) => n + d.length, 0) / docs.length : 0;
+  const queryPhrase = qTerms.join(" ");
+  return eligible.map((m, i) => {
+    const doc = docs[i];
+    const tf = new Map<string, number>();
+    for (const w of doc) tf.set(w, (tf.get(w) || 0) + 1);
+    let bm25 = 0;
+    for (const w of q) {
+      const f = tf.get(w) || 0;
+      if (!f) continue;
+      const n = df.get(w) || 0;
+      const idf = Math.log(1 + (eligible.length - n + 0.5) / (n + 0.5));
+      const k1 = 1.2, b = 0.75;
+      bm25 += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (avgLen ? doc.length / avgLen : 0)));
+    }
+    const docSet = new Set(doc);
+    let overlap = 0;
+    for (const w of q) if (docSet.has(w)) overlap++;
+    const fuzzy = q.size && docSet.size ? overlap / (q.size + docSet.size - overlap) : 0;
+    const normalisedDoc = doc.join(" ");
+    const phrase = queryPhrase.length >= 5 && normalisedDoc.includes(queryPhrase) ? 1.5 : 0;
+    const ageDays = Math.max(0, (now - Date.parse(m.updated_at.replace(" ", "T").replace(/\+00$/, "Z"))) / 86400000) || 0;
+    const recency = 0.25 * Math.exp(-ageDays / 60);
+    const scope = repoScope && m.scope === repoScope ? 0.65 : 0;
+    const preference = m.kind === "preference" ? 0.2 : 0;
+    return { m, score: bm25 + fuzzy * 0.8 + phrase + recency + scope + preference, relevant: bm25 > 0 || fuzzy > 0 || phrase > 0 };
+  })
+    .filter((x) => x.relevant || x.m.kind === "preference")
     .sort((a, b) => b.score - a.score)
     .map(({ m, score }) => ({ m, score }));
 }
 
 export async function searchMemories(chatId: number | string, query: string, repo?: string, limit = MEMORY_PROMPT_MAX, db: Db = prismaDb): Promise<Memory[]> {
-  return rankMemories(await listMemories(chatId, db), query, repo).slice(0, limit).map((x) => x.m);
+  return rankMemories(await listMemoriesStrict(chatId, db), query, repo).slice(0, limit).map((x) => x.m);
 }
 
 /** The block added to the system prompt at the start of a task (empty when nothing relevant). */
 export async function memoryPrompt(chatId: number | string, query: string, repo?: string, db: Db = prismaDb): Promise<string> {
-  const top = await searchMemories(chatId, query, repo, MEMORY_PROMPT_MAX, db);
+  let top: Memory[];
+  try { top = await searchMemories(chatId, query, repo, MEMORY_PROMPT_MAX, db); }
+  catch { return "Long-term memory storage is temporarily unavailable. Do not assume the user has no saved memories; continue the task without memory and report this only if it materially affects the result."; }
   if (!top.length) return "";
   const lines = top.map((m) => `- #${m.id} [${m.kind}${m.scope === "global" ? "" : ` ${m.scope.slice(5)}`}] ${m.text}`);
   return `What you remember about this user (long-term memory; follow preferences, but the current request wins on conflict; correct stale ones with memory_save, remove wrong ones with memory_forget):\n${lines.join("\n").slice(0, 2500)}`;
@@ -263,17 +305,21 @@ export async function extractMemories(
 export async function memoryTool(chatId: number | string, name: string, a: Record<string, any>, runId?: string, db: Db = prismaDb): Promise<string> {
   if (name === "memory_save") {
     const r = await saveMemory(chatId, { text: a.text, kind: a.kind, repo: a.repo, replaces: a.replaces, source: runId ?? null }, db);
-    return r.action === "invalid" ? "error: nothing to save (text too short)" : `${r.action} memory #${r.id}${r.previous ? ` (was: ${r.previous})` : ""}`;
+    return r.action === "invalid" ? "error: nothing to save (text too short)" : r.action === "error" ? "error: long-term memory storage is unavailable; nothing was saved" : `${r.action} memory #${r.id}${r.previous ? ` (was: ${r.previous})` : ""}`;
   }
   if (name === "memory_search") {
-    const rows = await searchMemories(chatId, String(a.query || ""), a.repo ? String(a.repo) : undefined, Math.min(20, Number(a.limit) || 10), db);
-    return rows.length ? rows.map((m) => `#${m.id} [${m.kind} ${m.scope}] ${m.text}`).join("\n") : "no matching memories";
+    try {
+      const rows = await searchMemories(chatId, String(a.query || ""), a.repo ? String(a.repo) : undefined, Math.min(20, Number(a.limit) || 10), db);
+      return rows.length ? rows.map((m) => `#${m.id} [${m.kind} ${m.scope}] ${m.text}`).join("\n") : "no matching memories";
+    } catch { return "error: long-term memory storage is unavailable; no conclusion can be drawn about saved memories"; }
   }
   if (name === "memory_forget") {
-    let id = Number(a.id) || 0;
-    if (!id && a.query) id = (await searchMemories(chatId, String(a.query), a.repo ? String(a.repo) : undefined, 1, db))[0]?.id || 0;
-    if (!id) return "error: no such memory";
-    return (await deleteMemory(chatId, id, db)) ? `forgot memory #${id}` : "error: no such memory";
+    try {
+      let id = Number(a.id) || 0;
+      if (!id && a.query) id = (await searchMemories(chatId, String(a.query), a.repo ? String(a.repo) : undefined, 1, db))[0]?.id || 0;
+      if (!id) return "error: no such memory";
+      return (await deleteMemory(chatId, id, db)) ? `forgot memory #${id}` : "error: no such memory";
+    } catch { return "error: long-term memory storage is unavailable; nothing was forgotten"; }
   }
   return `error: unknown memory tool ${name}`;
 }

@@ -4,10 +4,13 @@ const call = (name: string, args: object) => ({ id: "c", type: "function" as con
 
 describe("stall detection", () => {
   it("recognises computer/API failures as errors rather than progress", () => {
-    for (const out of ["File not found", "result: File not found", "no such file or directory", "HTTP 404 Not Found", "permission denied", "not executed: repository is already on your computer"]) {
+    for (const out of ["File not found", "result: File not found", "no such file or directory", "HTTP 404 Not Found", "permission denied", "{\"ok\":false,\"error\":\"clone failed\"}"]) {
       expect(isToolError(out)).toBe(true);
     }
     expect(isToolError("repository ready in /home/user/repo")).toBe(false);
+    expect(isToolError("not executed: repository is already on your computer")).toBe(false);
+    expect(isToolError("{\"ok\":true,\"path\":\"/home/user/repos/project\"}")).toBe(false);
+    expect(isToolError("{\"ok\":true,\"errors\":[]}")).toBe(false);
     expect(isToolError("Found 12 matching files")).toBe(false);
   });
 
