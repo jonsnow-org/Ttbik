@@ -283,14 +283,15 @@ SITES = (
 
 
 def _proxy_flags() -> list[str]:
-    """Review note #1198 (P0): every request of the desktop browser (redirects, iframes, XHR, websockets, subresources) goes through the egress filter (egress_proxy.py), which
-    refuses private / link-local / metadata addresses after resolving the name once. No proxy (disabled or could not start) = the browser starts as before."""
+    """Every desktop browser request must pass through the private/metadata egress filter."""
     try:
         import egress_proxy
         port = egress_proxy.ensure()
-    except Exception:  # noqa: BLE001
-        port = 0
-    return [f"--proxy-server=http://127.0.0.1:{port}"] if port else []
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("secure browser egress proxy is unavailable: " + str(exc)[:160]) from exc
+    if not port:
+        raise RuntimeError("secure browser egress proxy is disabled or could not start; refusing an unfiltered browser")
+    return [f"--proxy-server=http://127.0.0.1:{port}"]
 
 
 def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | None:
@@ -299,22 +300,27 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
         import browser_computer
         profile = box.session_home(session) / ".desktop" / "chrome-profile"
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
+        try:
+            proxy_flags = _proxy_flags()
+        except RuntimeError as exc:
+            return f"#!/bin/sh\nxmessage {shlex.quote(str(exc))} & exit 1\n"
         flags = " ".join(shlex.quote(f) for f in [
             "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking",
             # owner 2026-11-22: the screen was heavy on 2 vCPU. Site isolation runs one renderer per site (CPU + RAM the box does not have), autoplay decodes a video nobody asked for,
             # and LCD text / sound add work the picture never needs. The model and the user still start any video by tapping it.
             "--disable-features=Translate,MediaRouter,OptimizationHints,InterestFeedContentSuggestions" + ("" if os.environ.get("DESKTOP_SITE_ISOLATION", "off").strip().lower() == "on" else ",site-per-process,IsolateOrigins"), "--autoplay-policy=document-user-activation-required", "--mute-audio",
-            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", *_proxy_flags(), f"--user-data-dir={profile}",
+            "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", *proxy_flags, f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
         # `nice`: the browser yields the two cores to the desktop's own input (xdotool) and picture capture, so typing and taps are answered while a page is still loading
-        # Review note #1198 (P0), done without breaking the browser: Chromium's own sandbox is tried FIRST (the session runs as an unprivileged user); if the host forbids it
-        # (no user namespaces) Chromium dies within seconds and the SAME command is started again with --no-sandbox. DESKTOP_CHROME_SANDBOX=off keeps the old behaviour at once.
-        sandbox_off = os.environ.get("DESKTOP_CHROME_SANDBOX", "auto").strip().lower() == "off"
+        # The desktop app is launched as its session's unprivileged UID. Keep Chromium's sandbox on by default;
+        # disabling it requires an explicit operator override.
+        sandbox_off = os.environ.get("DESKTOP_CHROME_SANDBOX", "strict").strip().lower() == "off"
         first = "--no-sandbox " if sandbox_off else ""
         return (f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\n'
-                f'T0=$(date +%s)\nnice -n 8 "$C" {first}{flags}\nRC=$?\n'
-                f'if [ "$RC" -ne 0 ] && [ $(( $(date +%s) - T0 )) -lt 8 ] && [ -z "{first}" ]\nthen\nexec nice -n 8 "$C" --no-sandbox {flags}\nfi\nexit "$RC"\n')
+                f'nice -n 8 "$C" {first}{flags}\nRC=$?\n'
+                f'if [ "$RC" -ne 0 ] && [ -z "{first}" ]; then xmessage "Chromium could not start with its sandbox; browser access is disabled." & fi\n'
+                f'exit "$RC"\n')
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):
@@ -938,29 +944,21 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             cmd = [binary]
         elif app == "browser":
             url = str(job.get("url") or "about:blank").strip()
-            if url != "about:blank":
-                import browser_computer
-                url = browser_computer.safe_url(url)
-            # Owner's order 2026-11-09: the desktop browser runs even though this Studio cannot apply the private-network firewall ("partly blocked"),
-            # so a real browser can be tried. DESKTOP_BROWSER_STRICT=1 brings the refusal back.
-            if os.environ.get("DESKTOP_BROWSER_STRICT") == "1" and box.STATE.get("egress", "").startswith("partly blocked"):
-                raise RuntimeError("The browser is disabled because this Studio could not confirm its private-network egress block.")
             import browser_computer
-            executable = next((p for p in browser_computer.STORE.rglob("chrome") if p.is_file() and "headless" not in str(p).lower()), None)
-            if executable is None:
-                raise RuntimeError("Chromium is not installed in this Studio yet. The model's headless browser can still be used in the Browser tab.")
-            profile = box.session_home(session) / ".desktop" / "chrome-profile"
-            profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if url != "about:blank":
+                url = browser_computer.safe_url(url, session)
+            # The Mini App path uses the same filtered, sandboxed launcher as the taskbar; it cannot bypass the proxy.
+            _proxy_flags()
+            script = _launcher_script(session, "browser", url)
+            if not script:
+                raise RuntimeError("the secure desktop browser launcher is unavailable")
+            launcher = box.session_home(session) / ".desktop" / "panel" / "api-browser.sh"
+            launcher.parent.mkdir(parents=True, exist_ok=True)
+            launcher.write_text(script, encoding="utf-8")
+            os.chmod(launcher, 0o700)
             if box.is_root():
-                os.chown(profile.parent, box.session_uid(session), box.session_uid(session))
-                os.chown(profile, box.session_uid(session), box.session_uid(session))
-            os.chmod(profile, 0o700)
-            cmd = [
-                str(executable), "--no-sandbox", "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage",
-                "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
-                "--disable-features=Translate,MediaRouter", f"--user-data-dir={profile}",
-                f"--window-size={WIDTH - 24},{HEIGHT - 90}", url,
-            ]
+                os.chown(launcher, box.session_uid(session), box.session_uid(session))
+            cmd = ["/bin/sh", str(launcher)]
         else:
             return {"ok": False, "error": "app is not in the computer's approved desktop app catalog"}
         proc = _spawn(cmd, _ENV, "app-" + app)

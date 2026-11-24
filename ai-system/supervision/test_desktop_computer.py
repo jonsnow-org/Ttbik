@@ -61,6 +61,33 @@ class Desktop(unittest.TestCase):
     def call(self, **body):
         return json.loads(desktop.api_desktop_do(json.dumps(body)))
 
+    def test_taskbar_browser_launcher_fails_closed_without_proxy(self):
+        with patch.object(desktop, "_proxy_flags", return_value=[]):
+            script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
+        self.assertIn("disabled", script.lower())
+        self.assertNotIn("find ", script)
+
+    def test_taskbar_browser_launcher_uses_proxy_and_keeps_sandbox(self):
+        with (patch.object(desktop, "_proxy_flags", return_value=["--proxy-server=http://127.0.0.1:43123"]),
+              patch.dict("os.environ", {"DESKTOP_CHROME_SANDBOX": "strict"})):
+            script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
+        self.assertIn("--proxy-server=http://127.0.0.1:43123", script)
+        self.assertNotIn(" --no-sandbox", script)
+        self.assertNotIn("then\nexec nice", script)
+
+    def test_direct_browser_launch_reuses_the_filtered_launcher(self):
+        import browser_computer
+        launched = {}
+        with (patch.object(browser_computer, "safe_url", side_effect=lambda value, session=None: value),
+              patch.object(desktop, "_proxy_flags", return_value=["--proxy-server=http://127.0.0.1:43123"]),
+              patch.object(desktop, "_spawn", side_effect=lambda command, env, label: (launched.update(command=command, label=label) or SimpleNamespace(pid=123)))):
+            answer = desktop._input_action("user-a:model-x", "launch", {"app": "browser", "url": "https://example.com/"})
+        self.assertTrue(answer["ok"], answer)
+        self.assertEqual(launched["command"][0], "/bin/sh")
+        script = Path(launched["command"][1]).read_text(encoding="utf-8")
+        self.assertIn("--proxy-server=http://127.0.0.1:43123", script)
+        self.assertNotIn(" --no-sandbox", script)
+
     def test_session_and_input_validators(self):
         self.assertEqual(desktop.session_hash("user-a:model-x"), desktop.session_hash("user-a:model-x"))
         self.assertNotIn("user-a", desktop.session_hash("user-a:model-x"))
