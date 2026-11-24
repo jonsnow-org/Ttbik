@@ -65,7 +65,7 @@ export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
   return madeSuccessfulToolAction(messages, CODE_CHANGE_TOOL);
 }
 
-const CLAIM = /(تم\s+(?:إصلاح|اصلاح|تنفيذ|تطوير|تحسين|تعديل|إضافة|اضافة|إنشاء|انشاء|نشر|دمج|كتابة)|قمت\s+ب(?:إصلاح|اصلاح|تعديل|تطوير|إضافة|اضافة|تحسين)|تحسينات\s+في\s+\S+\.(?:py|ts|tsx|js|json)|I(?:'ve| have)\s+(?:fixed|implemented|updated|added|improved|refactored))/i;
+const CLAIM = /(تم\s+(?:إصلاح|اصلاح|تنفيذ|تطوير|تحسين|تعديل|إضافة|اضافة|كتابة|دمج|نشر)|تم\s+(?:إنشاء|انشاء)\s+(?:ملف|كود|مجلد|script|file|module)|قمت\s+ب(?:إصلاح|اصلاح|تعديل|تطوير|إضافة|اضافة|تحسين)|تحسينات\s+في\s+\S+\.(?:py|ts|tsx|js|json)|I(?:'ve| have)\s+(?:fixed|implemented|updated|added|improved|refactored))/i;
 
 /** True when the answer reports that something was changed. */
 export function claimsChanges(text: string): boolean {
