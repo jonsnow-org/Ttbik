@@ -132,7 +132,7 @@ def main() -> int:
     tools = [{"type": "function", "function": {"name": "computer_run", "description": "Run a bash command in your private persistent Linux workspace.",
               "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}}]
     try:
-        out, secs, _ = call("agent_step", {"prompt": "المستخدم: اعرض الملفات في المجلد الحالي على حاسوبك.", "tools_json": json.dumps(tools), "max_new_tokens": 160, "session": "probe-a"})
+        out, secs, _ = call("agent_step", {"prompt": ("أنت وكيل يعمل على حاسوب Linux خاص بالنموذج المحدد.\n" "الأدوات المتاحة لك:\n" "- computer_run(command) — نفّذ أمراً حقيقياً في طرفيتك الدائمة.\n" "طلب المستخدم: اعرض الملفات في المجلد الحالي على حاسوبك."), "tools_json": json.dumps(tools), "max_new_tokens": 160, "session": "probe-a"})
         o = _j(out)
         work.append({"path": "agent_step", "s": round(secs, 2), "type": o.get("type"), "text": str(o.get("text") or "")[:300],
                      "tool_call": o.get("tool_call") or (o.get("message") or {}).get("tool_calls"), "embedded": str(o.get("embedded") or "")[:400]})
