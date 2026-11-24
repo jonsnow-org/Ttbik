@@ -25,6 +25,7 @@ import { createWalletDepositInvoice } from "@/lib/walletDepositInvoice";
 import { isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, MIN_USD, MAX_USD, type Chain } from "@/lib/chainDeposits";
 import { getMasterHotWalletAddress, getOrCreateTonMemo, isNativeTonConfigured } from "@/services/ton-service";
+import { upsertAssetIdentity } from "@/lib/channels/assetMarket";
 import { rateLimit, type TgWebAppUser } from "@/lib/match/inline";
 import { handlePlatformServiceAction } from "@/lib/botApp/platformServices";
 
