@@ -9,7 +9,7 @@
 //
 // What this file holds:
 //   - after the correction Nova does NOT ask about the repository again: it searches INSIDE jonsnow-org/Ttbik for the bot
-//     handle, reads the matching code and the next relevant implementation file on the established branch, without creating a branch;
+//     handle, reads the files the search returns, and takes a concrete step (a branch);
 //   - the engine placeholder never reaches the chat and no blocked reply ends the task;
 //   - «تابع» resumes from the next real step;
 //   - the repair context (the repository the owner named) really reaches the model, and the prompt carries the NAME RULE.
@@ -94,7 +94,6 @@ function studio(gh: ReturnType<typeof githubLayer>) {
   const bodies: any[] = [];
   const pending = new Map<string, object>();
   let afterFollow = false;
-  let readBatch = 0;
   const toolResultName = (msgs: any[]): string => {
     const last = msgs[msgs.length - 1];
     if (last?.role !== "tool") return "";
@@ -112,20 +111,19 @@ function studio(gh: ReturnType<typeof githubLayer>) {
       return { type: "done", job: "j2", text: "", tool_calls: [call("r1", "github_read_files", { repo: REPO, paths: ["src/lib/botApp/streakApp.ts", "src/config/navigation.ts"] })] };
     }
     if (tool === "github_read_files") {
-      if (afterFollow) {
-        return { type: "done", job: "j5", text: "قرأت src/app/bot-app/[botId]/StreakMiniApp.tsx: التطبيق المصغر يستخدم مكوّن السلاسل اليومي، والآن اكتملت خريطة المسار دون إنشاء فرع جديد.", tool_calls: [] };
-      }
-      readBatch += 1;
-      return readBatch === 1
-        ? { type: "done", job: "j3", text: "", tool_calls: [call("r2", "github_read_files", { repo: REPO, paths: ["src/lib/streakBotLogic.ts"] })] }
-        : { type: "done", job: "j4", text: "وجدت البوت داخل المستودع: المعرّف @Slaselbot مضبوط في src/lib/botApp/streakApp.ts وفي src/config/navigation.ts، وقرأت أيضاً منطق السلاسل اليومية في src/lib/streakBotLogic.ts. تابعت على الفرع المعتمد دون إنشاء فرع آخر.", tool_calls: [] };
+      return afterFollow
+        ? { type: "done", job: "j5", text: "قرأت src/lib/botApp/streakBotLogic.ts: منطق السلاسل اليومية فيه بسيط، والخطوة التالية هي تعديل احتساب اليوم وتغطيته باختبار.", tool_calls: [] }
+        : { type: "done", job: "j3", text: "", tool_calls: [call("b1", "github_create_branch", { repo: REPO, branch: "nova/slaselbot-audit" })] };
+    }
+    if (tool === "github_create_branch") {
+      return { type: "done", job: "j4", text: "وجدت البوت داخل المستودع: المعرّف @Slaselbot مضبوط في src/lib/botApp/streakApp.ts وفي src/config/navigation.ts، والتطبيق المصغر في src/app/bot-app/[botId]/StreakMiniApp.tsx. أنشأت فرع nova/slaselbot-audit للبدء.", tool_calls: [] };
     }
     if (tool === "github_list_repos") return { type: "done", job: "j1", text: ASKED, tool_calls: [] };
     if (userText.includes("هذا بوت تلجرام")) {
       return { type: "done", job: "j1b", text: "", tool_calls: [call("s1", "github_search_code", { repo: REPO, query: "Slaselbot" })] };
     }
     if (afterFollow) {
-      return { type: "done", job: "j4b", text: "", tool_calls: [call("r3", "github_read_files", { repo: REPO, paths: ["src/app/bot-app/[botId]/StreakMiniApp.tsx"] })] };
+      return { type: "done", job: "j4b", text: "", tool_calls: [call("r2", "github_read_files", { repo: REPO, paths: ["src/lib/streakBotLogic.ts"] })] };
     }
     if (userText.includes("@Slaselbot")) {
       return { type: "done", job: "j0", text: "", tool_calls: [call("l1", "github_list_repos", {})] };
@@ -198,8 +196,7 @@ it("after the owner names the repository, Nova searches inside it, reads the hit
   expect(decodeURIComponent(search[0].path)).toContain("repo:jonsnow-org/Ttbik");
   expect(decodeURIComponent(search[0].path).toLowerCase()).toContain("slaselbot");     // the bot handle is the query, not a repository name
   expect(phase2.some((c) => c.path.includes("/contents/src/lib/botApp/streakApp.ts"))).toBe(true);   // the hits were read
-  expect(phase2.some((c) => c.path.includes("/contents/src/lib/streakBotLogic.ts"))).toBe(true); // reads the next implementation file on the same branch
-  expect(phase2.some((c) => c.method === "POST" && c.path === `/repos/${REPO}/git/refs`)).toBe(false); // no per-task branch is created
+  expect(phase2.some((c) => c.method === "POST" && c.path === `/repos/${REPO}/git/refs`)).toBe(true); // a real step was taken
 
   const phase2Text = sent.slice(sentBefore).map((s: any) => String(s.text)).join("\n");
   expect(phase2Text).not.toContain(NOVA_STALE_AR);                                     // never the engine placeholder
@@ -220,6 +217,6 @@ it("after the owner names the repository, Nova searches inside it, reads the hit
   await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "تابع" } }, db);
   await settle(db);
   const follow = gh.ghCalls.slice(ghBeforeFollow);
-  expect(follow.some((c) => c.path.includes("/contents/src/app/bot-app/[botId]/StreakMiniApp.tsx"))).toBe(true);
+  expect(follow.some((c) => c.path.includes("/contents/src/lib/streakBotLogic.ts"))).toBe(true);
   expect(sent.map((s: any) => String(s.text)).join("\n")).not.toContain(NOVA_STALE_AR);
 }, 120000);

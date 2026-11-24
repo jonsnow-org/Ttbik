@@ -4,13 +4,15 @@ Last reviewed: 2026-11-24
 
 This document records the safe operating model for Nova's own coder/media paths and the deployment fallback. It is a runbook, not proof that any external provider is currently healthy.
 
-## Single-branch workflow
+## Branch workflow and ChatGPT session continuity
 
-- The repository's default and sole continuing work branch is `claude/free-services-marketplace-h6rwk2`.
-- Resume and reuse this exact branch across sessions. Do not create a new branch for each task, improvement, or conversation.
-- Do not open routine pull requests from the default branch into itself. Keep focused commits on the same branch and preserve the existing confirmation gates for default-branch writes and deployments.
-- Treat other branches as legacy or task-specific until their associated PRs and unique commits have been reviewed. Do not bulk-delete branches based only on age or name.
-- A short-lived branch is allowed only when the owner explicitly requests a separate release/review track or the existing branch cannot safely be used and the owner approves the exception.
+This note distinguishes the external ChatGPT operator's session-management habit from Nova's own engineering workflow. When ChatGPT continues work after a conversation is compacted or a new session begins, it should inspect and resume the existing relevant branch rather than creating a new branch solely because the chat context changed. This is an instruction to the external assistant, not a restriction on Nova's code or Git tools.
+
+- `claude/free-services-marketplace-h6rwk2` is the current default/continuing branch and a sensible starting point for ongoing work.
+- Nova is not limited to that branch. It should inspect repository conventions, related work, open reviews and branch state; continue an existing branch when it contains the same work, or create a task branch when isolation, parallel development, independent tests, rollback or review makes that the better engineering choice.
+- A new conversation alone is not a reason for ChatGPT to create a branch. A real task boundary may be a good reason for Nova to create one.
+- Do not open a pull request from a branch into itself. Keep commits focused, preserve unrelated changes, and retain the existing confirmation gates for default-branch writes and production deployment.
+- Treat historical branches as reviewable project history; do not bulk-delete branches based only on age or name.
 
 ## Non-negotiable boundaries
 

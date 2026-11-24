@@ -1,4 +1,4 @@
-import { branchAllowedForWrite, branchPolicyError, classifyCall, classifyWorkflow, guardCall, githubClient } from "@/lib/coderAgent";
+import { GITHUB_TOOLS, classifyCall, classifyWorkflow, guardCall, githubClient } from "@/lib/coderAgent";
 import { decryptToken, encryptToken, resolveConnections, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 
 const call = (name: string, args: object) => ({ id: "c", type: "function" as const, function: { name, arguments: JSON.stringify(args) } });
@@ -27,17 +27,16 @@ const asks = async (tier: "owner" | "user", c: ReturnType<typeof call>) => (awai
 
 beforeEach(mockGithub);
 
-describe("Ttbik persistent branch policy", () => {
-  it("allows only the established work branch for Ttbik writes", () => {
-    const branch = "claude/free-services-marketplace-h6rwk2";
-    expect(branchAllowedForWrite("jonsnow-org/Ttbik", branch)).toBe(true);
-    expect(branchAllowedForWrite("JONSNOW-ORG/TTBIK", "fix/session-branch")).toBe(false);
-    expect(branchPolicyError("jonsnow-org/Ttbik", "fix/session-branch")).toContain(branch);
-  });
+describe("agent-decided Git branching", () => {
+  const description = (name: string) => GITHUB_TOOLS.find((entry) => entry.function.name === name)?.function.description || "";
 
-  it("does not impose the Ttbik branch rule on unrelated repositories", () => {
-    expect(branchAllowedForWrite("another-org/another-repo", "feature-x")).toBe(true);
-    expect(branchPolicyError("another-org/another-repo", "feature-x")).toBeNull();
+  it("keeps branch creation, branch-targeted writes, and pull requests available", () => {
+    expect(description("github_create_branch")).toMatch(/Create a task or feature branch/i);
+    expect(description("github_write_files")).toMatch(/selected branch/i);
+    expect(description("github_create_pr")).toMatch(/Open a pull request/i);
+    for (const name of ["github_create_branch", "github_write_files", "github_create_pr", "sandbox_push"]) {
+      expect(description(name)).not.toMatch(/single-branch policy|only claude\/free-services|do not create another branch/i);
+    }
   });
 });
 

@@ -19,14 +19,6 @@ const s = (description: string) => ({ type: "string", description });
 const n = (description: string) => ({ type: "number", description });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): CoderTool => ({ type: "function", function: { name, description, parameters } });
 const REPO = s("owner/name, e.g. jonsnow-org/Ttbik");
-export const TTBK_WORK_REPO = "jonsnow-org/ttbik";
-export const TTBK_WORK_BRANCH = "claude/free-services-marketplace-h6rwk2";
-export function branchAllowedForWrite(repo: string, branch: string): boolean {
-  return String(repo || "").trim().toLowerCase() !== TTBK_WORK_REPO || String(branch || "").trim() === TTBK_WORK_BRANCH;
-}
-export function branchPolicyError(repo: string, branch: string): string | null {
-  return branchAllowedForWrite(repo, branch) ? null : "single-branch policy: write only to " + TTBK_WORK_BRANCH + "; refusing to create or write " + String(branch || "(empty)");
-}
 const delegateAvailable = (): boolean => agentsEnabled() && agentsAllowedFor() && maxParallelAgentsForStudios(coderStudioUrls().length) > 0;
 
 export const GITHUB_TOOLS: CoderTool[] = [
@@ -41,12 +33,12 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_search_code", "Search code in one repository. Each hit comes WITH a fragment of the matching code (the exact text), so you often do not need to read the file: pass a fragment straight to github_edit_file. Use it before reading files you have not located yet.", obj({ repo: REPO, query: s("search words; GitHub code-search qualifiers work, e.g. 'symbol language:ts path:src'") }, ["repo", "query"])),
   tool("github_search_repos", "Find repositories on GitHub (any owner) by keywords/topics, best first. Use it to discover projects; then read their README with github_read_file.", obj({ query: s("search words, e.g. 'telegram bot llm' (GitHub qualifiers like language:python stars:>100 work)"), sort: s("stars (default) | updated | best-match") }, ["query"])),
   tool("github_list_branches", "List branches.", obj({ repo: REPO }, ["repo"])),
-  tool("github_create_branch", "Create an additional branch only when the owner explicitly changes the single-branch policy. For jonsnow-org/Ttbik, do not create another branch.", obj({ repo: REPO, branch: s("new branch"), from: s("source branch") }, ["repo", "branch"])),
-  tool("github_write_files", "Create or update several files in ONE commit on an existing branch. It never creates a missing branch. For jonsnow-org/Ttbik, use only claude/free-services-marketplace-h6rwk2.",
+  tool("github_create_branch", "Create a task or feature branch when isolation, parallel work, rollback, review, or repository conventions make it useful.", obj({ repo: REPO, branch: s("new branch"), from: s("source branch") }, ["repo", "branch"])),
+  tool("github_write_files", "Create or update several files in ONE commit on the selected branch. If the requested branch is missing, create it from the repository default branch.",
     obj({ repo: REPO, branch: s("target branch"), message: s("commit message"), files: { type: "array", items: obj({ path: s("file path"), content: s("full new file content") }, ["path", "content"]) } }, ["repo", "branch", "message", "files"])),
   tool("github_delete_files", "Delete files in one commit on a branch.", obj({ repo: REPO, branch: s("branch"), message: s("commit message"), paths: { type: "array", items: s("file path") } }, ["repo", "branch", "message", "paths"])),
   tool("github_delete_branch", "Delete a branch.", obj({ repo: REPO, branch: s("branch") }, ["repo", "branch"])),
-  tool("github_create_pr", "Open a pull request FROM `head` INTO `base`. For jonsnow-org/Ttbik, the only permitted head is claude/free-services-marketplace-h6rwk2; never create a temporary head branch. Do not open a routine PR from the default branch into itself.", obj({ repo: REPO, head: s("source branch holding the changes"), base: s("target branch the PR merges into (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
+  tool("github_create_pr", "Open a pull request FROM `head` INTO `base` when the repository workflow or requested review calls for one. The source and target branches must differ.", obj({ repo: REPO, head: s("source branch holding the changes"), base: s("target branch the PR merges into (required)"), title: s("title"), body: s("description") }, ["repo", "head", "base", "title"])),
   tool("github_merge_pr", "Merge a pull request.", obj({ repo: REPO, number: n("PR number"), method: s("merge | squash | rebase") }, ["repo", "number"])),
   tool("github_list_prs", "List open pull requests.", obj({ repo: REPO }, ["repo"])),
   tool("github_list_issues", "List open issues.", obj({ repo: REPO }, ["repo"])),
@@ -80,7 +72,7 @@ export const SANDBOX_TOOL_DEFS: CoderTool[] = [
   tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
   tool("sandbox_write_file", "Write a file in the temporary task workspace only; it is not shared with your persistent computer.", obj({ path: s("path, relative to cwd or absolute"), content: s("full file content"), cwd: s("base dir") }, ["path", "content"])),
   tool("sandbox_edit_file", "Edit a file in the VM by replacing an exact piece of text (must occur exactly once unless replace_all). Prefer it to rewriting the whole file with sandbox_write_file.", obj({ path: s("file path"), old: s("exact text to replace"), new: s("replacement text"), replace_all: { type: "boolean" }, cwd: s("base dir") }, ["path", "old", "new"])),
-  tool("sandbox_push", "Publish changes from this temporary task workspace only, to an existing branch. For jonsnow-org/Ttbik, only claude/free-services-marketplace-h6rwk2 is permitted; do not create another branch.", obj({ repo: REPO, branch: s("existing branch to push to"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
+  tool("sandbox_push", "Publish changes from this temporary task workspace to the selected branch. Choose a dedicated branch when it improves isolation or review.", obj({ repo: REPO, branch: s("target branch"), message: s("commit message"), dir: s("the cloned folder, default = repo name") }, ["repo", "branch", "message"])),
   tool("sandbox_search", "Search the VM's files: `pattern` = a regex searched inside files (grep, with line numbers); `glob` = list files by name (e.g. *.ts). Skips node_modules and .git.", obj({ pattern: s("regex to find inside files (optional)"), glob: s("file name pattern, e.g. *.ts (optional)"), path: s("folder to search, default ."), max: n("max results, default 60"), cwd: s("base dir") })),
   tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
 ];
@@ -122,7 +114,8 @@ export const COMPUTER_PLAYBOOK = [
   "- install into your home; it stays between chats; pages that need JavaScript use browser, plain pages web_fetch;",
   "- change a file with computer_edit and send ONLY the changed lines (writing text is your slowest step); never rewrite a whole file for a small change;",
   "- several small steps (read + search + run + write) go in ONE computer_batch call (up to 8 steps): every separate computer call costs about 2 s.",
-  "- when the work is done and tested, computer_publish sends ALL your changes to the established persistent working branch in ONE commit. Do not create a per-task branch or routine PR; open a PR only when the owner explicitly requests a separate review target.",
+  "- choose the Git workflow based on the task and repository conventions: resume a relevant in-progress branch, or create a task branch when isolation, parallel work, rollback or review makes it useful. Do not create a branch merely because a new chat/session began.",
+  "- when the work is done and tested, computer_publish sends ALL your changes to the named target branch in ONE commit; use a dedicated branch when that gives the work a safer or clearer review boundary.",
   "- keep durable files and knowledge in the private computer bank network: create topic banks, put files by source_path, search before rereading, and get an item back to a path when needed; banks are isolated by user+model and share no data across sessions.",
   "- use computer_apps to inspect actual installed workstation apps; launch writer/calc/impress/draw/inkscape/gimp/audacity with desktop. For Arabic scanned PDFs use ocrmypdf -l ara+eng; use pdftotext/qpdf for PDF tasks and LibreOffice for office files.",
   "- for data work use pandas/openpyxl/matplotlib and DuckDB when computer_apps reports them; JupyterLab should run as a background computer job bound to 127.0.0.1 and be opened with the headless browser, not by exposing a public port.",
@@ -146,7 +139,7 @@ export const COMPUTER_BOX_TOOL_DEFS: CoderTool[] = [
   tool("computer_tools", "List the tools installed on YOUR computer now (git gh rg fd jq patch ffmpeg imagemagick pandoc pdftotext sqlite3 python node go cargo java).", obj({})),
   tool("computer_batch", "Run up to 8 computer actions in ONE call, in order (each call costs ~2 s of network time: batch reads, searches, small runs and writes). Each step = {tool: computer_run|computer_write|computer_read|computer_edit|computer_search|computer_patch|computer_test|computer_tools|computer_job|computer_repo, ...that tool's arguments}. Stops at the first error unless the step sets continue_on_error.",
     obj({ steps: { type: "array", items: obj({ tool: s("computer_* tool name"), continue_on_error: { type: "boolean" } }, ["tool"]) } }, ["steps"])),
-  tool("computer_publish", "Send ALL your changes in a computer_repo checkout to an existing `branch` in ONE commit (no content to re-send; links, binaries and huge files are skipped and reported). Reuse the persistent branch; do not create a new branch or routine PR.",
+  tool("computer_publish", "Send ALL your changes in a computer_repo checkout to the selected `branch` in ONE commit (no content to re-send; links, binaries and huge files are skipped and reported). Continue related work on an existing branch or create a scoped branch when useful.",
     obj({ repo: s("owner/name"), branch: s("branch to commit to, e.g. fix/cart-bugs"), message: s("commit message"), dir: s("checkout folder, default repos/<owner>-<name>") }, ["repo", "branch", "message"])),
   tool("computer_repo", "Get a GitHub repository onto YOUR computer in ONE call (into ~/repos), with a summary: public ones, and the owner's PRIVATE ones that the connected GitHub account can read. Then use computer_search / computer_read. Far faster than many GitHub API calls.",
     obj({ url: s("https://github.com/owner/repo"), ref: s("branch or tag, optional") }, ["url"])),
@@ -363,7 +356,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "3. VERIFY: after a change, re-read what you wrote and check CI with github_ci_status (or start a workflow). If something fails, read the error, fix it, verify again.",
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "SCOPE RULE: when the user names a project (\"Nova project\", \"مشروع نوفا\", a folder or a file), read ONLY that part: Nova's project is the ai-system/ folder (backend, Studios) plus the src/lib files named coder*, nova* and openCoder*. Use github_repo_scan with a path or search for it; never scan or read the whole repository for a named project. If you cannot tell which folder is meant, ask ONE question with ask_user.",
-    "BRANCH RULE: Reuse the repository's established persistent working branch across sessions; do not create a branch for each task or conversation. For jonsnow-org/Ttbik, the sole working branch is claude/free-services-marketplace-h6rwk2 (also the default branch). Resume this exact branch before writing, preserve unrelated changes, and keep commits focused. Never create an alternate branch or a per-task PR unless the owner explicitly asks. Do not open a PR from the branch into itself. Preserve existing confirmation gates for default-branch writes, merges, destructive actions and production deploys.",
+    "BRANCH RULE: choose a Git workflow from the task and repository conventions, not from the fact that a new chat/session began. Inspect the default branch, related in-progress branches, unmerged commits and working changes before writing. Prefer resuming a branch that already contains the same work. Create a focused task/feature branch when isolation, parallel work, rollback, independent testing or review makes it useful; avoid needless branch proliferation. For jonsnow-org/Ttbik, claude/free-services-marketplace-h6rwk2 is the current default/continuing branch and a sensible starting point for follow-on work, but it is NOT exclusive: Nova may create or use another branch when its technical judgment or the task requires it. Never open a PR from a branch into itself. Preserve existing confirmation gates for default-branch writes, merges, destructive actions and production deploys.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
     ...(agentsEnabled() ? ["DELEGATE: when a task splits into independent parts (up to 5: parts of a repo, several sources, a comparison, separate changes), call delegate once with those tasks. Role reader = read-only investigation; role worker = full tools and the user's permission settings, for parts that CHANGE things (each delete / merge / main-branch write is asked of the user, so keep such parts few and say clearly what each one may touch). Each agent reports only on its own job, in a fixed shape; YOU write the one answer for the user from the reports and say what was not done. More agents than model servers mostly queue: do not delegate small things."] : []),
@@ -675,12 +668,8 @@ const clip = (x: unknown, max = RESULT_MAX) => {
 };
 
 async function writeFiles(gh: Gh, repo: string, branch: string, message: string, files: { path: string; content: string | null }[]) {
-  const policyError = branchPolicyError(repo, branch);
-  if (policyError) return { error: policyError };
-  // For Ttbik, a missing persistent branch is an error; never auto-create a replacement.
   let ref = await gh("GET", `/repos/${repo}/git/ref/heads/${enc(branch)}`);
   if (ref.status === 404) {
-    if (String(repo).trim().toLowerCase() === TTBK_WORK_REPO) return { error: "persistent work branch " + TTBK_WORK_BRANCH + " is missing; refusing to create a replacement branch" };
     const base = await defaultBranch(gh, repo);
     const b = await gh("GET", `/repos/${repo}/git/ref/heads/${enc(base)}`);
     if (b.status >= 300) return { error: `base branch ${base}: ${b.status}` };
@@ -845,8 +834,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       return formatResearch(r, 24000);
     }
     if (name === "computer_publish") {
-      const policyError = branchPolicyError(String(a.repo || ""), String(a.branch || ""));
-      if (policyError) return "error: " + policyError;
       if (ctx.userId === undefined || !ctx.modelId) return "error: no verified user/model context is available for the computer";
       if (!ctx.gh) return "error: GitHub is not connected in this chat";
       if (!repoOk(a.repo)) return "error: repo must be owner/name";
@@ -895,10 +882,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       return browserDo(ctx.modelId, `${ctx.userId}:${ctx.modelId}`, a as Record<string, unknown>, ctx.fetchImpl);
     }
     if (SANDBOX_TOOLS.has(name)) {
-    if (name === "sandbox_push") {
-      const policyError = branchPolicyError(String(a.repo || ""), String(a.branch || ""));
-      if (policyError) return "error: " + policyError;
-    }
       // plan limit: sandbox time (measured as the time these tools run, in seconds; shown in minutes). The owner has none.
       let meter: null | ((s: number) => Promise<void>) = null;
       if (ctx.userId !== undefined) {
@@ -926,14 +909,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       const path = String(a.path || "");
       if (!path.startsWith("/")) return "error: path must start with /";
       const method = String(a.method || "GET").toUpperCase();
-      if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO && !["GET", "HEAD"].includes(method)) {
-        if (path === "/git/refs" || /^\/git\/refs\/heads\//.test(path)) return "error: single-branch policy blocks raw ref creation or mutation";
-        if (/^\/contents\//.test(path)) {
-          const policyError = branchPolicyError(String(a.repo), String(a.body?.branch || TTBK_WORK_BRANCH));
-          if (policyError) return "error: " + policyError;
-        }
-        if (path === "/pulls" && String(a.body?.head || "").trim() !== TTBK_WORK_BRANCH) return "error: single-branch policy: PR head must be " + TTBK_WORK_BRANCH;
-      }
       const r = await gh(String(a.method || "GET").toUpperCase(), path, a.body && Object.keys(a.body).length ? a.body : undefined);
       return clip(`HTTP ${r.status}\n${typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 1)}`);
     }
@@ -1140,8 +1115,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       }
       case "github_edit_file": {
         const path = String(a.path || ""), branch = String(a.branch || "");
-        const policyError = branchPolicyError(String(a.repo || ""), branch);
-        if (policyError) return "error: " + policyError;
         if (!path || !branch || typeof a.old !== "string" || !a.old || typeof a.new !== "string") return "error: repo, branch, path, old and new are required";
         const cur = await gh("GET", `${R}/contents/${enc(path)}?ref=${encodeURIComponent(branch)}`);
         if (cur.status >= 300 || !cur.data?.content) return clip(`error ${cur.status}: ${cur.data?.message || "file not found on that branch (the branch must exist)"}`);
@@ -1156,7 +1129,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         return clip(Array.isArray(r.data) ? r.data.map((x: any) => x.name).join("\n") : r.data);
       }
       case "github_create_branch": {
-        if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO) return "error: single-branch policy: " + TTBK_WORK_BRANCH + " already exists; do not create another branch";
         const from = a.from || (await defaultBranch(gh, a.repo));
         const b = await gh("GET", `${R}/git/ref/heads/${enc(from)}`);
         if (b.status >= 300) return `error: source branch ${from}: ${b.status}`;
@@ -1178,11 +1150,9 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         return r.status < 300 ? `deleted branch ${a.branch}` : clip(`error ${r.status}: ${r.data?.message}`);
       }
       case "github_create_pr": {
-        if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO && String(a.head || "").trim() !== TTBK_WORK_BRANCH) return "error: single-branch policy: PR head must be " + TTBK_WORK_BRANCH;
-        if (String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO && String(a.base || "").trim() === TTBK_WORK_BRANCH) return "error: do not open a PR from the working branch into itself";
         const base = String(a.base || "").trim();
         if (!base) return "error: base is required: name the branch this pull request must merge INTO (the one the user told you; ask the user if they did not).";
-        if (String(a.head || "").trim() === base) return String(a.repo).trim().toLowerCase() === TTBK_WORK_REPO ? "error: a routine PR cannot target the persistent working branch itself; do not create another branch" : "error: head and base must differ; use an existing source branch";
+        if (String(a.head || "").trim() === base) return "error: head and base must differ; choose a source branch and a different target branch";
         const r = await gh("POST", `${R}/pulls`, { head: a.head, base, title: a.title, body: a.body || "" });
         return r.status < 300 ? `PR #${r.data.number} ${r.data.html_url} (${a.head} → ${base}; ${r.data.changed_files ?? "?"} files changed, +${r.data.additions ?? "?"} -${r.data.deletions ?? "?"})` : clip(`error ${r.status}: ${r.data?.message} ${JSON.stringify(r.data?.errors || "")}`);
       }
@@ -1216,8 +1186,6 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
         return clip(`combined: ${st.data?.state || "?"}\n${lines.join("\n") || "no check runs yet"}`);
       }
       case "github_update_ref": {
-        const policyError = branchPolicyError(String(a.repo || ""), String(a.branch || ""));
-        if (policyError) return "error: " + policyError;
         const r = await gh("PATCH", `${R}/git/refs/heads/${enc(String(a.branch))}`, { sha: a.sha, force: Boolean(a.force) });
         return r.status < 300 ? `${a.branch} → ${a.sha}` : clip(`error ${r.status}: ${r.data?.message}`);
       }
