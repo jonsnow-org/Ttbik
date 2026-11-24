@@ -893,7 +893,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       // only the owner sees how to switch the sign-in flow on (creating the OAuth app is the owner's, one time per service)
       const connectors = list.map((v) => {
         const d = c.connectorById(v.id)!;
-        return user.tier === "owner" && !v.oauth ? { ...v, setup: { create: d.createUrl, callback: c.callbackUrl(d.id), env: [d.env.id, d.env.secret], scope: d.scope } } : v;
+        return user.tier === "owner" && !v.oauth ? { ...v, setup: { create: d.createUrl, callback: c.callbackUrl(d.id), env: [d.env.id, d.env.secret, ...(!c.tokenStorageReady() ? ["CODER_TOKEN_KEY"] : [])], scope: d.scope, storageKeyRequired: !c.tokenStorageReady() } } : v;
       });
       return { connectors, mcp, presets };
     }
@@ -901,6 +901,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const c = await import("@/lib/coderConnectors");
       const d = c.connectorById(String(body.id || ""));
       if (!d) throw new AppError(404, "unknown connector");
+      if (!c.tokenStorageReady()) throw new AppError(503, "secure connector storage is not configured; the owner must set CODER_TOKEN_KEY in the deployment environment");
       if (!c.connectorReady(d)) throw new AppError(400, "sign-in is not set up for this service yet; link it with a token instead");
       return { url: c.connectorStartUrl(chatId, d.id) };
     }
