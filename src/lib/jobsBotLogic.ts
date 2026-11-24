@@ -20,7 +20,8 @@ import {
 import {
   appLink, depositLink, notifyAcceptOutcome, notifyDisputeOpened, notifyDisputeReady, notifyOfferRejected, notifyOfferToOtherParty, notifyReceived,
 } from "@/lib/jobs/notify";
-import { APP_BUTTON } from "@/lib/botApp/buttons";
+import { APP_BUTTON, EXCHANGE_BUTTON, EXCHANGE_INTRO, remitPayPayload } from "@/lib/botApp/buttons";
+import { REMIT_BUTTON, REMIT_INTRO } from "@/lib/remit/remit";
 import { setBotAppMenu } from "@/lib/builderOwnerBot";
 import { gateUrl } from "@/lib/hostingOps";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
@@ -264,7 +265,7 @@ export { settleEscrow, escrowFeeBreakdown };
 // The bot's own Mini App (/bot-app/<botId>, src/lib/botApp/jobsApp.ts): the chat's main menu button and /app open it, and the
 // Telegram menu button is pointed at it once per process (the same mechanism as the other bots' apps).
 export const SHOPS_BUTTON = "🛍 متاجر البائعين";
-const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك في مكان واحد داخل تيليجرام. اختر:";
+const APP_TEXT = "📱 تطبيق البوت: المتجر ومتاجر البائعين وطلباتي والعمل والمناقصات ورصيدك، بالإضافة إلى حوالات USDT وبورصة القنوات والجروبات، في مكان واحد داخل تيليجرام. اختر:";
 const appMenuSet = new Set<string>();
 function ensureJobsAppMenu(botRow: BotRow) {
   if (appMenuSet.has(botRow.id)) return;
@@ -1545,6 +1546,20 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     }
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
+    const payTo = remitPayPayload(payload);
+    if (payload === "remit" || payload === "exchange") {
+      const exchange = payload === "exchange";
+      await bot.api.sendMessage(chatId, exchange ? EXCHANGE_INTRO : REMIT_INTRO, {
+        reply_markup: new InlineKeyboard().webApp(exchange ? EXCHANGE_BUTTON : REMIT_BUTTON, appLink(botRow.id, payload)),
+      });
+      return;
+    }
+    if (payTo) {
+      await bot.api.sendMessage(chatId, "💸 حوالة USDT جاهزة لهذا المستلم. اضغط الزر لإكمالها:", {
+        reply_markup: new InlineKeyboard().webApp(REMIT_BUTTON, appLink(botRow.id, "remit", { pay: payTo })),
+      });
+      return;
+    }
     if (parseShopStart(payload)) {
       await openShopStart(bot, chatId, tgUserId, payload, botRow.id);
       return;
