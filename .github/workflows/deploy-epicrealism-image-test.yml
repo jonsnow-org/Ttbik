@@ -20,7 +20,7 @@ jobs:
       REPO: epicrealism-image-test
       API: https://studio-novaai2026-epicrealism-image-test.api-inference.modelscope.net
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Mirror epiCRealism SD1.5 weights into its private ModelScope repository
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -314,7 +314,7 @@ jobs:
           PY
       - name: Upload epiCRealism smoke artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: epicrealism-image-test-cpu8g
           path: epicrealism-smoke/

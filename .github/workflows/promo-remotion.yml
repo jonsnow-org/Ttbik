@@ -28,7 +28,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Pick episode
         id: pick
         run: |
@@ -41,7 +41,7 @@ jobs:
         if: steps.pick.outputs.id != ''
         working-directory: .
         run: bash scripts/hosting/select-site-base.sh deploy/hosting/site.json >> "$GITHUB_ENV"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.pick.outputs.id != ''
         with:
           node-version: 20
