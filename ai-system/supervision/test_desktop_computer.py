@@ -64,7 +64,7 @@ class Desktop(unittest.TestCase):
     def test_taskbar_browser_launcher_fails_closed_without_proxy(self):
         with patch.object(desktop, "_proxy_flags", side_effect=RuntimeError("proxy unavailable")):
             script = desktop._launcher_script("user-a:model-x", "browser", "https://example.com/")
-        self.assertIn("disabled", script.lower())
+        self.assertIn("unavailable", script.lower())
         self.assertNotIn("find ", script)
 
     def test_taskbar_browser_launcher_uses_proxy_and_keeps_sandbox(self):

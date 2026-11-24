@@ -37,7 +37,8 @@ class PanelTests(unittest.TestCase):
     def test_browser_script_finds_chromium_when_clicked(self):
         script = d._launcher_script("s", "browser")
         self.assertTrue(script.startswith("#!/bin/sh"))
-        self.assertIn("--no-sandbox", script)
+        self.assertNotIn("--no-sandbox", script)       # sandbox is retained by default
+        self.assertIn("--proxy-server=http://127.0.0.1:", script)
         self.assertIn("find ", script)
         self.assertIsNone(d._launcher_script("s", "unknown"))
 
@@ -67,7 +68,7 @@ class AssetsTests(unittest.TestCase):
     def test_home_screen_sites_open_fixed_https_pages(self):
         script = d._launcher_script("s", "browser", "https://www.youtube.com/")
         self.assertIn("https://www.youtube.com/", script)
-        self.assertNotIn(";", script.split("https://www.youtube.com/")[-1])
+        self.assertIn("https://www.youtube.com/\nRC=$?", script)
         with self.assertRaises(ValueError):
             d._launcher_script("s", "browser", "https://evil.example/$(touch /tmp/x)")
 
