@@ -46,7 +46,11 @@ export function callSig(call: CoderToolCall): string {
 export function outSig(out: string): string {
   return createHash("sha1").update((out || "").replace(/\s+/g, " ").trim().slice(0, 4000)).digest("hex").slice(0, 16);
 }
-const isError = (out: string) => /^(error|HTTP [45]\d\d)/i.test((out || "").trim());
+/** Tool failures have several shapes across computer, GitHub and browser backends. A failed read is not task progress. */
+export function isToolError(out: string): boolean {
+  const head = String(out || "").trim().replace(/^(?:result|output)\s*:\s*/i, "");
+  return /^(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|(?:file|path|directory|repository|branch|resource|command|job|request|tool)\s+(?:not found|was not found|does not exist)\b|not found\b|no such (?:file|directory|repository)\b|permission denied\b|unauthorized\b|forbidden\b|timed? out\b|timeout\b|network error\b|could not\b|cannot\b|not executed\b|service unavailable\b|bad gateway\b|rate limit(?:ed)?\b)/i.test(head);
+}
 
 /** Before running a call: an identical (non-polling) call already made STALL_REPEAT times is not run again — its earlier result is returned. */
 // Running the same command/test again after changing files is progress, not a loop: these calls are told apart by the number of
@@ -73,9 +77,9 @@ export function beforeCall(ss: StallState, call: CoderToolCall): { skip: string 
 /** After a call ran: record it; returns a stall when the task is going in circles, and whether to wait before the next step (CI still running). */
 export function afterCall(ss: StallState, call: CoderToolCall, out: string, step: number): { stall: Stall | null; wait: boolean } {
   const sig = sigOf(ss, call);
-  if (WRITES.has(call.function.name) && !isError(out)) ss.gen = (ss.gen || 0) + 1;
+  if (WRITES.has(call.function.name) && !isToolError(out)) ss.gen = (ss.gen || 0) + 1;
   const res = outSig(out);
-  const err = isError(out);
+  const err = isToolError(out);
   const poll = POLL_TOOLS.has(call.function.name);
   const prevSame = ss.calls.filter((c) => c.sig === sig);
   const wait = poll && RUNNING_RX.test(out) && prevSame.some((c) => c.res === res);
