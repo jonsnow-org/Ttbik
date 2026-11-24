@@ -129,9 +129,25 @@ export async function shamAgentRun(opts: {
     messages.push({ role: "user", content: opts.text });
   }
 
+  // A capability question is ordinary chat only when it is genuinely about capabilities.
+  // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
+  // select the permission-checked agent route instead of answering from the model's guess.
+  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
+  const hasWorkspaceAction = /تحليل|حلل|افحص|راجع|اقرأ|تصفح|اعمل على|نفذ|نفّذ|ارفع|ادفع|انشر|نشر|دمج|افتح|أنشئ|أنشاء|analy[sz]e|inspect|review|read|scan|deploy|push|merge|create|open pull request|run workflow/i.test(opts.text);
+  const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
+  const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
+  const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !requiresWorkspaceAgent && !hasWorkspaceTarget;
+  const directChatIntent = !requiresWorkspaceAgent &&
+    (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
+  // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
+  // («python3 -c "pornt iu…"») whose garbled text («الخرج: 811») became the reply; a plain answer then waited for the WHOLE non-streamed body answer (~17 s mean,
+  // up to 41 s). A greeting / question / explanation is conversation: it goes straight to the body's streamed chat below (first words in ~2.4 s). Work
+  // (code, computer, files, web, repositories) still goes through the T-LDM head first.
+  const tldmComputerTask = /(?:حاسوب|كمبيوتر|الطرفية|ترمنال|terminal|shell|bash|سطر\s*الأوامر|نفذ|نفّذ|شغل|شغّل|ثبت|ثبّت|اعرض\s+(?:الملفات|المجلد|محتو)|ملف|ملفات|مجلد|المجلد|احذف|أنشئ\s+(?:ملف|مجلد)|\b(?:run|execute|install|ls|cd|mkdir|rm|cat|pip|npm|git|curl|wget|python3?|node)\b|\bfiles?\b|\bfolders?\b|\bdirector(?:y|ies)\b|ابحث|بحث|تصفح|الإنترنت|الانترنت|الويب|موقع|رابط|https?:\/\/|\b(?:search|browse|research|web|online|website|url)\b)/i.test(opts.text);
+  const tldmPlainTurn = v2 && !opts.resume && directChatIntent && !needsFreshFacts(opts.text) && !tldmComputerTask;
   // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
-  if (v2 && shamTldmOn()) {
+  if (v2 && shamTldmOn() && !tldmPlainTurn) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -225,7 +241,10 @@ export async function shamAgentRun(opts: {
     }
     if (direct?.type === "text") {
       // commands the model ran on its OWN computer inside the Studio (T-LDM's computer is a shell): shown as computer_run steps, like every other tool the app sees
-      const ran = Array.isArray(direct.computer_steps) ? direct.computer_steps.slice(0, 8) : [];
+      const allRan = Array.isArray(direct.computer_steps) ? direct.computer_steps.slice(0, 8) : [];
+      // only commands that worked count as the head's work; a broken command (bash syntax error) is not shown as a step and never becomes the answer
+      const ran = allRan.filter((step) => step?.ok !== false);
+      if (allRan.length > ran.length) opts.onEvent?.("info", `T-LDM: ${allRan.length - ran.length} failed command(s) dropped`);
       for (const step of ran) {
         const command = String(step?.command || "").slice(0, 300);
         if (!command) continue;
@@ -238,8 +257,19 @@ export async function shamAgentRun(opts: {
       const answer = String(direct.text || "").trim();
       // The head decided: no command, no tool. A plain conversation is then spoken by Sham Pro's BODY (the 4.5M head writes short command lines, not conversation: live 2026-11-22
       // its greeting came out doubled and cut mid-word, «...والبحثمرحبا! أنا شام برو...»). Same model, same Studio; the head's text stays the fallback.
-      if (!ran.length && !used.length && tldmSteps === 1 && chatMessages.length) {
-        const spoken = await shamGenerateChat(chatMessages, 768, Math.max(1000, Math.min(timeout, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
+      // The body writes the reply the user reads, streamed when the caller shows a live view: plainly when the head ran nothing that worked, or from the
+      // results of the commands that did work (the head's own text is a short, often garbled command log, kept only as the last fallback).
+      // a head reply that is readable and backed by commands that worked stands as it is (fast); garbled bytes (U+FFFD) or no working command -> the body writes it
+      const headReadable = answer.length >= 2 && !/\uFFFD/.test(answer);
+      if (!(ran.length && headReadable) && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
+        const last = chatMessages[chatMessages.length - 1];
+        const turns = ran.length && last?.role === "user"
+          ? [...chatMessages.slice(0, -1), { role: "user" as const, content: `${last.content}\n\n[ما نُفّذ على حاسوبي الآن]\n${ran.map((step) => `$ ${String(step?.command || "").slice(0, 300)}\n${String(step?.result || "").slice(0, 1200)}`).join("\n").slice(0, 6000)}\n\nهذه أوامر نفذتُها على حاسوبي ونتائجها؛ استعملها فقط إن كانت صحيحة ومتعلقة بطلبي، ثم أجب عن طلبي أعلاه بلغة طلبي وباختصار.` }]
+          : chatMessages;
+        const budget = Math.max(1000, Math.min(timeout, left() - 1000));
+        const spoken = opts.onDelta
+          ? await shamGenerateChatStream(turns, 768, budget, opts.onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true })
+          : await shamGenerateChat(turns, 768, budget, { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true });
         const said = spoken?.type === "text" ? String(spoken.text || "").trim() : "";
         if (said) return { kind: "text", text: said, used, steps: tldmSteps + 1 };
       }
@@ -259,16 +289,6 @@ export async function shamAgentRun(opts: {
     lastResumeMessage?.role === "user" &&
     !resumeMessages.some((message) => message.role === "tool" || Boolean(message.tool_calls?.length))
   );
-  // A capability question is ordinary chat only when it is genuinely about capabilities.
-  // When a GitHub repo / Vercel workspace is named, the task classifier must be allowed to
-  // select the permission-checked agent route instead of answering from the model's guess.
-  const hasWorkspaceTarget = /github|git\s*hub|جيت\s*هب|جيتهوب|vercel|فيرسيل|\b(?:repo|repository|branch|commit|pull request|workflow|deploy|pr)\b|مستودع|ريبو|فرع|كوميت|طلب دمج/i.test(opts.text);
-  const hasWorkspaceAction = /تحليل|حلل|افحص|راجع|اقرأ|تصفح|اعمل على|نفذ|نفّذ|ارفع|ادفع|انشر|نشر|دمج|افتح|أنشئ|أنشاء|analy[sz]e|inspect|review|read|scan|deploy|push|merge|create|open pull request|run workflow/i.test(opts.text);
-  const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
-  const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
-  const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !requiresWorkspaceAgent && !hasWorkspaceTarget;
-  const directChatIntent = !requiresWorkspaceAgent &&
-    (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
   if (v2 && canResumeDirectChat && directChatIntent && !needsFreshFacts(opts.text)) {
     const chatMessages = shamDirectChatMessages(opts.history, opts.text);
     if (lastUserContent(chatMessages) !== opts.text) {
@@ -280,8 +300,8 @@ export async function shamAgentRun(opts: {
     const runDirect = (turns: typeof chatMessages, onDelta = stream) => opts.ask
       ? ask(turns[turns.length - 1]?.content || opts.text, maxNew, timeout)
       : shamModeCtx.run(effMode, () => onDelta
-        ? shamGenerateChatStream(turns, maxNew, timeout, onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner) })
-        : shamGenerateChat(turns, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner) }));
+        ? shamGenerateChatStream(turns, maxNew, timeout, onDelta, { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: tldmPlainTurn })
+        : shamGenerateChat(turns, maxNew, timeout, { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: tldmPlainTurn }));
     const directAsk = () => runDirect(chatMessages);
     if (await isStopped()) return { kind: "stopped", used, steps: 0 };
     let direct = await directAsk();
