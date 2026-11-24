@@ -207,7 +207,12 @@ def _load(model_dir: Path) -> None:
                     ident = {"identity_lora": False, "identity_lora_why": "off (SHAM_IDENTITY_LORA=0)"}
                 else:
                     ident = _tldm.apply_identity(serve._state["model"], head)
-                    if ident.get("identity_lora") and os.environ.get("SHAM_MERGE_IDENTITY", "1").strip().lower() not in ("0", "off", "false", "no"):
+                    if ident.get("identity_lora") and os.environ.get("SHAM_IDENTITY_GATE", "1").strip().lower() not in ("0", "off", "false", "no"):
+                        # 2026-11-24: merged into every projection the LoRA announced «شام برو» on ordinary turns and bent the donor's answers. Gated: the
+                        # adapter is attached only for a turn that asks who / what the model is; every other turn runs the plain donor projections.
+                        gated = _tldm.gate_identity(serve._state["model"])
+                        _say(f"identity LoRA gated on {gated} projections (attached only when a turn asks who the model is)")
+                    elif ident.get("identity_lora") and os.environ.get("SHAM_MERGE_IDENTITY", "1").strip().lower() not in ("0", "off", "false", "no"):
                         merged = _tldm.merge_identity(serve._state["model"])      # same answers, two fewer matmuls per projection per token
                         _say(f"identity LoRA merged into {merged} projections (faster, same function)" if merged else "identity LoRA kept unmerged (not an fp32 body)")
             except Exception as exc:
@@ -234,7 +239,10 @@ def _load(model_dir: Path) -> None:
     _say("ready: the model is loaded")
     # Sham v2 (1.7B) builds its llama.cpp copy only when SHAM_GGUF_V2=1: on this 2-CPU Studio the export competes with the replies for minutes (owner's "مرحبا" went to the background leg right
     # after the first GGUF-enabled deploy, 2026-11-09), so it stays off until it is measured on the live Studio. Sham v1 keeps its copy as before.
-    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or (os.environ.get("SHAM_GGUF_V2", "0") == "1" and not STATE.get("identity_lora"))):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
+    # 2026-11-24: Sham Pro (v2) builds it too, by default: live probe run 45475040881 measured its PyTorch body at ~3 tokens/s (a code answer took 41-58 s). With the identity
+    # adapter GATED (not merged) the body's plain projections are exactly the donor, so the q8_0 copy is that donor; an identity turn decodes in PyTorch with its adapter.
+    _v2_fast = os.environ.get("SHAM_GGUF_V2", "1") == "1" and (not STATE.get("identity_lora") or bool(getattr(serve._state.get("model"), "_identity_gate", None)))
+    if os.environ.get("SHAM_GGUF", "1").strip().lower() not in ("0", "off", "false", "no") and (not _V2 or _v2_fast):      # both Shams decode through a llama.cpp copy (several times faster); built in the background, the first reply never waits for it; skipped when disk / memory are short
         def _prepare_fast():
             try:
                 try:
@@ -244,7 +252,14 @@ def _load(model_dir: Path) -> None:
                 from sham_gguf import fast_model
                 # Sham v1 (a ~100M model) decodes through the 8-bit copy by default: the 4-bit copy (q4_k_m) agreed with PyTorch on only 4 of 6 test prompts in the live Studio log (2026-11-15) and costs ~3% loss;
                 # q8_0 costs ~0.3% and must agree on 6/6, otherwise PyTorch itself decodes. SHAM_GGUF_KIND=q4_k_m brings the old format back.
-                fast_model(serve._state["model"], None if _V2 else (os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0"))      # v2 keeps its own default
+                body = serve._state["model"]
+                body._identity_frozen = True        # the export reads the plain donor projections: no identity turn may attach the adapter meanwhile
+                STATE["fast_decode"] = "building"
+                try:
+                    fm = fast_model(body, os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0")      # both Shams: q8_0 (+0.24% loss; q4_k_m +2.7%)
+                    STATE["fast_decode"] = "llama.cpp" if fm is not None else "pytorch (llama.cpp copy refused or unavailable: see the log)"
+                finally:
+                    body._identity_frozen = False
             except Exception as exc:
                 print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
         threading.Thread(target=_prepare_fast, daemon=True).start()
@@ -341,6 +356,11 @@ def status() -> str:
         }
     except OSError as exc:
         msg["disk"] = {"error": type(exc).__name__}
+    try:
+        mem = {k: int(v.split()[0]) // 1024 for k, v in (ln.split(":", 1) for ln in Path("/proc/meminfo").read_text().splitlines()) if k in ("MemTotal", "MemAvailable")}
+        msg["memory_mib"] = {"total": mem.get("MemTotal", 0), "available": mem.get("MemAvailable", 0)}
+    except Exception:
+        pass
     w = _worker_status()
     if w:
         msg["worker"] = w
@@ -397,6 +417,31 @@ def _studio_media():
     return media
 
 
+class _NoIdentity:
+    def __enter__(self):
+        return False
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _identity(ask):
+    """Sham 2: the identity adapter is attached only inside the block when this turn asks who / what the model is (sham_tldm_serve.identity_for).
+    Call it while holding _LOCK. Sham 1, or a body without a gated adapter: no-op."""
+    if not _V2:
+        return _NoIdentity()
+    try:
+        import serve
+        import sham_tldm_serve as _tldm
+        return _tldm.identity_for(serve._state["model"], ask)
+    except Exception:
+        return _NoIdentity()
+
+
+def _last_user(messages: list) -> str:
+    return next((m.get("content") or "" for m in reversed(messages or []) if isinstance(m, dict) and m.get("role") == "user"), "")
+
+
 def _json_notice(text: str) -> str:
     return json.dumps({"type": "notice", "text": text}, ensure_ascii=False)
 
@@ -419,9 +464,10 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        res = _studio_media().generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                                serve._state["audio_tokenizer"], prompt, n,
-                                                motion_tokenizer=serve._state.get("motion_tokenizer"))
+        with _identity(prompt):
+            res = _studio_media().generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+                                                    serve._state["audio_tokenizer"], prompt, n,
+                                                    motion_tokenizer=serve._state.get("motion_tokenizer"))
         return json.dumps(_vet(res), ensure_ascii=False)
     except Exception as exc:
         print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
@@ -492,21 +538,22 @@ def generate_tldm(
     if not _LOCK.acquire(timeout=_busy_wait()):
         return _busy()
     try:
-        return tldm.respond(
-            serve._state["model"],
-            serve._state["text_tokenizer"],
-            str(session or "default"),
-            text,
-            confirm_cmd=str(confirm_cmd or ""),
-            confirm_ok=bool(float(confirm_ok or 0)),
-            deny_list="" if owner else str(deny_list or ""),
-            owner=bool(float(owner or 0)),
-            resume_tool_name=str(resume_tool_name or ""),
-            resume_tool_arguments_json=str(resume_tool_arguments_json or ""),
-            resume_tool_result=str(resume_tool_result or ""),
-            resume_tool_error=bool(float(resume_tool_error or 0)),
-            resume_tool_request_id=str(resume_tool_request_id or ""),
-        )
+        with _identity(True):
+            return tldm.respond(
+                serve._state["model"],
+                serve._state["text_tokenizer"],
+                str(session or "default"),
+                text,
+                confirm_cmd=str(confirm_cmd or ""),
+                confirm_ok=bool(float(confirm_ok or 0)),
+                deny_list="" if owner else str(deny_list or ""),
+                owner=bool(float(owner or 0)),
+                resume_tool_name=str(resume_tool_name or ""),
+                resume_tool_arguments_json=str(resume_tool_arguments_json or ""),
+                resume_tool_result=str(resume_tool_result or ""),
+                resume_tool_error=bool(float(resume_tool_error or 0)),
+                resume_tool_request_id=str(resume_tool_request_id or ""),
+            )
     except Exception as exc:
         print(f"generate_tldm failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return tldm.error_json(tldm.load_fail_message(f"{type(exc).__name__}: {exc}"))
@@ -535,7 +582,8 @@ def generate_chat(messages_json: str, max_new_tokens: float = 512, temperature: 
     try:
         model = serve._state["model"]
         tok = serve._state["text_tokenizer"]
-        answer = _studio_chat().qwen3_chat_messages(model, tok, clean, n, temperature=temp, think_tokens=thought)
+        with _identity(_last_user(clean)):
+            answer = _studio_chat().qwen3_chat_messages(model, tok, clean, n, temperature=temp, think_tokens=thought)
         return json.dumps({"type": "text", "text": answer}, ensure_ascii=False)
     except Exception as exc:
         print(f"generate_chat failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
@@ -587,9 +635,10 @@ def generate_chat_stream(messages_json: str, max_new_tokens: float = 512, temper
         return
     try:
         from sham_studio_chat import qwen3_chat_stream
-        for piece in qwen3_chat_stream(serve._state["model"], serve._state["text_tokenizer"], clean, n, temperature=temp):
-            if piece:
-                yield piece
+        with _identity(_last_user(clean)):
+            for piece in qwen3_chat_stream(serve._state["model"], serve._state["text_tokenizer"], clean, n, temperature=temp):
+                if piece:
+                    yield piece
     except Exception as exc:
         print(f"generate_chat_stream failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         yield json.dumps({"type": "error", "text": "Sham v2 streamed chat failed: " + str(exc)[:180]}, ensure_ascii=False)

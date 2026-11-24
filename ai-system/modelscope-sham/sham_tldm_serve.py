@@ -250,6 +250,8 @@ def apply_identity(body, path=None, payload: dict | None = None) -> dict:
             return _set_identity(status)
         if _IDENTITY.get("identity_lora") and _IDENTITY.get("identity_lora_path") == str(path or "") and _IDENTITY.get("body") == id(body):
             return dict(_IDENTITY)
+        if getattr(body, "_identity_gate", None) and _IDENTITY.get("identity_lora"):
+            return dict(_IDENTITY)                                  # adapters are kept (gated) from start-up; nothing to load
         if getattr(body, "_identity_merged", False):
             raise RuntimeError("the identity LoRA was merged into the weights at start; restart the Studio to change it")
         downs = [v for k, v in lora.items() if k.endswith(".adapter_down")]
@@ -301,6 +303,92 @@ def merge_identity(body) -> int:
         body._identity_merged = True
         _IDENTITY["merged"] = n
     return n
+
+
+# ---- identity adapter gate (2026-11-24) ---------------------------------------------------------------------------------------
+# Live probe 2026-11-24 (run 45475040881): with the identity LoRA merged into EVERY projection, Sham Pro announced «شام برو» on 4 of 7
+# ordinary prompts («مرحبا» -> «أنا شام برو…», a factorial request ended with «### شام برو…», «…دون إجراء شام بروفسور») and the donor's own
+# answers got worse (17x23 = 312, a factorial became a product of a list). The LoRA was trained on 16 identity pairs with a short replay,
+# so it pushes the name everywhere. The gate keeps the trained adapters in memory but attaches them ONLY for a turn that asks who / what
+# the model is; every other turn runs the plain donor projections (the same function as before the LoRA, and as fast as the merge).
+# Nothing is rewritten: the identity answer is still the model's own, written with its trained adapter.
+IDENTITY_ASK = re.compile(
+    r"(?:^|[\s،,.!?؟:;\"'(])(?:"
+    r"من\s+(?:أنت|انت|إنت|أنتَ)|مين\s+(?:أنت|انت|إنت|انتا|إنتا)|(?:أنت|انت|إنت)\s+(?:مين|من)\b|"
+    r"(?:ما|ما\s+هو|شو|ايش|إيش|وش)\s+اسمك|اسمك\s+(?:ايه|إيه|إيش|ايش|شو|وش|الحقيقي)|ما\s+اسمك|"
+    r"عر[ّ]?ف(?:ني)?\s+(?:بنفسك|عن\s+نفسك)|قدم\s+نفسك|قدّم\s+نفسك|"
+    r"(?:من|مين)\s+(?:صنعك|طورك|طوّرك|برمجك|دربك|درّبك|عملك|انشأك|أنشأك|بناك|ابتكرك)|"
+    r"(?:الشركة|الجهة|الفريق)\s+(?:التي|اللي|الذي)\s+(?:طورتك|صنعتك|طورك|صنعك|دربتك)|"
+    r"(?:أي|اي|ما)\s+(?:نموذج|موديل)\s+(?:أنت|انت|هذا)|(?:نموذجك|موديلك)|"
+    r"هل\s+(?:أنت|انت|إنت)\s+(?:qwen|كوين|كيوين|تونغيي|نوفا|chatgpt|جي\s*بي\s*تي|claude|كلود|gemini|جيميني|llama|لاما|من\s+علي\s*بابا|شام)|"
+    r"(?:علي\s*بابا|alibaba|qwen|tongyi|通义|كوين)"
+    r")(?!\w)",
+    re.I,
+)
+IDENTITY_ASK_EN = re.compile(
+    r"\b(?:who\s+(?:are|r)\s+(?:you|u)|what(?:'s|\s+is)\s+your\s+name|your\s+name\b|tell\s+me\s+(?:about\s+)?your(?:self|\s+name)|introduce\s+yourself|"
+    r"who\s+(?:made|created|built|developed|trained|designed)\s+you|which\s+(?:company|model|llm|ai)\b.{0,30}\byou|what\s+(?:model|llm|ai)\s+(?:are|am)\b|"
+    r"are\s+you\s+(?:qwen|chatgpt|gpt|claude|gemini|llama|nova|sham|an?\s+ai|made\s+by|developed\s+by|from)|(?:developed|made|built|trained)\s+by\s+alibaba|qwen|tongyi|alibaba)\b",
+    re.I,
+)
+
+
+def asks_identity(text: str) -> bool:
+    """True when this user turn asks who / what the model is (its name, maker, which model), Arabic (MSA + dialects) or English."""
+    t = str(text or "").strip()
+    if not t:
+        return False
+    t = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", t)[-600:]          # no diacritics / tatweel; the end of a long prompt is the question
+    return bool(IDENTITY_ASK.search(" " + t) or IDENTITY_ASK_EN.search(t))
+
+
+def gate_identity(body) -> int:
+    """Detach every AdapterLinear (base + LoRA) from the live body, keeping it in memory; the body then runs its plain base projections.
+    identity_on(body, True) re-attaches them for one turn. -> number of gated projections (0 when the body has no adapters)."""
+    if getattr(body, "_identity_gate", None):
+        return len(body._identity_gate)
+    gate = []
+    for _, parent in list(body.named_modules()):
+        for cname, child in list(parent.named_children()):
+            if hasattr(child, "adapter_down") and hasattr(child, "adapter_up") and hasattr(child, "base"):
+                gate.append((parent, cname, child))
+    for parent, cname, child in gate:
+        setattr(parent, cname, child.base)
+    body._identity_gate = gate
+    body._identity_active = False
+    if gate:
+        _IDENTITY["gated"] = len(gate)
+    return len(gate)
+
+
+def identity_on(body, on: bool) -> bool:
+    """Attach (on) or detach the gated identity adapters. Call it under the Studio lock. -> the state now in force."""
+    gate = getattr(body, "_identity_gate", None)
+    if not gate:
+        return False
+    on = bool(on) and not getattr(body, "_identity_frozen", False)      # the llama.cpp export is reading the plain projections
+    if getattr(body, "_identity_active", False) == on:
+        return on
+    for parent, cname, child in gate:
+        setattr(parent, cname, child if on else child.base)
+    body._identity_active = on
+    return on
+
+
+class identity_for:
+    """with identity_for(body, text_or_bool): the identity adapter is attached only inside the block when the turn asks who the model is
+    (or when a bool True is given, e.g. the T-LDM head, trained on the body WITH the adapter). Restored to off afterwards."""
+
+    def __init__(self, body, ask):
+        self.body = body
+        self.on = ask if isinstance(ask, bool) else asks_identity(str(ask or ""))
+
+    def __enter__(self):
+        return identity_on(self.body, self.on)
+
+    def __exit__(self, *exc):
+        identity_on(self.body, False)
+        return False
 
 
 def _set_identity(status: dict) -> dict:
@@ -745,8 +833,11 @@ def respond(
             "tldm": True,
             "computer": "model_computer",
         }, ensure_ascii=False)
-    success = bool(reply) and reply != "I could not finish within the allowed number of steps."
     steps = [item for item in (done_hist or []) if isinstance(item, (list, tuple)) and item and not str(item[0]).startswith("@tool")]
+    # 2026-11-24 live probe: on ordinary questions the head wrote broken commands («python3 -c "pornt iu…"», "range(@N1,@N2+1)") that failed in bash, and the turn
+    # was still logged as a verified success, i.e. as a lesson for self-evolution. A turn is a success only when every command it ran succeeded.
+    all_ok = all(bool(item[2]) if len(item) > 2 else True for item in steps)
+    success = bool(reply) and reply != "I could not finish within the allowed number of steps." and all_ok
     if steps:
         try:
             from sham_tldm_experience import log_episode
@@ -769,6 +860,7 @@ def status_fields() -> dict:
         "tldm_loaded": bool(_LOADED.get("chat")),
         "identity_lora": bool(_IDENTITY.get("identity_lora")),
         "identity_lora_why": str(_IDENTITY.get("identity_lora_why") or ""),
+        "identity_mode": "gated" if _IDENTITY.get("gated") else ("merged" if _IDENTITY.get("merged") else ("always" if _IDENTITY.get("identity_lora") else "off")),
         "tldm_mesh": _mesh_status(),
     }
 

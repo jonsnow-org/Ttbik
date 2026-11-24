@@ -460,13 +460,14 @@ export async function shamGenerateChatStream(
   maxNewTokens = 768,
   timeoutMs = 90000,
   onDelta?: (piece: string) => void,
-  opts: { bypassContentHeuristics?: boolean } = {},
+  opts: { bypassContentHeuristics?: boolean; direct?: boolean } = {},
 ): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
     setFailure("generate_chat_stream refused outside the Sham v2 variant");
     return null;
   }
-  if (shamTldmOn()) {
+  // `direct`: Sham Pro's own body writes this answer (conversation, or the reply after the T-LDM head's work), streamed; see shamAgent.ts.
+  if (shamTldmOn() && !opts.direct) {
     const reply = await shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
     const text = String(reply?.text || "");
     if (reply?.type === "text" && text && onDelta) onDelta(text);

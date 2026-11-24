@@ -321,7 +321,8 @@ def _roll_tokens(model, ids: list[int], tokenizer, n: int, end: int, temperature
     sample = dict(temperature=temperature or 1.0, top_k=1 if not temperature else 40, top_p=1.0 if not temperature else 0.9)
     extra = {}
     fast = None
-    if hasattr(model, "layers"):                       # a real ShamSmall: decode with its llama.cpp copy when the Studio has already built one (several times faster)
+    if hasattr(model, "layers") and not getattr(model, "_identity_active", False):     # a real ShamSmall: decode with its llama.cpp copy when the Studio has already built one (several times faster);
+        # Sham Pro's identity turn runs the PyTorch body WITH its gated identity adapter (the llama.cpp copy is the plain donor projections)
         try:
             from sham_gguf import cached_fast
             fast = cached_fast(model)
