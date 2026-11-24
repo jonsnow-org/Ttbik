@@ -2728,7 +2728,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       if (tierFor(chatId) === "owner" && !run.agent) {         // owner finish gate (coderFinishGate.ts): an action request is not allowed to end with a menu and no change
         const gate = await gateOf();
-        const nudge = gate.finishNudge(await ownerGoal(), gate.toolNamesIn(st.messages as never), text, run.nudges || 0);
+        const nudge = gate.finishNudge(await ownerGoal(), gate.toolNamesIn(st.messages as never), text, run.nudges || 0, st.messages as never);
         if (nudge) {
           run.nudges = (run.nudges || 0) + 1;
           await taskEvent(run.id, "info", `↩️ انتهى الرد بلا أي تعديل فأُعيد إلى التنفيذ (المالك فوّض الطلب) — المحاولة ${run.nudges}.`, db);
