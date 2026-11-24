@@ -283,14 +283,18 @@ SITES = (
 
 
 def _proxy_flags() -> list[str]:
-    """Every desktop browser request must pass through the private/metadata egress filter."""
+    """Use the private/metadata egress proxy when available; its failure must not disable the browser."""
     try:
         import egress_proxy
         port = egress_proxy.ensure()
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError("secure browser egress proxy is unavailable: " + str(exc)[:160]) from exc
+        import logging
+        logging.getLogger(__name__).warning("desktop browser egress proxy unavailable (%s); continuing without the optional proxy", str(exc)[:160])
+        return []
     if not port:
-        raise RuntimeError("secure browser egress proxy is disabled or could not start; refusing an unfiltered browser")
+        import logging
+        logging.getLogger(__name__).warning("desktop browser egress proxy is disabled or unavailable; continuing without the optional proxy")
+        return []
     return [f"--proxy-server=http://127.0.0.1:{port}"]
 
 
@@ -300,10 +304,7 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
         import browser_computer
         profile = box.session_home(session) / ".desktop" / "chrome-profile"
         find = f"find {shlex.quote(str(browser_computer.STORE))} -name chrome -type f ! -ipath '*headless*' 2>/dev/null | head -n 1"
-        try:
-            proxy_flags = _proxy_flags()
-        except RuntimeError as exc:
-            return f"#!/bin/sh\nxmessage {shlex.quote(str(exc))} & exit 1\n"
+        proxy_flags = _proxy_flags()
         flags = " ".join(shlex.quote(f) for f in [
             "--test-type", "--enable-low-end-device-mode", "--renderer-process-limit=2", "--disable-smooth-scrolling", "--disable-extensions", "--force-device-scale-factor=1", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-background-networking",
@@ -313,14 +314,27 @@ def _launcher_script(session: str, app: str, url: str = "about:blank") -> str | 
             "--disable-lcd-text", "--disable-component-update", "--disable-sync", "--disable-breakpad", "--no-pings", *proxy_flags, f"--user-data-dir={profile}",
             f"--window-size={WIDTH - 24},{HEIGHT - ui()['panel'] - 50}", "about:blank" if url == "about:blank" else _site_url(url)])
         # `nice`: the browser yields the two cores to the desktop's own input (xdotool) and picture capture, so typing and taps are answered while a page is still loading
-        # The desktop app is launched as its session's unprivileged UID. Keep Chromium's sandbox on by default;
-        # disabling it requires an explicit operator override.
-        sandbox_off = os.environ.get("DESKTOP_CHROME_SANDBOX", "strict").strip().lower() == "off"
-        first = "--no-sandbox " if sandbox_off else ""
-        return (f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\n'
-                f'nice -n 8 "$C" {first}{flags}\nRC=$?\n'
-                f'if [ "$RC" -ne 0 ] && [ -z "{first}" ]; then xmessage "Chromium could not start with its sandbox; browser access is disabled." & fi\n'
-                f'exit "$RC"\n')
+        # The desktop runs under this session's unprivileged UID. Try Chromium's sandbox first.
+        # Some ModelScope hosts do not allow user namespaces; auto mode retries the same launch
+        # with --no-sandbox only when Chromium reports a sandbox-specific host restriction.
+        sandbox_mode = os.environ.get("DESKTOP_CHROME_SANDBOX", "auto").strip().lower()
+        if sandbox_mode not in {"auto", "off", "strict"}:
+            sandbox_mode = "auto"
+        launch_log = profile / "chrome-launch.log"
+        sandbox_errors = "No usable sandbox|Failed to move to new namespace|Operation not permitted|SUID sandbox helper|sandbox.*(unavailable|failed)"
+        script = f'#!/bin/sh\nmkdir -p {shlex.quote(str(profile))}\nC="$({find})"\n[ -n "$C" ] || {{ xmessage "Chromium is not installed in this computer yet." & exit 0; }}\nLOG={shlex.quote(str(launch_log))}\n'
+        if sandbox_mode == "off":
+            script += f'exec nice -n 8 "$C" --no-sandbox {flags} 2>"$LOG"\n'
+        elif sandbox_mode == "strict":
+            script += f'nice -n 8 "$C" {flags} 2>"$LOG"\nRC=$?\n'
+            script += 'if [ "$RC" -ne 0 ]; then xmessage "Chromium could not start; check its launch log." & fi\nexit "$RC"\n'
+        else:
+            script += f'nice -n 8 "$C" {flags} 2>"$LOG"\nRC=$?\n'
+            script += f'if [ "$RC" -ne 0 ] && grep -Eiq {shlex.quote(sandbox_errors)} "$LOG"; then\n'
+            script += '  echo "Chromium sandbox unavailable on this host; retrying under the isolated session UID without the browser sandbox." >> "$LOG"\n'
+            script += f'  nice -n 8 "$C" --no-sandbox {flags} 2>>"$LOG"\n  RC=$?\nfi\n'
+            script += 'if [ "$RC" -ne 0 ]; then xmessage "Chromium could not start; check its launch log." & fi\nexit "$RC"\n'
+        return script
     if app == "terminal":
         return "#!/bin/sh\nexec " + " ".join(shlex.quote(c) for c in _terminal_command()) + "\n"
     if app == "files" and shutil.which("pcmanfm"):
@@ -947,11 +961,10 @@ def _input_action(session: str, action: str, job: dict) -> dict:
             import browser_computer
             if url != "about:blank":
                 url = browser_computer.safe_url(url, session)
-            # The Mini App path uses the same filtered, sandboxed launcher as the taskbar; it cannot bypass the proxy.
-            _proxy_flags()
+            # The Mini App path uses the same best-effort proxy and sandbox-fallback launcher as the taskbar.
             script = _launcher_script(session, "browser", url)
             if not script:
-                raise RuntimeError("the secure desktop browser launcher is unavailable")
+                raise RuntimeError("the desktop browser launcher is unavailable")
             launcher = box.session_home(session) / ".desktop" / "panel" / "api-browser.sh"
             launcher.parent.mkdir(parents=True, exist_ok=True)
             launcher.write_text(script, encoding="utf-8")

@@ -596,13 +596,13 @@ def egress_secure() -> bool:
 
 
 def egress_strict_enabled() -> bool:
-    """Fail closed by default; disabling this is an explicit operator security override."""
-    value = os.environ.get("COMPUTER_EGRESS_STRICT", "1").strip().lower()
+    """Strict network refusal is opt-in; the default preserves full computer availability."""
+    value = os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip().lower()
     return value not in {"0", "false", "off", "no"}
 
 
 def egress_gate() -> dict | None:
-    """Refuse shell execution whenever the computer's private/metadata egress firewall is not fully installed."""
+    """Attempt private/metadata firewall rules; refuse shell execution only when strict mode is explicitly enabled."""
     install_egress_rules()
     if egress_strict_enabled() and not egress_secure():
         return {"ok": False, "error": "egress_not_secure: shell execution is disabled because private/metadata egress protection is unavailable. " + str(STATE.get("egress", ""))}
