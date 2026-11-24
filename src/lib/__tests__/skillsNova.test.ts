@@ -29,7 +29,7 @@ describe("Nova self-improvement skill", () => {
   const skill = novaSkillText("self_improve");
 
   it("defines an evidence-driven loop and model isolation", () => {
-    for (const term of ["bounded, evidence-driven improvement loop", "OWN code", "coder or nova2", "implemented/configured/connected/verified/blocked/not tested", "feature branch", "regression tests"]) {
+    for (const term of ["bounded, evidence-driven improvement loop", "OWN code", "coder or nova2", "implemented/configured/connected/verified/blocked/not tested", "existing persistent working branch", "reuse the same branch across sessions", "Do not create a branch for each task", "claude/free-services-marketplace-h6rwk2", "regression tests"]) {
       expect(skill).toContain(term);
     }
     expect(skill).toContain("Never modify Sham");
