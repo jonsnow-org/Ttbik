@@ -771,7 +771,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "memories": {
       const { listMemoriesStrict } = await import("@/lib/coderMemory");
-      let rows;
+      let rows: Awaited<ReturnType<typeof listMemoriesStrict>>;
       try { rows = await listMemoriesStrict(await memoryOwnerOf(chatId, body, db), db); }
       catch { throw new AppError(503, "memory storage unavailable"); }
       return { memories: rows.map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
@@ -787,7 +787,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { updateMemory } = await import("@/lib/coderMemory");
       try {
         try {
+        try {
         if (!(await updateMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db))) throw new AppError(404, "no such memory");
+      } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was updated"); }
       } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was updated"); }
       } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was updated"); }
       return { ok: true };
@@ -796,7 +798,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const { deleteMemory } = await import("@/lib/coderMemory");
       try {
         try {
+        try {
         if (!(await deleteMemory(await memoryOwnerOf(chatId, body, db), Number(body.id), db))) throw new AppError(404, "no such memory");
+      } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was deleted"); }
       } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was deleted"); }
       } catch (e) { if (e instanceof AppError) throw e; throw new AppError(503, "memory storage unavailable; nothing was deleted"); }
       return { ok: true };
