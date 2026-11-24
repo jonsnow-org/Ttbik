@@ -25,6 +25,19 @@ describe("queue move keeps a warm cache", () => {
   });
 });
 
+describe("a bot handle inside a named repository is a lookup, not a repository read", () => {
+  test("github_search_code for one handle is executed instead of being sent to computer_repo", () => {
+    // live 2026-11-24: «@Slaselbot» inside «메ستودعنا» was never searched because this call was replaced by "call computer_repo"
+    expect(computerFirstRedirect("github_search_code", { repo: "jonsnow-org/Ttbik", query: "Slaselbot" }, "owner", "run-lookup", true)).toBe("");
+    expect(computerFirstRedirect("github_search_code", { repo: "jonsnow-org/Ttbik", query: "@Slaselbot" }, "owner", "run-lookup2", true)).toBe("");
+  });
+  test("a phrase, a missing repository or a bulk scan still goes to the computer", () => {
+    expect(computerFirstRedirect("github_search_code", { repo: "jonsnow-org/Ttbik", query: "where is the daily streak bot defined" }, "owner", "run-lookup3", true)).toMatch(/computer_repo/);
+    expect(computerFirstRedirect("github_search_code", { query: "Slaselbot" }, "owner", "run-lookup4", true)).toMatch(/computer_repo/);
+    expect(computerFirstRedirect("github_repo_scan", { repo: "jonsnow-org/Ttbik", query: "Slaselbot" }, "owner", "run-lookup5", true)).toMatch(/computer_repo/);
+  });
+});
+
 describe("single-file GitHub reads once the repository is on the computer", () => {
   test("redirected to computer_read only after computer_repo succeeded for that run, owner only", () => {
     expect(computerFirstRedirect("github_read_file", {}, "owner", "run-r", true)).toBe("");

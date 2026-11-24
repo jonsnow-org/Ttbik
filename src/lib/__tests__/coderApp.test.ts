@@ -45,6 +45,20 @@ describe("mini app api", () => {
     expect(u.prefs.categories.filter((c: any) => c.id !== "edit" && c.id !== "merge").every((c: any) => c.tierDefault === "ask")).toBe(true);   // edit and merge are opt-in: they ask only when the user says so
   });
 
+  it("a legacy nova2 request reaches the one Nova, so Nova 2's dead branches are never taken", async () => {
+    // Review note #1198 §2.2 left the `nova2` branches in this file as "not executed". This is the proof at the boundary itself
+    // (an old client or a chat still saved as nova2), not only in the app's body binding.
+    const db = fakeDb();
+    const { bot } = fakeBot();
+    const me = await appOp({ chatId: OWNER, tier: "owner" }, "me", { model: "nova2" }, { db, bot, botRow });
+    expect(me.settings.model).toBe("coder");
+    expect(me.connections.github.linked).toBe(true);          // Nova's own connection, not Nova 2's forced "not linked"
+    expect(JSON.stringify(me)).not.toContain('"gh"');
+    await saveState(OWNER, { ...(await loadState(OWNER, db)), model: "nova2" } as any, db);
+    const again = await appOp({ chatId: OWNER, tier: "owner" }, "me", {}, { db, bot, botRow });   // a chat persisted as nova2
+    expect(again.settings.model).toBe("coder");
+  });
+
   it("settings are validated and saved", async () => {
     const db = fakeDb();
     const { bot } = fakeBot();

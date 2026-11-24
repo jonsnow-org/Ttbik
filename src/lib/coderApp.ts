@@ -168,6 +168,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const st = selectedModel === "nova2"
         ? await withEngineModel(selectedModel, readState)
         : await readState();
+      // A chat persisted under the removed identity ("nova2") must read as the one Nova here too: otherwise the app is handed a
+      // model that no longer exists and every setting below takes a legacy branch (review note #1198 §2.2).
+      {
+        const { canonModelId } = await import("@/lib/coderModels");
+        const canonical = canonModelId(st.model);
+        if (canonical && canonical !== st.model) st.model = canonical;
+      }
       void sections().then((m: any) => m.prewarmChat?.(chatId, db)).catch(() => null);            // the app is open: read the conversation into the Studio while the user types
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
       const owner = user.tier === "owner";
