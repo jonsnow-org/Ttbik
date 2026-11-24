@@ -29,7 +29,7 @@ setShamMediaProbe(shamMediaProbe);      // the control plane hands Sham the chea
 import { coderChatKey, prismaDb, tierFor } from "@/lib/coderAuth";
 import { tldmAllowedFor } from "@/lib/coderModels";
 import { telegramPhoto } from "@/lib/coderSections";
-import { isPlatformOwner } from "@/lib/ownerIdentity";
+import { isPlatformOwner } from "@/lib/platformOwner";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
