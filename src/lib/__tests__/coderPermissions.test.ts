@@ -1,4 +1,4 @@
-import { GITHUB_TOOLS, classifyCall, classifyWorkflow, guardCall, githubClient } from "@/lib/coderAgent";
+import { GITHUB_TOOLS, classifyCall, classifyWorkflow, guardCall, githubClient, runTool } from "@/lib/coderAgent";
 import { decryptToken, encryptToken, resolveConnections, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 
 const call = (name: string, args: object) => ({ id: "c", type: "function" as const, function: { name, arguments: JSON.stringify(args) } });
@@ -37,6 +37,38 @@ describe("agent-decided Git branching", () => {
     for (const name of ["github_create_branch", "github_write_files", "github_create_pr", "sandbox_push"]) {
       expect(description(name)).not.toMatch(/single-branch policy|only claude\/free-services|do not create another branch/i);
     }
+  });
+  });
+
+  it("creates a focused task branch in Ttbik through the real GitHub tool handler", async () => {
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    (global as any).fetch = jest.fn(async (url: string, init: any = {}) => {
+      const path = new URL(url).pathname;
+      const method = String(init.method || "GET").toUpperCase();
+      const body = init.body ? JSON.parse(String(init.body)) : undefined;
+      requests.push({ method, path, body });
+      const response = (status: number, data: unknown) => new Response(JSON.stringify(data), { status });
+      if (method === "GET" && path === "/repos/jonsnow-org/Ttbik/git/ref/heads/claude/free-services-marketplace-h6rwk2") {
+        return response(200, { object: { sha: "source-sha" } });
+      }
+      if (method === "POST" && path === "/repos/jonsnow-org/Ttbik/git/refs") {
+        return response(201, { ref: body.ref, object: { sha: body.sha } });
+      }
+      return response(404, { message: "not found" });
+    });
+
+    const result = await runTool(call("github_create_branch", {
+      repo: "jonsnow-org/Ttbik",
+      branch: "nova/task-isolation",
+      from: "claude/free-services-marketplace-h6rwk2",
+    }), { gh: githubClient("test-token"), addNote: () => undefined, tier: "owner" });
+
+    expect(result).toBe("created nova/task-isolation from claude/free-services-marketplace-h6rwk2");
+    expect(requests.map((request) => request.method + " " + request.path)).toEqual([
+      "GET /repos/jonsnow-org/Ttbik/git/ref/heads/claude/free-services-marketplace-h6rwk2",
+      "POST /repos/jonsnow-org/Ttbik/git/refs",
+    ]);
+    expect(requests[1].body).toEqual({ ref: "refs/heads/nova/task-isolation", sha: "source-sha" });
   });
 });
 
