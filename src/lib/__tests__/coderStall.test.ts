@@ -1,8 +1,24 @@
-import { afterCall, afterText, beforeCall, newStallState, recoveryKnobs, recoveryMessage, STALL_NO_PROGRESS } from "@/lib/coderStall";
+import { afterCall, afterText, beforeCall, isToolError, newStallState, recoveryKnobs, recoveryMessage, STALL_NO_PROGRESS, stepsSinceProgress } from "@/lib/coderStall";
 
 const call = (name: string, args: object) => ({ id: "c", type: "function" as const, function: { name, arguments: JSON.stringify(args) } });
 
 describe("stall detection", () => {
+  it("recognises computer/API failures as errors rather than progress", () => {
+    for (const out of ["File not found", "result: File not found", "no such file or directory", "HTTP 404 Not Found", "permission denied", "not executed: repository is already on your computer"]) {
+      expect(isToolError(out)).toBe(true);
+    }
+    expect(isToolError("repository ready in /home/user/repo")).toBe(false);
+    expect(isToolError("Found 12 matching files")).toBe(false);
+  });
+
+  it("three distinct failed reads do not advance real progress", () => {
+    const ss = newStallState();
+    afterCall(ss, call("computer_read", { path: "SELF_CAPABILITIES.md" }), "File not found", 1);
+    afterCall(ss, call("computer_read", { path: "src/lib/agent/memory.ts" }), "File not found", 2);
+    const last = afterCall(ss, call("computer_read", { path: "src/lib/agent/self_test.ts" }), "File not found", 3);
+    expect(last.stall?.pattern).toBe("repeat_error");
+    expect(stepsSinceProgress(ss, 3)).toBe(3);
+  });
   it("same action+args 3 times = repeat_call; the 4th identical call is not run again", () => {
     const ss = newStallState();
     const c = call("github_read_file", { repo: "o/r", path: "a.ts" });
