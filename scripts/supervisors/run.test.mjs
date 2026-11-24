@@ -146,6 +146,34 @@ test("promotion operations documentation points to the unified monitor and retir
   assert.match(promoGuide, /scripts\/supervisors\/run\.mjs/);
   assert.match(promoGuide, /Monitoring: all systems/);
   assert.match(promoGuide, /promo-projects.*production-branch runs/);
+  assert.match(promoGuide, /promo-videos.*promo-images.*promo-copy.*promo-handoff/);
   assert.match(promoGuide, /do not dispatch or rerun any workflow/);
   assert.doesNotMatch(promoGuide, /promo-supervisor\.yml|error-triage\.yml/);
+});
+
+test("promo-projects success requires all four non-empty, non-expired review artifacts", () => {
+  const names = ["promo-videos", "promo-images", "promo-copy", "promo-handoff"];
+  const artifact = (name) => ({ name, expired: false, size_in_bytes: 1024 });
+  const check = (artifacts) => evaluate({
+    promoArtifacts: { conclusion: "success", runUrl: "production-run", artifacts },
+  }, NOW).find((item) => item.name === "Promo review artifacts");
+
+  assert.equal(check(names.map(artifact)).level, "ok");
+  const missing = check(names.filter((name) => name !== "promo-images").map(artifact));
+  assert.equal(missing.level, "fail");
+  assert.match(missing.detail, /promo-images/);
+  const expired = check(names.map((name) => name === "promo-copy" ? { ...artifact(name), expired: true } : artifact(name)));
+  assert.equal(expired.level, "fail");
+  assert.match(expired.detail, /promo-copy/);
+  const empty = check(names.map((name) => name === "promo-handoff" ? { ...artifact(name), size_in_bytes: 0 } : artifact(name)));
+  assert.equal(empty.level, "fail");
+  assert.match(empty.detail, /promo-handoff/);
+});
+
+test("promo-projects artifact API failures warn rather than implying review assets exist", () => {
+  const check = evaluate({
+    promoArtifacts: { conclusion: "success", runUrl: "production-run", error: "HTTP 403" },
+  }, NOW).find((item) => item.name === "Promo review artifacts");
+  assert.equal(check.level, "warn");
+  assert.match(check.detail, /HTTP 403/);
 });

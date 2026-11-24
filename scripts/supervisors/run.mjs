@@ -7,6 +7,7 @@ import fs from "node:fs";
 const ok200 = () => true;
 const json = (f) => (t) => { try { return f(JSON.parse(t)); } catch { return false; } };
 const hasDigits = (t) => /\d/.test(t) && t.length > 50;
+const REQUIRED_PROMO_ARTIFACTS = ["promo-videos", "promo-images", "promo-copy", "promo-handoff"];
 
 // [label, path-on-public-origin, base ("gate"|"standby"), predicate, info(not a failure)]
 export const SECTIONS = {
@@ -81,6 +82,21 @@ export function evaluate(d, now = Date.now()) {
     if (age > maxH) add(`Workflow: ${name}`, "fail", `no successful run for ${good ? Math.round(age) + "h" : "ever"} (limit ${maxH}h). Last: ${last.conclusion} ${last.html_url}`);
     else if (last.conclusion !== "success" && (!good || Date.parse(last.updated_at) > Date.parse(good.updated_at))) add(`Workflow: ${name}`, "warn", `latest run ${last.conclusion}: ${last.html_url} (last success ${Math.round(age)}h ago)`);
     else add(`Workflow: ${name}`, "ok", `last success ${Math.round(age)}h ago`);
+  }
+  if (d.promoArtifacts) {
+    const a = d.promoArtifacts;
+    if (a.error) {
+      add("Promo review artifacts", "warn", `could not read artifact list for ${a.runUrl || "the latest production run"} (${a.error})`);
+    } else if (a.conclusion !== "success") {
+      add("Promo review artifacts", "info", `latest production run ${a.conclusion || "unknown"}: ${a.runUrl || "GitHub Actions"}; artifact check deferred because the run did not succeed`);
+    } else {
+      const present = new Set((a.artifacts || []).filter((x) => !x.expired && Number(x.size_in_bytes) > 0).map((x) => x.name));
+      const missing = REQUIRED_PROMO_ARTIFACTS.filter((name) => !present.has(name));
+      add("Promo review artifacts", missing.length ? "fail" : "ok",
+        missing.length
+          ? `latest successful production run is missing, expired or empty: ${missing.join(", ")} (${a.runUrl || "GitHub Actions"})`
+          : `all required review artifacts are present and non-empty: ${REQUIRED_PROMO_ARTIFACTS.join(", ")} (${a.runUrl || "GitHub Actions"})`);
+    }
   }
   if (d.bots) {
     if (d.bots.error) add("Bots: live webhook check", "warn", `could not read /api/ops/bots-health (${d.bots.error})`);
@@ -162,6 +178,27 @@ async function main() {
     const data = { site: [], workflows: [], frozen: cfg.frozen ? (process.env.FROZEN_CHECK === "ok" ? "ok" : "fail") : undefined };
     for (const [label, path, b, pred, info] of cfg.site) { const r = b === "gate" ? await publicSiteHttp(site, path) : await http(base[b] + path); data.site.push({ label, status: r.status, ok: r.status === 200 && pred(r.text), info: !!info, via: r.via || b }); }
     for (const def of cfg.workflows) { const perPage = def[3] ? 100 : 10; const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=${perPage}`); data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, runs: [], error: `HTTP ${r.status}` }); }
+    if (section === "promo") {
+      const promoWorkflow = data.workflows.find((entry) => entry.def[0] === "promo-projects.yml");
+      if (promoWorkflow && !promoWorkflow.error) {
+        const productionRuns = (promoWorkflow.runs || []).filter((r) =>
+          (!promoWorkflow.def[3] || promoWorkflow.def[3].includes(r.event)) &&
+          (!promoWorkflow.def[4] || promoWorkflow.def[4].includes(r.head_branch))
+        );
+        const active = productionRuns.find((r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting" || r.status === "requested" || r.status === "pending");
+        const latest = productionRuns.find((r) => r.status === "completed" || r.conclusion);
+        if (!active && latest) {
+          if (latest.conclusion === "success") {
+            const artifacts = await gh(`/repos/${repo}/actions/runs/${latest.id}/artifacts?per_page=100`);
+            data.promoArtifacts = artifacts.status === 200
+              ? { conclusion: "success", runUrl: latest.html_url, artifacts: artifacts.body?.artifacts || [] }
+              : { conclusion: "success", runUrl: latest.html_url, error: `HTTP ${artifacts.status}` };
+          } else {
+            data.promoArtifacts = { conclusion: latest.conclusion || latest.status, runUrl: latest.html_url, artifacts: [] };
+          }
+        }
+      }
+    }
     if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
       try {
         const r = await publicSiteHttp(site, "/api/ops/bots-health", 60000, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
