@@ -5,7 +5,7 @@
  * to work (at most twice), and a run that made no change is never stored as a lesson.
  */
 const ACTION_GOAL = /(أصلح|اصلح|إصلاح|اصلاح|صحّح|صحح|طوّر|طور|تطوير|عدّل|عدل |نفّذ|نفذ|ادمج|ادفع|انشر|أنشئ|أضف|حسّن|حسن |fix\b|implement|develop|improve|refactor|merge|publish|deploy|build\b)/i;
-const CHANGE_TOOL = /^(computer_(write|edit|patch|publish|batch)|github_(create_branch|create_pr|edit_file|write_files|merge_pr|delete_files|update_ref|run_workflow|comment|create_issue|update_repo))$/;
+const CHANGE_TOOL = /^(computer_(write|edit|patch|publish|batch)|sandbox_(write_file|edit_file|push)|github_(edit_file|write_files|merge_pr|delete_files|update_ref))$/;
 
 export function toolNamesIn(messages: Array<{ tool_calls?: Array<{ function?: { name?: string } }> }>): string[] {
   const out: string[] = [];
@@ -21,7 +21,7 @@ type GateMessage = {
   role?: string;
   content?: unknown;
   tool_call_id?: string;
-  tool_calls?: Array<{ id?: string; function?: { name?: string } }>;
+  tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
 };
 function toolOutputFailed(output: string): boolean {
   const t = String(output || "").trim();
@@ -38,7 +38,16 @@ export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
   for (const message of messages || []) {
     for (const call of message.tool_calls || []) {
       const name = call?.function?.name || "";
-      if (!call?.id || !CHANGE_TOOL.test(name)) continue;
+      if (!call?.id) continue;
+      let isWrite = CHANGE_TOOL.test(name);
+      if (name === "computer_batch") {
+        try {
+          const args = JSON.parse(call.function?.arguments || "{}");
+          const writeTool = /^(computer_(write|edit|patch|publish)|sandbox_(write_file|edit_file|push)|github_(edit_file|write_files|delete_files|update_ref|merge_pr))$/;
+          isWrite = Array.isArray(args.steps) && args.steps.some((step: { tool?: string }) => writeTool.test(String(step?.tool || "")));
+        } catch { isWrite = false; }
+      }
+      if (!isWrite) continue;
       const result = (messages || []).find((m) => m.role === "tool" && m.tool_call_id === call.id);
       const output = String(result?.content || "").trim();
       if (toolOutputFailed(output)) continue;
