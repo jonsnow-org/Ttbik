@@ -28,7 +28,7 @@ function toolOutputFailed(output: string): boolean {
   if (!t || /\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|NO CHANGES|NOTHING TO COMMIT|ALREADY UP TO DATE|AUTO_DENIED|NOT PERMITTED|DENIED)\b/i.test(t)) return true;
   try {
     const parsed = JSON.parse(t);
-    if (parsed && typeof parsed === "object" && (parsed.ok === false || parsed.success === false || parsed.error || parsed.errors || (typeof parsed.status === "number" && parsed.status >= 400))) return true;
+    if (parsed && typeof parsed === "object" && (parsed.ok === false || parsed.success === false || Boolean(parsed.error) || (Array.isArray(parsed.errors) ? parsed.errors.length > 0 : Boolean(parsed.errors)) || (typeof parsed.status === "number" && parsed.status >= 400))) return true;
   } catch { /* tools may return plain text or a multi-line batch report */ }
   return /^(?:file|path|directory|repository|branch|resource)\s+(?:not found|was not found|does not exist)\b|(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b|could not\b|cannot\b|timed? out\b)/i.test(t);
 }
