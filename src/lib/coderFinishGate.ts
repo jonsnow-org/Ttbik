@@ -34,23 +34,22 @@ function toolOutputFailed(output: string): boolean {
   return /^(?:file|path|directory|repository|branch|resource)\s+(?:not found|was not found|does not exist)\b|(?:^|[\n;:]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b|could not\b|cannot\b|timed? out\b)/i.test(t);
 }
 
-/** A tool call is progress only when its matching result confirms success. */
+/** A tool call is progress only when its matching tool result confirms success. The result's `name` is authoritative because some Studio adapters omit the assistant call from the persisted transcript. */
 function madeSuccessfulToolAction(messages: GateMessage[], allowed: RegExp): boolean {
-  for (const message of messages || []) {
-    for (const call of message.tool_calls || []) {
-      const name = call?.function?.name || "";
-      if (!call?.id) continue;
-      let allowedCall = allowed.test(name);
-      if (name === "computer_batch") {
-        try {
-          const args = JSON.parse(call.function?.arguments || "{}");
-          allowedCall = Array.isArray(args.steps) && args.steps.some((step: { tool?: string }) => allowed.test(String(step?.tool || "")));
-        } catch { allowedCall = false; }
+  for (const result of messages || []) {
+    if (result.role !== "tool" || !result.tool_call_id) continue;
+    const name = String((result as GateMessage & { name?: string }).name || "");
+    if (!allowed.test(name)) continue;
+    if (name === "computer_batch") {
+      // A batch only counts when its output contains at least one successful write-like step.
+      let args: { steps?: Array<{ tool?: string }> } | undefined;
+      for (const message of messages || []) {
+        const call = (message.tool_calls || []).find((item) => item.id === result.tool_call_id);
+        if (call) { try { args = JSON.parse(call.function?.arguments || "{}"); } catch { args = undefined; } break; }
       }
-      if (!allowedCall) continue;
-      const result = (messages || []).find((m) => m.role === "tool" && m.tool_call_id === call.id);
-      if (!toolOutputFailed(String(result?.content || ""))) return true;
+      if (!args?.steps?.some((step) => allowed.test(String(step?.tool || "")))) continue;
     }
+    if (!toolOutputFailed(String(result.content || ""))) return true;
   }
   return false;
 }
