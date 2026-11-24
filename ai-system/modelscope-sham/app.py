@@ -249,17 +249,18 @@ def _load(model_dir: Path) -> None:
                     os.nice(10)                    # the export yields the CPU to the replies (this thread only matters on Linux; harmless elsewhere)
                 except Exception:
                     pass
-                from sham_gguf import fast_model
+                from sham_gguf import fast_model, plain_view
                 # Sham v1 (a ~100M model) decodes through the 8-bit copy by default: the 4-bit copy (q4_k_m) agreed with PyTorch on only 4 of 6 test prompts in the live Studio log (2026-11-15) and costs ~3% loss;
                 # q8_0 costs ~0.3% and must agree on 6/6, otherwise PyTorch itself decodes. SHAM_GGUF_KIND=q4_k_m brings the old format back.
                 body = serve._state["model"]
-                body._identity_frozen = True        # the export reads the plain donor projections: no identity turn may attach the adapter meanwhile
+                # 2026-11-25: the export reads a plain VIEW of the body (same tensors, its own module tree), taken under _LOCK while no turn has the identity adapter attached.
+                # Before, the body was frozen for the whole export and an identity question asked meanwhile got the donor's answer (deploy smoke run 45491658168: «أنا مساعد ذكاء اصطناعي»).
+                with _LOCK:
+                    view = plain_view(body)
                 STATE["fast_decode"] = "building"
-                try:
-                    fm = fast_model(body, os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0")      # both Shams: q8_0 (+0.24% loss; q4_k_m +2.7%)
-                    STATE["fast_decode"] = "llama.cpp" if fm is not None else "pytorch (llama.cpp copy refused or unavailable: see the log)"
-                finally:
-                    body._identity_frozen = False
+                fm = fast_model(body, os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0", source=view)      # both Shams: q8_0 (+0.24% loss; q4_k_m +2.7%)
+                STATE["fast_decode"] = "llama.cpp" if fm is not None else "pytorch (llama.cpp copy refused or unavailable: see the log)"
+                del view
             except Exception as exc:
                 print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
         threading.Thread(target=_prepare_fast, daemon=True).start()

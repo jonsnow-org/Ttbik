@@ -453,6 +453,23 @@ class IdentityGate(unittest.TestCase):
 
         return Body()
 
+    def test_export_view_keeps_plain_projections_while_identity_turns_run(self):
+        # deploy smoke 45491658168: the body was frozen for the whole llama.cpp export, so «من أنت؟» meanwhile got the donor's answer. The export now reads a view.
+        import torch
+        from sham_gguf import plain_view
+        body = self._body()
+        S.gate_identity(body)
+        x = torch.ones(1, 4)
+        plain = body(x).detach().clone()
+        view = plain_view(body)
+        self.assertEqual(view.q.weight.data_ptr(), body.q.weight.data_ptr())       # no weight copied
+        with S.identity_for(body, "من أنت؟") as on:
+            self.assertTrue(on)
+            self.assertFalse(torch.allclose(body(x), plain))                     # the live turn has its adapter
+            self.assertTrue(torch.allclose(view(x), plain))                      # the export still reads the donor
+        self.assertTrue(torch.allclose(body(x), plain))
+        self.assertFalse(hasattr(view, "_identity_gate"))
+
     def test_gate_attaches_only_inside_the_block(self):
         try:
             import torch

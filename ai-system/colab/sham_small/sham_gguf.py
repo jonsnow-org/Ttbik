@@ -184,14 +184,31 @@ def cached_fast(model):
     return None
 
 
-def fast_model(model, kind: str | None = None):
+def plain_view(model):
+    """A second module tree over the SAME tensors (no weight is copied): later module swaps on `model` (the Studio attaching its identity adapter for one turn) do not reach it,
+    so a background export can read the plain projections for minutes while replies keep changing the live tree. Take it while `model` is in its plain state."""
+    import copy
+    memo = {}
+    for m in model.modules():
+        for v in list(m._parameters.values()) + list(m._buffers.values()) + [x for x in vars(m).values() if torch.is_tensor(x)]:
+            if v is not None:
+                memo[id(v)] = v
+    view = copy.deepcopy(model, memo)
+    for attr in ("_identity_gate", "_identity_active", "_identity_frozen"):
+        view.__dict__.pop(attr, None)
+    return view
+
+
+def fast_model(model, kind: str | None = None, source=None):
     """A llama.cpp copy of `model` for DECODING (several times more tokens/s on a CPU), or None when it cannot / should not be used: not a plain ShamSmall, llama-cpp-python
     missing (one background install attempt), no disk, or the copy does not agree with the PyTorch model. Built once per model and cached. SHAM_GGUF=0 turns it off;
     SHAM_GGUF=f16|q8_0|q6_k|q5_k_m|q4_k_m|q4_0 chooses the format. Default q4_k_m. Measured on a real model (SmolLM2-135M in Sham's own class, 2026-11-08, clean eval windows,
     loss change English / Arabic) and on the 515M shape (4 threads, writing tokens/s vs PyTorch fp32 14.2):
         q8_0   +0.24% / +0.29%   ~25-33 tok/s      q6_k   +1.05% / +1.49%   ~31 tok/s      q5_k_m +1.97% / +2.62%   ~31 tok/s
         q4_k_m +2.67% / +3.70%   ~45 tok/s (3.2x)  q4_0   +9.5%  / +12.1%   ~47 tok/s   <- the k-quant is 3x less lossy at the same size, so q4_0 is never chosen
-    q4_k_m is the best speed/quality point: it makes a 4-bit-trained (QAT) model unnecessary, with no training at all."""
+    q4_k_m is the best speed/quality point: it makes a 4-bit-trained (QAT) model unnecessary, with no training at all.
+    `source` (default `model`): the tree that is exported and checked (e.g. plain_view(model)); the copy is cached under `model`, so cached_fast(model) finds it."""
+    src = model if source is None else source
     kind = (kind or os.environ.get("SHAM_GGUF", "q4_k_m")).strip().lower()
     if kind in ("0", "off", "false", "no", ""):
         return None
@@ -213,7 +230,7 @@ def fast_model(model, kind: str | None = None):
             import gguf  # noqa: F401,F811
             import llama_cpp  # noqa: F401,F811
         td = tempfile.mkdtemp(prefix="sham_gguf_")
-        n_params = sum(p.numel() for p in model.parameters())
+        n_params = sum(p.numel() for p in src.parameters())
         free = shutil.disk_usage(td).free
         two_step = int(n_params * 2.0 + n_params * 0.7) + 200 * 2**20          # the f16 file and the quantised one side by side
         direct = int(n_params * 1.07) + 200 * 2**20                            # Q8_0 written straight
@@ -231,23 +248,23 @@ def fast_model(model, kind: str | None = None):
             return None
         if kind == "q8_0":
             path = Path(td) / "sham-q8_0.gguf"
-            write_gguf(model, path, "q8_0")
+            write_gguf(src, path, "q8_0")
         else:
             f16 = Path(td) / "sham-f16.gguf"
-            write_gguf(model, f16, "f16")
+            write_gguf(src, f16, "f16")
             path = f16
             if kind != "f16":
                 path = Path(td) / f"sham-{kind}.gguf"
                 quantize_gguf(f16, path, kind)
                 f16.unlink()
-        cand = LlamaCppModel(path, n_ctx=int(model.cfg.max_seq_len), threads=os.cpu_count() or 4)
+        cand = LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4)
         # it must agree with the PyTorch model on what it would write next (same top token on most test prompts)
         g = torch.Generator().manual_seed(0)
         agree = 0
         for _ in range(6):
-            ids = torch.randint(4, max(5, min(int(model.cfg.vocab_size), 30000)), (1, 32), generator=g)
+            ids = torch.randint(4, max(5, min(int(src.cfg.vocab_size), 30000)), (1, 32), generator=g)
             with torch.no_grad():
-                ref = model(ids)[0][0, -1].float()
+                ref = src(ids)[0][0, -1].float()
             got = cand(ids)[0][0, -1]
             agree += int(got.argmax() == ref.argmax())
         if agree < (6 if kind == "f16" else 5 if kind in ("q8_0", "q6_k") else 4):      # live log 2026-11-15: q8_0 agreed on 5/6 and was refused although the looser q6_k needs only 5 (q8_0 measured +0.24% loss)
