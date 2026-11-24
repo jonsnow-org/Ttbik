@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { evaluate, overall, render, SECTIONS, decideRerun, RERUN_OK } from "./run.mjs";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
@@ -134,4 +135,17 @@ test("the ONE monitoring report: every section in one body, overall status first
   // the monitor never includes the removed supervisor as a separate workflow.
   assert.ok(!JSON.stringify(SECTIONS).includes("error-triage"));
   assert.equal(RERUN_OK.size, 0);
+});
+
+test("promotion operations documentation points to the unified monitor and retired workflows stay out of the runbook", () => {
+  const notebook = readFileSync(new URL("../../docs/REPO_NOTEBOOK.md", import.meta.url), "utf8");
+  const promoGuide = readFileSync(new URL("../../docs/agents/promo.md", import.meta.url), "utf8");
+  assert.match(notebook, /monitor.*hourly at minute 11 UTC/);
+  assert.match(notebook, /Monitoring: all systems/);
+  assert.doesNotMatch(notebook, /promo-supervisor\.yml|error-triage\.yml/);
+  assert.match(promoGuide, /scripts\/supervisors\/run\.mjs/);
+  assert.match(promoGuide, /Monitoring: all systems/);
+  assert.match(promoGuide, /promo-projects.*production-branch runs/);
+  assert.match(promoGuide, /do not dispatch or rerun any workflow/);
+  assert.doesNotMatch(promoGuide, /promo-supervisor\.yml|error-triage\.yml/);
 });
