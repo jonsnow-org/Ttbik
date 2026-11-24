@@ -170,7 +170,9 @@ export const CONNECTORS: ConnectorDef[] = [
   },
 ];
 export const connectorById = (id: string) => CONNECTORS.find((c) => c.id === id) || null;
-export const connectorReady = (d: ConnectorDef) => Boolean(cid(d) && csec(d));
+/** Token persistence requires a stable deployment key; never advertise or start a flow that cannot safely store credentials. */
+export const tokenStorageReady = () => Boolean((process.env.CODER_TOKEN_KEY || "").trim());
+export const connectorReady = (d: ConnectorDef) => Boolean(tokenStorageReady() && cid(d) && csec(d));
 
 /** Linking with a personal token instead of the sign-in flow: where to create it, what to tell the user, and how it is checked (returns who it belongs to, or null = rejected). */
 export type TokenLink = { create: string; help: { ar: string; en: string }; placeholder: string; scheme?: "Bearer" | "Bot"; check: (t: TokenSet, f: F) => Promise<string | null> };
@@ -218,6 +220,7 @@ export async function linkWithToken(chatId: number, id: string, raw: string, db:
   const d = connectorById(id);
   const link = TOKEN_LINKS[id as ConnectorId];
   if (!d || !link) throw new ConnectorError("this service cannot be linked with a token");
+  if (!tokenStorageReady()) throw new ConnectorError("CODER_TOKEN_KEY is not configured; the owner must enable encrypted connector storage before linking accounts.");
   const token = String(raw || "").trim();
   if (token.length < 8 || token.length > 600 || /\s/.test(token)) throw new ConnectorError("that does not look like a token");
   const t: TokenSet = { access: token, extra: { via: "token", ...(link.scheme && link.scheme !== "Bearer" ? { scheme: link.scheme } : {}) } };
@@ -373,7 +376,7 @@ export async function listConnectors(chatId: number | string, opts: { githubOwne
   return CONNECTORS.map((d) => {
     const row = all.find((r) => r.provider === (d.id === "github" ? "github" : provKey(d.id)));
     const oauth = connectorReady(d);
-    const tl = TOKEN_LINKS[d.id];
+    const tl = tokenStorageReady() ? TOKEN_LINKS[d.id] : undefined;
     const base = { id: d.id, name: d.name, desc: d.desc, color: d.color, oauth, ...(tl ? { token: { create: tl.create, help: tl.help, placeholder: tl.placeholder } } : {}) };
     if (d.id === "github" && opts.githubOwnerEnv) return { ...base, status: "connected" as const, source: "owner-env" as const, label: "" };
     if (row && decryptToken(row.token_enc)) return { ...base, status: "connected" as const, label: row.login || "", source: "user-link" as const, since: row.updated_at ? String(row.updated_at) : null };
@@ -410,9 +413,13 @@ export async function disconnectConnector(chatId: number | string, id: string, d
 
 /** The ids the user has connected (for the model's system prompt). */
 export async function connectedIds(chatId: number | string, db: Db = prismaDb): Promise<string[]> {
-  const all = await rows(chatId, db);
-  return CONNECTORS.filter((d) => d.id !== "github" && all.some((r) => r.provider === provKey(d.id))).map((d): string => d.id)
-    .concat(all.filter((r) => r.provider.startsWith("mcp:")).map((r) => r.provider));
+  const all = (await rows(chatId, db)).filter((r) => decryptToken(r.token_enc) !== null);
+  const services = CONNECTORS.filter((d) => d.id !== "github" && all.some((r) => r.provider === provKey(d.id))).map((d): string => d.id);
+  const mcps = all.filter((r) => {
+    if (!r.provider.startsWith("mcp:")) return false;
+    try { return Boolean(JSON.parse(decryptToken(r.token_enc) || "{}").url); } catch { return false; }
+  }).map((r) => r.provider);
+  return [...services, ...mcps];
 }
 
 // ---------------------------------------------------------------- the coder's tool: read from a connected service
@@ -465,6 +472,7 @@ export async function addMcpServer(chatId: number | string, url: string, token: 
     throw new ConnectorError("رابط غير صالح");
   }
   if (u.protocol !== "https:") throw new ConnectorError("يجب أن يبدأ الرابط بـ https://");
+  if (!tokenStorageReady()) throw new ConnectorError("CODER_TOKEN_KEY غير مضبوط؛ فعّل تخزين الموصلات المشفّر قبل إضافة خادم MCP.");
   if (check) {
     const c = await check(u.toString());
     if (!c.ok) throw new ConnectorError(c.why || "رابط غير مسموح");
