@@ -59,7 +59,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
-  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; draftPhaseText?: string; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -2670,7 +2670,22 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
           await saveState(chatId, st, db, slot);
           continue;
         }
-        text = gate.stalledActionNote(goal, gate.toolNamesIn(st.messages as never)) || text;
+        const usedTools = gate.toolNamesIn(st.messages as never);
+        if (gate.shouldRecoverBlockedAction(goal, usedTools, run.replyGuardRecoveries || 0)) {
+          run.replyGuardRecoveries = (run.replyGuardRecoveries || 0) + 1;
+          run.stall.level++;
+          await onStall(
+            { pattern: "repeat_text", detail: "repeated final reply blocked after " + (run.nudges || 0) + " action nudges; recovery " + run.replyGuardRecoveries + "/" + gate.BLOCKED_REPLY_RECOVERIES },
+            run, chatId, ctx, db,
+          );
+          // Keep the model's last attempt in context, but do not deliver another copy to the user.
+          st.messages.push({ role: "assistant", content: text });
+          await taskEvent(run.id, "info", "↩️ تكرر الرد دون تنفيذ؛ أُعيد تخطيط المهمة من الملفات والأدوات المتاحة — التعافي " + run.replyGuardRecoveries + "/" + gate.BLOCKED_REPLY_RECOVERIES + ".", db);
+          run.job = undefined; run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined; run.logged = 0;
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        text = gate.stalledActionNote(goal, usedTools) || text;
       }
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });

@@ -1,4 +1,4 @@
-import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething } from "../coderFinishGate";
+import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES } from "../coderFinishGate";
 
 const GOAL = "اذهب للمستودع وابحث عن بوت سلاسل يومية يوجد له تطبيق مصغر قم باصلاح وتطوير البوت والتطبيق المصغر بشكل كامل";
 const MENU = "بناءً على تحليلي وجدت البوت. هل تريد أن أقوم بإصلاح الكود؟ أخبرني بالخطوة التي تريد البدء بها!";
@@ -96,5 +96,18 @@ describe("questions are never action requests, and no rejection notice is ever s
   it("the chat never receives the «الرد السابق لا يُعتمد» notice", () => {
     const src = require("fs").readFileSync(require.resolve("../coderSections.ts"), "utf8");
     expect(src).not.toContain("الرد السابق لا يُعتمد");
+  });
+});
+
+
+describe("recovery after a blocked repeated action reply", () => {
+  test("replans a read-only failed action twice, then stops retrying", () => {
+    expect(shouldRecoverBlockedAction(GOAL, ["github_repo_scan", "computer_search"], 0)).toBe(true);
+    expect(shouldRecoverBlockedAction(GOAL, ["github_repo_scan", "computer_search"], 1)).toBe(true);
+    expect(shouldRecoverBlockedAction(GOAL, ["github_repo_scan", "computer_search"], BLOCKED_REPLY_RECOVERIES)).toBe(false);
+  });
+  test("does not recover after a real change or for a question", () => {
+    expect(shouldRecoverBlockedAction(GOAL, ["computer_edit"], 0)).toBe(false);
+    expect(shouldRecoverBlockedAction("ما أفضل لغة برمجة؟", [], 0)).toBe(false);
   });
 });
