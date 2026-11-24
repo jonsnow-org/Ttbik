@@ -23,7 +23,15 @@ type GateMessage = {
   tool_call_id?: string;
   tool_calls?: Array<{ id?: string; function?: { name?: string } }>;
 };
-const FAILED_TOOL_OUTPUT = /^(?:error\b|failed\b|failure\b|HTTP [45]\d{2}\b|DENIED\b|NOT PERMITTED\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i;
+function toolOutputFailed(output: string): boolean {
+  const t = String(output || "").trim();
+  if (!t || /\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|AUTO_DENIED|NOT PERMITTED|DENIED)\b/i.test(t)) return true;
+  try {
+    const parsed = JSON.parse(t);
+    if (parsed && typeof parsed === "object" && (parsed.ok === false || parsed.success === false || parsed.error || parsed.errors || (typeof parsed.status === "number" && parsed.status >= 400))) return true;
+  } catch { /* tools may return plain text or a multi-line batch report */ }
+  return /(?:^|[\n;]\s*)(?:error\b|failed(?:\s+to)?\b|failure\b|HTTP [45]\d{2}\b|permission denied\b|unauthorized\b|forbidden\b|not found\b|no such file\b)/i.test(t);
+}
 
 /** A write attempt is not proof of a change: require its matching tool result and reject failed/denied outputs. */
 export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
@@ -33,7 +41,7 @@ export function madeSuccessfulChanges(messages: GateMessage[]): boolean {
       if (!call?.id || !CHANGE_TOOL.test(name)) continue;
       const result = (messages || []).find((m) => m.role === "tool" && m.tool_call_id === call.id);
       const output = String(result?.content || "").trim();
-      if (!output || FAILED_TOOL_OUTPUT.test(output) || /\\b(?:NOT EXECUTED|NOT CHANGED|NO CHANGE|AUTO_DENIED)\\b/i.test(output)) continue;
+      if (toolOutputFailed(output)) continue;
       return true;
     }
   }
