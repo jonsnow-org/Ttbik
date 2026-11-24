@@ -11,8 +11,6 @@ trainer skips them; verified successes and verified failures are both stored.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
 import re
@@ -27,26 +25,6 @@ PHONE = re.compile(r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 SECRET = re.compile(r"(?i)\b(api[_-]?key|token|secret|password|passwd|bearer|authorization)\b\s*[:=]\s*\S+")
 TOKENISH = re.compile(r"\b(?:sk|ghp|gho|ghu|ghs|ghr|xox[baprs]|ya29|eyJ)[A-Za-z0-9_\-.=]{8,}\b")
-
-
-def _hidden_unlock_text(text: str) -> bool:
-    """True when text is the owner passphrase. Never log or echo it."""
-    raw = (text or "").replace("\r\n", "\n").strip()
-    if not raw:
-        return False
-    digest = hashlib.sha256(raw.encode("utf-8")).digest()
-    named = (os.environ.get("SHAM_OWNER_PASSPHRASE_HASH") or "").strip().lower()
-    if named.startswith("sha256:"):
-        named = named[7:]
-    if len(named) == 64 and all(c in "0123456789abcdef" for c in named):
-        try:
-            return hmac.compare_digest(digest, bytes.fromhex(named))
-        except Exception:
-            return False
-    plain = os.environ.get("SHAM_OWNER_PASSPHRASE")
-    if plain:
-        return hmac.compare_digest(digest, hashlib.sha256(plain.encode("utf-8")).digest())
-    return False
 
 
 def experience_path() -> Path | None:
@@ -93,8 +71,6 @@ def append(rec: dict, path: Path | None = None) -> Path | None:
     """Write one JSONL line. Never raises to the chat path."""
     try:
         if not isinstance(rec, dict) or "task" not in rec:
-            return None
-        if _hidden_unlock_text(str(rec.get("task") or "")) or _hidden_unlock_text(str(rec.get("ref_reply") or "")):
             return None
         dest = path or experience_path()
         if dest is None:
@@ -154,8 +130,6 @@ def record_command(user: str, task: str, command: str, exit_code: int, stdout: s
     dest = evolution_root()
     if api is None or dest is None:
         return ""
-    if _hidden_unlock_text(task) or _hidden_unlock_text(command):
-        return ""
     names = (display_name,) if str(display_name or "").strip() else ()
     src = "owner" if source == "owner" else (source or "user")
     try:
@@ -206,8 +180,6 @@ def _evo_record(task: str, steps, success: bool, secs: float, session: str = "",
 
 
 def log_episode(task: str, reply: str, steps, success: bool, secs: float = 0.0, verified: bool = True, session: str = "", display_name: str = "", source: str = "user") -> dict:
-    if _hidden_unlock_text(task) or _hidden_unlock_text(reply):
-        return {}
     rec = record(task, reply, steps, success, secs, verified)
     append(rec)
     _evo_record(task, steps, success, secs, session=session, verified=verified, display_name=display_name, source=source)

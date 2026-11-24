@@ -1,5 +1,5 @@
 // Who the coder works for, and with whose credentials (owner's plan, 2026-10-21).
-//   tier "owner" — any id in OWNER_IDS / OWNER_TELEGRAM_IDS / OWNER_APP_IDS / SUPER_ADMIN_TELEGRAM_ID / TELEGRAM_ADMIN_CHAT_ID, plus accounts unlocked with the owner passphrase: the owner's own token (CODER_GITHUB_TOKEN), widest freedom.
+//   tier "owner" — SUPER_ADMIN_TELEGRAM_ID / TELEGRAM_ADMIN_CHAT_ID: the owner's own token (CODER_GITHUB_TOKEN), widest freedom.
 //   tier "user"  — everyone else: ONLY their own linked credentials, never the owner's.
 // Per-user linking (later): a Telegram Mini App page verifies the user with verifyTelegramInitData (src/lib/verifyTelegramOwner.ts), runs the
 // provider's OAuth / device flow, and calls saveConnection(). Tokens are stored AES-256-GCM encrypted (key: CODER_TOKEN_KEY) in
@@ -7,7 +7,7 @@
 // (src/app/api/coder/app: GitHub OAuth sign-in or a pasted fine-grained token).
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { allOwnerIds, isPlatformOwner } from "@/lib/ownerIdentity";
+import { ownerIdList, isPlatformOwner } from "@/lib/platformOwner";
 
 export type Db = { exec: (sql: string, ...args: unknown[]) => Promise<unknown>; query: <T>(sql: string, ...args: unknown[]) => Promise<T[]> };
 export const prismaDb: Db = {
@@ -26,7 +26,7 @@ export type Connection = { token: string; source: "owner-env" | "user-link"; log
 export type Connections = Partial<Record<Provider, Connection>>;
 
 export function ownerIds(): string[] {
-  return allOwnerIds();
+  return ownerIdList();
 }
 export function tierFor(chatId: number | string): Tier {
   return isPlatformOwner(chatId) ? "owner" : "user";
