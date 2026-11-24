@@ -123,6 +123,7 @@ jest.mock("@/lib/hostingOps", () => ({
 import { POST } from "@/app/api/bot-app/[botId]/route";
 import { POST as UPLOAD } from "@/app/api/bot-app/[botId]/upload/route";
 import { GET as PHOTO } from "@/app/api/bot-app/[botId]/photo/route";
+import { handleJobsAppAction } from "@/lib/botApp/jobsApp";
 import { handlePlatformServiceAction } from "@/lib/botApp/platformServices";
 import { acceptOfferCore, confirmReceivedCore, createOfferCore, saveListingCore, submitDisputeCore, openDisputeCore, settleEscrow } from "@/lib/jobs/core";
 import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
