@@ -177,7 +177,7 @@ function Shell() {
         {stack.length > 1 && !native && !onRoot && (
           <button type="button" onClick={() => void back()} className="mb-3 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-bold active:opacity-70" style={{ background: "var(--app-chip)", color: "var(--app-link)" }}>رجوع ›</button>
         )}
-        {!init.profile && !isPlatformService ? <ProfileForm first /> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} /> }
+        {!init.profile && !isPlatformService ? <><ProfileForm first /><PlatformServicesAccess /></> : needsProfile ? null : <Screens key={`${cur.name}:${JSON.stringify(cur.params || {})}`} cur={cur} />}
       </main>
       {onRoot && <BottomBar current={cur.name} badge={init.counts.offersWaiting} />}
     </InitCtx.Provider>
@@ -266,6 +266,15 @@ function Home() {
         <Tile icon="🛍" title="متاجر البائعين" sub="تسوّق من متجر بائع" tone="#d97706" onClick={() => push({ name: "shops" })} />
         <Tile icon="ℹ️" title="معلومات" sub="اقتراح، مراسلة الإدارة، مشاركة البوت" tone="#64748b" onClick={() => push({ name: "info" })} />
       </div>
+      <PlatformServicesAccess />
+    </>
+  );
+}
+
+function PlatformServicesAccess() {
+  const { reset } = useApp();
+  return (
+    <>
       <div className="mb-2 mt-5 px-1 text-[13px] font-extrabold" style={{ color: "var(--app-hint)" }}>خدمات المنصة</div>
       <div className="space-y-2.5">
         <PlatformServiceTile icon="💸" title="حوالات USDT" sub="أرسل حوالة USDT وتابع حالتها خطوة بخطوة" tone="#059669" onClick={() => reset({ name: "remit" })} />
