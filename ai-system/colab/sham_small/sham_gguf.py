@@ -290,9 +290,20 @@ def fast_model(model, kind: str | None = None, source=None):
         except ImportError:
             if os.environ.get("SHAM_GGUF_INSTALL", "1") == "1":
                 import subprocess
-                pr = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu",
-                                     "llama-cpp-python", "gguf"], timeout=600, check=False, capture_output=True, text=True)
-                if pr.returncode != 0:      # live log 2026-11-15 said only "No module named 'gguf'": the reason pip failed was swallowed
+                # 2026-11-25 live log: "TimeoutExpired" after 600 s (the wheel index is slow from the cn Studio), so Sham Pro decoded in PyTorch after the deploy.
+                # Only the prebuilt CPU wheel (never a 10+ minute source build on 2 vCPUs), a longer deadline, and one retry. This runs in the background thread.
+                for attempt in (1, 2):
+                    try:
+                        pr = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--prefer-binary", "--only-binary=llama-cpp-python",
+                                             "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu",
+                                             "llama-cpp-python", "gguf"], timeout=int(os.environ.get("SHAM_GGUF_PIP_TIMEOUT", "1800")), check=False,
+                                            capture_output=True, text=True)
+                    except subprocess.TimeoutExpired:
+                        print(f"sham_gguf: pip install attempt {attempt} timed out", flush=True)
+                        continue
+                    if pr.returncode == 0:
+                        break
+                    # live log 2026-11-15 said only "No module named 'gguf'": the reason pip failed was swallowed
                     print("sham_gguf: pip install failed (exit %s): %s" % (pr.returncode, (pr.stderr or pr.stdout or "").strip()[-600:].replace("\n", " | ")), flush=True)
             import gguf  # noqa: F401,F811
             import llama_cpp  # noqa: F401,F811
