@@ -19,14 +19,14 @@ export const EN_NEWS: DeskItem[] = [
   "slug": "ustr-section301-14-economies-proposed-tariffs-2026",
   "title": "US proposes new tariffs on imports from 14 economies",
   "date": "25 November 2026",
-  "contextDateLabel": "USTR release: 25 November 2026 (no publication time displayed); Guardian live updates: 25 November 2026, 15:04–15:54 CET (17:04–17:54 Istanbul); Sham AI item date: 25 November 2026.",
+  "contextDateLabel": "USTR release: 25 November 2026 (no publication time displayed); Guardian live updates: 25 November 2026, 09:04–09:54 EST (17:04–17:54 Istanbul); Sham AI item date: 25 November 2026.",
   "dek": "The US Trade Representative announced findings in 14 Section 301 investigations and proposed additional tariffs that vary by economy and product. The measures remain proposals for public comment, not tariffs currently in force.",
   "body": [
     "On 25 November 2026, the Office of the United States Trade Representative (USTR) announced determinations under Section 301 of the Trade Act of 1974 concerning practices linked to structural excess capacity and manufacturing in 14 economies: China, the European Union, Singapore, Switzerland, Indonesia, Malaysia, Cambodia, Thailand, Korea, Vietnam, Taiwan, Bangladesh, Japan and India. USTR said it had not made determinations on Mexico or Norway at this stage.",
     "USTR proposed considering additional duties that vary by economy and product, with exemptions and adjustments for some existing duties. Examples include a proposed 15% rate on EU goods, net of most-favoured-nation rates and existing Section 301 tariffs, and rates of up to 20% on some Chinese goods. These are not uniform rates for every product or shipment.",
     "The measures are proposals open to public comment, not tariffs that took effect with the announcement. USTR set 5 January 2027 as the deadline for written comments and requests to appear at hearings; hearings on the proposed actions are scheduled to begin on 25 January 2027.",
     "The European Commission said it would study the findings but strongly rejected the premise that Europe is a source of structural overcapacity. It also said it expected the 15% all-inclusive ceiling in the US-EU joint statement to be respected. The Guardian reported the Commission's response in a 25 November update; this is the EU's attributed position, not an independent assessment of the US allegations.",
-    "Publication dates: the USTR release is dated 25 November 2026 and displays no publication time; the Guardian's live updates ran from 15:04 to 15:54 CET (17:04–17:54 Istanbul) on 25 November. Sham AI item date: 25 November 2026."
+    "Publication dates: the USTR release is dated 25 November 2026 and displays no publication time; the Guardian's live updates ran from 09:04 to 09:54 EST (17:04–17:54 Istanbul) on 25 November. Sham AI item date: 25 November 2026."
   ],
   "sources": [
     {
