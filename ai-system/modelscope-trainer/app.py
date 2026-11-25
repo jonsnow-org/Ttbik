@@ -499,6 +499,15 @@ def sham2_flatten(res: dict) -> dict:
         out["nll_after"] = idn["after"]["general_nll"]
         if "retention" in idn["after"]:
             out["retention_after"] = idn["after"]["retention"]["ok"]
+        if "name_leak" in idn["after"]["identity"]:
+            out["name_leak_before"] = idn["before"]["identity"].get("name_leak")
+            out["name_leak_after"] = idn["after"]["identity"]["name_leak"]
+            out["name_leak_ok"] = idn["after"].get("name_leak_ok")
+    ra = res.get("real_acceptance") or {}
+    if isinstance(ra.get("pass"), (int, float)):
+        out["real_acceptance"] = ra["pass"]
+    if isinstance(res.get("real_acceptance_baseline"), (int, float)):
+        out["real_acceptance_baseline"] = res["real_acceptance_baseline"]
     for k in ("body_read_secs", "body_params_M", "dtype", "donor_weights_unchanged"):
         if k in res:
             out[k] = res[k]
@@ -584,10 +593,32 @@ def sham2_run_key() -> str:
     """Hash of what decides a Sham 2 run's result: a finished run is redone only when one of these files changes."""
     import hashlib
     root, h = tldm_root(), hashlib.sha256()
-    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/rewordings.py", "data/augment.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
+    for rel in ("data/identity.py", "data/retention.py", "data/trajectories.py", "configs/sham2.yaml", "training/train_sham2.py", "data/rewordings.py", "data/augment.py", "data/real_requests.py", "data/snapshots/ultradata_loop_train.jsonl.gz"):
         p = root / rel
         h.update(rel.encode() + (p.read_bytes() if p.exists() else b"-"))
     return h.hexdigest()[:16]
+
+
+def sham2_real_args(env=None) -> list:
+    """Real-phrased requests, really executed on Sham's own computer (kept only when every command succeeded), plus the serving studio's verified
+    experience log when it is present on this disk; full-length identity replay (no 48-token cut)."""
+    env = os.environ if env is None else env
+    args = ["--real_episodes", str(int(env.get("SHAM2_REAL_EPISODES", "400"))), "--replay_max", str(int(env.get("SHAM2_REPLAY_MAX", "384")))]
+    log = env.get("SHAM2_REAL_LOG", "/mnt/workspace/sham2_tldm_experience/sessions.jsonl")
+    if log and Path(log).is_file():
+        args += ["--real_log", log]
+    return args
+
+
+def sham2_extra_blocked(flat: dict) -> str:
+    """"" when the identity / real-prompt checks allow a publish. A head whose answers to ordinary prompts leak a donor name, or that is worse than
+    the baseline on the held-out real prompts, never replaces the served head."""
+    if flat.get("name_leak_ok") is False:
+        return f"name leak on ordinary prompts (after={flat.get('name_leak_after')})"
+    ra, base = flat.get("real_acceptance"), flat.get("real_acceptance_baseline")
+    if isinstance(ra, (int, float)) and isinstance(base, (int, float)) and ra < base:
+        return f"real-prompt acceptance regressed ({base} -> {ra})"
+    return ""
 
 
 def sham2_gate(root: Path) -> Path:
@@ -624,6 +655,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
         extra = root / "data" / "snapshots" / "ultradata_loop_train.jsonl.gz"
         if extra.is_file() and os.environ.get("SHAM2_LOOP_EXTRA", "1").strip().lower() not in ("0", "off", "false", "no"):
             cmd += ["--loop_extra", str(extra)]             # real executed shell traces: trained as a second loop head, shipped only if it wins the in-domain benchmark
+        cmd += sham2_real_args()
         if runner is not None:
             code = int(runner(cmd=cmd, report=report, heads=heads))
         else:
@@ -637,7 +669,7 @@ def run_sham2(hours: float = 10.0, name: str = "sham2", runner=None, fetch=None,
     res = json.loads(report.read_text(encoding="utf-8"))
     got = None
     flat2 = sham2_flatten(res)
-    blocked = publish_blocked(flat2.get("heldout"), flat2.get("heldout2"))
+    blocked = publish_blocked(flat2.get("heldout"), flat2.get("heldout2")) or sham2_extra_blocked(flat2)
     if blocked:
         # same gate as run_tldm: a head below the gate (or a floor score: missing tokenizer / UNK reader / broken body) must never replace the served head
         print("sham2 publish skipped: " + blocked, flush=True)
@@ -1647,6 +1679,24 @@ if __name__ == "__main__":
             return 0
         r4 = run_sham2(runner=fake_sham2_floor, fetch=fake_fetch, publish=lambda d, n, m: (sent_floor.append(n), "modelscope:novaai2026/" + n)[1])
         assert r4["published"] is False and r4["heldout"] == 0.083 and sent_floor == [] and not (_w2 / ".published").exists(), (r4, sent_floor)
+        # real requests + full replay are passed to the trainer; a name leak or a real-prompt regression blocks the publish
+        assert all("--real_episodes" in c and c[c.index("--replay_max") + 1] == "384" for c in ran), ran[-1]
+        assert "--real_log" not in sham2_real_args({"SHAM2_REAL_LOG": "/nonexistent/x.jsonl"})
+        assert sham2_extra_blocked({"name_leak_ok": True, "real_acceptance": 0.6, "real_acceptance_baseline": 0.2}) == ""
+        assert "name leak" in sham2_extra_blocked({"name_leak_ok": False}) and "regressed" in sham2_extra_blocked({"real_acceptance": 0.1, "real_acceptance_baseline": 0.3})
+        (_w2 / ".run_key").write_text("old-recipe", encoding="utf-8")
+        sent_leak = []
+
+        def fake_sham2_leak(cmd, report, heads):
+            ran.append(cmd)
+            heads.write_bytes(b"h")
+            ok = {"identity": {"ok": 1.0, "name_leak": 0.0}, "general_nll": 2.0}
+            bad = {"identity": {"ok": 1.0, "name_leak": 0.25}, "general_nll": 2.0, "name_leak_ok": False}
+            report.write_text(json.dumps({"train": {"same_effect": 0.9}, "heldout": {"same_effect": 0.7}, "heldout2": {"same_effect": 0.65}, "identity": {"before": ok, "after": bad},
+                                          "real_acceptance": {"pass": 0.5}, "real_acceptance_baseline": 0.1}), encoding="utf-8")
+            return 0
+        r5 = run_sham2(runner=fake_sham2_leak, fetch=fake_fetch, publish=lambda d, n, m: (sent_leak.append(n), "modelscope:novaai2026/" + n)[1])
+        assert r5["published"] is False and sent_leak == [] and r5["name_leak_after"] == 0.25 and r5["real_acceptance"] == 0.5 and r5["real_acceptance_baseline"] == 0.1, r5
         # ---- the Nova on T-LDM (the only Nova): its OWN config, work folder, head file and head repo ----
         assert nova_mode("nova2-ms1") == "nova2" and nova_mode("Nova2-ms1") == "nova2" and nova_mode("sham2") == "" and nova_mode("nova3") == "" and nova_mode("nova1-live") == ""
         nova_fetch, nova_cmds, nova_sent = [], [], []
