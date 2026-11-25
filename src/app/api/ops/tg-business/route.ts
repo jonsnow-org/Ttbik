@@ -85,16 +85,19 @@ export async function GET(req: NextRequest) {
     out.studios = "unavailable";
   }
 
-  // `gen=1`: the business generator itself (not a raw chat call) asked for one short reply on each model, so the report shows
-  // exactly what a contact's message would have produced: the text that would be sent, or the reason nothing was sent.
-  if (req.nextUrl.searchParams.get("gen") === "1") {
+  // `gen=<model>` (or `gen=1` for both): the business generator itself (not a raw chat call) asked for one short reply, so the
+  // report shows exactly what a contact's message would have produced: the text that would be sent, or the reason nothing was.
+  // One model per request keeps this inside the front door's own request time limit.
+  const gen = req.nextUrl.searchParams.get("gen") || "";
+  if (gen) {
     let instructions = "";
     try {
       const rows = await prismaDb.query<{ instructions: string }>(`SELECT instructions FROM tg_business_connections ORDER BY updated_at DESC LIMIT 1`);
       instructions = String(rows[0]?.instructions || "");
     } catch { /* no connection stored yet: the default rules are still the real ones */ }
     const system = systemFor({ instructions } as never, "");
-    const one = async (model: "coder" | "sham_v2") => {
+    const wanted: Array<"coder" | "sham_v2"> = gen === "coder" || gen === "sham_v2" ? [gen] : ["coder", "sham_v2"];
+    out.gen = await Promise.all(wanted.map(async (model) => {
       const t0 = Date.now();
       try {
         const made = await defaultGenerate(model, system, [{ role: "user", text: "مرحبا" }], "كيف حالك؟", "biz:probe");
@@ -103,8 +106,7 @@ export async function GET(req: NextRequest) {
       } catch (e) {
         return { model, ms: Date.now() - t0, text: null, why: `threw: ${String((e as Error)?.message || e).slice(0, 140)}` };
       }
-    };
-    out.gen = await Promise.all([one("coder"), one("sham_v2")]);
+    }));
   }
 
   let conns: any[] = [];  try {
