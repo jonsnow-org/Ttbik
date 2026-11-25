@@ -127,11 +127,15 @@ def write_gguf(model, path: str | Path, dtype: str = "f16") -> None:
 _FTYPE = {"q8_0": 7, "q4_0": 2, "q4_1": 3, "q5_0": 8, "q5_1": 9, "q4_k_m": 15, "q5_k_m": 17, "q6_k": 18}
 
 
-def quantize_gguf(src: str | Path, dst: str | Path, kind: str = "q8_0") -> None:
+def quantize_gguf(src: str | Path, dst: str | Path, kind: str = "q8_0", requantize: bool = False) -> None:
+    """llama.cpp's own quantiser. requantize=True lets it read an already-quantised (Q8_0) file: used when the disk cannot hold the f16 file next to the
+    k-quant (Sham Pro's 2.09B body on a ~10 GB Studio: f16 4.2 GB + q4_k_m 1.3 GB did not fit, Q8_0 2.2 GB + q4_k_m 1.3 GB does). Q8_0 -> Q4_K_M adds ~0.1% loss."""
     import llama_cpp
     params = llama_cpp.llama_model_quantize_default_params()
     params.ftype = _FTYPE[kind]
     params.nthread = os.cpu_count() or 4
+    if requantize:
+        params.allow_requantize = True
     rc = llama_cpp.llama_model_quantize(str(src).encode(), str(dst).encode(), params)
     if rc != 0:
         raise RuntimeError(f"llama_model_quantize failed ({rc})")
@@ -163,6 +167,35 @@ class LlamaCppModel:
 
 
 _FAST: dict = {}
+KIND: dict = {}           # id(model) -> the format the cached copy really uses (status shows it: "llama.cpp (q4_k_m)")
+_TMP_PREFIX = "sham_gguf_"
+
+
+def free_stale_exports(keep=()) -> int:
+    """Delete earlier export folders (sham_gguf_*) in the temp dir that no live copy uses: a refused or crashed build used to leave a 2+ GB file behind
+    on the Studio's small disk. Returns the bytes freed. Never touches a folder holding a file that a live llama.cpp copy has open."""
+    live = {str(Path(p).resolve().parent) for p in keep}
+    for fm in list(_FAST.values()):
+        mp = getattr(getattr(fm, "llm", None), "model_path", None)
+        if mp:
+            live.add(str(Path(mp).resolve().parent))
+    freed = 0
+    root = Path(tempfile.gettempdir())
+    for d in root.glob(_TMP_PREFIX + "*"):
+        if not d.is_dir() or str(d.resolve()) in live:
+            continue
+        try:
+            freed += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+        except OSError:
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+    if freed:
+        print(f"sham_gguf: freed {freed >> 20} MiB of stale export files", flush=True)
+    return freed
+
+
+def fast_kind(model) -> str:
+    return KIND.get(id(model), "")
 
 
 def _mem_available() -> int:
@@ -199,6 +232,40 @@ def plain_view(model):
     return view
 
 
+def _build_copy(src, td: str, kind: str, n_params: int, free: int):
+    """Write one llama.cpp copy of `src` in `kind` into `td`. -> (LlamaCppModel, path) or (None, None) when the disk cannot hold it.
+    k-quants: f16 -> kind when the f16 file fits next to it (best), else Q8_0 written directly -> kind (requantised; peak = Q8_0 + kind, no f16 at all)."""
+    f16_b, q8_b, k_b, slack = n_params * 2, int(n_params * 1.07), int(n_params * 0.7), 200 * 2**20
+    if kind == "q8_0":
+        if free < q8_b + slack:
+            print(f"sham_gguf: q8_0 not built (only {free >> 20} MiB of disk free, {(q8_b + slack) >> 20} MiB needed)", flush=True)
+            return None, None
+        path = Path(td) / "sham-q8_0.gguf"
+        write_gguf(src, path, "q8_0")
+    elif kind == "f16":
+        if free < f16_b + slack:
+            print(f"sham_gguf: f16 not built (only {free >> 20} MiB of disk free)", flush=True)
+            return None, None
+        path = Path(td) / "sham-f16.gguf"
+        write_gguf(src, path, "f16")
+    else:
+        path = Path(td) / f"sham-{kind}.gguf"
+        if free >= f16_b + k_b + slack:
+            first, first_kind, requant = Path(td) / "sham-f16.gguf", "f16", False
+        elif free >= q8_b + k_b + slack:
+            first, first_kind, requant = Path(td) / "sham-q8_0.gguf", "q8_0", True
+            print(f"sham_gguf: disk too small for f16 + {kind} ({free >> 20} MiB free); writing Q8_0 first and requantising it to {kind}", flush=True)
+        else:
+            print(f"sham_gguf: {kind} not built (only {free >> 20} MiB of disk free, {(q8_b + k_b + slack) >> 20} MiB needed)", flush=True)
+            return None, None
+        try:
+            write_gguf(src, first, first_kind)
+            quantize_gguf(first, path, kind, requantize=requant)
+        finally:
+            first.unlink(missing_ok=True)
+    return LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4), path
+
+
 def fast_model(model, kind: str | None = None, source=None):
     """A llama.cpp copy of `model` for DECODING (several times more tokens/s on a CPU), or None when it cannot / should not be used: not a plain ShamSmall, llama-cpp-python
     missing (one background install attempt), no disk, or the copy does not agree with the PyTorch model. Built once per model and cached. SHAM_GGUF=0 turns it off;
@@ -229,50 +296,43 @@ def fast_model(model, kind: str | None = None, source=None):
                     print("sham_gguf: pip install failed (exit %s): %s" % (pr.returncode, (pr.stderr or pr.stdout or "").strip()[-600:].replace("\n", " | ")), flush=True)
             import gguf  # noqa: F401,F811
             import llama_cpp  # noqa: F401,F811
-        td = tempfile.mkdtemp(prefix="sham_gguf_")
+        free_stale_exports()
+        td = tempfile.mkdtemp(prefix=_TMP_PREFIX)
         n_params = sum(p.numel() for p in src.parameters())
         free = shutil.disk_usage(td).free
-        two_step = int(n_params * 2.0 + n_params * 0.7) + 200 * 2**20          # the f16 file and the quantised one side by side
-        direct = int(n_params * 1.07) + 200 * 2**20                            # Q8_0 written straight
-        if kind not in ("f16", "q8_0") and free < two_step and free >= direct:
-            print(f"sham_gguf: disk too small for f16 + {kind} ({free >> 20} MiB free); writing Q8_0 directly", flush=True)
-            kind = "q8_0"
-        need = n_params * 2 if kind == "f16" else direct if kind == "q8_0" else two_step
-        if free < need:
-            shutil.rmtree(td, ignore_errors=True)
-            print(f"sham_gguf: not used (only {free >> 20} MiB of disk free, {need >> 20} MiB needed)", flush=True)
-            return None
         if _mem_available() < int(n_params * 1.1) + 1500 * 2**20:
             shutil.rmtree(td, ignore_errors=True)
             print("sham_gguf: not used (not enough free memory for a second copy of the weights)", flush=True)
             return None
-        if kind == "q8_0":
-            path = Path(td) / "sham-q8_0.gguf"
-            write_gguf(src, path, "q8_0")
-        else:
-            f16 = Path(td) / "sham-f16.gguf"
-            write_gguf(src, f16, "f16")
-            path = f16
-            if kind != "f16":
-                path = Path(td) / f"sham-{kind}.gguf"
-                quantize_gguf(f16, path, kind)
-                f16.unlink()
-        cand = LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4)
-        # it must agree with the PyTorch model on what it would write next (same top token on most test prompts)
-        g = torch.Generator().manual_seed(0)
-        agree = 0
-        for _ in range(6):
-            ids = torch.randint(4, max(5, min(int(src.cfg.vocab_size), 30000)), (1, 32), generator=g)
-            with torch.no_grad():
-                ref = src(ids)[0][0, -1].float()
-            got = cand(ids)[0][0, -1]
-            agree += int(got.argmax() == ref.argmax())
-        if agree < (6 if kind == "f16" else 5 if kind in ("q8_0", "q6_k") else 4):      # live log 2026-11-15: q8_0 agreed on 5/6 and was refused although the looser q6_k needs only 5 (q8_0 measured +0.24% loss)
-            print(f"sham_gguf: the {kind} copy agrees with PyTorch on {agree}/6 test prompts — not used", flush=True)
-            return None
-        _FAST[key] = cand
-        print(f"sham_gguf: decoding with llama.cpp ({kind}), agrees with PyTorch on {agree}/6 test prompts", flush=True)
-        return cand
+        tries = [kind] + (["q8_0"] if kind not in ("f16", "q8_0") else [])     # a k-quant that is refused (or does not fit) falls back to the 8-bit copy
+        for k in tries:
+            cand, path = _build_copy(src, td, k, n_params, shutil.disk_usage(td).free)
+            if cand is None:
+                continue
+            # it must agree with the PyTorch model on what it would write next (same top token on most test prompts)
+            g = torch.Generator().manual_seed(0)
+            agree = 0
+            for _ in range(6):
+                ids = torch.randint(4, max(5, min(int(src.cfg.vocab_size), 30000)), (1, 32), generator=g)
+                with torch.no_grad():
+                    ref = src(ids)[0][0, -1].float()
+                got = cand(ids)[0][0, -1]
+                agree += int(got.argmax() == ref.argmax())
+            if agree < (6 if k == "f16" else 5 if k in ("q8_0", "q6_k") else 4):      # live log 2026-11-15: q8_0 agreed on 5/6 and was refused although the looser q6_k needs only 5 (q8_0 measured +0.24% loss)
+                print(f"sham_gguf: the {k} copy agrees with PyTorch on {agree}/6 test prompts — not used", flush=True)
+                try:
+                    cand.llm.close()
+                except Exception:
+                    pass
+                del cand
+                Path(path).unlink(missing_ok=True)
+                continue
+            _FAST[key] = cand
+            KIND[id(model)] = k
+            print(f"sham_gguf: decoding with llama.cpp ({k}, {Path(path).stat().st_size >> 20} MiB), agrees with PyTorch on {agree}/6 test prompts (disk free before: {free >> 20} MiB)", flush=True)
+            return cand
+        shutil.rmtree(td, ignore_errors=True)
+        return None
     except Exception as exc:
         print(f"sham_gguf: not used ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
         return None
