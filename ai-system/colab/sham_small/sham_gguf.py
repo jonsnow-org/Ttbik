@@ -266,7 +266,7 @@ def _build_copy(src, td: str, kind: str, n_params: int, free: int):
     return LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4), path
 
 
-WHEEL = "runtime_wheels/llama_cpp_python-0.3.19-cp311-cp311-linux_x86_64.whl"     # pinned; the same file the GitHub CPU index serves for cp311
+WHEEL = "runtime_wheels/llama_cpp_python-0.3.38-cp311-cp311-linux_x86_64.whl"     # built by sham-v2-runtime-wheels.yml (glibc; the GitHub CPU index cp311 wheels are musl-linked)
 
 
 def hub_wheel(repo: str | None = None, download=None) -> str | None:

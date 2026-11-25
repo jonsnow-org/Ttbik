@@ -1,9 +1,13 @@
 name: Sham v2 runtime wheels (mirror llama-cpp-python into Sham's own model repo)
 
-# Owner-approved 2026-11-25 (decision 4: q4_k_m decoding). The Sham v2 Studio (cn) installs llama-cpp-python at run time, but the CPU wheel index
-# points at GitHub release assets, and the cn Studio times out on them (live log 2026-11-25: ReadTimeoutError on release-assets.githubusercontent.com),
-# so decoding stayed in PyTorch. This copies the ONE pinned wheel (sha256 checked) into novaai2026/sham-v2 under runtime_wheels/; sham_gguf.hub_wheel()
-# installs it from there. No other file of the model repo is touched. The Sham v2 Studio deploy follows this workflow (workflow_run).
+# Owner-approved 2026-11-25 (decision 4: q4_k_m decoding). The Sham v2 Studio (cn, Python 3.11, glibc) needs llama-cpp-python at run time.
+#  * The CPU index's cp311 linux_x86_64 wheels sit on GitHub release assets (the cn Studio times out on them), and they are linked against musl:
+#    live log 2026-11-25 after the first mirror: "Failed to load shared library ... libllama.so: libc.musl-x86_64.so.1".
+#  * PyPI has only the source (a 10+ minute build on the Studio's 2 vCPUs).
+# So the wheel is BUILT here, inside the manylinux_2_28 image (glibc 2.28: loads on any newer glibc), for portable x86-64 with AVX2/FMA/F16C and
+# no OpenMP (no libgomp needed), checked to load in a plain Debian python:3.11 container, then uploaded into
+# novaai2026/sham-v2 under runtime_wheels/ (sham_gguf.hub_wheel() installs it from there). No other file of the model repo is touched.
+# The Sham v2 Studio deploy follows this workflow (workflow_run).
 on:
   workflow_dispatch: {}
 
@@ -15,34 +19,50 @@ permissions:
   contents: read
 
 env:
-  WHEEL: llama_cpp_python-0.3.19-cp311-cp311-linux_x86_64.whl
-  WHEEL_URL: https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19/llama_cpp_python-0.3.19-cp311-cp311-linux_x86_64.whl
-  WHEEL_SHA256: bf993a7c49fa2c71d851aadc6ad7d26149109dbb87f4466326d8fa60c49148c7
+  LLAMA_CPP_PYTHON: "0.3.38"
+  WHEEL: llama_cpp_python-0.3.38-cp311-cp311-linux_x86_64.whl
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
+      - name: Build the glibc wheel (manylinux_2_28, portable x86-64)
+        run: |
+          mkdir -p wheels
+          docker run --rm -v "$PWD/wheels:/out" -e V="$LLAMA_CPP_PYTHON" quay.io/pypa/manylinux_2_28_x86_64 bash -lc '
+            set -e
+            export CMAKE_ARGS="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF"
+            export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+            /opt/python/cp311-cp311/bin/pip wheel --no-deps --no-binary llama-cpp-python "llama-cpp-python==$V" -w /out'
+          ls -la wheels
+          test -f "wheels/$WHEEL"
+      - name: Check it is glibc-linked (no musl)
+        run: |
+          mkdir x && cd x && unzip -q "../wheels/$WHEEL" 'llama_cpp/lib/*'
+          for f in llama_cpp/lib/*.so; do readelf -d "$f" | grep NEEDED; done | tee needed.txt
+          ! grep -q musl needed.txt
+          grep -q 'libc.so.6' needed.txt
+      - name: Load in a plain Debian python:3.11 (the Studio's userland)
+        run: |
+          docker run --rm -v "$PWD/wheels:/w" -e WHEEL="$WHEEL" python:3.11-slim bash -c 'set -e; pip install -q "/w/$WHEEL" gguf numpy; python -c "import llama_cpp; print(\"llama_cpp\", llama_cpp.__version__, \"loaded\"); print(llama_cpp.llama_print_system_info().decode()[:300])"'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Fetch the pinned wheel (checksum verified)
-        run: |
-          curl -sSfL --retry 5 -o "$WHEEL" "$WHEEL_URL"
-          echo "$WHEEL_SHA256  $WHEEL" | sha256sum -c -
       - name: Upload into novaai2026/sham-v2 (runtime_wheels/ only)
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
+          sha256sum "wheels/$WHEEL"
           python -m pip install -q "modelscope>=1.26.0"
           python - <<'PY'
-          import os
+          import hashlib, os
           from modelscope.hub.api import HubApi
+          name = os.environ["WHEEL"]
+          sha = hashlib.sha256(open("wheels/" + name, "rb").read()).hexdigest()
           api = HubApi()
           api.login(os.environ["MODELSCOPE_TOKEN"])
-          name = os.environ["WHEEL"]
-          api.upload_file(path_or_fileobj=name, path_in_repo="runtime_wheels/" + name, repo_id="novaai2026/sham-v2", repo_type="model",
-                          commit_message="Sham Pro: llama-cpp-python CPU wheel for q4_k_m decoding (mirror, sha256 " + os.environ["WHEEL_SHA256"][:12] + ")")
-          print("uploaded runtime_wheels/" + name, flush=True)
+          api.upload_file(path_or_fileobj="wheels/" + name, path_in_repo="runtime_wheels/" + name, repo_id="novaai2026/sham-v2", repo_type="model",
+                          commit_message="Sham Pro: llama-cpp-python " + os.environ["LLAMA_CPP_PYTHON"] + " glibc CPU wheel for q4_k_m decoding (sha256 " + sha[:12] + ")")
+          print("uploaded runtime_wheels/" + name, sha, flush=True)
           PY
