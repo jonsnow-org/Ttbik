@@ -177,3 +177,12 @@ describe("promotion supervisor: one tick at a time", () => {
     expect(await store.claimTick(1060_000, 50000)).toBe(true);
   });
 });
+
+describe("promotion supervisor: Mini App operations", () => {
+  it("are owner only", async () => {
+    const { appOp } = await import("@/lib/coderApp");
+    const deps: any = { db: { exec: async () => undefined, query: async () => [] }, bot: { api: {} }, botRow: { id: "b", token: "1:x" } };
+    await expect(appOp({ chatId: 1, tier: "user" }, "promo", {}, deps)).rejects.toThrow("owner only");
+    await expect(appOp({ chatId: 1, tier: "user" }, "promo_set", { what: "switch", value: "owner" }, deps)).rejects.toThrow("owner only");
+  });
+});
