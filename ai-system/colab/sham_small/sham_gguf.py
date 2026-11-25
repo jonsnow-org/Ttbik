@@ -266,6 +266,25 @@ def _build_copy(src, td: str, kind: str, n_params: int, free: int):
     return LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4), path
 
 
+WHEEL = "runtime_wheels/llama_cpp_python-0.3.19-cp311-cp311-linux_x86_64.whl"     # pinned; the same file the GitHub CPU index serves for cp311
+
+
+def hub_wheel(repo: str | None = None, download=None) -> str | None:
+    """The llama-cpp-python wheel from the model's own ModelScope repo (fast from the cn Studio), or None (other Python, no repo, not mirrored yet)."""
+    repo = repo if repo is not None else os.environ.get("SHAM_MS_MODEL", "")
+    name = os.environ.get("SHAM_GGUF_WHEEL", WHEEL)
+    if not repo or ("cp%d%d" % sys.version_info[:2]) not in name:
+        return None
+    try:
+        if download is None:
+            from modelscope.hub.file_download import model_file_download as download
+        path = str(download(repo, name))
+        return path if path.endswith(".whl") and os.path.isfile(path) else None
+    except Exception as exc:  # noqa: BLE001 - not mirrored yet / hub hiccup: the GitHub index is the fallback
+        print(f"sham_gguf: wheel not in {repo} ({type(exc).__name__}); using the GitHub index", flush=True)
+        return None
+
+
 def fast_model(model, kind: str | None = None, source=None):
     """A llama.cpp copy of `model` for DECODING (several times more tokens/s on a CPU), or None when it cannot / should not be used: not a plain ShamSmall, llama-cpp-python
     missing (one background install attempt), no disk, or the copy does not agree with the PyTorch model. Built once per model and cached. SHAM_GGUF=0 turns it off;
@@ -292,11 +311,15 @@ def fast_model(model, kind: str | None = None, source=None):
                 import subprocess
                 # 2026-11-25 live log: "TimeoutExpired" after 600 s (the wheel index is slow from the cn Studio), so Sham Pro decoded in PyTorch after the deploy.
                 # Only the prebuilt CPU wheel (never a 10+ minute source build on 2 vCPUs), a longer deadline, and one retry. This runs in the background thread.
+                # 2026-11-25 live log, after the fix above: "ReadTimeoutError: HTTPSConnectionPool(host='release-assets.githubusercontent...')": the wheel
+                # index points at GitHub release assets, which the cn Studio cannot read reliably. The same pinned wheel is mirrored into the model's OWN
+                # repo (sham-v2-runtime-wheels.yml, sha256 checked); it is tried first, and the GitHub index stays as the fallback (longer socket timeout, retries).
+                local = hub_wheel()
                 for attempt in (1, 2):
+                    pkgs = [local, "gguf"] if (local and attempt == 1) else ["--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu", "llama-cpp-python", "gguf"]
                     try:
                         pr = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--prefer-binary", "--only-binary=llama-cpp-python",
-                                             "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu",
-                                             "llama-cpp-python", "gguf"], timeout=int(os.environ.get("SHAM_GGUF_PIP_TIMEOUT", "1800")), check=False,
+                                             "--timeout", "120", "--retries", "8", *pkgs], timeout=int(os.environ.get("SHAM_GGUF_PIP_TIMEOUT", "1800")), check=False,
                                             capture_output=True, text=True)
                     except subprocess.TimeoutExpired:
                         print(f"sham_gguf: pip install attempt {attempt} timed out", flush=True)
