@@ -35,11 +35,13 @@ def ensure_rows(model) -> bool:
     have = w.shape[0]
     if have >= base + n:
         return False
-    if have < base:
-        raise ValueError(f"the model's embedding has {have} rows but the special-token range alone ends at {base}: a different vocabulary layout "
+    from model import TEXT_VOCAB_SIZE, IMAGE_VOCAB_SIZE, AUDIO_VOCAB_SIZE
+    if have < TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE:
+        raise ValueError(f"the model's embedding has {have} rows, fewer than the text+image+audio ranges: a different vocabulary layout "
                          f"(SHAM_TEXT_VOCAB mismatch), motion rows cannot be appended")
+    # have < base: the checkpoint predates part of the special-token headroom (e.g. 162192 rows vs 162196): those rows are fresh too (same deterministic init)
     g = torch.Generator().manual_seed(20261125)
-    std = float(w[:base].detach().float().std()) or 0.02
+    std = float(w[:have].detach().float().std()) or 0.02
     extra = (torch.randn(base + n - have, w.shape[1], generator=g) * std).to(device=w.device, dtype=w.dtype)
     new = torch.nn.Parameter(torch.cat([w.detach(), extra]), requires_grad=w.requires_grad)
     model.token_embedding.weight = new
