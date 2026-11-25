@@ -1,0 +1,64 @@
+name: tg-business-diagnose
+# Manual, read-only: why replies inside a linked Telegram account (Business / Secretary mode) do or do not happen.
+# Prints the owner's switch, Telegram's own report (Secretary Mode, webhook, last delivery error), the stored connections
+# compared with the rights Telegram reports right now, and the last decisions in the business log. No tokens in the output.
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "also ask Telegram for each stored connection (getBusinessConnection)"
+        type: string
+        default: "1"
+permissions:
+  contents: read
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: the business state, verbatim
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PROBE: ${{ inputs.probe }}
+        run: |
+          set -eu
+          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}"
+          code=$(curl -sS -m 90 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
+          echo "HTTP ${code}"
+          head -c 4000 biz.json; echo
+          [ "${code}" = "200" ] || exit 1
+      - name: the report, readable
+        if: always()
+        run: |
+          set -eu
+          [ -f biz.json ] || { echo "no body"; exit 0; }
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("biz.json"))
+          except Exception:
+              print("body is not JSON"); raise SystemExit(0)
+          if d.get("error"):
+              print("error:", d["error"]); raise SystemExit(0)
+          print(f"owner switch (tg_business) = {d.get('flag')}")
+          b = d.get("bot") or {}
+          print(f"bot @{b.get('username')} | secretary mode (can_connect_to_business) = {b.get('canConnectBusiness')}")
+          print(f"webhook = {b.get('webhookUrl')} | pending = {b.get('pending')} | allowed_updates = {b.get('allowedUpdates')}")
+          print(f"last delivery error = {b.get('lastError')} ({b.get('lastErrorAgoMin')} min ago)")
+          cs = d.get("connections")
+          if isinstance(cs, str):
+              print("connections:", cs)
+          else:
+              print(f"connections = {len(cs)}")
+              for c in cs:
+                  tg = c.get("telegram") or {}
+                  print(f"  {c['id']} user={c['user']} enabled={c['enabled']} model={c['model']} rights={c['rights']}")
+                  print(f"    telegram now: enabled={tg.get('isEnabled')} rights={tg.get('rights')} missing={tg.get('missing')} error={tg.get('error')}")
+          lg = d.get("log")
+          if isinstance(lg, str):
+              print("log:", lg)
+          else:
+              print(f"log rows (newest first) = {len(lg)}")
+              for r in lg[:20]:
+                  print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
+          PY
