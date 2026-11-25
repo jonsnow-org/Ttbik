@@ -29,7 +29,7 @@ jobs:
               d = json.loads(json.loads(m.group(1))[0]) if m else {}
           except Exception:
               d = {}
-          keys = ("phase", "model", "model_repo", "model_file", "gguf", "alias", "ctx", "ctx_tokens", "n_ctx", "engine", "llama_build", "mem_free_gb", "mem_total_gb", "mem_available_gb", "tldm", "nova_tldm", "llama")
+          keys = ("phase", "load_mode", "threads", "cpu", "cpu_flags", "uptime_s", "vision", "detail", "error", "model", "model_repo", "model_file", "gguf", "alias", "ctx", "ctx_tokens", "n_ctx", "engine", "llama_build", "mem_free_gb", "mem_total_gb", "mem_available_gb", "tldm", "nova_tldm", "llama")
           print(json.dumps({k: d[k] for k in keys if k in d} or {"raw": raw[:1200]}, ensure_ascii=False, indent=1))
           PY
           else
