@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { prismaDb } from "@/lib/coderAuth";
 import { hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
-import { normRights, RIGHTS } from "@/lib/tgBusiness";
+import { normRights, RIGHTS, defaultGenerate, systemFor } from "@/lib/tgBusiness";
 
 /**
  * Why Telegram Business ("Secretary mode") replies do or do not happen. READ-ONLY, no tokens in the output.
@@ -85,24 +85,26 @@ export async function GET(req: NextRequest) {
     out.studios = "unavailable";
   }
 
-  // `gen=1`: one tiny real completion, to see what the reply the owner's test never got actually looked like (type/failure/timing).
+  // `gen=1`: the business generator itself (not a raw chat call) asked for one short reply on each model, so the report shows
+  // exactly what a contact's message would have produced: the text that would be sent, or the reason nothing was sent.
   if (req.nextUrl.searchParams.get("gen") === "1") {
-    const t0 = Date.now();
+    let instructions = "";
     try {
-      const OC = await import("@/lib/openCoderStudio");
-      const o: { reply: unknown; failure?: string; status?: number; detail?: string } = await OC.withEngineModel("coder", () => OC.coderChat(
-        [{ role: "user", content: "جواب من كلمتين: تم." }] as never,
-        { tools: [], maxTokens: 8, think: false, temperature: 0, waitS: 20, timeoutMs: 30000, model: "coder", tag: "biz-probe" },
-      )).catch((e) => ({ reply: null, failure: "network", detail: String((e as Error)?.message || e).slice(0, 120) }));
-      const r = o?.reply as { type?: string; text?: string; job?: string; error?: string; phase?: string } | null;
-      out.gen = {
-        ms: Date.now() - t0, status: o?.status ?? null, failure: o?.failure ?? null, detail: o?.detail ? String(o.detail).slice(0, 160) : null,
-        type: r?.type ?? null, error: r?.error ? String(r.error).slice(0, 160) : null, phase: r?.phase ?? null,
-        job: r?.job ? "yes" : null, text: r?.type === "done" ? String(r.text || "").slice(0, 80) : null,
-      };
-    } catch (e) {
-      out.gen = { ms: Date.now() - t0, error: String((e as Error)?.message || e).slice(0, 160) };
-    }
+      const rows = await prismaDb.query<{ instructions: string }>(`SELECT instructions FROM tg_business_connections ORDER BY updated_at DESC LIMIT 1`);
+      instructions = String(rows[0]?.instructions || "");
+    } catch { /* no connection stored yet: the default rules are still the real ones */ }
+    const system = systemFor({ instructions } as never, "");
+    const one = async (model: "coder" | "sham_v2") => {
+      const t0 = Date.now();
+      try {
+        const made = await defaultGenerate(model, system, [{ role: "user", text: "مرحبا" }], "كيف حالك؟", "biz:probe");
+        const g = typeof made === "string" ? { text: made } : made || { text: null };
+        return { model, ms: Date.now() - t0, text: g.text ? String(g.text).slice(0, 120) : null, why: (g as { why?: string }).why ? String((g as { why?: string }).why).slice(0, 160) : null };
+      } catch (e) {
+        return { model, ms: Date.now() - t0, text: null, why: `threw: ${String((e as Error)?.message || e).slice(0, 140)}` };
+      }
+    };
+    out.gen = await Promise.all([one("coder"), one("sham_v2")]);
   }
 
   let conns: any[] = [];  try {
