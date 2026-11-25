@@ -50,9 +50,17 @@ describe("Telegram feature switches (panel)", () => {
     expect((await refreshTgFeatures(db, true)).guest).toBe("off");
   });
 
+  it("the Business (Secretary mode) switch is stored, read back and off by default", async () => {
+    const db = fakeDb();
+    expect((await refreshTgFeatures(db, true)).business).toBe("off");
+    await setTgAudience("tg_business", "owner", db);
+    expect((await refreshTgFeatures(db, true)).business).toBe("owner");
+    await expect(setTgAudience("tg_business", "bogus" as any, db)).rejects.toThrow();
+  });
+
   it("reads the bot's real state and builds the invite link", async () => {
     const api: any = { raw: { getMe: async (...args: unknown[]) => { if (args.length) throw new Error("Incorrect abort signal instance found! You passed two payloads to 'getMe'"); return ({ username: "NovaBot", supports_guest_queries: true, has_topics_enabled: true, allows_users_to_create_topics: false, has_topic_sidebar: true }); } } };
-    expect(await readBotInfo(api)).toEqual({ username: "NovaBot", guest: true, topics: true, usersCreateTopics: false, sidebar: true });
+    expect(await readBotInfo(api)).toEqual({ username: "NovaBot", guest: true, topics: true, usersCreateTopics: false, sidebar: true, business: false });
     expect(inviteLink("NovaBot")).toBe("https://t.me/botinvite/NovaBot");
     expect(inviteLink("")).toBe("");
   });

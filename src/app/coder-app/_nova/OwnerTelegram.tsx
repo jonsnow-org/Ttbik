@@ -5,8 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Caption, Cell, Section, Select, Spinner, Switch } from "@telegram-apps/telegram-ui";
 
 type Api = <T = any>(op: string, body?: Record<string, unknown>) => Promise<T>;
-type Info = { username: string; guest: boolean; topics: boolean; usersCreateTopics: boolean; sidebar: boolean };
-type State = { rich: string; guestMode: string; info: Info | null; invite: string; error: string };
+type Info = { username: string; guest: boolean; topics: boolean; usersCreateTopics: boolean; sidebar: boolean; business?: boolean };
+type State = { rich: string; guestMode: string; businessMode?: string; info: Info | null; invite: string; error: string };
 
 export default function OwnerTelegram({ ar, api, haptic }: { ar: boolean; api: Api; haptic: (k: "success" | "error") => void }) {
   const [s, setS] = useState<State | null>(null);
@@ -48,6 +48,14 @@ export default function OwnerTelegram({ ar, api, haptic }: { ar: boolean; api: A
           {["off", "owner", "all"].map((v) => <option key={v} value={v}>{aud(v)}</option>)}
         </Select>
         <Cell><Caption>{ar ? `عند تيليجرام الآن: ${i?.guest ? "مفتوح" : "مغلق"}` : `On Telegram now: ${i?.guest ? "open" : "closed"}`}</Caption></Cell>
+      </Section>
+      <Section header={ar ? "💼 الرد داخل حساب المستخدم (Telegram Business)" : "💼 Replies inside the user's account (Telegram Business)"}
+        footer={ar ? "يربط المستخدم البوت بحسابه من إعدادات تيليجرام ويختار المحادثات والصلاحيات، ويختار من التطبيق المصغّر من يردّ باسمه: نوفا أو شام برو. كل رد يُسجَّل باسم النموذج، ولا تحويل لنموذج آخر عند الفشل، وقائمة الحظر تُطبَّق على الجميع. يجب أيضًا تفعيل Secretary Mode للبوت يدويًا من @BotFather."
+          : "The user links the bot in Telegram settings (chats + rights) and picks in the Mini App who replies for them: Nova or Sham Pro. Every reply is logged with its model, no fallback to another model, the deny-list applies to everyone. Secretary Mode must also be enabled manually in @BotFather."}>
+        <Select header={ar ? "من يُسمح له" : "Who may use it"} value={s.businessMode || "off"} disabled={busy === "business"} onChange={(e) => void set("business", e.target.value)}>
+          {["off", "owner", "all"].map((v) => <option key={v} value={v}>{aud(v)}</option>)}
+        </Select>
+        <Cell><Caption>{ar ? `عند تيليجرام الآن (Secretary Mode): ${i?.business ? "مفعّل" : "غير مفعّل — فعّله من @BotFather"}` : `On Telegram now (Secretary Mode): ${i?.business ? "enabled" : "disabled — enable it in @BotFather"}`}</Caption></Cell>
       </Section>
       <Section header={ar ? "🎟 دعوة 10 أشخاص دفعة واحدة" : "🎟 Invite up to 10 people at once"}
         footer={ar ? "افتح الرابط من حسابك واختر حتى عشرة أشخاص: يُنشأ لهم محادثة مع البوت ويستطيع البوت مراسلتهم. مفيد للترويج." : "Open the link from your account and pick up to ten people: a private chat with the bot is created and the bot can write to them. Useful for promotion."}>

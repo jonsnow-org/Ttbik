@@ -6,6 +6,8 @@
  *                    `supports_guest_queries` as well; ONE control sets both, and "off" closes both.
  *  - Private-chat topics (Telegram settings has_topics_enabled / allows_users_to_create_topics / has_topic_sidebar) — set on Telegram itself with `setMySettings`, read back
  *                    with `getMe` (BotFullInfo). The bot answers inside the topic it was written in (src/lib/tgThread.ts).
+ *  - Business / Secretary mode (`tg_business`: off | owner | all) — the bot replies inside a linked user's own account (src/lib/tgBusiness.ts). Telegram's side
+ *                    (`can_connect_to_business`) is switched by the owner in @BotFather (Secretary Mode); the panel shows what getMe reports.
  *  - The invite link: the owner can invite up to 10 people at once into a private chat with the bot (t.me/botinvite/<bot>).
  *
  * Every default is OFF except rich messages for the owner's own chats. A refusal from Telegram is returned to the panel as the real error, never hidden.
@@ -22,32 +24,34 @@ export const TG_SETTINGS = ["has_topics_enabled", "allows_users_to_create_topics
 export type TgSetting = (typeof TG_SETTINGS)[number];
 
 const TTL = 20000;
-let cache: { at: number; rich: Audience | null; guest: Audience } = { at: 0, rich: null, guest: "off" };
+let cache: { at: number; rich: Audience | null; guest: Audience; business: Audience } = { at: 0, rich: null, guest: "off", business: "off" };
 
 async function table(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS coder_flags (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
 }
 
 /** Reads the stored switches (cached 20 s) and pushes the rich-message mode into the sender. Never throws. */
-export async function refreshTgFeatures(db: Db = prismaDb, force = false): Promise<{ rich: Audience | null; guest: Audience }> {
-  if (!force && Date.now() - cache.at < TTL) return { rich: cache.rich, guest: cache.guest };
+export async function refreshTgFeatures(db: Db = prismaDb, force = false): Promise<{ rich: Audience | null; guest: Audience; business: Audience }> {
+  if (!force && Date.now() - cache.at < TTL) return { rich: cache.rich, guest: cache.guest, business: cache.business };
   try {
     await table(db);
-    const rows = await db.query<{ key: string; value: string }>(`SELECT key, value FROM coder_flags WHERE key IN ($1, $2)`, "tg_rich", "tg_guest");
+    const rows = await db.query<{ key: string; value: string }>(`SELECT key, value FROM coder_flags WHERE key IN ($1, $2, $3)`, "tg_rich", "tg_guest", "tg_business");
     let rich: Audience | null = null;
     let guest: Audience = "off";
+    let business: Audience = "off";
     for (const r of rows) {
       const v = String(r.value || "").trim();
       if (r.key === "tg_rich" && isAudience(v)) rich = v;
       if (r.key === "tg_guest" && isAudience(v)) guest = v;
+      if (r.key === "tg_business" && isAudience(v)) business = v;
     }
-    cache = { at: Date.now(), rich, guest };
+    cache = { at: Date.now(), rich, guest, business };
   } catch { cache = { ...cache, at: Date.now() }; }               // keep the last known values
   setRichOverride(cache.rich as RichMode | null);
-  return { rich: cache.rich, guest: cache.guest };
+  return { rich: cache.rich, guest: cache.guest, business: cache.business };
 }
 
-export async function setTgAudience(key: "tg_rich" | "tg_guest", value: Audience, db: Db = prismaDb): Promise<void> {
+export async function setTgAudience(key: "tg_rich" | "tg_guest" | "tg_business", value: Audience, db: Db = prismaDb): Promise<void> {
   if (!isAudience(value)) throw new Error("bad value");
   await table(db);
   await db.exec(`INSERT INTO coder_flags (key, value, updated_at) VALUES ($1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, key, value);
@@ -56,11 +60,13 @@ export async function setTgAudience(key: "tg_rich" | "tg_guest", value: Audience
 
 /** Guest mode audience for the webhook: off | owner | all. */
 export const guestAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).guest;
+/** Business (Secretary mode) audience: off | owner | all. Default off. */
+export const businessAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).business;
 
 type RawApi = { raw: Record<string, (p?: Record<string, unknown>) => Promise<unknown>> };
 
 /** What Telegram says about the bot now (getMe returns BotFullInfo since Bot API 10.5): username, topics, guest queries. */
-export async function readBotInfo(api: RawApi): Promise<{ username: string; guest: boolean; topics: boolean; usersCreateTopics: boolean; sidebar: boolean }> {
+export async function readBotInfo(api: RawApi): Promise<{ username: string; guest: boolean; topics: boolean; usersCreateTopics: boolean; sidebar: boolean; business: boolean }> {
   // grammY's raw getMe takes NO payload: its first argument is the abort signal, so getMe({}) fails with «Incorrect abort signal instance found» (seen live in the Mini App, 2026-11-23)
   const me = (await api.raw.getMe()) as Record<string, unknown>;
   return {
@@ -69,6 +75,7 @@ export async function readBotInfo(api: RawApi): Promise<{ username: string; gues
     topics: Boolean(me.has_topics_enabled),
     usersCreateTopics: Boolean(me.allows_users_to_create_topics),
     sidebar: Boolean(me.has_topic_sidebar),
+    business: Boolean(me.can_connect_to_business),
   };
 }
 
@@ -87,4 +94,4 @@ export async function setGuestMode(api: RawApi, mode: Audience, db: Db = prismaD
   await setTgAudience("tg_guest", mode, db);
 }
 
-export const _resetTgFeatures = (): void => { cache = { at: 0, rich: null, guest: "off" }; setRichOverride(null); };
+export const _resetTgFeatures = (): void => { cache = { at: 0, rich: null, guest: "off", business: "off" }; setRichOverride(null); };
