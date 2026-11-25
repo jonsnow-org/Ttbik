@@ -224,7 +224,9 @@ def _load_mode(model: Path) -> str:
         total = int(next(l for l in open("/proc/meminfo") if l.startswith("MemTotal")).split()[1]) * 1024
         if model.stat().st_size <= 0.6 * total:
             return ""
-        return "none" if _LOCK["refused"] else "mmap+mlock"      # mlock refused by the box: read the weights into the process's own memory instead (no page cache to evict them from)
+        # mlock refused by the box: plain mmap. Measured 2026-11-25 on coder-inference-server-16: --load-mode none (weights copied into the process) starved the box
+        # (MemAvailable 1.29 GiB) and was SLOWER than plain mmap (write 1.5-1.7 vs 2.4 tok/s, the shared start lost). CODER_LOAD_MODE=none still forces it.
+        return "" if _LOCK["refused"] else "mmap+mlock"
     except Exception:
         return ""
 def _cache_budget(model: Path) -> "tuple[str, str]":
@@ -241,7 +243,10 @@ def _cache_budget(model: Path) -> "tuple[str, str]":
         big = model.stat().st_size > 0.6 * total
     except Exception:
         pass
-    return (ram or ("256" if big else "1024"), ck or ("4" if big else "8"))
+    # REVERTED 2026-11-25 (same day, measured): 256 / 4 with --load-mode none removed the page faults (622 in 26 min) but left MemAvailable 1.29 GiB, lost the shared
+    # start (new conversations read from cache 0: TTFT 65-300 s against 6-11 s) and wrote 1.5-1.7 tok/s against 2.4. Back to 1024 / 8 for every model.
+    del big
+    return (ram or "1024", ck or "8")
 
 
 # Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
@@ -356,8 +361,8 @@ def _supervisor() -> None:
                         refused = False
                     if refused:                           # llama.cpp only warns: the weights stay evictable. Start once more reading them into its own memory
                         _LOCK["refused"] = True
-                        STATE["load_note"] = "mlock refused by the box; trying --load-mode none"
-                        _log("mlock refused; restarting with --load-mode none")
+                        STATE["load_note"] = "mlock refused by the box; plain mmap (none measured slower here)"
+                        _log("mlock refused; restarting with plain mmap")
                         _PROC["p"].kill()
                         _PROC["p"].wait(30)
                         _PROC["p"] = None                 # a deliberate restart, not a death: the "died with the load mode" fallback must not fire
