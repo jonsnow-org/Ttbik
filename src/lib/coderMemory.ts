@@ -149,7 +149,40 @@ export function memorySearchTerms(text: string): string[] {
   }).filter(Boolean);
 }
 
-/** BM25 lexical relevance + phrase/fuzzy overlap + repo scope + recency + durable preferences. */
+// ---------------------------------------------------------------- meaning, not only spelling (in-house, no embedding service)
+/** Bilingual concept groups: a query in Arabic finds a memory written in English and the reverse, and near-synonyms meet ("concise" ~ "مختصر").
+ *  Local and deterministic (Nova's own code; no external model, nothing leaves the server). Every word is normalised with memorySearchTerms. */
+const CONCEPT_WORDS: string[][] = [
+  ["repo", "repository", "repositories", "مستودع", "مستودعات", "ريبو"], ["bot", "bots", "بوت", "بوتات", "روبوت"], ["language", "لغة", "لغه"],
+  ["arabic", "عربي", "العربية", "عربية"], ["english", "انجليزي", "انجليزية", "الانجليزية", "إنجليزي"], ["reply", "answer", "respond", "response", "رد", "ردود", "جواب", "اجابة", "إجابة"],
+  ["short", "brief", "concise", "قصير", "مختصر", "موجز", "باختصار"], ["detailed", "long", "verbose", "مفصل", "طويل", "بالتفصيل"],
+  ["code", "coding", "program", "programming", "كود", "برمجة", "برنامج", "شيفرة"], ["test", "tests", "testing", "اختبار", "اختبارات", "فحص"],
+  ["deploy", "deployment", "release", "نشر", "اطلاق", "إطلاق"], ["server", "خادم", "سيرفر"], ["database", "db", "قاعدة", "بيانات", "supabase", "postgres"],
+  ["image", "picture", "photo", "صورة", "صور"], ["video", "clip", "فيديو", "مقطع"], ["voice", "audio", "sound", "speech", "صوت", "صوتي", "كلام"],
+  ["music", "song", "موسيقى", "اغنية", "أغنية"], ["name", "called", "اسم", "اسمي"], ["project", "projects", "مشروع", "مشاريع"], ["branch", "فرع"],
+  ["error", "bug", "issue", "problem", "خطأ", "مشكلة", "علة"], ["fix", "repair", "اصلاح", "إصلاح", "تصليح"],
+  ["prefer", "prefers", "like", "likes", "favorite", "favourite", "افضل", "أفضل", "يفضل", "احب", "أحب", "يحب"], ["hate", "dislike", "يكره", "اكره"],
+  ["schedule", "reminder", "remind", "appointment", "جدول", "موعد", "تذكير", "ذكرني"], ["timezone", "توقيت", "منطقة"], ["telegram", "تلجرام", "تيليجرام", "تليجرام"],
+  ["github", "جيتهاب", "غيتهاب", "جيت"], ["wallet", "محفظة"], ["price", "payment", "pay", "cost", "سعر", "دفع", "تكلفة"], ["website", "site", "web", "موقع"],
+  ["dialect", "لهجة", "egyptian", "مصري", "مصرية", "فصحى", "formal"],
+];
+const CONCEPT_OF: Map<string, number> = (() => {
+  const m = new Map<string, number>();
+  CONCEPT_WORDS.forEach((ws, i) => { for (const w of ws) for (const t of memorySearchTerms(w)) if (!m.has(t)) m.set(t, i); });
+  return m;
+})();
+/** The concept ids a text touches (exact normalised word, or a known word as a prefix of a longer Arabic/English form: "مستودعاتي", "deployments"). */
+export function memoryConcepts(terms: string[]): Set<number> {
+  const out = new Set<number>();
+  for (const t of terms) {
+    const hit = CONCEPT_OF.get(t);
+    if (hit !== undefined) { out.add(hit); continue; }
+    if (t.length >= 5) for (const [w, id] of CONCEPT_OF) if (w.length >= 4 && t.startsWith(w)) { out.add(id); break; }
+  }
+  return out;
+}
+
+/** BM25 lexical relevance + phrase/fuzzy overlap + repo scope + recency + durable preferences + shared meaning (memoryConcepts). */
 export function rankMemories(rows: Memory[], query: string, repo?: string, now = Date.now()): { m: Memory; score: number }[] {
   const repoScope = repo ? normScope("", repo) : "";
   const eligible = rows.filter((r) => r.scope === "global" || r.scope === repoScope);
@@ -160,6 +193,7 @@ export function rankMemories(rows: Memory[], query: string, repo?: string, now =
   for (const doc of docs) for (const w of new Set(doc)) df.set(w, (df.get(w) || 0) + 1);
   const avgLen = docs.length ? docs.reduce((n, d) => n + d.length, 0) / docs.length : 0;
   const queryPhrase = qTerms.join(" ");
+  const qConcepts = memoryConcepts(qTerms);
   return eligible.map((m, i) => {
     const doc = docs[i];
     const tf = new Map<string, number>();
@@ -183,7 +217,10 @@ export function rankMemories(rows: Memory[], query: string, repo?: string, now =
     const recency = 0.25 * Math.exp(-ageDays / 60);
     const scope = repoScope && m.scope === repoScope ? 0.65 : 0;
     const preference = m.kind === "preference" ? 0.2 : 0;
-    return { m, score: bm25 + fuzzy * 0.8 + phrase + recency + scope + preference, relevant: bm25 > 0 || fuzzy > 0 || phrase > 0 };
+    let sharedMeaning = 0;
+    if (qConcepts.size) { const dc = memoryConcepts(doc); for (const c of qConcepts) if (dc.has(c)) sharedMeaning++; }
+    const meaning = qConcepts.size ? 0.9 * sharedMeaning / qConcepts.size : 0;
+    return { m, score: bm25 + fuzzy * 0.8 + phrase + recency + scope + preference + meaning, relevant: bm25 > 0 || fuzzy > 0 || phrase > 0 || sharedMeaning > 0 };
   })
     .filter((x) => x.relevant || x.m.kind === "preference")
     .sort((a, b) => b.score - a.score)

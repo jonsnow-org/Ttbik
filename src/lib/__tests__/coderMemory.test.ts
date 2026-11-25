@@ -259,3 +259,19 @@ describe("in the bot", () => {
     expect(sent[0].text).toMatch(/أوقفت/);
   });
 });
+
+describe("memory search by meaning, not only spelling (in-house concept groups, no external service)", () => {
+  const now = Date.parse("2026-11-25T12:00:00Z");
+  const row = (id: number, text: string, kind = "fact"): Memory => ({ id, chat_key: "k", scope: "global", kind, text, source_run: null, created_at: "2026-11-20 10:00:00+00", updated_at: "2026-11-20 10:00:00+00" } as any);
+  const rows = [row(1, "The user prefers concise replies in formal Arabic"), row(2, "Main repository is jonsnow-org/Ttbik"), row(3, "Deploys go to the Oracle server")];
+  it("an Arabic query finds an English memory", () => {
+    expect(rankMemories(rows, "ما هو مستودعي الرئيسي؟", undefined, now)[0].m.id).toBe(2);
+    expect(rankMemories(rows, "كيف أحب الردود؟ مختصرة؟", undefined, now)[0].m.id).toBe(1);
+  });
+  it("a near-synonym counts (deployment ~ نشر ~ deploys)", () => {
+    expect(rankMemories(rows, "أين يتم النشر", undefined, now).map((x) => x.m.id)).toContain(3);
+  });
+  it("unrelated queries still find nothing but preferences", () => {
+    expect(rankMemories(rows.slice(1), "weather tomorrow", undefined, now)).toEqual([]);
+  });
+});
