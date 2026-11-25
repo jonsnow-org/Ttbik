@@ -5,12 +5,12 @@ supabase==2.31.0
 groq==0.13.1
 google-generativeai==0.8.3
 huggingface_hub==0.31.4
-chromadb==0.5.23
+chromadb==1.5.9
 ddgs==9.16.0
 python-dotenv==1.0.1
 streamlit==1.41.1
 requests==2.32.3
-pypdf==5.1.0
+pypdf==6.21.4
 python-docx==1.1.2
 
 # Owner spec, 2026-09-12 (media post-processing): real per-frame watermark/mux for video (ffmpeg via
@@ -19,7 +19,7 @@ python-docx==1.1.2
 # same two libraries modelscope-studio/requirements.txt already uses for
 # the identical reason there, needed here too since main.py now does
 # this post-processing itself.
-Pillow==11.0.0
+Pillow==13.0.0
 imageio-ffmpeg==0.5.1
 
 # Owner spec, 2026-09-12 (hf_video.py — real free ZeroGPU video path):
