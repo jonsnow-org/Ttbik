@@ -573,7 +573,7 @@ function useLiveRunText(runId: string | null | undefined): string {
               const ev = sseFrameData(frame);
               if (!ev) continue;
               cursor = Math.max(cursor, ev.id);
-              if (ev.kind === "text") { acc += ev.text; setText(acc); }
+              if (ev.kind === "text") { acc += ev.text; setText(acc); } else if (ev.kind === "replace") { acc = ev.text; setText(acc); }
             }
           }
         } catch { /* dropped: the poll is the fallback; reconnect after a short wait */ }

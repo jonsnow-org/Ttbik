@@ -3,6 +3,7 @@
 // While a model writes, the server appends the growing TAIL of the same answer as several `text` events. Rendering one
 // bubble per event split a single answer into a stack of fragments (and made the view jump as each fragment arrived).
 // Merging consecutive `text` events into one assistant bubble makes the answer read as one message that grows in place.
+// A `replace` event (Sham's retry of a copied/stale answer) replaces that bubble's text instead of being appended to it.
 
 export type ChatEvent = { id: number; kind: string; text: string };
 export type ChatBubble = { id: number; role: "user" | "assistant" | "note"; text: string; kind?: string };
@@ -19,6 +20,11 @@ export function threadBubbles(tasks: { events: ChatEvent[] }[]): ChatBubble[] {
       } else if (event.kind === "text") {
         const last = out[out.length - 1];
         if (last && last.role === "assistant" && last.kind === "text") last.text += event.text;
+        else out.push({ id: event.id, role: "assistant", text: event.text, kind: "text" });
+      } else if (event.kind === "replace") {
+        // a retried answer: it takes the place of the answer streamed so far in this task (never shown after it)
+        const last = out[out.length - 1];
+        if (last && last.role === "assistant" && last.kind === "text") last.text = event.text;
         else out.push({ id: event.id, role: "assistant", text: event.text, kind: "text" });
       } else if (NOTE_KINDS.has(event.kind)) {
         out.push({ id: event.id, role: "note", text: event.text, kind: event.kind });

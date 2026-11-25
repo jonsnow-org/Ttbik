@@ -585,7 +585,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       for (const k of tasks.slice(-60)) {
         const evs = await taskEvents(chatId, k.run_id, 0, db);
         const shown = user.tier === "owner" ? evs : publicEvents(evs);
-        out.push({ ...k, events: shown.filter((e) => e.kind === "start" || e.kind === "text" || e.kind === "failed" || e.kind === "confirm" || e.kind === "segment") });
+        out.push({ ...k, events: shown.filter((e) => e.kind === "start" || e.kind === "text" || e.kind === "replace" || e.kind === "failed" || e.kind === "confirm" || e.kind === "segment") });
       }
       const st = await loadState(chatId, db);
       return { thread: { id: t.id, title: t.title, legacy: t.legacy, pinned: Boolean(t.pinned), archived: Boolean(t.archived), created_at: t.created_at, updated_at: t.updated_at }, current: st.threadId === t.id, tasks: out };

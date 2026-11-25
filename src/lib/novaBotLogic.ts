@@ -1060,7 +1060,7 @@ export async function continueShamRun(bot: TelegramBot, chatId: number, botId: s
       let streamed = false;
       let acc = typist.text();
       const onDelta = (t: string) => { streamed = true; acc += t; typist.push(acc); void taskEvent(run.runId, "text", t).catch(() => null); };
-      const onReplace = (t: string) => { streamed = true; acc = t; typist.push(t); void taskEvent(run.runId, "text", t).catch(() => null); };
+      const onReplace = (t: string) => { streamed = true; acc = t; typist.push(t); void taskEvent(run.runId, "replace", t).catch(() => null); };
       const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text: run.request, resume: run.messages as never, onEvent, onDelta, onReplace, onStep: shamCardSteps(bot, chatId, card), queueNote: (n) => shamQueueNote(run.runId || "", n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: 230000, askMs: 150000, maxSteps: 12, maxNew: shamReplyTokens(), mode: shamModeCtx.getStore(), continuable: !last, shouldStop: run.runId ? async () => draftStopped(chatId) || !(await taskIsActive(run.runId!)) : undefined });
       if (run.runId && !(await taskIsActive(run.runId))) return;
       if (!(await shamDeliver(bot, chatId, r, run.request, botId, run.leg, run.runId, card, false, streamed, typist))) {
@@ -1245,7 +1245,7 @@ async function shamAgentAndSend(bot: TelegramBot, chatId: number, text: string, 
     streamed = true;
     acc = t;
     typist?.push(t);
-    void taskEvent(runId, "text", t).catch(() => null);
+    void taskEvent(runId, "replace", t).catch(() => null);      // the retried answer REPLACES the streamed one in the mini app (a "text" event is appended)
   };
   const detailedReply = text.length >= 140 || /مهارات|قدرات|خبرات|الأدوات|الادوات|أدوات|ادوات|استدعائها|المتاحة لديك/i.test(text);
   const v2 = shamVariant.getStore() === "v2";
@@ -1314,7 +1314,7 @@ export async function runShamMiniAppTask(bot: TelegramBot, chatId: number, text:
         const onEvent = (k: "tool" | "info" | "text" | "screen", t: string) => { void taskEvent(runId, k, t).catch(() => null); };
         let streamed = false;
         const onDelta = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
-        const onReplace = (t: string) => { streamed = true; void taskEvent(runId, "text", t).catch(() => null); };
+        const onReplace = (t: string) => { streamed = true; void taskEvent(runId, "replace", t).catch(() => null); };
         stage = "generate with selected Sham variant";
         await taskEvent(runId, "info", `جاري التوليد عبر ${variant === "v2" ? "استوديو شام برو" : "استوديو شام"} فقط.`).catch(() => null);
         const r = await shamAgentRun({ mediaAsked: (t) => Boolean(detectMediaIntent(t)), text, history: mem?.history, onEvent, onDelta, onReplace, onStep: () => undefined, queueNote: (n) => shamQueueNote(runId, n), ctx, tools: shamToolDefs(Boolean(ctx.githubToken), Boolean(ctx.connectors?.length)), budgetMs: variant === "v2" ? 170000 : 50000, askMs: variant === "v2" ? 150000 : 44000, maxNew: Math.min(shamReplyTokens(), variant === "v2" ? 768 : 160), mode: shamModeCtx.getStore(), continuable: true, shouldStop: async () => !(await taskIsActive(runId)) });
