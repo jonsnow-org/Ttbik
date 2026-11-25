@@ -16,6 +16,9 @@ on:
       skip:
         description: "regex of lines to hide (default hides the model-download progress spam; empty = show everything)"
         default: "Downloading \\["
+      kinds:
+        description: "which logs to print: build, run, or 'build run'"
+        default: "build run"
 permissions:
   contents: read
 jobs:
@@ -30,11 +33,12 @@ jobs:
           PAGE_SIZE: ${{ inputs.page_size }}
           TAIL: ${{ inputs.tail }}
           SKIP: ${{ inputs.skip }}
+          KINDS: ${{ inputs.kinds }}
         run: |
           echo "::add-mask::$T"
           MS=https://www.modelscope.ai; O=Jonjithup
           curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$O/$REPO" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print('status:',(d.get('runtime') or {}).get('status') or d.get('status'),'hardware:',d.get('hardware') or (d.get('runtime') or {}).get('hardware'))"
-          for k in build run; do
+          for k in ${KINDS:-build run}; do
             echo "== $k log"
             curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$O/$REPO/logs/$k?page_size=${PAGE_SIZE:-200}" | python3 -c "
           import json,os,sys,re
