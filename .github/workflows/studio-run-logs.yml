@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "nova-media-server | sham-v2-video-server | nova-inference-server"
+        description: "nova-media-server | sham-v2-video-server | nova-inference-server | sham-v2-server"
         required: true
         default: "nova-media-server"
 permissions:
@@ -20,7 +20,7 @@ jobs:
           STUDIO: ${{ inputs.studio }}
         run: |
           set -euo pipefail
-          case "$STUDIO" in nova-media-server|sham-v2-video-server|nova-inference-server) ;; *) echo "::error::not one of our media/computer Studios"; exit 1;; esac
+          case "$STUDIO" in nova-media-server|sham-v2-video-server|nova-inference-server|sham-v2-server) ;; *) echo "::error::not one of our media/computer Studios"; exit 1;; esac
           MS=https://www.modelscope.cn
           mask() { sed -E 's/(ms-[A-Za-z0-9-]{8})[A-Za-z0-9-]+/\1***/g; s/(Bearer )[A-Za-z0-9._-]+/\1***/g; s/(token=)[^&" ]+/\1***/g'; }
           curl -sS --max-time 20 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$STUDIO" | python3 -c "import sys,json; d=json.load(sys.stdin).get('Data') or {}; print({k:d.get(k) for k in ('Status','Hardware','UpdatedTime','ErrorMessage','StudioId') if k in d})" || true
@@ -33,3 +33,6 @@ jobs:
               x=x if isinstance(x,str) else json.dumps(x,ensure_ascii=False)
           except Exception: x=raw
           print(x.replace('\\\\n','\n').replace('\\\\r','')[-12000:])" | mask
+          # Sham Pro's llama.cpp fast decode (q4_k_m / q8_0): every line it printed, from the whole run log, not only the tail
+          echo "===== fast-decode lines (sham_gguf / llama.cpp / pip) ====="
+          curl -sS --max-time 30 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/novaai2026/$STUDIO/logs/run" | sed 's/\\n/\n/g' | grep -Ei 'sham_gguf|llama|fast decod|quantiz|wheel|pip install|disk free' | tail -n 60 | cut -c1-600 | mask || true
