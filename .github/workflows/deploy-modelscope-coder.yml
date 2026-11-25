@@ -126,6 +126,8 @@ jobs:
           api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
           echo "user:";      api /users/me | python3 -c "import json,sys;d=json.load(sys.stdin);x=d.get('data') or d.get('Data') or d;print({k:x.get(k) for k in ('username','name','level') if isinstance(x,dict)})" || true
           echo "hardware:";  api "/studios/hardware?sdk_type=gradio" | tee hw.json | head -c 3000; echo
+          # the account's Studios (names + status only): a "create too many studios" refusal needs to know which ones hold the quota
+          echo "studios:"; api "/studios?owner=$OWNER&page_number=1&page_size=50" | python3 -c "import json,sys;d=json.load(sys.stdin);x=(d.get('data') or {});L=x.get('studios') or x.get('items') or x.get('list') or (x if isinstance(x,list) else []);print(d.get('code') or '', d.get('message') or '', x.get('total_count', '') if isinstance(x,dict) else '');[print(' ', i.get('name') or i.get('repo_name') or i.get('path'), i.get('status') or i.get('state'), i.get('hardware') or '', i.get('last_modified') or i.get('gmt_modified') or '') for i in L if isinstance(i,dict)]" 2>&1 | head -60
           echo "sdk:";       api "/studios/sdk-versions?sdk_type=gradio" | tee sdk.json | head -c 1500; echo
           code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
           echo "studio http $code"; head -c 1500 studio.json; echo
