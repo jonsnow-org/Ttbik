@@ -1,0 +1,57 @@
+name: Sham v2 motion tokenizer (train on real clips, publish next to the checkpoint)
+
+# Owner-approved 2026-11-25: Sham Pro's video answered NO_VIDEO since 2026-11-22 because no motion tokenizer was ever trained for novaai2026/sham-v2.
+# Trains it on real Kinetics-400 clips (scripts/transplant/train_sham_v2_motion.py), refuses to publish unless it beats copy-the-previous-frame on
+# HELD-OUT clips, then uploads ONLY motion_tokenizer.pt + motion_tokenizer_progress.json into novaai2026/sham-v2 (no other file is touched).
+# The Sham v2 Studio deploy follows this workflow (workflow_run) so the Studio loads it.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "training minutes"
+        required: false
+        default: "45"
+      clips:
+        description: "real clips to collect (8 frames each)"
+        required: false
+        default: "160"
+      publish:
+        description: "upload to novaai2026/sham-v2 when it passes the held-out gate (true/false)"
+        required: false
+        default: "true"
+
+concurrency:
+  group: sham-v2-motion-tokenizer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy pillow imageio imageio-ffmpeg av tokenizers requests modelscope
+      - name: Train (and publish when it beats a slideshow on held-out clips)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          args="--minutes ${{ inputs.minutes || '45' }} --clips ${{ inputs.clips || '160' }} --out ${{ runner.temp }}/motion"
+          if [ "${{ inputs.publish || 'true' }}" = "true" ]; then args="$args --publish"; fi
+          python scripts/transplant/train_sham_v2_motion.py $args
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sham-v2-motion-tokenizer
+          path: |
+            ${{ runner.temp }}/motion/motion_tokenizer.pt
+            ${{ runner.temp }}/motion/motion_tokenizer_progress.json
+          if-no-files-found: ignore
