@@ -1076,6 +1076,20 @@
       "writes": [
         "sham-v2-motion-rows"
       ]
+    },
+    "sham_v2_mirror_ai": {
+      "file": ".github/workflows/sham-v2-mirror-ai.yml",
+      "title": "نسخ مستودعات شام برو الخاصة (النموذج + رأس T-LDM) من المنصة الصينية (التدريب) إلى الدولية (التشغيل): الملفات المتغيرة فقط، لا حذف",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [
+        "novaai2026/sham-v2",
+        "novaai2026/sham2-tldm-head"
+      ],
+      "writes": [
+        "Jonjithup/sham-v2",
+        "Jonjithup/sham2-tldm-head"
+      ]
     }
   },
   "lineage": [
