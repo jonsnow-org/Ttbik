@@ -131,7 +131,7 @@ def fit(rows: torch.Tensor, h: torch.Tensor, y: torch.Tensor, mult: float, max_n
     return rows.detach()
 
 
-def train_rows(model, seqs_tr, seqs_ho, rounds: int = 2, epochs: int = 30, lr: float = 1e-2, log=print) -> tuple[torch.Tensor, dict]:
+def train_rows(model, seqs_tr, seqs_ho, rounds: int = 2, epochs: int = 30, lr: float = 1e-2, log=print, deadline: float | None = None) -> tuple[torch.Tensor, dict]:
     import sham_motion_rows as R
     from model import IMAGE_VOCAB_BASE, IMAGE_VOCAB_SIZE, MOTION_VOCAB_BASE, MOTION_VOCAB_SIZE
     W = R.embedding(model)
@@ -143,6 +143,7 @@ def train_rows(model, seqs_tr, seqs_ho, rounds: int = 2, epochs: int = 30, lr: f
     rep = {"heldout_positions": int(y_ho.numel()), "untrained_nll": round(nll(untrained, h_ho, y_ho, mult), 4)}
     rows = untrained
     y_tr = None
+    done = 0
     for r in range(rounds):
         t0 = time.time()
         h_tr, y_tr = read(model, seqs_tr)
@@ -153,7 +154,13 @@ def train_rows(model, seqs_tr, seqs_ho, rounds: int = 2, epochs: int = 30, lr: f
         h_ho, y_ho = read(model, seqs_ho)                          # the serving state: held-out re-read with the trained (tied) rows
         rep[f"round{r + 1}_heldout_nll"] = round(nll(rows, h_ho, y_ho, mult), 4)
         log(f"round {r + 1}: held-out motion NLL {rep[f'round{r + 1}_heldout_nll']} (untrained {rep['untrained_nll']})")
-    rep["trained_nll"] = rep[f"round{rounds}_heldout_nll"]
+        done = r + 1
+        took = time.time() - t0
+        if deadline is not None and r + 1 < rounds and time.time() + took * 1.15 > deadline:
+            log(f"stopping after round {r + 1}: another round (~{took / 60:.0f} min) would pass the time budget")
+            break
+    rep["rounds_done"] = done
+    rep["trained_nll"] = rep[f"round{done}_heldout_nll"]
     rep["unigram_nll"] = round(unigram_nll(y_tr, y_ho, MOTION_VOCAB_SIZE), 4)
     rep["uniform_nll"] = round(math.log(MOTION_VOCAB_SIZE), 4)
     rep["passes"] = bool(rep["trained_nll"] < rep["untrained_nll"] and rep["trained_nll"] < rep["unigram_nll"] - 0.02)
@@ -253,6 +260,7 @@ def main() -> int:
     ap.add_argument("--clips", type=int, default=200)
     ap.add_argument("--rounds", type=int, default=2)
     ap.add_argument("--epochs", type=int, default=30)
+    ap.add_argument("--minutes", type=float, default=300, help="time budget: no new round starts that would end after it (the result is still gated and saved)")
     ap.add_argument("--out", default="/tmp/sham_v2_motion_rows")
     ap.add_argument("--manifest", default="", help="an existing video manifest.jsonl (skip collecting)")
     ap.add_argument("--model_dir", default="", help="a local copy of the model repo (skip the download)")
@@ -262,6 +270,7 @@ def main() -> int:
     if a.selftest:
         return selftest()
     torch.set_num_threads(os.cpu_count() or 2)
+    start = time.time()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     md = Path(a.model_dir) if a.model_dir else fetch(out / "hub")
@@ -304,7 +313,8 @@ def main() -> int:
     ho, tr = order[:n_ho], order[n_ho:]
     seqs = build(clips, caps, itok, mtok, tok, log=lambda m: print(m, flush=True))
     del clips
-    rows, rep = train_rows(model, [seqs[i] for i in tr], [seqs[i] for i in ho], rounds=a.rounds, epochs=a.epochs, log=lambda m: print(m, flush=True))
+    rows, rep = train_rows(model, [seqs[i] for i in tr], [seqs[i] for i in ho], rounds=a.rounds, epochs=a.epochs, log=lambda m: print(m, flush=True),
+                           deadline=start + a.minutes * 60)
     import sham_motion_rows as R
     rep.update(train_clips=len(tr), heldout_clips=len(ho), motion_tokenizer_sha=R.file_sha(mt), checkpoint_step=int(step),
                trained_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), data="Kinetics-400 clips (sham_data_sources), caption = label, 8 frames")
