@@ -71,7 +71,7 @@ export const EN_NEWS: DeskItem[] = [
 
 {
   "slug": "us-q3-gdp-pce-inflation-october-2026",
-  "title": "US economy grows 4.3% in Q3 as October PCE inflation reaches 3.8%",
+  "title": "US Q3 GDP growth revised to 4.3% annualized; October PCE inflation at 3.8%",
   "date": "25 November 2026",
   "contextDateLabel": "US Bureau of Economic Analysis (BEA) releases: 25 November 2026 at 8:30 a.m. EST (13:30 UTC; 16:30 Istanbul); Reuters report: 25 November 2026 at 13:45 UTC (16:45 Istanbul). GDP reference period: Q3, July–September 2026; PCE inflation reference period: October 2026; Sham AI publication date: 25 November 2026.",
   "dek": "The BEA raised its estimate of real GDP growth to a 4.3% annualized pace in the third quarter, while October PCE inflation reached 3.8% year over year and core PCE reached 3.3%. The figures cover different reporting periods and are not an economic forecast.",
