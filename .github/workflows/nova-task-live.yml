@@ -35,14 +35,16 @@ jobs:
         run: npx prisma generate
       - name: Run the live fast-lane check
         env:
-          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          # The ONE Nova runs on the international Studio (coder-inference-server-16, Qwen3.6-35B-A3B) since 2026-11-22. Tests run with NODE_ENV=test, where the code's
+          # default pool is empty, so the pool and its token are set here. The old cn Studio + cn token gave HTTP 401 (run 45612309259, 2026-11-25).
+          NOVA2_STUDIO_URLS: https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai
+          NOVA2_STUDIO_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
           # GitHub for the throw-away owner chat: the owner's own token if the repository secret CODER_GITHUB_TOKEN exists (so private repositories are reachable), else this workflow's read-only token
           PROBE_GH_TOKEN: ${{ secrets.CODER_GITHUB_TOKEN || github.token }}
           PROBE_TEXT: ${{ inputs.text }}
           PROBE_MODEL: ${{ inputs.model }}
           PROBE_DROP_CONTINUE: ${{ inputs.drop_continue }}
-          OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
           PROBE_OUT: ${{ runner.temp }}
         run: |
           cd athar
