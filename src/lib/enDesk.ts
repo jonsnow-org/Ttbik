@@ -16,6 +16,35 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "libya-benghazi-naval-officers-drone-attack-2026",
+  "title": "Two Libyan naval officers die after drone attack on Russian warship in Benghazi",
+  "date": "25 November 2026",
+  "contextDateLabel": "Attack at Benghazi Naval Base: Sunday, 22 November 2026; deaths: Tuesday evening, 24 November, according to the Libyan National Army General Command; Reuters death report: 24 November 2026 at 21:59 UTC (25 November, 00:59 Istanbul); Reuters report on official positions: 24 November at 12:40 UTC; Associated Press: 25 November 2026 (no publication time displayed). Sham AI publication date: 25 November 2026.",
+  "dek": "Eastern Libya's Libyan National Army General Command said two naval officers died from injuries sustained in a drone attack on a Russian corvette at Benghazi Naval Base on 22 November. Details of the attack and the threatened response remain attributed to the sources reporting them.",
+  "body": [
+    "The Libyan National Army General Command based in eastern Libya said two naval officers died on Tuesday evening, 24 November 2026, from injuries sustained in a drone attack on a Russian warship docked at Benghazi Naval Base on Sunday, 22 November. Reuters and the Associated Press both reported the General Command's announcement.",
+    "The attack targeted the Russian corvette Merkury, which Libyan authorities said was at the base to refuel and resupply. Ukrainian President Volodymyr Zelenskyy confirmed Ukraine's responsibility for the operation on Monday, 23 November, and said seven naval drones had been used. The AP, citing local officials, reported that at least four drones were intercepted and two struck the ship; those details remain attributed to the officials rather than an independently verified account of every drone's path.",
+    "The AP reported that at least 10 people, including Libyan and Russian nationals, were wounded, while Ukraine said its forces had not targeted Libyans. These accounts are attributed to the parties cited. Reuters reported that Ukraine's foreign minister described the operation as self-defence, while Libya's internationally recognised Government of National Unity in Tripoli condemned the attack and rejected the use of Libyan territory and waters for foreign military operations.",
+    "The eastern-based General Command vowed to respond at a time, place and by means of its choosing, but announced no specific action or timetable. The statement was a threat of retaliation, not confirmation that a military response had occurred. Eastern Libyan authorities also sought an international investigation, according to published reports.",
+    "Attack date: Sunday, 22 November 2026; deaths: Tuesday evening, 24 November, according to the General Command; Reuters death report: 24 November 2026 at 21:59 UTC (25 November, 00:59 Istanbul); AP report: 25 November 2026, with no publication time displayed. Location: Benghazi Naval Base, eastern Libya. The sources give no date for the threatened response."
+  ],
+  "sources": [
+    {
+      "href": "https://www.reuters.com/world/africa/two-libyan-army-personnel-succumbed-wounds-after-benghazi-port-attack-libyan-2026-11-24/",
+      "label": "Reuters — Two Libyan army personnel die from wounds after Benghazi port attack, 24 November 2026, 21:59 UTC"
+    },
+    {
+      "href": "https://apnews.com/article/russia-ukraine-war-libya-drone-attack-warship-officers-5719d6750c0619695c7f23a373cecd7b",
+      "label": "Associated Press — Libyan army vows retaliation after two naval officers die following Ukrainian drone attack, 25 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/world/europe/ukraine-insists-attack-russian-ships-libya-was-self-defence-2026-11-24/",
+      "label": "Reuters — Ukraine says attack on Russian ships in Libya was self-defence, 24 November 2026, 12:40 UTC"
+    }
+  ]
+},
+
+{
   "slug": "us-section-301-proposed-tariffs-14-economies-2026",
   "title": "US proposes new trade tariffs on imports from 14 economies",
   "date": "25 November 2026",
