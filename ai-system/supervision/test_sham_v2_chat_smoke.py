@@ -58,5 +58,39 @@ class ShamV2ChatRouteTests(unittest.TestCase):
         self.assertIn("generated_command", source)
 
 
+
+
+class TldmVerdictTests(unittest.TestCase):
+    """The T-LDM smoke reports real success: the head's fixed line is a failure, not a PASS (2026-11-25)."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("sham_v2_chat_smoke", SMOKE)
+        self.m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.m)
+
+    def test_fixed_line_is_not_a_pass(self):
+        ok, why = self.m.tldm_verdict({"type": "text", "text": "تعذّر عليّ تحديد أمر مناسب لهذا الطلب.", "tldm": True})
+        self.assertFalse(ok)
+        self.assertIn("fixed line", why)
+
+    def test_no_working_command_is_not_a_pass(self):
+        ok, _ = self.m.tldm_verdict({"type": "text", "text": "الخرج: 3", "computer_steps": [{"command": "ls |", "ok": False}]})
+        self.assertFalse(ok)
+        ok, _ = self.m.tldm_verdict({"type": "text", "text": "3"})
+        self.assertFalse(ok)
+
+    def test_garbled_reply_is_not_a_pass(self):
+        ok, _ = self.m.tldm_verdict({"type": "text", "text": "حفظت \ufffd", "computer_steps": [{"command": "ls", "ok": True}]})
+        self.assertFalse(ok)
+
+    def test_working_command_with_readable_reply_passes(self):
+        ok, _ = self.m.tldm_verdict({"type": "text", "text": "في المجلد 3 ملفات.", "computer_steps": [{"command": "ls | wc -l", "ok": True, "result": "3"}]})
+        self.assertTrue(ok)
+
+    def test_confirmation_with_a_command_passes(self):
+        self.assertTrue(self.m.tldm_verdict({"type": "confirm", "command": "rm -rf x"})[0])
+        self.assertFalse(self.m.tldm_verdict({"type": "confirm", "command": ""})[0])
+
 if __name__ == "__main__":
     unittest.main()

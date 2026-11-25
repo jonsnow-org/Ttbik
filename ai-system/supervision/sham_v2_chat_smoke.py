@@ -242,7 +242,32 @@ def tldm_smoke(status: dict) -> None:
         raise RuntimeError("T-LDM did not answer from the published head: " + json.dumps(res, ensure_ascii=False)[:300])
     if res.get("computer") != "model_computer":
         raise RuntimeError("T-LDM did not run on Sham 2's own computer: " + json.dumps(res, ensure_ascii=False)[:200])
-    print(f"PASS Sham 2 T-LDM answered from the published head ({res.get('type')}): {str(res.get('text'))[:160]}")
+    ok, why = tldm_verdict(res)
+    if not ok:
+        raise RuntimeError("T-LDM head did not do the task: " + why)
+    print(f"PASS Sham 2 T-LDM ran a working command on its own computer ({why}): {str(res.get('text'))[:160]}")
+
+
+# The head's fixed lines (sham_tldm_serve.NO_STEP_REPLY, serve_adapter GAVE_UP / drive's step limit). Until 2026-11-25 the smoke printed PASS for
+# «تعذّر عليّ تحديد أمر مناسب لهذا الطلب.»: an answer shape, not a success. The bot never shows these lines (src/lib/shamStudio.ts tldmHeadOnlyText).
+TLDM_FIXED_LINES = ("تعذّر عليّ تحديد أمر مناسب لهذا الطلب.", "I could not finish within the allowed number of steps.")
+
+
+def tldm_verdict(res: dict) -> tuple[bool, str]:
+    """Real success for «how many files are in this folder?»: the head ran at least one command that worked on Sham 2's own computer and
+    replied with readable text (not a fixed line), or it paused a sensitive command for approval. Anything else is reported as a failure."""
+    if res.get("type") == "confirm":
+        return (True, "approval asked for: " + str(res.get("command") or "")[:80]) if str(res.get("command") or "").strip() else (False, "a confirmation without a command")
+    text = str(res.get("text") or "").strip()
+    steps = [s for s in (res.get("computer_steps") or []) if isinstance(s, dict)]
+    worked = [s for s in steps if s.get("ok") is not False and str(s.get("command") or "").strip()]
+    if text in TLDM_FIXED_LINES:
+        return False, f"the head's fixed line {text!r} ({len(steps)} command(s) run)"
+    if not worked:
+        return False, f"no command worked ({len(steps)} run, all failed)" if steps else "no command was run"
+    if not text or "\ufffd" in text:
+        return False, f"unreadable reply {text[:80]!r} after {len(worked)} working command(s)"
+    return True, f"{len(worked)} working command(s): {str(worked[0].get('command'))[:60]}"
 
 
 def main() -> int:
