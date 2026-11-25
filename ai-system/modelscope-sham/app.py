@@ -234,6 +234,9 @@ def _load(model_dir: Path) -> None:
             if target > current:
                 resize(target)
                 _say(f"extended Qwen3 context from {current} to {target} tokens (RoPE; weights unchanged)")
+    # video: whether a motion tokenizer is loaded and whether Sham's own motion rows are trained for it (sham_motion_rows.py)
+    STATE["video"] = {"motion_tokenizer": serve._state.get("motion_tokenizer") is not None,
+                      **{k: v for k, v in (serve._state.get("motion_rows_status") or {}).items() if k in ("motion_rows", "motion_rows_metrics")}}
     STATE.update(phase="ready", detail=str(serve._state.get("source", "")), loaded_at=int(time.time()), error="",
                  context_tokens=int(getattr(getattr(serve._state.get("model"), "cfg", None), "max_seq_len", 0)))
     _say("ready: the model is loaded")
