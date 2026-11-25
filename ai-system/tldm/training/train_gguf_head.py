@@ -85,7 +85,9 @@ def run_loop(cfg, reader, encode, seeds, log=print):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=os.path.join(HERE, "..", "configs", "nova2.yaml"))
-    ap.add_argument("--server", required=True)
+    ap.add_argument("--server", default="", help="llama-server in embedding mode (reader 'server': the 35B's final layer)")
+    ap.add_argument("--reader", default="server", choices=["server", "gguf-embd"], help="server = a second llama-server's final-layer features; gguf-embd = Nova's own token_embd rows read from the GGUF (no server, no forward pass: sized for the 16 GB Studio)")
+    ap.add_argument("--gguf", default="", help="the GGUF file (reader gguf-embd)")
     ap.add_argument("--tokenizer", required=True, help="the donor's tokenizer.json (the GGUF's vocabulary)")
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=0)
@@ -101,7 +103,13 @@ def main(argv=None):
     from tokenizers import Tokenizer
     tk = Tokenizer.from_file(a.tokenizer)
     encode = lambda text, n: (tk.encode(text).ids[:n] + [0] * n)[:n]       # noqa: E731
-    reader = LlamaReader(a.server)
+    if a.reader == "gguf-embd":
+        from sham_tldm.gguf_embed_reader import GgufEmbedReader
+        reader = GgufEmbedReader(a.gguf)
+    else:
+        if not a.server:
+            ap.error("--server is required for reader 'server'")
+        reader = LlamaReader(a.server)
     res = run(cfg, reader, encode, a.seeds)
     loop_states = {}
     if a.loop:
@@ -112,7 +120,7 @@ def main(argv=None):
     if a.json:
         json.dump(res, open(a.json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if a.out and state is not None:
-        torch.save({"cfg": dict(cfg), "heads": {"writer": state, **loop_states}, "feature_width": res["feature_width"], "reader": "llama-gguf", "best_seed": best_seed,
+        torch.save({"cfg": dict(cfg), "heads": {"writer": state, **loop_states}, "feature_width": res["feature_width"], "reader": "llama-gguf" if a.reader == "server" else "gguf-token-embd", "feature_scale": getattr(reader, "scale", None), "best_seed": best_seed,
                     "loop": [{"seed": r["seed"], "full_task": r["all"]["success"], "multi_step": r["multi_step"]["success"]} for r in res.get("loop", [])],
                     "heldout": res["heldout"]["mean"], "heldout2": res["heldout2"]["mean"], "verdict": {"heldout": res["heldout"]["verdict_mean"], "heldout2": res["heldout2"]["verdict_mean"]},
                     "meta": json.loads(a.meta) if a.meta else {}}, a.out)

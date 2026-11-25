@@ -41,8 +41,8 @@ import { novaGenerateTldm, novaTldmSessionId, tldmTurnFrom, withNovaTldmModel } 
 const MODEL_LABEL_AR: Record<"sham_v2" | "coder" | "nova2", string> = { sham_v2: "شام برو", coder: "نوفا 1", nova2: "نوفا 2" };
 import { refreshTldmPolicy } from "@/lib/tldmPolicy";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
-import { historyChars, noteStudioCtx } from "@/lib/coderContext";
-import { fitReports, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
+import { ctxTokens, historyChars, noteStudioCtx } from "@/lib/coderContext";
+import { fitReports, toolGroupsLazy, agentMaxSteps, maxParallelAgentsForStudios, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, queuePriority, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { shamTaskSlot, taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, taskIsActive, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -59,7 +59,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
-  prefetched?: boolean; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; lastAnnouncement?: string; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; ctxOverBy?: number; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; lastAnnouncement?: string; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentDepth?: number; parentCtx?: Context; parentRunId?: string; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; omitted?: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean; draftPhaseText?: string; noRichDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -2457,6 +2457,8 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             // send this step WITHOUT the tool schemas (the 85 tool definitions are thousands of tokens that history trimming can never remove).
             const nCtx = Number(/\((\d+) tokens\)[^(]*$/.exec(String(r.error || ""))?.[1]) || Number(/"n_ctx":(\d+)/.exec(String(r.error || ""))?.[1]) || 0;
             if (nCtx >= 8192) noteStudioCtx("ctx-error", nCtx);
+            const nPrompt = Number(/request \((\d+) tokens\)/.exec(String(r.error || ""))?.[1]) || Number(/"n_prompt_tokens":(\d+)/.exec(String(r.error || ""))?.[1]) || 0;
+            if (nPrompt > nCtx && nCtx > 0) run.ctxOverBy = (run.ctxOverBy || 0) + (nPrompt - nCtx) + 512;   // the next attempt's tool budget shrinks by at least the overflow
             run.histChars = Math.max(6000, Math.floor((run.histChars || historyChars()) / 2));
             // 2026-11-23: this used to set run.softSteps = run.step + 1, which withdrew the tools for the REST of the task and told the model «Step budget reached»:
             // live, Nova answered «الميزانية وصلت لحدها» and asked permission instead of working. Once the Studio's context is learned the small tool list applies by itself
@@ -2963,7 +2965,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     const queuePrio = await queuePriority(chatId);                       // Pro / owner go ahead in the Studio queue
     const tldmModel = !run.agent && isTldmModel(novaModelOf(st.model)) && tldmEnabled(st, novaModelOf(st.model)) ? (novaModelOf(st.model) as "coder" | "nova2") : null;
     const dropTools = Boolean(run.dropToolsOnce); run.dropToolsOnce = false;
-    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite || dropTools ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    // The tool schemas must fit what is left of a small window (16,384 on Nova's Studio) after the conversation and the answer: see coderToolsFor's budgetTokens.
+    // ctxOverBy: what the Studio said the last attempt overflowed by, so a retry really is smaller (live 2026-11-24: six identical retries, six identical 400s).
+    const toolBudget = toolGroupsLazy() ? Math.max(1200, ctxTokens() - Math.ceil(estimateTokens(messages.map((m) => (m.content || "") + JSON.stringify((m as { tool_calls?: unknown }).tool_calls || "")).join("\n")) * 1.15) - (run.step === 0 && !run.agent && prof.maxTokens > 0 ? prof.maxTokens : 2048) - 384 - (run.ctxOverBy || 0)) : undefined;
+    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite || dropTools ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", async () => {
       if (!tldmModel) return plainChat();
       // this model's OWN T-LDM head, on its own Studio; a failure is an honest error, never a quiet switch to another model. The head sees the task (and the result of a tool it asked for), not the system prompt.

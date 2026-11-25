@@ -47,5 +47,33 @@ class LoadMode(unittest.TestCase):
         self.assertEqual(self.mode(12.3, {"CODER_LOAD_MODE": "off"}), "")
 
 
+class CacheBudget(unittest.TestCase):
+    """The 35B (12.3 GiB on a 16 GiB box) gets a small RAM prompt cache and fewer checkpoints so its weights stay resident (live 2026-11-25: ~1 GiB evicted)."""
+    def budget(self, gib, env=None):
+        lm = LoadMode()
+        real_open = open
+
+        def fake_open(path, *a, **k):
+            if path == "/proc/meminfo":
+                import io
+                return io.StringIO(f"MemTotal:       {TOTAL_KB} kB\n")
+            return real_open(path, *a, **k)
+        m = lm.model(gib)
+        with mock.patch.dict(os.environ, env or {}, clear=False), mock.patch("builtins.open", fake_open):
+            if not env:
+                os.environ.pop("CODER_CACHE_RAM_MB", None)
+                os.environ.pop("CODER_CTX_CHECKPOINTS", None)
+            return app._cache_budget(m)
+
+    def test_big_model_small_cache(self):
+        self.assertEqual(self.budget(12.3), ("256", "4"))
+
+    def test_small_model_keeps_old_values(self):
+        self.assertEqual(self.budget(2.7), ("1024", "8"))
+
+    def test_env_overrides(self):
+        self.assertEqual(self.budget(12.3, {"CODER_CACHE_RAM_MB": "1024", "CODER_CTX_CHECKPOINTS": "8"}), ("1024", "8"))
+
+
 if __name__ == "__main__":
     unittest.main()
