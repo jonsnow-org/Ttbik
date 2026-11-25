@@ -104,6 +104,8 @@ export interface Store {
   logs(limit: number, chatId?: string): Promise<PromoLog[]>;
   getState(key: string): Promise<string>;
   setState(key: string, value: string): Promise<void>;
+  /** One tick at a time across servers (the GitHub scheduler and the Oracle sweeper can call in the same minute). */
+  claimTick(nowMs: number, holdMs: number): Promise<boolean>;
 }
 
 export function memoryStore(): Store & { _logs: PromoLog[] } {
@@ -123,6 +125,7 @@ export function memoryStore(): Store & { _logs: PromoLog[] } {
     async logs(limit, chatId) { return L.filter((r) => !chatId || r.chatId === chatId).slice().sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit); },
     async getState(k) { return S.get(k) || ""; },
     async setState(k, v) { S.set(k, v); },
+    async claimTick(nowMs, holdMs) { const l = Number(S.get("lock") || 0); if (l > nowMs - holdMs && l <= nowMs) return false; S.set("lock", String(nowMs)); return true; },
   };
 }
 
@@ -168,6 +171,15 @@ export function sqlStore(db: Db = prismaDb): Store {
     },
     async getState(k) { await tables(); const r = await db.query<{ value: string }>(`SELECT value FROM coder_flags WHERE key = $1`, `promo:${k}`); return r[0]?.value || ""; },
     async setState(k, v) { await tables(); await db.exec(`INSERT INTO coder_flags (key, value, updated_at) VALUES ($1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, `promo:${k}`, v); },
+    async claimTick(nowMs, holdMs) {
+      await tables();
+      const r = await db.query<{ key: string }>(
+        `INSERT INTO coder_flags (key, value, updated_at) VALUES ('promo:lock', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+         WHERE coder_flags.value ~ '^[0-9]+$' AND (coder_flags.value::bigint < $2 OR coder_flags.value::bigint > $3) RETURNING key`,
+        String(nowMs), nowMs - holdMs, nowMs,
+      );
+      return r.length > 0;
+    },
   };
 }
 
@@ -337,6 +349,7 @@ export async function runPromoTick(deps: TickDeps = {}): Promise<TickResult> {
   const log = (r: Omit<PromoLog, "at">) => store.log({ ...r, at: now.toISOString() });
   try {
     if (!(await (deps.on || defaultOn)().catch(() => false))) return { result: "off" };
+    if (!(await store.claimTick(now.getTime(), 50000))) return { result: "gap", note: "another tick is running" };
     const backoff = Number(await store.getState("backoff_until")) || 0;
     if (backoff > now.getTime()) return { result: "backoff" };
     const logs = await store.logs(1000);

@@ -156,6 +156,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
+      // Promotion supervisor: the bot was added to / removed from a group or channel. The group is registered DISABLED (links not allowed) until the
+      // owner confirms it in the Mini App; removal disables it. Private-chat my_chat_member (a user blocking the bot) is not touched (src/lib/promoSupervisor.ts).
+      if (botRow.template === "NOVA_BOT" && body.my_chat_member && body.my_chat_member.chat?.type && body.my_chat_member.chat.type !== "private") {
+        const P = await import("@/lib/promoSupervisor");
+        await P.handleMyChatMember(bot.api as never, body.my_chat_member, botRow.id).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
       // Telegram Business / Secretary mode (owner's panel switch, off by default): the shared bot replies INSIDE a linked user's own account, by the model that user chose
       // for that connection (Nova or Sham Pro), after checking the granted right. Never reaches the chat handlers below (src/lib/tgBusiness.ts).
       if (botRow.template === "NOVA_BOT" && (body.business_connection || body.business_message || body.edited_business_message || body.deleted_business_messages)) {

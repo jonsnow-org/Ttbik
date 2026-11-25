@@ -21,6 +21,8 @@ export async function runCoderTick(db: Db = prismaDb, now = new Date()): Promise
       if (botRow?.isActive) await resumeOrphan(o.chatId, o.run_id, o.slot, botRow, db).catch(() => false);
     }
   }
+  // the owner's promotion supervisor (src/lib/promoSupervisor.ts): at most one group post per tick, only while its switch is on
+  if (db === prismaDb) later(() => import("@/lib/promoSupervisor").then((m) => m.runPromoTick()).then(() => undefined).catch(() => undefined));
   // long-term memories and summaries of long threads: one item per tick, only while the Studio queue is empty and that user is quiet
   if (db === prismaDb && Date.now() - lastQuiet >= 300000) {
     lastQuiet = Date.now();

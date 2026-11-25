@@ -119,7 +119,7 @@ describe("promotion supervisor: the tick", () => {
     await s.store.putTarget(ready({ allowLinks: false }));
     expect((await runPromoTick({ store: s.store, now: NOON, on, apiFor: s.apiFor, compose: null })).result).toBe("idle");
     await s.store.putTarget(ready({ enabled: false }));
-    expect((await runPromoTick({ store: s.store, now: NOON, on, apiFor: s.apiFor, compose: null })).result).toBe("idle");
+    expect((await runPromoTick({ store: s.store, now: new Date(NOON.getTime() + 60000), on, apiFor: s.apiFor, compose: null })).result).toBe("idle");
   });
   it("rotates projects and does not repeat one in the same group within the dedup window", async () => {
     const s = await setup(2);
@@ -166,5 +166,14 @@ describe("promotion switch", () => {
     await expect(setTgAudience("tg_promo", "all", db)).rejects.toThrow("owner only");
     await setTgAudience("tg_promo", "owner", db);
     expect((await refreshTgFeatures(db, true)).promo).toBe("owner");
+  });
+});
+
+describe("promotion supervisor: one tick at a time", () => {
+  it("a second tick within the hold window does nothing", async () => {
+    const store = memoryStore();
+    expect(await store.claimTick(1000_000, 50000)).toBe(true);
+    expect(await store.claimTick(1010_000, 50000)).toBe(false);
+    expect(await store.claimTick(1060_000, 50000)).toBe(true);
   });
 });
