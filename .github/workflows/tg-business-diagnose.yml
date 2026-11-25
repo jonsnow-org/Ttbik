@@ -10,7 +10,7 @@ on:
         type: string
         default: "1"
       gen:
-        description: "also make one tiny real completion on Nova's Studio and report what came back"
+        description: "also ask each model's business generator for one short reply (what a contact would have received, or why not)"
         type: string
         default: "1"
 permissions:
@@ -58,9 +58,8 @@ jobs:
                   print(f"  studio {s['studio']} | phase={s['phase']} model={s['model']} queue={s['queue']}")
           g = d.get("gen")
           if g:
-              print(f"probe completion: {g.get('ms')} ms | type={g.get('type')} status={g.get('status')} failure={g.get('failure')} phase={g.get('phase')} job={g.get('job')}")
-              print(f"  error={g.get('error')} detail={g.get('detail')}")
-              print(f"  text={g.get('text')!r}")
+              for one in (g if isinstance(g, list) else [g]):
+                  print(f"reply by {one.get('model')}: {one.get('ms')} ms | text={one.get('text')!r} | why={one.get('why')}")
           cs = d.get("connections")
           if isinstance(cs, str):
               print("connections:", cs)
