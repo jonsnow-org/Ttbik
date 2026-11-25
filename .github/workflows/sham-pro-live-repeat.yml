@@ -1,0 +1,46 @@
+name: Sham Pro live repeat probe (read-only)
+
+# The bot's real Sham Pro round (shamAgentRun) against the live sham-v2-server Studio, as the owner (T-LDM) and as a user:
+# different questions must get different, non-empty replies. Read-only: writes are refused inside the probe.
+on:
+  workflow_dispatch:
+    inputs:
+      ask:
+        description: "questions separated by | (empty = the built-in set)"
+        required: false
+        default: ""
+      as:
+        description: "owner,user | owner | user"
+        required: false
+        default: "owner,user"
+  pull_request:
+    paths:
+      - scripts/sham-pro/live-repeat.ts
+      - .github/workflows/sham-pro-live-repeat.yml
+
+concurrency:
+  group: sham-pro-live-repeat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx prisma generate || true
+      - name: Ask Sham Pro through the bot's round
+        env:
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+          ASK: ${{ inputs.ask }}
+          PROBE_AS: ${{ inputs.as || 'owner,user' }}
+        run: npx --yes tsx --tsconfig tsconfig.json scripts/sham-pro/live-repeat.ts
