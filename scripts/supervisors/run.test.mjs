@@ -151,6 +151,16 @@ test("promotion operations documentation points to the unified monitor and retir
   assert.doesNotMatch(promoGuide, /promo-supervisor\.yml|error-triage\.yml/);
 });
 
+
+test("agent directory documents one hourly read-only monitor and marks retired workflows accurately", () => {
+  const agentReadme = readFileSync(new URL("../../docs/agents/README.md", import.meta.url), "utf8");
+  assert.match(agentReadme, /monitor\\.yml.*hourly at minute 11 UTC/i);
+  assert.match(agentReadme, /promo-supervisor\\.yml.*error-triage\\.yml.*retired on 2026-11-14/s);
+  assert.match(agentReadme, /actions: read/);
+  assert.match(agentReadme, /never dispatches or reruns workflows/i);
+  assert.doesNotMatch(agentReadme, /tier 1 repair|the only automatic action/i);
+});
+
 test("promo-projects success requires all four non-empty, non-expired review artifacts", () => {
   const names = ["promo-videos", "promo-images", "promo-copy", "promo-handoff"];
   const artifact = (name) => ({ name, expired: false, size_in_bytes: 1024 });
