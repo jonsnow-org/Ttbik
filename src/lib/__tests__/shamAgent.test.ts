@@ -552,3 +552,14 @@ describe("a picture goes to the background leg, which waits long", () => {
     expect(asks).toEqual([]);                                                   // the model is not asked again
   });
 });
+
+describe("stripSpeakerLabel", () => {
+  it("drops a leading «شام:» / «شام برو:» speaker label only", async () => {
+    const { stripSpeakerLabel } = await import("@/lib/shamAgent");
+    expect(stripSpeakerLabel("شام: بايثون لغة")).toBe("بايثون لغة");
+    expect(stripSpeakerLabel("شام برو: أهلاً")).toBe("أهلاً");
+    expect(stripSpeakerLabel("Sham Pro: hi")).toBe("hi");
+    expect(stripSpeakerLabel("أنا شام برو: مساعد")).toBe("أنا شام برو: مساعد");
+    expect(stripSpeakerLabel("شامل: كلمة")).toBe("شامل: كلمة");
+  });
+});

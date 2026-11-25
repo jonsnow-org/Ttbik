@@ -52,7 +52,20 @@ export function isEchoOfRequest(text: string, request: string): boolean {
   return Boolean(a && b && (a === b || (a.length >= 6 && b.includes(a) && a.length >= b.length * 0.8)));
 }
 
-export async function shamAgentRun(opts: {
+/** The tool-conversation format ends its prompt with «شام:»; the body sometimes repeats that speaker label at the start of its answer
+ *  (live probe 2026-11-25: «شام: بايثون هو لغة…»). The label is not part of the answer. */
+export function stripSpeakerLabel(text: string): string {
+  return String(text || "").replace(/^\s*(?:شام(?:\s*برو)?|sham(?:\s*pro)?)\s*[:：]\s*/i, "");
+}
+
+export async function shamAgentRun(opts: Parameters<typeof shamAgentRunInner>[0]): Promise<ShamAgentResult> {
+  const r = await shamAgentRunInner(opts);
+  if (r.kind === "text") return { ...r, text: stripSpeakerLabel(r.text) || r.text };
+  if (r.kind === "ask") return { ...r, question: stripSpeakerLabel(r.question) || r.question };
+  return r;
+}
+
+async function shamAgentRunInner(opts: {
   text: string;
   history?: { q: string; a: string }[];
   ctx: ShamCtx;
