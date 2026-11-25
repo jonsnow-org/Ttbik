@@ -152,3 +152,86 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
 }
+
+/**
+ * The whole path, once, for one model: a `business_message` update shaped exactly as Telegram sends it is POSTed to the real
+ * webhook over HTTP (so the route's own parse and secret check run, not a function call), the webhook answers the contact with
+ * `sendMessage`, and the log then has to show `in` followed by `sent` carrying Telegram's `message_id`.
+ *
+ * Body: { model?: "coder" | "sham_v2", chat?: string, text?: string }. `chat` defaults to the last contact that wrote to the
+ * account: Telegram only accepts a business reply into a chat that belongs to the connection. The connection's chosen model is
+ * put back after the run. No token or secret is ever returned.
+ */
+export async function POST(req: NextRequest) {
+  const s = hookSecret();
+  const cron = process.env.CRON_SECRET || "";
+  const okKey = !!s && safeEqual(req.headers.get("x-ops-key") || "", s);
+  const okCron = !!cron && safeEqual(req.headers.get("authorization") || "", `Bearer ${cron}`);
+  if (!okKey && !okCron) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const model = body?.model === "sham_v2" ? "sham_v2" : "coder";
+  const text = String(body?.text || "مرحبا").slice(0, 200);
+  const B = await import("@/lib/tgBusiness");
+  const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, select: { id: true, webhookSecret: true } }).catch(() => null);
+  if (!bot) return NextResponse.json({ error: "no active NOVA_BOT row" }, { status: 503 });
+  const rows = await prismaDb.query<any>(`SELECT id, user_id, model FROM tg_business_connections WHERE enabled ORDER BY updated_at DESC LIMIT 1`).catch(() => []);
+  const conn = rows[0];
+  if (!conn) return NextResponse.json({ error: "no enabled connection" }, { status: 409 });
+  const connId = String(conn.id);
+  const ownerId = String(conn.user_id);
+  let chat = String(body?.chat || "").trim();
+  if (!chat) {
+    const last = await prismaDb.query<{ chat_id: string }>(
+      `SELECT chat_id FROM tg_business_log WHERE connection_id = $1 AND dir = 'in' ORDER BY at DESC, id DESC LIMIT 1`, connId,
+    ).catch(() => [] as { chat_id: string }[]);
+    chat = String(last[0]?.chat_id || "");
+  }
+  if (!chat || chat === ownerId) {
+    return NextResponse.json({ error: "no contact chat to prove with", hint: "the account owner's own chat is context, never answered" }, { status: 409 });
+  }
+
+  const previousModel = String(conn.model || "coder");
+  try {
+    if (previousModel !== model) await prismaDb.exec(`UPDATE tg_business_connections SET model = $1, updated_at = now() WHERE id = $2`, model, connId);
+    const startedAt = Date.now();
+    const update = {
+      update_id: startedAt,
+      business_message: {
+        message_id: 900000 + Math.floor(Math.random() * 99999),
+        date: Math.floor(startedAt / 1000),
+        chat: { id: Number(chat), type: "private", first_name: "Probe" },
+        from: { id: Number(chat), is_bot: false, first_name: "Probe", language_code: "ar" },
+        text,
+        business_connection_id: connId,
+      },
+    };
+    const port = process.env.PORT || "3000";
+    const posted = await fetch(`http://127.0.0.1:${port}/api/telegram/${bot.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": bot.webhookSecret },
+      body: JSON.stringify(update),
+      signal: AbortSignal.timeout(55000),
+    }).then(async (r) => ({ status: r.status, body: (await r.json().catch(() => null)) as unknown }))
+      .catch((e) => ({ status: 0, body: String((e as Error)?.message || e).slice(0, 160) }));
+    const log = await prismaDb.query<any>(
+      `SELECT at, chat_id, model, dir, text, note FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 ORDER BY at DESC, id DESC LIMIT 4`,
+      connId, chat,
+    ).catch(() => []);
+    const reply = log.find((r) => r.dir === "sent");
+    return NextResponse.json({
+      model, webhook: { http: posted.status, body: posted.body },
+      chat: maskId(chat),
+      passed: Boolean(reply),
+      messageId: reply ? (String(reply.note || "").match(/message_id=(\d+)/)?.[1] ?? null) : null,
+      rows: log.reverse().map((r) => ({
+        at: new Date(r.at).toISOString(), dir: String(r.dir), model: String(r.model),
+        note: String(r.note || "").slice(0, 160), text: String(r.text || "").slice(0, 90),
+      })),
+    }, { headers: { "Cache-Control": "no-store" } });
+  } finally {
+    if (previousModel !== model) {
+      await prismaDb.exec(`UPDATE tg_business_connections SET model = $1, updated_at = now() WHERE id = $2`, previousModel, connId).catch(() => null);
+    }
+  }
+}

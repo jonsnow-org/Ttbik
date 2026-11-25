@@ -30,7 +30,7 @@ function fakeDb() {
       if (/FROM tg_business_connections WHERE id = \$1/.test(sql)) return conns.has(a[0]) ? [conns.get(a[0])] : [];
       if (/FROM tg_business_connections WHERE user_id = \$1/.test(sql)) return [...conns.values()].filter((c) => c.user_id === a[0]);
       if (/FROM tg_business_log WHERE connection_id = \$1 AND chat_id = \$2 AND model = \$3/.test(sql)) {
-        return log.filter((r) => r.connection_id === a[0] && r.chat_id === a[1] && r.model === a[2] && ["in", "own", "out"].includes(r.dir)).sort((x, y) => y.id - x.id).slice(0, a[3]);
+        return log.filter((r) => r.connection_id === a[0] && r.chat_id === a[1] && r.model === a[2] && ["in", "own", "out", "sent"].includes(r.dir)).sort((x, y) => y.id - x.id).slice(0, a[3]);
       }
       if (/FROM tg_business_log WHERE connection_id = \$1 AND user_id = \$2/.test(sql)) return log.filter((r) => r.connection_id === a[0] && r.user_id === a[1]).sort((x, y) => y.id - x.id).slice(0, a[2]);
       throw new Error("unexpected query: " + sql);
@@ -96,7 +96,8 @@ describe("Telegram Business (shared bot replies inside a linked account)", () =>
     expect(seen[1].model).toBe("sham_v2");
     expect(seen[1].history).toEqual([]);
     const act = await activityOf(5001, "bc1", db);
-    expect(act.filter((a) => a.dir === "out").map((a) => a.model).sort()).toEqual(["coder", "sham_v2"]);
+    // a successful send is logged as `sent`, with Telegram's own message id in the note
+    expect(act.filter((a) => a.dir === "sent").map((a) => a.model).sort()).toEqual(["coder", "sham_v2"]);
   });
 
   it("checks the can_reply right before sending", async () => {
