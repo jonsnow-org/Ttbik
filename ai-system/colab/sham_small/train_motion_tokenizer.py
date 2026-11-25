@@ -170,10 +170,16 @@ def train_motion_tokenizer(
 
     # The honest quality numbers: the trained decoder's residual on the true
     # next frame vs. the naive "repeat the previous frame" slideshow.
+    # In chunks: the whole set at once (16 shifted copies of every frame inside estimate_flow) took 13 GB for ~700 pairs at 256px (OOM, 2026-11-25).
     with torch.no_grad():
-        recon = tokenizer.decode_frame(prev, tokenizer.encode_pair(prev, nxt, block))
-        copy_err = (prev - nxt).abs().mean().item()
-        trained_err = (recon - nxt).abs().mean().item()
+        copy_sum, trained_sum = 0.0, 0.0
+        for start in range(0, num_samples, 32):
+            p, n = prev[start:start + 32], nxt[start:start + 32]
+            recon = tokenizer.decode_frame(p, tokenizer.encode_pair(p, n, block))
+            copy_sum += (p - n).abs().mean().item() * p.shape[0]
+            trained_sum += (recon - n).abs().mean().item() * p.shape[0]
+        copy_err = copy_sum / max(1, num_samples)
+        trained_err = trained_sum / max(1, num_samples)
 
     final_usage = int(torch.unique(last_ids).numel()) if last_ids is not None else 0
     tokenizer.to("cpu")

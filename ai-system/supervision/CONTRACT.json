@@ -181,6 +181,10 @@
       "writer": "sham_v2_candidate_train",
       "serialised": true,
       "serialised_note": "عدة دفاتر مراحل تكتب في هذه المجموعة بالتناوب؛ كل واحد يرفض النشر إن نشر غيره منذ بدأ (published_step) وبعد بوابة الدمج"
+    },
+    "sham-v2-motion-tokenizer": {
+      "role": "مُرمِّز الحركة لفيديو شام برو (motion_tokenizer.pt بجانب نقطة الحفظ في novaai2026/sham-v2)؛ يُنشر فقط إذا تغلّب على عرض الشرائح على مقاطع محجوزة",
+      "writer": "sham_v2_motion_tokenizer"
     }
   },
   "dynamic_dataset_patterns": [
@@ -1023,6 +1027,16 @@
       "accelerator": "CPU (مشغّل GitHub المجاني)",
       "reads": [],
       "writes": []
+    },
+    "sham_v2_motion_tokenizer": {
+      "file": ".github/workflows/sham-v2-motion-tokenizer.yml",
+      "title": "تدريب مُرمِّز الحركة لشام برو على مقاطع حقيقية (يُدفع يدويًا)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-v2-motion-tokenizer"
+      ]
     }
   },
   "lineage": [
