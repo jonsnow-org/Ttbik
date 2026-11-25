@@ -227,6 +227,23 @@ def _load_mode(model: Path) -> str:
         return "none" if _LOCK["refused"] else "mmap+mlock"      # mlock refused by the box: read the weights into the process's own memory instead (no page cache to evict them from)
     except Exception:
         return ""
+def _cache_budget(model: Path) -> "tuple[str, str]":
+    """llama-server's RAM prompt cache (--cache-ram, MiB) and context checkpoints for this box. Both are anonymous memory that competes with the model's own pages.
+    Measured live 2026-11-25 (nova-studio16-probe + nova-speed on coder-inference-server-16, 47 h up): load mode had fallen back to plain mmap, MemAvailable 11.1 of 15.35 GiB
+    means ~4.2 GiB of anonymous memory next to a 12.3 GiB file, so ~1 GiB of weights stayed out of RAM: 6,000-28,000 major page faults PER request, reading 4-8 tok/s and
+    writing 2.2-2.6 tok/s against 15.3 / 5.0 for the same file on 2 runner cores. A model that fills most of the box therefore gets a small RAM cache (256 MiB) and 4 checkpoints:
+    the shared start and each conversation are still restored from their slot files on disk (_slot_before), so prompt reuse does not depend on the RAM cache.
+    CODER_CACHE_RAM_MB / CODER_CTX_CHECKPOINTS override; a small model keeps 1024 / 8."""
+    ram, ck = os.environ.get("CODER_CACHE_RAM_MB", "").strip(), os.environ.get("CODER_CTX_CHECKPOINTS", "").strip()
+    big = False
+    try:
+        total = int(next(l for l in open("/proc/meminfo") if l.startswith("MemTotal")).split()[1]) * 1024
+        big = model.stat().st_size > 0.6 * total
+    except Exception:
+        pass
+    return (ram or ("256" if big else "1024"), ck or ("4" if big else "8"))
+
+
 # Vision (opt-in per Studio): the model's own vision file (mmproj) next to the GGUF lets this Studio read pictures (measured: ~38 s per 448 px picture on 2 cores, +0.7 GB of memory).
 # A Studio is a vision Studio when the deploy put a `vision.on` file next to app.py (deploy-modelscope-coder.yml, from ai-system/modelscope-coder/VISION_STUDIOS) or CODER_VISION=on.
 # If the server does not come up with it, or it dies while it is on (memory), the next start goes without it (_VIS["bad"]) so a picture never takes a Studio down for good.
@@ -264,8 +281,10 @@ def _download_mmproj() -> str:
 def _start_server(model: Path, bindir: Path) -> None:
     SLOT_DIR.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, LD_LIBRARY_PATH=f"{bindir}:{os.environ.get('LD_LIBRARY_PATH', '')}")
+    cache_ram, ckpts = _cache_budget(model)
+    STATE.update(cache_ram_mb=int(cache_ram) if cache_ram.isdigit() else cache_ram, ctx_checkpoints=int(ckpts) if ckpts.isdigit() else ckpts)
     cmd = [str(bindir / "llama-server"), "-m", str(model), "-c", str(CTX), "-t", str(THREADS), "-np", "1", "-n", "-1",
-           "--jinja", "--alias", "nova-ai", "--cache-ram", os.environ.get("CODER_CACHE_RAM_MB", "1024"), "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", os.environ.get("CODER_CTX_CHECKPOINTS", "8"), "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
+           "--jinja", "--alias", "nova-ai", "--cache-ram", cache_ram, "--slot-save-path", str(SLOT_DIR), "--ctx-checkpoints", ckpts, "--host", "127.0.0.1", "--port", str(LLAMA_PORT)]
     # Opt-in experiment, OFF unless CODER_SPEC is set (e.g. "--spec-type ngram-simple"): speculative decoding from the prompt's own n-grams, no draft model, no extra RAM.
     # If the server then fails to come up, the supervisor starts it again without these flags (_SPEC["bad"]), so the experiment can never take a Studio down.
     # Measured 2026-11-12 (nova-decode-bench.yml, same llama.cpp build and model, 2 cores): ngram-mod writes a file edit / code at 9.3 tokens/s against 3.6 without it (2.6x), free prose
@@ -314,6 +333,7 @@ def _supervisor() -> None:
                     _log("server exited with vision on; restarting without it")
                 if _PROC["p"] is not None and _LOCK["on"]:
                     _LOCK["bad"] = True                   # the server died with the weights locked in RAM (most likely memory): start again with the plain loading
+                    STATE["load_note"] = f"server exited with --load-mode {_LOCK['mode']} (most likely memory); now plain mmap"
                     _log("server exited with load mode", _LOCK["mode"], "; restarting without it")
                 STATE.update(phase="loading", error="")
                 bindir = _llama_dir()
@@ -336,6 +356,7 @@ def _supervisor() -> None:
                         refused = False
                     if refused:                           # llama.cpp only warns: the weights stay evictable. Start once more reading them into its own memory
                         _LOCK["refused"] = True
+                        STATE["load_note"] = "mlock refused by the box; trying --load-mode none"
                         _log("mlock refused; restarting with --load-mode none")
                         _PROC["p"].kill()
                         _PROC["p"].wait(30)
@@ -356,6 +377,7 @@ def _supervisor() -> None:
                 _log("vision failed to start; restarting without it")
             if _LOCK["on"]:
                 _LOCK["bad"] = True                      # the weights could not be locked in RAM: next start goes with the plain loading, at once
+                STATE["load_note"] = f"--load-mode {_LOCK['mode']} failed to start ({type(exc).__name__}); now plain mmap"
                 _log("load mode", _LOCK["mode"], "failed; restarting without it")
             if _SPEC["on"]:
                 _SPEC["bad"] = True                      # the experimental flags were on: next start goes without them, at once

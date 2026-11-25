@@ -150,6 +150,9 @@ describe("guard (the only guardrail)", () => {
 });
 
 describe("sections and the loop", () => {
+  // the fixed tool list belongs to a large-context Studio; Nova's 16k default (load_tools + budget) has its own tests (coderCtxToolList)
+  beforeEach(() => { process.env.CODER_CTX_TOKENS = "32768"; });
+  afterEach(() => { delete process.env.CODER_CTX_TOKENS; });
   it("does not forward owner messages to Sham when OPEN_CODER_STUDIO_URL is off", async () => {
     delete process.env.OPEN_CODER_STUDIO_URL;
     const { bot, sent } = fakeBot();

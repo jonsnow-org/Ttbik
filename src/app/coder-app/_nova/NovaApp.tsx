@@ -7,6 +7,8 @@
 // telegram-ui's AppRoot wraps every screen, the first spinner included ("[TGUI] Wrap your app with <AppRoot>" crashed the app once).
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
+import LinkedAccount from "./LinkedAccount";
+import { SKILL_PRESETS, presetEnabled, presetSchedule } from "@/lib/skillPresets";
 import { syncDeviceMesh } from "./deviceMesh";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
@@ -32,7 +34,7 @@ import {
 const GraphicalDesktop = dynamic(() => import("./GraphicalDesktop"), { ssr: false, loading: () => <div className="n-card" style={{ minHeight: 220 }} aria-busy="true" /> });
 const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
 type Tab = "home" | "chats" | "computer" | "auto" | "settings";
-type Page = { k: "billing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
+type Page = { k: "billing" | "panel" | "connect" | "memory" | "policy" | "linked" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
 type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
@@ -759,6 +761,7 @@ function Schedules({ c }: { c: Ctx }) {
   const [rows, setRows] = useState<Sched[] | null>(null);
   const [form, setForm] = useState<Sched | "new" | null>(null);
   const [menu, setMenu] = useState<Sched | null>(null);
+  const [adding, setAdding] = useState("");
   const load = useCallback(async () => setRows((await api<{ schedules: Sched[] }>("schedules")).schedules), []);
   useEffect(() => { void load().catch(() => setRows([])); }, [load]);
   const closeForm = useCallback(() => setForm(null), []);
@@ -786,6 +789,24 @@ function Schedules({ c }: { c: Ctx }) {
               after={<span dir="ltr" style={{ display: "inline-flex" }} onClick={(e) => e.stopPropagation()}><Switch checked={!s.paused} aria-label={s.paused ? t.resume : t.pause}
                 onChange={async (e) => { haptic("select"); await api("schedule_pause", { id: s.id, paused: !e.currentTarget.checked }); void load(); }} /></span>} />
           ))}
+        </Card>
+      )}
+      {rows && (
+        <Card title={lang === "ar" ? "⚡ مهارات بنقرة واحدة" : "⚡ One-tap skills"}>
+          {SKILL_PRESETS.filter((p) => !p.needsRepo || me.connections.github.linked).map((p) => {
+            const on = presetEnabled(p, rows.map((r) => r.title));
+            return (
+              <Row key={p.id} icon={p.icon} title={p.title[lang]} sub={p.desc[lang]} chevron={false}
+                badge={on ? <span className="n-chip">✓</span> : undefined}
+                onClick={on || adding ? undefined : async () => {
+                  haptic("light"); setAdding(p.id);
+                  const tz = me.settings.tz || (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } })();
+                  try { await api("schedule_create", presetSchedule(p, lang, tz, me.settings.repo || undefined)); haptic("success"); await load(); }
+                  catch (e: any) { haptic("error"); alert(String(e?.message || e)); }
+                  setAdding("");
+                }} />
+            );
+          })}
         </Card>
       )}
       <Sheet open={!!menu} onClose={closeMenu} title={menu?.title}>
@@ -863,6 +884,7 @@ function Settings({ c, mode, setMode, models, modelsError, modelsLoading, reload
         {c.bind.memory === "memories" && <Row icon="👤" title={fill(n.s_mem, { m: modelName(models, lang) })} value={memCount === null ? "" : String(memCount)} onClick={() => open({ k: "memory" })} />}
         <Row icon="💎" title={n.s_plan} value={planLabel} tone={owner ? undefined : "var(--n-primary)"} onClick={() => open({ k: "billing" })} />
         <Row icon="🐙" title={n.s_github} value={gh.linked ? <span dir="ltr">{gh.login || t.linked}</span> : n.notLinked} onClick={() => open({ k: "connect" })} />
+        <Row icon="🔗" title={lang === "ar" ? "الحساب المرتبط والصلاحيات" : "Linked account & permissions"} sub={lang === "ar" ? "الرد داخل حسابك في تيليجرام" : "Replies inside your Telegram account"} onClick={() => open({ k: "linked" })} />
       </Card>
       <Card title={n.g_app}>
         <Row icon="🌐" title={n.s_lang} value={lang === "ar" ? "العربية" : "English"} onClick={() => setSheet("lang")} />
@@ -1052,7 +1074,7 @@ export default function NovaApp() {
   const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved, bind: bindingFor(me.settings.model) } : null;
   const bound = ctx?.bind.model || "coder";
   const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "panel" ? n.s_panel
-    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : n.s_policy;
+    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : page.k === "linked" ? (lang === "ar" ? "الحساب المرتبط والصلاحيات" : "Linked account & permissions") : n.s_policy;
   return (
     <AppRoot appearance={appearance} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="nova"
       style={{ ...vars, paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
@@ -1074,6 +1096,7 @@ export default function NovaApp() {
                 : page.k === "panel" ? (owner ? <div className="n-tg"><PanelPage lang={lang} /></div> : <Fail t={t} msg="—" retry={closePage} />)
                 : page.k === "connect" ? <div className="n-tg"><ConnectorsTab t={t} me={ctx.me} lang={lang} reload={ctx.reload} /></div>
                 : page.k === "memory" ? <div className="n-tg"><MemoryTab t={t} lang={lang} me={ctx.me} /></div>
+                : page.k === "linked" ? <div className="n-tg"><LinkedAccount ar={lang === "ar"} /></div>
                 : <div className="n-tg"><List><PolicySection t={t} me={ctx.me} lang={lang} /></List></div>}
             </>
           )
