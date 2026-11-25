@@ -82,6 +82,17 @@ def call(api: str, payload: dict, timeout: int = 300):
     raise TimeoutError(f"{api}: timed out after {timeout}s; last stream error: {last_error}")
 
 
+def media_timeout(kind: str) -> int:
+    """Seconds one media call may take. A 6 s clip is ~3000 of the model's own motion tokens on the Studio's 2 CPUs (2026-11-25): it needs far
+    longer than a picture, so video has its own deadline (SMOKE_VIDEO_TIMEOUT, default 1800 s); image / audio keep 360 s (SMOKE_MEDIA_TIMEOUT)."""
+    try:
+        if kind == "video":
+            return int(os.environ.get("SMOKE_VIDEO_TIMEOUT", "1800"))
+        return int(os.environ.get("SMOKE_MEDIA_TIMEOUT", "360"))
+    except ValueError:
+        return 1800 if kind == "video" else 360
+
+
 def media(kind: str, backend: str = "internal"):
     label = {
         "internal": "شام الداخلي (الأساسي)",
@@ -96,7 +107,7 @@ def media(kind: str, backend: str = "internal"):
             "Side view: the apple on the table",
         ]),
         "narration": "تفاحة حمراء صغيرة على طاولة بيضاء.",
-    }, timeout=360)
+    }, timeout=media_timeout(kind))
     if not isinstance(value, dict):
         raise RuntimeError(f"{backend}/{kind}: response is not a JSON object: {str(value)[:200]}")
     if value.get("type") == "error" or not value.get("b64"):
