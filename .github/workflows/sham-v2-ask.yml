@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       api:
-        description: "text | think | any | image | audio | video"
+        description: "text | think | any | image | audio | video | repeat (the bot's chat/stream/T-LDM paths, checks different questions get different answers)"
         required: false
         default: "any"
       ask:
@@ -25,7 +25,7 @@ permissions:
 jobs:
   ask:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,4 +38,10 @@ jobs:
           SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
           ASK: ${{ inputs.ask }}
           API: ${{ inputs.api }}
-        run: python ai-system/supervision/sham_studio_ask.py
+          SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
+        run: |
+          if [ "$API" = "repeat" ]; then
+            ASK="$( [ "$ASK" = "مرحبا|ما عاصمة فرنسا؟|ابحث في الويب عن آخر إصدار من Python" ] && echo "" || echo "$ASK")" python ai-system/supervision/sham_pro_repeat_probe.py
+          else
+            python ai-system/supervision/sham_studio_ask.py
+          fi
