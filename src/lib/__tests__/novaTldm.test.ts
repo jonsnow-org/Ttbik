@@ -235,3 +235,48 @@ describe("Nova T-LDM: the loop stops on the model's own error", () => {
     expect(src).toMatch(/هذا النموذج لا يملك مسار T-LDM/);
   });
 });
+
+describe("Nova T-LDM: its own reader Studio (owner decision 2026-11-25, T-5 option 2)", () => {
+  const READER = "https://studio-jonjithup-nova-tldm-reader.api-inference.modelscope.ai";
+  afterEach(() => { delete process.env.NOVA_TLDM_READER_URL; });
+  it("generate_tldm goes to the reader Studio ONLY; chat stays on Nova's chat Studio", async () => {
+    process.env.NOVA_TLDM_READER_URL = READER;
+    const seen: string[] = [];
+    const real = global.fetch;
+    global.fetch = studioFetch({ type: "text", text: "ok" }, seen);
+    try {
+      const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
+      const { withEngineModel, coderCall } = await import("@/lib/openCoderStudio");
+      await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((u) => u.startsWith(READER))).toBe(true);
+      seen.length = 0;
+      await withEngineModel("coder", () => coderCall("chat", { messages: "[]" }, 5000));
+      expect(seen.some((u) => u.startsWith(READER))).toBe(false);
+    } finally {
+      global.fetch = real;
+    }
+  });
+  it("a reader that fails is an honest error: no failover to the chat Studio, no other model", async () => {
+    process.env.NOVA_TLDM_READER_URL = READER;
+    const seen: string[] = [];
+    const real = global.fetch;
+    global.fetch = (async (i: any) => { seen.push(String(i)); return { ok: false, status: 503, json: async () => ({}), text: async () => "" } as unknown as Response; }) as any;
+    try {
+      const { novaGenerateTldm, withNovaTldmModel } = await import("@/lib/novaTldm");
+      const { withEngineModel } = await import("@/lib/openCoderStudio");
+      const r = await withEngineModel("coder", () => withNovaTldmModel("coder", () => novaGenerateTldm([{ role: "user", content: "hi" }])));
+      expect(r.type).toBe("error");
+      expect((r as any).reason).toBe("no-fallback");
+      expect(seen.every((u) => u.startsWith(READER))).toBe(true);
+    } finally {
+      global.fetch = real;
+    }
+  });
+  it("off / a Sham address / not https = no reader", async () => {
+    const { novaTldmReaderUrl } = await import("@/lib/openCoderStudio");
+    for (const v of ["off", "https://studio-x-sham-v2.api-inference.modelscope.ai", "http://x"]) { process.env.NOVA_TLDM_READER_URL = v; expect(novaTldmReaderUrl()).toBe(""); }
+    process.env.NOVA_TLDM_READER_URL = READER + "/";
+    expect(novaTldmReaderUrl()).toBe(READER);
+  });
+});

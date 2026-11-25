@@ -64,6 +64,16 @@ export function nova2Urls(): string[] {
   if (/^(off|none|0)$/i.test(raw)) return [];
   return raw.split(",").map((x) => x.trim().replace(/\/+$/, "")).filter((x) => /^https:\/\//.test(x) && !/nova-inference-server|sham/i.test(x));
 }
+// ── Nova's OWN T-LDM reader Studio (owner decision 2026-11-25, T-5 option 2; runs on the international site, training stays on cn) ─────────────────────────────────
+// The reader + head sat beside the chat server on one 16 GB box and thrashed it (#1225), so they moved to a Studio of their own (ai-system/modelscope-coder/
+// NOVA_TLDM_READER_STUDIOS: app.py serves generate_tldm only there). Nova's T-LDM calls go to that Studio ONLY: no failover to the chat Studio, no other model;
+// a missing reader is an honest error (novaTldm.ts). NOVA_TLDM_READER_URL replaces the address; "off" = the old in-Studio head (the chat pool).
+export const NOVA_TLDM_READER_DEFAULT = "https://studio-jonjithup-nova-tldm-reader.api-inference.modelscope.ai";
+export function novaTldmReaderUrl(): string {
+  const raw = (process.env.NOVA_TLDM_READER_URL ?? (process.env.NODE_ENV === "test" ? "" : NOVA_TLDM_READER_DEFAULT)).trim().replace(/\/+$/, "");
+  if (/^(off|none|0)$/i.test(raw) || !/^https:\/\//.test(raw) || /nova-inference-server|sham/i.test(raw)) return "";
+  return raw;
+}
 export const nova2TokenSet = (): boolean => Boolean((process.env.NOVA2_STUDIO_TOKEN || secretCached("AI_NOVA2_TOKEN") || "").trim());
 /** The token a Studio wants: the international Studios (modelscope.ai) take the international account's token, every other Studio the usual one. */
 export function tokenFor(base: string): string {
@@ -217,9 +227,17 @@ export function recentStudioCalls(ms = 600000): { ageS: number; studio: number; 
   const now = Date.now();
   return studioLog.filter((e) => now - e.t < ms).map((e) => ({ ageS: Math.round((now - e.t) / 1000), studio: e.studio, tag: e.tag }));
 }
+let readerAskedAt = 0;
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number, affinity?: string, fresh = false, avoidHome = false, tag = "", needVision = false, tier?: Tier, prefer = ""): Promise<CoderOutcome> {
   const all = allEngineBases();
   const pool = coderStudioUrls();
+  const reader = novaTldmReaderUrl();
+  if (reader && (api === "chat" || api === "generate_tldm") && Date.now() - readerAskedAt > 300000 && process.env.NODE_ENV !== "test") { readerAskedAt = Date.now(); void studioStatus(reader, 4000).catch(() => null); }   // keeps "the head is served" fresh (novaTldmSeen: 10 min)
+  if (api === "generate_tldm" && reader) {
+    // Nova's T-LDM runs on its reader Studio only: one address, no failover to the chat Studios (they no longer carry the head), never another model
+    if (!(currentEngineModel() === "coder" || currentEngineModel() === "nova2")) return { reply: null, failure: "off" };
+    return callOne(reader, api, payload, timeoutMs);
+  }
   if (api === "chat" && Date.now() - ctxAskedAt > 600000 && !process.env.CODER_CTX_TOKENS && process.env.NODE_ENV !== "test") { ctxAskedAt = Date.now(); for (const b of pool) void studioStatus(b, 4000).catch(() => null); }
   if (typeof payload.job_id === "string") {
     // a job lives on one Studio (global index: valid in any request context)
