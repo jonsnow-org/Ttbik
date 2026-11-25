@@ -1,16 +1,15 @@
-name: Retire an international trainer Studio (after its cn replacement runs)
+name: "Retire an international trainer Studio (ModelScope deletes only in the console)"
 
-# Owner 2026-11-25: every trainer runs on cn (novaai2026); the international site (Jonjithup) is for serving only, and its 5-Studio limit is needed for Nova's T-LDM reader.
-# Deletes ONE international trainer Studio, and only:
-#   - a name on the allow-list below (the two trainers that moved), never a serving Studio (Nova chat, Nova computer, runner, reader, Sham);
-#   - when its cn replacement exists and is Running (so training never stops);
-#   - when `confirm` repeats the exact name.
-# Training state lives in the published lineages (Kaggle / ModelScope head repos); the cn replacement starts from them. Nothing secret is printed.
+# Owner 2026-11-25: every trainer runs on cn (novaai2026); the international account (Jonjithup) serves only, and its Studio limit is
+# needed for Sham Pro and Nova's T-LDM reader.
+# This workflow does NOT delete anything: ModelScope has no programmatic Studio deletion. OpenAPI DELETE /studios/{owner}/{name} answers
+# 404 (verified live 2026-11-25, run 45691006803), delete_repo does not support studios, and the console's delete uses a cookie session.
+# So it proves the cn replacement is Running and prints the one console step that frees the international slot, plus the live inventory.
 on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "international Studio to delete: sham-trainer-1 | sham-trainer-tools"
+        description: "international trainer Studio to retire: sham-trainer-1 | sham-trainer-tools"
         required: true
       confirm:
         description: "type the same name again"
@@ -20,10 +19,10 @@ permissions:
   contents: read
 
 jobs:
-  retire:
+  report:
     runs-on: ubuntu-latest
     steps:
-      - name: Check the allow-list and the cn replacement, then delete
+      - name: Check the allow-list and the cn replacement, then report the console step
         env:
           TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           TCN: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -40,12 +39,14 @@ jobs:
           state() { curl -sS -H "Authorization: Bearer $1" "$2/openapi/v1/studios/$3/$4" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print(d.get('status') or d.get('Status') or '')" 2>/dev/null; }
           cn=$(state "$TCN" https://www.modelscope.cn novaai2026 "$CN")
           echo "cn replacement $CN: $cn"
-          case "$cn" in Running|running) ;; *) echo "::error::cn replacement $CN is not Running ($cn): nothing deleted"; exit 1 ;; esac
+          case "$cn" in Running|running) ;; *) echo "::error::cn replacement $CN is not Running ($cn): do not retire $NAME yet"; exit 1 ;; esac
           ai=$(state "$TAI" https://www.modelscope.ai Jonjithup "$NAME")
-          echo "international $NAME before: ${ai:-absent}"
-          [ -n "$ai" ] || { echo "already gone"; exit 0; }
-          code=$(curl -sS -o del.json -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TAI" "https://www.modelscope.ai/openapi/v1/studios/Jonjithup/$NAME")
-          echo "delete http $code"; head -c 1000 del.json; echo
-          [ "$code" -lt 300 ] || exit 1
-          sleep 10
-          echo "after: $(state "$TAI" https://www.modelscope.ai Jonjithup "$NAME")"
+          echo "international $NAME: ${ai:-absent}"
+          [ -n "$ai" ] || { echo "$NAME is already gone from the international account: the slot is free"; exit 0; }
+          echo "international Studios now:"
+          curl -sS -H "Authorization: Bearer $TAI" \
+            "https://www.modelscope.ai/openapi/v1/studios?owner=Jonjithup&status=all&page_size=50&pageSize=50" \
+            | python3 -c "import json,sys;d=json.load(sys.stdin);s=((d.get('data') or {}).get('studios') or []);print(f'{len(s)} Studios');[print('-',x.get('name') or x.get('id'),(x.get('runtime') or {}).get('status') or '') for x in s]"
+          echo "::warning::ModelScope has no API deletion; the owner deletes $NAME in the web console."
+          echo "Console: https://www.modelscope.ai/studios/Jonjithup/$NAME/settings -> delete this Studio (that call is cookie-authenticated, CI cannot make it)."
+          echo "Its cn replacement $CN is Running, so training is not interrupted: the published lineage is the state that carries over."

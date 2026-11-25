@@ -193,6 +193,14 @@
     "sham-v2-motion-rows": {
       "role": "صفوف رموز الحركة الخاصة بشام برو (motion_rows.pt بجانب نقطة الحفظ في novaai2026/sham-v2)؛ تُطبَّق عند التحميل فقط إذا طابقت نقطة الحفظ ومُرمِّز الحركة",
       "writer": "sham_v2_motion_rows"
+    },
+    "Jonjithup/sham-v2": {
+      "role": "نسخة شام برو على المنصة الدولية (استوديو الخدمة): مرآة من novaai2026/sham-v2، تُنسخ الملفات المتغيرة فقط ولا يُحذف شيء — الكاتب الوحيد هو سير عمل المرآة",
+      "writer": "sham_v2_mirror_ai"
+    },
+    "Jonjithup/sham2-tldm-head": {
+      "role": "نسخة رأس T-LDM على المنصة الدولية: مرآة من novaai2026/sham2-tldm-head — الكاتب الوحيد هو سير عمل المرآة",
+      "writer": "sham_v2_mirror_ai"
     }
   },
   "dynamic_dataset_patterns": [
