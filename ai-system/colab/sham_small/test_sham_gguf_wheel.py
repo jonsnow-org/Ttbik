@@ -44,8 +44,15 @@ class HubWheel(unittest.TestCase):
         os.environ["SHAM_GGUF_WHEEL"] = "runtime_wheels/llama_cpp_python-0.3.19-cp27-cp27-linux_x86_64.whl"
         self.assertIsNone(sham_gguf.hub_wheel("novaai2026/sham-v2", download=lambda r, n: (_ for _ in ()).throw(AssertionError("must not download"))))
 
-    def test_pinned_default_is_cp311(self):
-        self.assertIn("cp311-cp311-linux_x86_64.whl", sham_gguf.WHEEL)
+    def test_pinned_default_is_the_glibc_build(self):
+        self.assertIn("llama_cpp_python-0.3.38-py3-none-linux_x86_64.whl", sham_gguf.WHEEL)
+        os.environ["SHAM_GGUF_WHEEL"] = sham_gguf.WHEEL
+        self.assertTrue(sham_gguf.hub_wheel("novaai2026/sham-v2", download=lambda r, n: self._fake(n)))
+
+    def _fake(self, name):
+        p = os.path.join(tempfile.mkdtemp(), os.path.basename(name))
+        open(p, "wb").write(b"w")
+        return p
 
 
 if __name__ == "__main__":
