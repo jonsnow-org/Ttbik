@@ -158,3 +158,36 @@ describe("Telegram Business (shared bot replies inside a linked account)", () =>
     expect((await handleBusinessMessage(api, MSG("hi"), { db, audience: all, deny: noDeny, generate: async () => "x" })).note).toBe("paused");
   });
 });
+
+describe("Business replies by Sham Pro use Sham Pro's own native chat (generate_chat), not chat_memory (absent on sham-v2-server)", () => {
+  it("defaultGenerate calls generate_chat on the v2 Studio with native turns and returns its text", async () => {
+    const { defaultGenerate, businessShamTurns } = await import("@/lib/tgBusiness");
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const urls: string[] = [];
+    const bodies: any[] = [];
+    const real = global.fetch;
+    global.fetch = (async (input: any, init?: any) => {
+      urls.push(String(input));
+      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      if (String(input).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      return { ok: true, status: 200, body: null, text: async () => 'event: complete\ndata: ["{\\"type\\": \\"text\\", \\"text\\": \\"أهلاً، سيرد صاحب الحساب قريباً.\\"}"]\n' } as any;
+    }) as any;
+    try {
+      const out = await defaultGenerate("sham_v2", "RULES", [{ role: "user", text: "مرحبا" }, { role: "assistant", text: "أهلاً" }], "متى تفتحون؟", "biz:1");
+      expect(out).toBe("أهلاً، سيرد صاحب الحساب قريباً.");
+      expect(urls.some((u) => u.includes("/call/v2/generate_chat"))).toBe(true);
+      expect(urls.some((u) => u.includes("chat_memory") || u.includes("generate_tldm"))).toBe(false);
+      expect(urls.every((u) => u.includes("sham-v2"))).toBe(true);
+      const turns = JSON.parse(bodies[0].messages_json);
+      expect(turns.map((t: any) => t.role)).toEqual(["user", "assistant", "user"]);
+      expect(turns[2].content).toContain("RULES");
+      expect(turns[2].content).toContain("متى تفتحون؟");
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+    expect(businessShamTurns("R", [{ role: "assistant", text: "x" }, { role: "user", text: "a" }, { role: "user", text: "b" }], "c").map((t) => t.role)).toEqual(["user"]);
+  });
+});
