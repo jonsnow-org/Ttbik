@@ -14,6 +14,11 @@ on:
       # through the workflow_run below.
       - ai-system/modelscope-sham/app.py
       - ai-system/modelscope-sham/requirements.txt
+      # Sham Pro serving modules staged by stage_sham_v2_studio.py (owner-approved 2026-11-25: deploy automatically, no manual deploy)
+      - ai-system/modelscope-sham/sham_tldm_serve.py
+      - ai-system/modelscope-sham/sham_tldm_experience.py
+      - ai-system/modelscope-sham/sham_pro_coordinator.py
+      - ai-system/modelscope-sham/sham_mesh_node.py
       - ai-system/supervision/sham_v2_chat_smoke.py
       - scripts/transplant/stage_sham_v2_studio.py
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
