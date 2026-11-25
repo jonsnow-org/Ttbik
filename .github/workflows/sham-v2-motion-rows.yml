@@ -1,0 +1,62 @@
+name: Sham v2 motion rows (train Sham's own motion tokens on real clips, publish next to the checkpoint)
+
+# Owner-approved 2026-11-25 (Sham Pro video, CPU only). Sham v2's media stage never trained the 1024 motion rows of its tied embedding, so even with a
+# motion tokenizer a video request would sample motion codes from untrained rows. This trains ONLY those rows (frozen body, the exact serving layout,
+# Kinetics-400 clips captioned by their label) for the motion tokenizer PUBLISHED in novaai2026/sham-v2 (scripts/transplant/train_sham_v2_motion_rows.py),
+# and publishes motion_rows.pt + motion_rows_progress.json only when held-out motion NLL beats the untrained rows and a context-free unigram.
+# serve.py applies the file at load time only when it matches that checkpoint and that motion tokenizer. The Sham v2 Studio deploy follows (workflow_run).
+on:
+  workflow_dispatch:
+    inputs:
+      clips:
+        description: "real clips (8 frames each; 1/8 held out)"
+        required: false
+        default: "200"
+      rounds:
+        description: "read-and-fit rounds (the tied input side is re-read with the trained rows each round)"
+        required: false
+        default: "2"
+      publish:
+        description: "upload to novaai2026/sham-v2 when it passes the held-out gate (true/false)"
+        required: false
+        default: "true"
+
+concurrency:
+  group: sham-v2-motion-rows
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Free runner disk (the checkpoint is ~4 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+      - name: Install
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy pillow imageio imageio-ffmpeg av tokenizers requests "modelscope>=1.26.0"
+      - name: Train (and publish when it beats the untrained rows and the unigram on held-out clips)
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          args="--clips ${{ inputs.clips || '200' }} --rounds ${{ inputs.rounds || '2' }} --out ${{ runner.temp }}/rows"
+          if [ "${{ inputs.publish || 'true' }}" = "true" ]; then args="$args --publish"; fi
+          python scripts/transplant/train_sham_v2_motion_rows.py $args
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sham-v2-motion-rows
+          path: |
+            ${{ runner.temp }}/rows/motion_rows.pt
+            ${{ runner.temp }}/rows/motion_rows_progress.json
+          if-no-files-found: ignore

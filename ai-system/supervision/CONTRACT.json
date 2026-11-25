@@ -189,6 +189,10 @@
     "sham-v2-runtime-wheels": {
       "role": "عجلة llama-cpp-python المثبّتة (sha256) داخل novaai2026/sham-v2 تحت runtime_wheels/ لفك ترميز q4_k_m؛ استوديو cn لا يقرأ أصول GitHub",
       "writer": "sham_v2_runtime_wheels"
+    },
+    "sham-v2-motion-rows": {
+      "role": "صفوف رموز الحركة الخاصة بشام برو (motion_rows.pt بجانب نقطة الحفظ في novaai2026/sham-v2)؛ تُطبَّق عند التحميل فقط إذا طابقت نقطة الحفظ ومُرمِّز الحركة",
+      "writer": "sham_v2_motion_rows"
     }
   },
   "dynamic_dataset_patterns": [
@@ -1050,6 +1054,19 @@
       "reads": [],
       "writes": [
         "sham-v2-runtime-wheels"
+      ]
+    },
+    "sham_v2_motion_rows": {
+      "file": ".github/workflows/sham-v2-motion-rows.yml",
+      "title": "تدريب صفوف الحركة لشام برو على مقاطع حقيقية (يُدفع يدويًا)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-v2-checkpoint",
+        "sham-v2-motion-tokenizer"
+      ],
+      "writes": [
+        "sham-v2-motion-rows"
       ]
     }
   },
