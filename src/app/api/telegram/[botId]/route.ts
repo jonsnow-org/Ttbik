@@ -131,6 +131,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message || "غير متاح" })).catch(() => null);
           return NextResponse.json({ status: "ok" });
         }
+        if (botRow.template === "NOVA_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("cgift:")) {
+          // 🎁 a plan gifted to another user: signed payload, same giver, plan still on sale at that price (src/lib/coderGift.ts)
+          const { preCheckoutGift } = await import("@/lib/coderGift");
+          const d = await preCheckoutGift(body.pre_checkout_query).catch(() => ({ ok: false as const, message: "تعذّر التحقق الآن، حاول بعد قليل." }));
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         if (botRow.template === "NOVA_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("cplan:")) {
           // the coder's plans paid in Stars: signed payload, same buyer, plan still on sale at that price (src/lib/coderStars.ts)
           const { preCheckoutCoder } = await import("@/lib/coderStars");
@@ -147,6 +154,21 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           return NextResponse.json({ status: "ok" });
         }
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
+      // Promotion supervisor: the bot was added to / removed from a group or channel. The group is registered DISABLED (links not allowed) until the
+      // owner confirms it in the Mini App; removal disables it. Private-chat my_chat_member (a user blocking the bot) is not touched (src/lib/promoSupervisor.ts).
+      if (botRow.template === "NOVA_BOT" && body.my_chat_member && body.my_chat_member.chat?.type && body.my_chat_member.chat.type !== "private") {
+        const P = await import("@/lib/promoSupervisor");
+        await P.handleMyChatMember(bot.api as never, body.my_chat_member, botRow.id).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
+      // Telegram Business / Secretary mode (owner's panel switch, off by default): the shared bot replies INSIDE a linked user's own account, by the model that user chose
+      // for that connection (Nova or Sham Pro), after checking the granted right. Never reaches the chat handlers below (src/lib/tgBusiness.ts).
+      if (botRow.template === "NOVA_BOT" && (body.business_connection || body.business_message || body.edited_business_message || body.deleted_business_messages)) {
+        const B = await import("@/lib/tgBusiness");
+        if (body.business_connection) await B.handleBusinessConnection(bot.api as never, body.business_connection).catch(() => null);
+        else if (body.business_message) await B.handleBusinessMessage(bot.api as never, body.business_message).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
       if (botRow.template === "NOVA_BOT") { const { rememberThread } = await import("@/lib/tgThread"); rememberThread(body); }

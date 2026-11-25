@@ -211,7 +211,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       let error = "";
       try { info = await F.readBotInfo(deps.bot.api as never); } catch (e) { error = String((e as Error)?.message || e).slice(0, 200); }
       const R = await import("@/lib/telegramRich");
-      return { rich: cur.rich || R.richMode(), guestMode: cur.guest, info, invite: F.inviteLink(info?.username || ""), error };
+      return { rich: cur.rich || R.richMode(), guestMode: cur.guest, businessMode: cur.business, info, invite: F.inviteLink(info?.username || ""), error };
     }
     case "tg_set": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
@@ -220,9 +220,103 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       try {
         if (key === "rich") await F.setTgAudience("tg_rich", String(body.value) as never, db);
         else if (key === "guest") await F.setGuestMode(deps.bot.api as never, String(body.value) as never, db);
+        else if (key === "business") await F.setTgAudience("tg_business", String(body.value) as never, db);
         else await F.setTelegramSetting(deps.bot.api as never, key, Boolean(body.value));
       } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
       return { ok: true };
+    }
+    case "biz": {
+      // "Permissions & linked chats" (Telegram Business): ONLY this user's own connections, rights, chosen model and activity
+      const B = await import("@/lib/tgBusiness");
+      const F = await import("@/lib/tgFeatures");
+      const aud = await F.businessAudience(db).catch(() => "off" as const);
+      const available = aud === "all" || (aud === "owner" && user.tier === "owner");
+      const conns = await B.connectionsOf(user.chatId, db);
+      const out = [];
+      for (const c of conns) out.push({ id: c.id, enabled: c.enabled, model: c.model, rights: c.rights, instructions: c.instructions, since: c.createdAt || null, activity: await B.activityOf(user.chatId, c.id, db, 30) });
+      return { available, models: B.BUSINESS_MODELS.map((id) => ({ id, name: B.BUSINESS_MODEL_LABEL[id] })), rights: B.RIGHTS, connections: out };
+    }
+    case "biz_set": {
+      const B = await import("@/lib/tgBusiness");
+      const id = String(body.id || "");
+      const what = String(body.what || "");
+      try {
+        if (what === "model") await B.setConnectionModel(user.chatId, id, body.model, body.confirm, db);       // explicit confirmation required; the chat /model switch never comes here
+        else if (what === "enabled") await B.setConnectionEnabled(user.chatId, id, Boolean(body.on), db);
+        else if (what === "instructions") await B.setConnectionInstructions(user.chatId, id, body.text, db);
+        else if (what === "forget") await B.forgetConnection(user.chatId, id, db);
+        else throw new Error("unknown action");
+      } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
+      return { ok: true };
+    }
+    case "promo": {
+      // owner panel → Promotion: our projects, the groups the bot is a member of (with the owner's per-group settings), the switch and the log
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/promoSupervisor");
+      const F = await import("@/lib/tgFeatures");
+      const store = P.sqlStore(db);
+      const cur = await F.refreshTgFeatures(db, true);
+      return { on: cur.promo, projects: await store.projects(), targets: await store.targets(), log: await store.logs(60), limits: P.LIMITS };
+    }
+    case "promo_set": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/promoSupervisor");
+      const F = await import("@/lib/tgFeatures");
+      const store = P.sqlStore(db);
+      const what = String(body.what || "");
+      try {
+        if (what === "switch") { await F.setTgAudience("tg_promo", String(body.value) as never, db); return { ok: true }; }
+        if (what === "project_add") return { ok: true, project: await store.addProject(P.normProject(body)) };
+        if (what === "project_update") {
+          const id = Number(body.id);
+          const old = (await store.projects()).find((x) => x.id === id);
+          if (!old) throw new Error("no such project");
+          await store.updateProject(id, P.normProject({ ...old, ...body }));
+          return { ok: true };
+        }
+        if (what === "project_delete") { await store.deleteProject(Number(body.id)); return { ok: true }; }
+        const chatId = String(body.chatId || "");
+        const t = chatId ? await store.target(chatId) : null;
+        if (what === "target_update") {
+          if (!t) throw new Error("unknown group");
+          const n = { ...t, ...P.normTargetSettings(body) };
+          if (n.enabled && !n.allowLinks) throw new Error("confirm first that this group's rules allow links");
+          if (n.enabled && t.botId !== deps.botRow.id) throw new Error("this group belongs to another bot");
+          if (n.enabled && !t.enabled) {
+            const v = await P.verifyTarget(deps.bot.api as never, n, Number(String(deps.botRow.token).split(":")[0]));        // Telegram's real answer before the first post
+            await store.putTarget(v.t);
+            if (!v.ok) throw new Error(v.note || "the bot cannot post in this group");
+            return { ok: true };
+          }
+          await store.putTarget(n);
+          return { ok: true };
+        }
+        if (what === "target_delete") { await store.deleteTarget(chatId); return { ok: true }; }
+        if (what === "verify") {
+          if (!t) throw new Error("unknown group");
+          const v = await P.verifyTarget(deps.bot.api as never, t, Number(String(deps.botRow.token).split(":")[0]));
+          await store.putTarget(v.t);
+          return { ok: v.ok, note: v.note };
+        }
+        if (what === "preview") return { ok: true, ...(await P.preview(store, chatId, Number(body.projectId))) };     // sends nothing
+        if (what === "suggest") {
+          // our own active bots (the owner's), with their real @username from Telegram: one tap adds one as a project
+          const { prisma } = await import("@/lib/prisma");
+          const { ownerIds } = await import("@/lib/coderAuth");
+          const { Bot } = await import("grammy");
+          const rows = await prisma.bot.findMany({ where: { isActive: true, ownerId: { in: ownerIds() }, NOT: { id: deps.botRow.id } }, take: 30, orderBy: { created_at: "desc" } });
+          const have = new Set((await store.projects()).map((x) => x.link.toLowerCase()));
+          const out: { title: string; link: string; template: string }[] = [];
+          await Promise.all(rows.map(async (r) => {
+            const me = await Promise.race([new Bot(r.token).api.getMe(), new Promise<null>((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
+            if (!me?.username) return;
+            const link = `https://t.me/${me.username}`;
+            if (!have.has(link.toLowerCase())) out.push({ title: me.first_name || me.username, link, template: r.template });
+          }));
+          return { ok: true, suggestions: out };
+        }
+        throw new Error("unknown action");
+      } catch (e) { if (e instanceof AppError) throw e; throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
     }
     case "mesh_flag": {
       // every user's Mini App polls this: the owner's one switch decides whether devices join the mesh (default off)

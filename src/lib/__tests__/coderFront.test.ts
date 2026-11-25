@@ -126,6 +126,9 @@ describe("the conversation window", () => {
 });
 
 describe("a cold Studio", () => {
+  // this scenario is about the history window on a large-context Studio (the fixed tool list); Nova's 16k default has its own tests (coderCtxToolList)
+  beforeEach(() => { process.env.CODER_CTX_TOKENS = "32768"; });
+  afterEach(() => { delete process.env.CODER_CTX_TOKENS; });
   it("when the Studio says it must read a huge prompt from zero, the step is sent again with a short window", async () => {
     const { saveState, loadState } = require("@/lib/coderSections");
     process.env.OPEN_CODER_STUDIO_URL = "https://s1.test";

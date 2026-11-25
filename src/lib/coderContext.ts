@@ -2,8 +2,12 @@
 // carry several separate character budgets (history 40,000, segment 52,500, agent reports 60,000) that assumed 32,768 tokens. They are all derived
 // from this one number now, so raising the Studios' context raises the limits for every model run and every agent at once. The number comes from the
 // Studios themselves (their status reports `ctx`; the smallest of the ones seen wins, so no call can overflow the weakest Studio); CODER_CTX_TOKENS
-// forces a value; nothing known = 32,768, the old behaviour.
+// forces a value; nothing known = 16,384 (UNKNOWN_CTX).
 export const DEFAULT_CTX = 32768;
+/** Before any Studio has reported its context (a fresh process: the status call is fire-and-forget), assume Nova's real window. The ONE Nova Studio serves
+ *  16,384 (ai-system/modelscope-coder/app.py CODER_CTX). Assuming 32,768 sent the full fixed tool list on a cold process: live 2026-11-24 (run 38530d) the first
+ *  step was 15,749 tokens and the task died on `exceed_context_size_error`. CODER_CTX_TOKENS still forces a value; a Studio that reports a bigger window raises it. */
+export const UNKNOWN_CTX = 16384;
 const seen = new Map<string, number>();
 
 export function noteStudioCtx(base: string, ctx: unknown): void {
@@ -19,7 +23,7 @@ export function ctxTokens(): number {
   if (Number.isFinite(forced) && forced >= 8192) {
     return rejected && rejected >= 8192 ? Math.min(Math.floor(forced), rejected) : Math.floor(forced);
   }
-  return seen.size ? Math.min(...seen.values()) : DEFAULT_CTX;
+  return seen.size ? Math.min(...seen.values()) : UNKNOWN_CTX;
 }
 const scaled = (perCtx: number) => Math.round((ctxTokens() * perCtx) / DEFAULT_CTX);
 /** What the model sees of the history each step. */

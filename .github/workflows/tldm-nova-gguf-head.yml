@@ -23,6 +23,9 @@ on:
       config:
         description: "config under ai-system/tldm/configs/ (Nova is one model now: nova2.yaml is its recipe)"
         default: "nova2.yaml"
+      reader:
+        description: "server = a second llama-server's final-layer features (does not fit the 16 GB Studio, #1225) | gguf-embd = Nova's own token_embd rows from the same GGUF (no server, no forward pass)"
+        default: "server"
       seeds:
         description: "seeds"
         default: "3"
@@ -45,9 +48,10 @@ jobs:
           python-version: "3.12"
       - name: Python packages
         run: |
-          python -m pip install numpy tokenizers modelscope
+          python -m pip install numpy tokenizers modelscope gguf
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
       - name: Build llama-server
+        if: ${{ (inputs.reader || 'server') == 'server' }}
         run: |
           git clone --depth 1 https://github.com/ggml-org/llama.cpp "$RUNNER_TEMP/llama.cpp"
           cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -DLLAMA_CURL=OFF > /tmp/cmake.log 2>&1
@@ -78,6 +82,7 @@ jobs:
           fi
           ls -la /tmp/gguf /tmp/tok
       - name: Serve the GGUF in embedding mode
+        if: ${{ (inputs.reader || 'server') == 'server' }}
         run: |
           GGUF=$(ls /tmp/gguf/*.gguf | head -1)
           nohup "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" -m "$GGUF" --embeddings --pooling none -c 512 -ngl 0 -t "$(nproc)" --host 127.0.0.1 --port 8099 > /tmp/llama_server.log 2>&1 &
@@ -91,7 +96,7 @@ jobs:
         run: |
           set -o pipefail
           cd ai-system/tldm
-          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
+          python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --reader "${{ inputs.reader || 'server' }}" --gguf "$(ls /tmp/gguf/*.gguf | head -1)" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\", \"reader\": \"${{ inputs.reader || 'server' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
