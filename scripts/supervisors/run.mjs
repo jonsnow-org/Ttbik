@@ -55,7 +55,7 @@ export function decideRerun() {
 const hours = (iso, now) => (now - Date.parse(iso)) / 3600_000;
 
 /** Pure: facts -> checks. level: ok | warn | fail | info */
-export function evaluate(d, now = Date.now()) {
+export function evaluate(d, now = Date.now(), currentRunId = null) {
   const out = [], add = (name, level, detail) => out.push({ name, level, detail });
   for (const s of d.site || []) add(`Page: ${s.label}`, s.ok ? "ok" : s.info ? "info" : "fail", s.ok ? `HTTP ${s.status} via ${s.via || "unknown"}` : `HTTP ${s.status || "no answer"} via ${s.via || "unknown"}${s.status === 200 ? " · unexpected content" : ""}`);
   for (const w of d.workflows || []) {
@@ -63,7 +63,10 @@ export function evaluate(d, now = Date.now()) {
     if (w.error) { add(`Workflow: ${name}`, "warn", `could not read runs (${w.error})`); continue; }
     // A PR validation for promo-projects only checks generator code; it does not create review assets.
     // Optional allowed events in def[3] keep validation-only runs out of the generation freshness signal.
+    // GitHub includes the monitor's own in-progress run in this list. Exclude it so the
+    // report measures the previous completed monitor run instead of reporting itself as fresh.
     const runs = (w.runs || []).filter((r) =>
+      (!currentRunId || String(r.id) !== String(currentRunId)) &&
       (!w.def[3] || w.def[3].includes(r.event)) &&
       (!w.def[4] || w.def[4].includes(r.head_branch))
     );
@@ -206,7 +209,7 @@ async function main() {
       } catch (e) { data.bots = { error: "no answer" }; }
     }
     if (er.status === 200) data.errors = er.body.filter((i) => !i.pull_request && cfg.errorWords.test(`${i.title}`)).slice(0, 5).map((i) => `#${i.number} ${String(i.title).slice(0, 60)}`);
-    parts.push({ section, checks: evaluate(data) });
+    parts.push({ section, checks: evaluate(data, Date.now(), process.env.GITHUB_RUN_ID) });
   }
   const date = new Date().toISOString().slice(0, 10);
   const checks = parts.flatMap((p) => p.checks), status = overall(checks);
