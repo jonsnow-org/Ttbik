@@ -138,6 +138,7 @@ function rawLabel(name: string, args?: unknown): string {
     case "plan": return "تحديث خطة المهمة";
     case "memory_save": case "memory_note": return "حفظ في الذاكرة";
     case "memory_search": case "recall": return "بحث في الذاكرة";
+    case "conversation_search": return "بحث في المحادثات السابقة";
     case "memory_forget": return "نسيان ذكرى";
     case "schedule_create": return `جدولة مهمة: ${short(a.title, 50)}`;
     case "schedule_list": return "عرض المهام المجدولة";

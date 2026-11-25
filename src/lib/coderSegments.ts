@@ -71,7 +71,7 @@ export function fallbackSummary(goal: string, msgs: CoderMessage[], touched: str
     if (m.role !== "tool") continue;
     const meta = byId.get((m as any).tool_call_id || "");
     const ex = resultExcerpt(meta?.name || (m as any).name || "tool", m.content || "");
-    if (ex && meta && !/^(load_tools|memory_note|memory_save|memory_search|ask_user)$/.test(meta.name)) finds.push(`• ${meta.line}\n  ${ex.replace(/\n/g, "\n  ")}`);
+    if (ex && meta && !/^(load_tools|memory_note|memory_save|memory_search|conversation_search|ask_user)$/.test(meta.name)) finds.push(`• ${meta.line}\n  ${ex.replace(/\n/g, "\n  ")}`);
   }
   const reasoning = msgs.filter((m) => m.role === "assistant" && (m.content || "").trim().length > 80).slice(-3).map((m) => (m.content || "").trim().slice(0, 700));
   const lastText = [...msgs].reverse().find((m) => m.role === "assistant" && (m.content || "").trim())?.content || "";

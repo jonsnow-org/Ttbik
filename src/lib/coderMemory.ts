@@ -360,3 +360,27 @@ export async function memoryTool(chatId: number | string, name: string, a: Recor
   }
   return `error: unknown memory tool ${name}`;
 }
+
+// ---------------------------------------------------------------- earlier conversations (long context across sessions)
+/** The best-matching passages from this user's OWN earlier Nova conversations (the model's own thread store; never another model's), ranked with the same
+ *  lexical + meaning score as memories. The chat id is the model-scoped session id, so Nova's search never reads Sham's chats. */
+export async function searchConversations(chatId: number | string, query: string, count = 4, db: Db = prismaDb): Promise<string> {
+  const q = String(query || "").trim();
+  if (!q) return "error: query is required";
+  const T = await import("@/lib/coderThreads");
+  const threads = await T.listThreads(chatId, { limit: 25, archived: "include" }, db);
+  const rows: Memory[] = [];
+  const meta = new Map<number, string>();
+  let id = 0;
+  for (const t of threads) {
+    const lines = (await T.threadTranscript(chatId, t.id, 80, db).catch(() => null)) || [];
+    for (const l of lines) {
+      id++;
+      rows.push({ id, chat_key: "", scope: "global", kind: "fact", text: `${l.role === "user" ? "user" : "you"}: ${l.text.slice(0, 600)}`, source_run: null, created_at: t.updated_at, updated_at: t.updated_at } as Memory);
+      meta.set(id, `«${(t.title || "chat").slice(0, 60)}» ${String(t.updated_at || "").slice(0, 10)}`);
+    }
+  }
+  const hits = rankMemories(rows, q).slice(0, Math.max(1, Math.min(8, count)));
+  if (!hits.length) return threads.length ? "nothing in the earlier conversations matches this" : "no earlier conversations are saved for this user";
+  return hits.map((h) => `[${meta.get(h.m.id)}] ${h.m.text}`).join("\n\n");
+}

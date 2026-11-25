@@ -204,6 +204,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
   tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
   tool("memory_search", "Search what you remember about this user (preferences, project facts, decisions).", obj({ query: s("what to look for"), repo: s("owner/name (optional)") }, ["query"])),
+  tool("conversation_search", "Search what was said in this user's EARLIER conversations with you (other chats, previous days): returns the best-matching passages with the chat title and date. Use it when the user refers to something discussed before that is not in this conversation or in memory_search.", obj({ query: s("what to look for (any language)"), count: n("passages, default 4, max 8") }, ["query"])),
   tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from the memory list, or by a query).", obj({ id: n("memory id, e.g. 12 for #12"), query: s("text to match when no id") }, [])),
 ];
 
@@ -257,7 +258,7 @@ export function toolGroups(github: boolean, connectors = false): Record<string, 
     worker: SANDBOX_TOOL_DEFS,
     web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch", "http_request"]),
     media: by(["view_image", "view_video", "make_media"]),
-    memory: by(["recall", "plan", "skill", "knowledge_search", "memory_note", "memory_save", "memory_search", "memory_forget"]),
+    memory: by(["recall", "plan", "skill", "knowledge_search", "memory_note", "memory_save", "memory_search", "conversation_search", "memory_forget"]),
     schedule: by(["schedule_create", "schedule_list", "schedule_delete"]),
   };
   if (github) g.github = GITHUB_TOOLS;
@@ -406,7 +407,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
     ...(agentsEnabled() ? ["DELEGATE: when a task splits into independent parts (up to 5: parts of a repo, several sources, a comparison, separate changes), call delegate once with those tasks. Role reader = read-only investigation; role worker = full tools and the user's permission settings, for parts that CHANGE things (each delete / merge / main-branch write is asked of the user, so keep such parts few and say clearly what each one may touch). Each agent reports only on its own job, in a fixed shape; YOU write the one answer for the user from the reports and say what was not done. More agents than model servers mostly queue: do not delegate small things."] : []),
     "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs (give the time in their own timezone exactly as the tool returns it); never just promise. If what to do or what to cover is unclear ('write me a short summary' of what?), ask ONE question with ask_user BEFORE creating the schedule. The scheduled run starts by itself and reports in this chat.",
-    "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
+    "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help, and conversation_search for something said in an earlier chat; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "MEDIA: making a picture, a short video or Arabic speech is open to EVERY user (not only the owner) within a daily quota per plan: load the media tools and call make_media. Never say that media generation is for owners only or unavailable to this user. Only if make_media itself reports the daily quota used up, say so briefly (the user already got the full message with how to upgrade).",
     "PERSISTENT COMPUTER: your normal execution environment is the dedicated private 16 GB computer hub through computer_* tools; every user+model session has its own private workspace. Use computer_read ~/NOTES.md first; run real Bash with computer_run; create/edit files with computer_write/computer_edit; use computer_job for commands over 90 seconds; clone/search in its persistent home with computer_repo/computer_search. This home is isolated to this user and model, shared with the Mini App terminal and graphical desktop, and persists between chats. Prefer this computer for ordinary tasks; do not create a second environment for each step.",
     "TEMPORARY TASK WORKER: sandbox_* is a separate disposable workspace used only for isolated tests/builds or an independent tester. It does NOT share files with computer_* and may use Oracle or fall back only to the dedicated computer hub with this selected model's isolated session. Use sandbox_clone/sandbox_exec there only when isolation is useful; sandbox_push publishes only that temporary workspace. Never confuse it with the persistent computer.",
@@ -823,6 +824,12 @@ async function runToolInner(call: CoderToolCall, ctx: ToolCtx): Promise<string> 
       if (!r.ok) return `error: ${r.error}`;
       const p = S.publicSchedule(r.schedule, "ar");
       return `scheduled ${r.schedule.id}: ${p.describe} (${r.schedule.tz})${r.schedule.next_run_at ? `; first run ${localTime(r.schedule.next_run_at, r.schedule.tz)}` : ""}${r.hook ? `; ${r.hook.note}` : ""}. It runs by itself and reports in this chat.`;
+    }
+    if (name === "conversation_search") {
+      if (!ctx.userId) return "error: earlier conversations are not available here";
+      if (ctx.memory?.recall === false) return "error: long-term memory is switched off in the user's settings; do not try to use it, just answer from this conversation";
+      const { searchConversations } = await import("@/lib/coderMemory");
+      return clip(await searchConversations(ctx.memoryChatId ?? ctx.userId, String(a.query || ""), Number(a.count) || 4, ctx.db));
     }
     if (name === "memory_save" || name === "memory_search" || name === "memory_forget") {
       if (!ctx.userId) return "error: memory is not available here";
@@ -1301,7 +1308,7 @@ const FRIENDLY: Record<string, [string, string]> = {
   fetch_page: ["🌐", "قراءة صفحة"], web_fetch: ["🌐", "قراءة صفحة"], deep_research: ["🧭", "بحث معمّق"],
 sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_push: ["📤", "إرسال التعديلات من الحاسوب إلى GitHub"], computer_publish: ["📤", "إرسال كل التعديلات إلى GitHub بكوميت واحد"], computer_edit: ["✏️", "تعديل ملف"], computer_patch: ["🩹", "تطبيق تعديلات على الملفات"], computer_test: ["🧪", "تشغيل الاختبارات"], computer_tools: ["🧰", "أدوات الحاسوب"], computer_batch: ["⚡", "عدة خطوات على الحاسوب دفعة واحدة"], computer_repo: ["📥", "جلب مستودع"], computer_search: ["🔎", "بحث في الملفات"], computer_run: ["▶️", "تشغيل أمر"], computer_job: ["⏳", "مهمة خلفية"], computer_write: ["📝", "كتابة ملف"], computer_read: ["📖", "قراءة ملف"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], recall: ["🧠", "استرجاع ما قُرئ سابقاً"], plan: ["📋", "تحديث خطة المهمة"], memory_note: ["🗒️", "تدوين ملاحظة"], ask_user: ["❓", "سؤال للمستخدم"], schedule_create: ["⏰", "جدولة مهمة"], schedule_list: ["📋", "عرض المهام المجدولة"], schedule_delete: ["🗑️", "حذف مهمة مجدولة"],
-  memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
+  memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], conversation_search: ["🧠", "بحث في المحادثات السابقة"], memory_forget: ["🧠", "نسيان ذكرى"],
 load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };
 
