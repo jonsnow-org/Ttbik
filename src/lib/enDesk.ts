@@ -16,6 +16,60 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "ustr-section301-14-economies-proposed-tariffs-2026",
+  "title": "US proposes new tariffs on imports from 14 economies",
+  "date": "25 November 2026",
+  "contextDateLabel": "USTR release: 25 November 2026 (no publication time displayed); Guardian live updates: 25 November 2026, 15:04–15:54 CET (17:04–17:54 Istanbul); Sham AI item date: 25 November 2026.",
+  "dek": "The US Trade Representative announced findings in 14 Section 301 investigations and proposed additional tariffs that vary by economy and product. The measures remain proposals for public comment, not tariffs currently in force.",
+  "body": [
+    "On 25 November 2026, the Office of the United States Trade Representative (USTR) announced determinations under Section 301 of the Trade Act of 1974 concerning practices linked to structural excess capacity and manufacturing in 14 economies: China, the European Union, Singapore, Switzerland, Indonesia, Malaysia, Cambodia, Thailand, Korea, Vietnam, Taiwan, Bangladesh, Japan and India. USTR said it had not made determinations on Mexico or Norway at this stage.",
+    "USTR proposed considering additional duties that vary by economy and product, with exemptions and adjustments for some existing duties. Examples include a proposed 15% rate on EU goods, net of most-favoured-nation rates and existing Section 301 tariffs, and rates of up to 20% on some Chinese goods. These are not uniform rates for every product or shipment.",
+    "The measures are proposals open to public comment, not tariffs that took effect with the announcement. USTR set 5 January 2027 as the deadline for written comments and requests to appear at hearings; hearings on the proposed actions are scheduled to begin on 25 January 2027.",
+    "The European Commission said it would study the findings but strongly rejected the premise that Europe is a source of structural overcapacity. It also said it expected the 15% all-inclusive ceiling in the US-EU joint statement to be respected. The Guardian reported the Commission's response in a 25 November update; this is the EU's attributed position, not an independent assessment of the US allegations.",
+    "Publication dates: the USTR release is dated 25 November 2026 and displays no publication time; the Guardian's live updates ran from 15:04 to 15:54 CET (17:04–17:54 Istanbul) on 25 November. Sham AI item date: 25 November 2026."
+  ],
+  "sources": [
+    {
+      "href": "https://www.ustr.gov/about/policy-offices/press-office/press-releases/2026/november/ustr-makes-determinations-and-proposes-actions-14-section-301-investigations-relating-structural",
+      "label": "Office of the US Trade Representative — Section 301 determinations and proposed actions in 14 investigations, 25 November 2026"
+    },
+    {
+      "href": "https://www.theguardian.com/world/live/2026/nov/25/ukraine-russia-energy-strikes-mark-rutte-donald-trump-friedrich-merz-germany-latest-news-updates",
+      "label": "The Guardian — European Union response to the US proposals, live updates on 25 November 2026"
+    }
+  ]
+},
+
+{
+  "slug": "us-gdp-43-percent-pce-inflation-october-2026",
+  "title": "US GDP grows at a 4.3% annual rate in Q3 as October PCE inflation reaches 3.8%",
+  "date": "25 November 2026",
+  "contextDateLabel": "BEA releases: 25 November 2026, 08:30 EST (13:30 UTC; 16:30 Istanbul); AP report: 25 November 2026 (the page does not display a publication time); Sham AI item date: 25 November 2026.",
+  "dek": "The Bureau of Economic Analysis raised its estimate of real GDP growth to a 4.3% annual rate in the third quarter, while the PCE price index rose 3.8% year over year in October and the core index rose 3.3%. The figures cover different periods.",
+  "body": [
+    "At 08:30 EST on 25 November 2026, the US Bureau of Economic Analysis (BEA) released its second estimate of gross domestic product. Real GDP grew at a 4.3% annual rate in the third quarter, July through September, revised up from the advance estimate of 3.4%, compared with 2.2% growth in the second quarter. The annualized rate is not a direct quarter-to-quarter percentage change.",
+    "In a separate release covering October, BEA said the Personal Consumption Expenditures (PCE) price index rose 0.3% month over month and 3.8% from a year earlier. The core index, excluding food and energy, rose 0.3% monthly and 3.3% year over year. The GDP period is the third quarter; the price data cover October.",
+    "BEA attributed the GDP revision to higher estimates for investment and consumer spending, alongside an increase in government spending that was partly offset by lower exports. Real final sales to private domestic purchasers increased at a 5.8% annual rate. The Associated Press reported that nonresidential fixed investment rose 16.1% in the quarter, including stronger spending on equipment and intellectual property such as software.",
+    "The Associated Press said annual core inflation was at its highest level in three years and reported that markets fell amid doubts about the scale of spending on AI infrastructure. That is reporting on market reaction, not a Federal Reserve decision; the BEA releases did not announce a change in interest rates.",
+    "The two official releases were published on 25 November 2026 at 08:30 EST (13:30 UTC; 16:30 Istanbul). GDP covers the third quarter of 2026; the PCE price data cover October 2026. The AP report is dated 25 November 2026 and displays no publication time."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bea.gov/news/2026/gdp-second-estimate-and-corporate-profits-3rd-quarter-2026",
+      "label": "US Bureau of Economic Analysis — GDP Second Estimate and Corporate Profits, 3rd Quarter 2026, 25 November 2026"
+    },
+    {
+      "href": "https://bea.gov/news/2026/personal-income-and-outlays-october-2026",
+      "label": "US Bureau of Economic Analysis — Personal Income and Outlays, October 2026, 25 November 2026"
+    },
+    {
+      "href": "https://apnews.com/article/consumer-spending-prices-inflation-tariffs-31fab1e32dda1ad3a29c192f620d5733",
+      "label": "Associated Press — Inflation remains high in October as economic growth accelerates, 25 November 2026"
+    }
+  ]
+},
+
+{
   "slug": "gaza-meningitis-epidemic-alert-2026",
   "title": "Gaza issues meningitis epidemic alert after 272 cases were reported in October",
   "date": "24 November 2026",
@@ -888,7 +942,7 @@ export const EN_EVENTS: DeskItem[] = [
     "WHO lists the 2026 16 Days of Activism against Gender-Based Violence campaign among its events for 25 November to 10 December 2026. It begins on the International Day for the Elimination of Violence against Women and ends on Human Rights Day.",
     "UN Women's official 2026 concept note sets the global theme: 'UNiTE to End Violence Against Women and Girls: Ensure Justice, Protect Survivors, End Impunity.'",
     "The campaign is global and multi-country, not a single venue-based conference. Local organizations may hold different events during the period; WHO's listing gives no single start time or time zone.",
-    "Status as of 24 November 2026: upcoming; it begins the following day, 25 November, and runs through 10 December. Location: global. No unified time has been published.",
+    "Status as of 25 November 2026: underway; the campaign continues through 10 December. Location: global and multi-country. No single start time or time zone has been published.",
     "Campaign period: 25 November–10 December 2026. This is the global campaign window, not a common timetable for every local activity."
   ],
   "sources": [
@@ -915,7 +969,7 @@ export const EN_EVENTS: DeskItem[] = [
       "The official festival schedule confirms that the 57th International Film Festival of India takes place in Goa from 20 to 28 November 2026. The opening ceremony is scheduled for 20 November at 17:00 at the Dr. Shyama Prasad Mukherjee Indoor Stadium in Panjim; the closing ceremony is scheduled at the same venue on 28 November at 17:00.",
       "On 21 November, the schedule listed the opening of the Indian Panorama section at INOX Panjim Audi 2 at 11:30. Screenings began at 12:15, with Becoming as the section's non-feature opening film and Dhurandhar as its feature opening film.",
       "The Indian Panorama opening should not be confused with the opening of the festival as a whole: the main festival opening film on 20 November was Fatherland. The official schedule also says timings may change, so visitors should check the latest version before attending a specific screening.",
-      "Location: Goa, India. Dates: 20–28 November 2026. Local time: India Standard Time (IST, UTC+5:30). Status on 22 November: ongoing."
+      "Location: Goa, India. Dates: 20–28 November 2026. Local time: India Standard Time (IST, UTC+5:30). Status on 25 November 2026: ongoing; screenings continue through 28 November."
     ],
     "sources": [
       {
