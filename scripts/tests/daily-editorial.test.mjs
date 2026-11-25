@@ -650,9 +650,75 @@ test("16 Days campaign is upcoming and then current only within its official dat
   assert.match(arabic.paragraphs.join(" "), /لا تعلن.*ساعة بداية موحدة/);
   assert.match(english.body.join(" "), /no single start time or time zone/i);
   assert.match(arabic.paragraphs.join(" "), /ضمان العدالة، حماية الناجيات، وإنهاء الإفلات من العقاب/);
+  assert.match(arabic.paragraphs.join(" "), /الحالة بتاريخ 25 نوفمبر 2026: جارية/);
+  assert.match(english.body.join(" "), /Status as of 25 November 2026: underway/i);
+  assert.doesNotMatch(arabic.paragraphs.join(" "), /الحالة بتاريخ 24 نوفمبر 2026: قادمة/);
+  assert.doesNotMatch(english.body.join(" "), /Status as of 24 November 2026: upcoming/i);
   assert.match(english.body.join(" "), /Ensure Justice, Protect Survivors, End Impunity/);
 });
 
+
+
+test("25 November Section 301 tariff measures are bilingual and clearly remain proposals", () => {
+  const slug = "ustr-section301-14-economies-proposed-tariffs-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic USTR briefing is missing");
+  assert.ok(english, "English USTR briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-25");
+  assert.equal(english.date, "25 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.ok(arabic.sources.some((source) => source.href.includes("ustr.gov")));
+  assert.ok(arabic.sources.some((source) => source.href.includes("theguardian.com/world/live/2026/nov/25")));
+  assert.match(arabic.description, /مقترح/);
+  assert.match(arabic.paragraphs.join(" "), /ليست رسوماً نافذة/);
+  assert.match(english.dek, /proposals/i);
+  assert.match(english.body.join(" "), /not tariffs that took effect/i);
+  assert.match(arabic.contextDateLabel, /15:04–15:54 CET/);
+  assert.match(english.contextDateLabel, /15:04–15:54 CET/);
+});
+
+test("25 November BEA releases keep annualized Q3 GDP and October PCE periods distinct", () => {
+  const slug = "us-gdp-43-percent-pce-inflation-october-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic BEA briefing is missing");
+  assert.ok(english, "English BEA briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-25");
+  assert.equal(english.date, "25 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  for (const url of ["bea.gov/news/2026/gdp-second-estimate", "bea.gov/news/2026/personal-income-and-outlays-october-2026", "apnews.com/article/consumer-spending-prices-inflation-tariffs"]) {
+    assert.ok(arabic.sources.some((source) => source.href.includes(url)), "Missing source " + url);
+  }
+  assert.match(arabic.paragraphs.join(" "), /معدل سنوي 4\.3%/);
+  assert.match(english.body.join(" "), /4\.3% annual rate/i);
+  assert.match(arabic.paragraphs.join(" "), /3\.8%/);
+  assert.match(english.body.join(" "), /3\.8%/);
+  assert.match(arabic.paragraphs.join(" "), /3\.3%/);
+  assert.match(english.body.join(" "), /3\.3%/);
+  assert.match(arabic.paragraphs.join(" "), /الربع الثالث.*أكتوبر|أكتوبر.*الربع الثالث/);
+  assert.match(english.body.join(" "), /third quarter.*October|October.*third quarter/i);
+});
+
+
+test("IFFI in Goa remains current on 25 November and ends on 28 November", () => {
+  const slug = "iffi-goa-2026";
+  const arabic = EVENT_EXTRAS.find((event) => event.slug === slug);
+  const english = EN_EVENTS.find((event) => event.slug === slug);
+  assert.ok(arabic, "Arabic IFFI event is missing");
+  assert.ok(english, "English IFFI event is missing");
+  assert.equal(arabic.dateIso, "2026-11-20");
+  assert.equal(arabic.endDateIso, "2026-11-28");
+  assert.equal(english.date, "2026-11-20");
+  assert.equal(english.endDate, "2026-11-28");
+  assert.equal(isEventCurrent(arabic, "2026-11-25"), true);
+  assert.equal(isEventCurrent(arabic, "2026-11-28"), true);
+  assert.equal(isEventUpcomingOrCurrent(arabic, "2026-11-29"), false);
+  assert.match(arabic.paragraphs.join(" "), /الحالة بتاريخ 25 نوفمبر 2026: جارٍ/);
+  assert.match(english.body.join(" "), /Status on 25 November 2026: ongoing/i);
+});
 
 test("24 November Gaza meningitis alert keeps Ministry and OCHA surveillance windows distinct in both languages", () => {
   const slug = "gaza-meningitis-epidemic-alert-2026";
