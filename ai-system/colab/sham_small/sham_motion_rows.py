@@ -25,6 +25,34 @@ def embedding(model) -> torch.Tensor:
     return model.token_embedding.weight
 
 
+def ensure_rows(model) -> bool:
+    """A Sham v2 checkpoint built before the motion range existed has an embedding that stops at the special tokens (motion is APPENDED at the end of
+    the vocabulary, see model.py): every motion id then indexes past the table (IndexError in token_embedding). Append the missing motion rows,
+    deterministically (fixed seed, the init scale of the existing rows), tied to the output layer exactly as the model ties them. -> True when grown.
+    The trainer and serving both call this BEFORE the fingerprint, so both see the same untouched base rows. Rows below the motion base are never touched."""
+    base, n = _range()
+    w = embedding(model)
+    have = w.shape[0]
+    if have >= base + n:
+        return False
+    if have < base:
+        raise ValueError(f"the model's embedding has {have} rows but the special-token range alone ends at {base}: a different vocabulary layout "
+                         f"(SHAM_TEXT_VOCAB mismatch), motion rows cannot be appended")
+    g = torch.Generator().manual_seed(20261125)
+    std = float(w[:base].detach().float().std()) or 0.02
+    extra = (torch.randn(base + n - have, w.shape[1], generator=g) * std).to(device=w.device, dtype=w.dtype)
+    new = torch.nn.Parameter(torch.cat([w.detach(), extra]), requires_grad=w.requires_grad)
+    model.token_embedding.weight = new
+    model.token_embedding.num_embeddings = base + n
+    if getattr(model.cfg, "tie_embeddings", True):
+        model.lm_head.weight = new
+    else:
+        model.lm_head.weight = torch.nn.Parameter(torch.cat([model.lm_head.weight.detach(), extra]), requires_grad=model.lm_head.weight.requires_grad)
+    model.lm_head.out_features = base + n
+    model.cfg.vocab_size = base + n
+    return True
+
+
 def rows_fingerprint(model) -> str:
     """Hash of the model's current motion rows (identifies the base checkpoint the rows were trained on)."""
     base, n = _range()
@@ -54,6 +82,7 @@ def apply(model, ckpt_dir, motion_tokenizer_path) -> dict:
     try:
         d = torch.load(str(p), map_location="cpu", weights_only=False)
         base, n = _range()
+        ensure_rows(model)
         w = embedding(model)
         rows = d["rows"]
         if d.get("base") != base or d.get("n") != n or tuple(rows.shape) != (n, w.shape[1]):

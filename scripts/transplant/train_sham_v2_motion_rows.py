@@ -83,9 +83,19 @@ def encode_clip(frames: torch.Tensor, image_tok, motion_tok) -> tuple[list[int],
     return image_token_id_to_vocab_id(key.view(-1)).tolist(), motion_token_id_to_vocab_id(flow.reshape(-1)).tolist()
 
 
+def check_ids(model, seqs, what: str) -> None:
+    """Every id must index the embedding: fail loudly with the offending range instead of a bare IndexError deep in token_embedding."""
+    rows = model.token_embedding.weight.shape[0]
+    hi = max(max(ids) for ids, _ in seqs) if seqs else 0
+    lo = min(min(ids) for ids, _ in seqs) if seqs else 0
+    if lo < 0 or hi >= rows:
+        raise ValueError(f"{what}: token ids span [{lo}, {hi}] but the embedding has {rows} rows (vocab layout mismatch)")
+
+
 def read(model, seqs) -> tuple[torch.Tensor, torch.Tensor]:
     """Hidden states at every motion-predicting position + their target codes (0..1023), over all sequences."""
     from model import MOTION_VOCAB_BASE
+    check_ids(model, seqs, "read")
     hs, ys = [], []
     for ids, first in seqs:
         h = hidden_states(model, ids)
@@ -251,6 +261,20 @@ def selftest() -> int:
     (d / "motion_tokenizer.pt").write_bytes(b"m")
     R.save(d / R.FILE, rows, rep["base_rows_fp"], R.file_sha(d / "motion_tokenizer.pt"), rep)
     assert R.apply(model, d, d / "motion_tokenizer.pt")["motion_rows"] == "trained"
+    # a checkpoint that predates the motion range (embedding stops at the special tokens): grown deterministically, then the held-out read works
+    old = ShamSmall(ShamSmallConfig(vocab_size=MOTION_VOCAB_BASE, d_model=48, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=96, max_seq_len=2048)).eval()
+    try:
+        read(old, seqs[20:])
+        raise AssertionError("a short embedding must be refused")
+    except ValueError:
+        pass
+    assert R.ensure_rows(old) and old.token_embedding.weight.shape[0] == TOTAL_VOCAB_SIZE and old.lm_head.weight is old.token_embedding.weight
+    old2 = ShamSmall(ShamSmallConfig(vocab_size=MOTION_VOCAB_BASE, d_model=48, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=96, max_seq_len=2048)).eval()
+    old2.load_state_dict({k: v for k, v in old.state_dict().items() if k not in ("token_embedding.weight", "lm_head.weight")} | {
+        "token_embedding.weight": old.token_embedding.weight[:MOTION_VOCAB_BASE].detach().clone(), "lm_head.weight": old.token_embedding.weight[:MOTION_VOCAB_BASE].detach().clone()})
+    R.ensure_rows(old2)
+    assert R.rows_fingerprint(old2) == R.rows_fingerprint(old), "the appended rows must be identical every time"
+    read(old, seqs[20:])
     print("train_sham_v2_motion_rows self-test OK", json.dumps({**{k: rep[k] for k in ("untrained_nll", "trained_nll", "unigram_nll")}, "fit_context_nll": round(got, 3), "fit_unigram_nll": round(uni, 3)}))
     return 0
 
@@ -287,6 +311,9 @@ def main() -> int:
     t0 = time.time()
     model, step, _ = load_checkpoint(str(ck))
     model = model.float().eval()
+    import sham_motion_rows as _R
+    if _R.ensure_rows(model):                                   # a checkpoint that predates the motion range: append the (deterministic) motion rows
+        print(f"appended the missing motion rows: embedding now {_R.embedding(model).shape[0]} rows", flush=True)
     for p in model.parameters():
         p.requires_grad_(False)
     print(f"loaded {ck.name} (step {step}) in {time.time() - t0:.0f}s; d_model={model.cfg.d_model}", flush=True)
