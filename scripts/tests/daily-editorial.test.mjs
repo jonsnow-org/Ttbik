@@ -675,8 +675,8 @@ test("25 November Section 301 tariff measures are bilingual and clearly remain p
   assert.match(arabic.paragraphs.join(" "), /ليست رسوماً نافذة/);
   assert.match(english.dek, /proposals/i);
   assert.match(english.body.join(" "), /not tariffs that took effect/i);
-  assert.match(arabic.contextDateLabel, /15:04–15:54 CET/);
-  assert.match(english.contextDateLabel, /15:04–15:54 CET/);
+  assert.match(arabic.contextDateLabel, /09:04–09:54 EST/);
+  assert.match(english.contextDateLabel, /09:04–09:54 EST/);
 });
 
 test("25 November BEA releases keep annualized Q3 GDP and October PCE periods distinct", () => {
