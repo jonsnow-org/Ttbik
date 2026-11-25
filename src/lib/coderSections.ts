@@ -416,6 +416,11 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
     const { handleCoderPaymentMessage } = await import("@/lib/coderStars");
     if (await handleCoderPaymentMessage(bot, update.message, db)) return true;
   }
+  // 🎁 gifting a plan to another user (src/lib/coderGift.ts): /gift, the chosen user, the plan button, the gift's payment
+  if (update.message?.successful_payment || update.message?.users_shared || /^\/gift(?:@\w+)?(?:\s|$)/i.test(String(update.message?.text || "")) || String(update.callback_query?.data || "").startsWith("gift|")) {
+    const { handleGiftUpdate } = await import("@/lib/coderGift");
+    if (await handleGiftUpdate(bot, update, db)) return true;
+  }
   const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
   const owner = fromId !== undefined && tierFor(fromId) === "owner";
   // The model picker must stay reachable even when Nova's own coding Studio is switched off.
