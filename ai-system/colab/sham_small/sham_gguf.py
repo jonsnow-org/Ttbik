@@ -266,14 +266,15 @@ def _build_copy(src, td: str, kind: str, n_params: int, free: int):
     return LlamaCppModel(path, n_ctx=int(src.cfg.max_seq_len), threads=os.cpu_count() or 4), path
 
 
-WHEEL = "runtime_wheels/llama_cpp_python-0.3.38-cp311-cp311-linux_x86_64.whl"     # built by sham-v2-runtime-wheels.yml (glibc; the GitHub CPU index cp311 wheels are musl-linked)
+WHEEL = "runtime_wheels/llama_cpp_python-0.3.38-py3-none-linux_x86_64.whl"     # built by sham-v2-runtime-wheels.yml (glibc; the GitHub CPU index cp311 wheels are musl-linked)
 
 
 def hub_wheel(repo: str | None = None, download=None) -> str | None:
     """The llama-cpp-python wheel from the model's own ModelScope repo (fast from the cn Studio), or None (other Python, no repo, not mirrored yet)."""
     repo = repo if repo is not None else os.environ.get("SHAM_MS_MODEL", "")
     name = os.environ.get("SHAM_GGUF_WHEEL", WHEEL)
-    if not repo or ("cp%d%d" % sys.version_info[:2]) not in name:
+    tag = "-cp%d%d-" % sys.version_info[:2]
+    if not repo or ("-cp" in name and tag not in name):       # a CPython-specific wheel for another Python is never offered (py3-none wheels are)
         return None
     try:
         if download is None:

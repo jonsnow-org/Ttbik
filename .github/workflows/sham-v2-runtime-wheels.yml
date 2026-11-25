@@ -20,7 +20,7 @@ permissions:
 
 env:
   LLAMA_CPP_PYTHON: "0.3.38"
-  WHEEL: llama_cpp_python-0.3.38-cp311-cp311-linux_x86_64.whl
+  WHEEL: llama_cpp_python-0.3.38-py3-none-linux_x86_64.whl
 
 jobs:
   mirror:
