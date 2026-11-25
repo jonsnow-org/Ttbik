@@ -1,4 +1,4 @@
-import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
+import { SHAM_TOOL_NAMES, isEchoOfRequest, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
 import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamGenerateTldm, shamTldmCtx, shamVariant } from "@/lib/shamStudio";
 
@@ -405,6 +405,20 @@ describe("Sham's own agent loop", () => {
     expect(b.kind).toBe("reply");
     const c = await runV1({ text: "مرحبا", ctx, tools, budgetMs: 60000, ask: script([null]) });
     expect(c.kind).toBe("none");
+  });
+  it("Sham Pro: an ask_user that only echoes the user's own request is not sent back as the reply; the body answers it (2026-11-25 live probe)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "أصلحت الأخطاء: كان المتغير غير معرّف." } as any);
+    try {
+      const text = "صلّح الأخطاء في الكود";
+      const seenAsk: string[] = [];
+      const r = await shamVariant.run("v2", () => shamAgentRun({ text, ctx, tools: shamToolDefs(false), budgetMs: 60000,
+        agentAsk: script([say(`<tool_call>{"name":"ask_user","arguments":{"question":"${text}؟"}}</tool_call>`)], seenAsk) }));
+      expect(seenAsk.length).toBe(1);
+      expect(r).toMatchObject({ kind: "text", text: "أصلحت الأخطاء: كان المتغير غير معرّف." });
+      expect(isEchoOfRequest("ما الفرق بين بايثون وجافاسكربت؟", "ما الفرق بين بايثون وجافاسكربت؟")).toBe(true);
+      expect(isEchoOfRequest("أي مستودع؟", "صلّح الأخطاء")).toBe(false);
+    } finally { chat.mockRestore(); }
   });
   it("stops at the step limit and asks for the final answer without tools", async () => {
     const tools = shamToolDefs(false), seen: string[] = [];

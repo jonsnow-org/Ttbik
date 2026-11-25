@@ -45,6 +45,13 @@ function isCapabilityQuestion(text: string): boolean {
   return /(?:هل\s+(?:لديك|عندك)\s+(?:خبرة|معرفة|قدرة|مهارة)|(?:ماذا|ما)\s+(?:(?:الذي\s+)?(?:تستطيع|تتقن|تفعل|وظيفتك|قدراتك)|تقدر|تجيد)|(?:تستطيع|تقدر|تجيد)\s+(?:البرمجة|الكود|الشرح))/i.test(t);
 }
 
+/** The text only repeats the user's request (same words, punctuation and spacing aside). */
+export function isEchoOfRequest(text: string, request: string): boolean {
+  const norm = (x: string) => String(x || "").normalize("NFKC").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[\s\p{P}\p{S}]+/gu, "").toLocaleLowerCase("ar");
+  const a = norm(text), b = norm(request);
+  return Boolean(a && b && (a === b || (a.length >= 6 && b.includes(a) && a.length >= b.length * 0.8)));
+}
+
 export async function shamAgentRun(opts: {
   text: string;
   history?: { q: string; a: string }[];
@@ -567,6 +574,15 @@ export async function shamAgentRun(opts: {
     if (asked) {
       let q = "";
       try { q = String((JSON.parse(asked.function.arguments || "{}") as { question?: string }).question || ""); } catch { /* the validator already checked it */ }
+      // live repeat probe 2026-11-25: «ما الفرق بين بايثون وجافاسكربت؟» came back as ask_user with the user's OWN question, i.e. the user's words echoed as
+      // Sham Pro's reply. An echo is not a clarifying question: Sham Pro's body answers the request directly (same model, same Studio).
+      if (v2 && isEchoOfRequest(q, opts.text) && left() > 4000) {
+        const turns = shamDirectChatMessages(opts.history, opts.text);
+        if (lastUserContent(turns) !== opts.text) turns.push({ role: "user", content: opts.text });
+        const said = await shamModeCtx.run(effMode, () => shamGenerateChat(turns, maxNew, Math.max(1000, Math.min(opts.askMs ?? 90000, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true }));
+        const text = said?.type === "text" ? String(said.text || "").trim() : "";
+        if (text && !isEchoOfRequest(text, opts.text)) return { kind: "text", text, used, steps: steps + 1 };
+      }
       return { kind: "ask", question: q, used, steps: steps + 1 };
     }
     const write = valid.find((c) => shamNeedsOk(c));
