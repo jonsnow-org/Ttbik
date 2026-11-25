@@ -10,6 +10,8 @@
  *                    (`can_connect_to_business`) is switched by the owner in @BotFather (Secretary Mode); the panel shows what getMe reports.
  *  - The invite link: the owner can invite up to 10 people at once into a private chat with the bot (t.me/botinvite/<bot>).
  *
+ *  - Promotion supervisor (`tg_promo`: off | owner) — the bot posts promos for OUR projects into groups it is a member of (src/lib/promoSupervisor.ts). Owner only.
+ *
  * Every default is OFF except rich messages for the owner's own chats. A refusal from Telegram is returned to the panel as the real error, never hidden.
  */
 import { prismaDb, type Db } from "@/lib/coderAuth";
@@ -24,35 +26,38 @@ export const TG_SETTINGS = ["has_topics_enabled", "allows_users_to_create_topics
 export type TgSetting = (typeof TG_SETTINGS)[number];
 
 const TTL = 20000;
-let cache: { at: number; rich: Audience | null; guest: Audience; business: Audience } = { at: 0, rich: null, guest: "off", business: "off" };
+let cache: { at: number; rich: Audience | null; guest: Audience; business: Audience; promo: Audience } = { at: 0, rich: null, guest: "off", business: "off", promo: "off" };
 
 async function table(db: Db): Promise<void> {
   await db.exec(`CREATE TABLE IF NOT EXISTS coder_flags (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
 }
 
 /** Reads the stored switches (cached 20 s) and pushes the rich-message mode into the sender. Never throws. */
-export async function refreshTgFeatures(db: Db = prismaDb, force = false): Promise<{ rich: Audience | null; guest: Audience; business: Audience }> {
-  if (!force && Date.now() - cache.at < TTL) return { rich: cache.rich, guest: cache.guest, business: cache.business };
+export async function refreshTgFeatures(db: Db = prismaDb, force = false): Promise<{ rich: Audience | null; guest: Audience; business: Audience; promo: Audience }> {
+  if (!force && Date.now() - cache.at < TTL) return { rich: cache.rich, guest: cache.guest, business: cache.business, promo: cache.promo };
   try {
     await table(db);
-    const rows = await db.query<{ key: string; value: string }>(`SELECT key, value FROM coder_flags WHERE key IN ($1, $2, $3)`, "tg_rich", "tg_guest", "tg_business");
+    const rows = await db.query<{ key: string; value: string }>(`SELECT key, value FROM coder_flags WHERE key IN ($1, $2, $3, $4)`, "tg_rich", "tg_guest", "tg_business", "tg_promo");
     let rich: Audience | null = null;
     let guest: Audience = "off";
     let business: Audience = "off";
+    let promo: Audience = "off";
     for (const r of rows) {
       const v = String(r.value || "").trim();
       if (r.key === "tg_rich" && isAudience(v)) rich = v;
       if (r.key === "tg_guest" && isAudience(v)) guest = v;
       if (r.key === "tg_business" && isAudience(v)) business = v;
+      if (r.key === "tg_promo" && (v === "off" || v === "owner")) promo = v;      // owner only: "all" is never honoured
     }
-    cache = { at: Date.now(), rich, guest, business };
+    cache = { at: Date.now(), rich, guest, business, promo };
   } catch { cache = { ...cache, at: Date.now() }; }               // keep the last known values
   setRichOverride(cache.rich as RichMode | null);
-  return { rich: cache.rich, guest: cache.guest, business: cache.business };
+  return { rich: cache.rich, guest: cache.guest, business: cache.business, promo: cache.promo };
 }
 
-export async function setTgAudience(key: "tg_rich" | "tg_guest" | "tg_business", value: Audience, db: Db = prismaDb): Promise<void> {
+export async function setTgAudience(key: "tg_rich" | "tg_guest" | "tg_business" | "tg_promo", value: Audience, db: Db = prismaDb): Promise<void> {
   if (!isAudience(value)) throw new Error("bad value");
+  if (key === "tg_promo" && value === "all") throw new Error("promotion is owner only");
   await table(db);
   await db.exec(`INSERT INTO coder_flags (key, value, updated_at) VALUES ($1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, key, value);
   await refreshTgFeatures(db, true);
@@ -62,6 +67,8 @@ export async function setTgAudience(key: "tg_rich" | "tg_guest" | "tg_business",
 export const guestAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).guest;
 /** Business (Secretary mode) audience: off | owner | all. Default off. */
 export const businessAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).business;
+/** Promotion supervisor: off | owner. Default off. */
+export const promoAudience = async (db: Db = prismaDb): Promise<Audience> => (await refreshTgFeatures(db)).promo;
 
 type RawApi = { raw: Record<string, (p?: Record<string, unknown>) => Promise<unknown>> };
 
@@ -94,4 +101,4 @@ export async function setGuestMode(api: RawApi, mode: Audience, db: Db = prismaD
   await setTgAudience("tg_guest", mode, db);
 }
 
-export const _resetTgFeatures = (): void => { cache = { at: 0, rich: null, guest: "off", business: "off" }; setRichOverride(null); };
+export const _resetTgFeatures = (): void => { cache = { at: 0, rich: null, guest: "off", business: "off", promo: "off" }; setRichOverride(null); };
