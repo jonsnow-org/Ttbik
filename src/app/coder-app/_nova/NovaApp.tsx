@@ -8,6 +8,7 @@
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
 import LinkedAccount from "./LinkedAccount";
+import { SKILL_PRESETS, presetEnabled, presetSchedule } from "@/lib/skillPresets";
 import { syncDeviceMesh } from "./deviceMesh";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
@@ -760,6 +761,7 @@ function Schedules({ c }: { c: Ctx }) {
   const [rows, setRows] = useState<Sched[] | null>(null);
   const [form, setForm] = useState<Sched | "new" | null>(null);
   const [menu, setMenu] = useState<Sched | null>(null);
+  const [adding, setAdding] = useState("");
   const load = useCallback(async () => setRows((await api<{ schedules: Sched[] }>("schedules")).schedules), []);
   useEffect(() => { void load().catch(() => setRows([])); }, [load]);
   const closeForm = useCallback(() => setForm(null), []);
@@ -787,6 +789,24 @@ function Schedules({ c }: { c: Ctx }) {
               after={<span dir="ltr" style={{ display: "inline-flex" }} onClick={(e) => e.stopPropagation()}><Switch checked={!s.paused} aria-label={s.paused ? t.resume : t.pause}
                 onChange={async (e) => { haptic("select"); await api("schedule_pause", { id: s.id, paused: !e.currentTarget.checked }); void load(); }} /></span>} />
           ))}
+        </Card>
+      )}
+      {rows && (
+        <Card title={lang === "ar" ? "⚡ مهارات بنقرة واحدة" : "⚡ One-tap skills"}>
+          {SKILL_PRESETS.filter((p) => !p.needsRepo || me.connections.github.linked).map((p) => {
+            const on = presetEnabled(p, rows.map((r) => r.title));
+            return (
+              <Row key={p.id} icon={p.icon} title={p.title[lang]} sub={p.desc[lang]} chevron={false}
+                badge={on ? <span className="n-chip">✓</span> : undefined}
+                onClick={on || adding ? undefined : async () => {
+                  haptic("light"); setAdding(p.id);
+                  const tz = me.settings.tz || (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } })();
+                  try { await api("schedule_create", presetSchedule(p, lang, tz, me.settings.repo || undefined)); haptic("success"); await load(); }
+                  catch (e: any) { haptic("error"); alert(String(e?.message || e)); }
+                  setAdding("");
+                }} />
+            );
+          })}
         </Card>
       )}
       <Sheet open={!!menu} onClose={closeMenu} title={menu?.title}>

@@ -77,6 +77,26 @@ describe("Telegram feature switches (panel)", () => {
     void db;
   });
 
+  it("a guest answer comes from the caller's OWN model (Sham Pro or Nova), never the other one", async () => {
+    const answers: any[] = [];
+    const api: any = { raw: { answerGuestQuery: async (p: any) => { answers.push(p); return {}; } } };
+    const asked: string[] = [];
+    const answer = async (m: string) => { asked.push(m); return m === "sham_v2" ? "" : "nova says"; };
+    const all = async () => "all" as const;
+    expect(await handleGuestMessage(api, { guest_query_id: "q1", from: { id: 111 }, text: "@NovaBot hi" }, "NovaBot", { audience: all, modelOf: async () => "coder", answer })).toBe("answered");
+    expect(answers[0].result.title).toBe("Nova AI");
+    expect(answers[0].result.input_message_content.message_text).toBe("nova says");
+    // Sham Pro fails: the reply says so, and Nova is NOT asked
+    await handleGuestMessage(api, { guest_query_id: "q2", from: { id: 112 }, text: "@NovaBot hi" }, "NovaBot", { audience: all, modelOf: async () => "sham_v2", answer });
+    expect(asked).toEqual(["coder", "sham_v2"]);
+    expect(answers[1].result.title).toBe("Sham Pro");
+    expect(answers[1].result.input_message_content.message_text).toContain("شام برو");
+    // the model cannot be read: refuse, ask nobody
+    await handleGuestMessage(api, { guest_query_id: "q3", from: { id: 113 }, text: "@NovaBot hi" }, "NovaBot", { audience: all, modelOf: async () => { throw new Error("db"); }, answer });
+    expect(asked).toHaveLength(2);
+    expect(answers[2].result.input_message_content.message_text).toContain("لم أرسل");
+  });
+
   it("the thread of the incoming topic message is added to answers for that chat only", async () => {
     const seen: any[] = [];
     const call = threadTransformer(async (m: string, p: any) => { seen.push([m, p]); return {}; });
