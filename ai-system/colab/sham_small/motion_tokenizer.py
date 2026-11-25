@@ -143,45 +143,67 @@ def _to_grayscale(frames: torch.Tensor) -> torch.Tensor:
     return 0.299 * r + 0.587 * g + 0.114 * b
 
 
-def estimate_flow(prev: torch.Tensor, nxt: torch.Tensor, block: int, steps: int = 3) -> torch.Tensor:
+def estimate_flow(prev: torch.Tensor, nxt: torch.Tensor, block: int, steps: int = 8, refine: bool = True) -> torch.Tensor:
     """Sub-block block-matching optical flow from `prev` to `nxt`.
 
     Both: (batch, 3, H, W) in [-1, 1]. Returns (batch, 2, grid_h, grid_w) where
-    channel 0/1 is the (dy, dx) shift of each block in units of the block size,
-    with `steps` sub-block resolution inside +-1 block (e.g. steps=3 -> +-1 in
-    halves). A real, classical motion estimator (exhaustive-search block
-    matcher with sub-pixel refinement — the standard in codecs since MPEG-1),
-    not a learned network: everything the video decoder does is built on it, so
-    it has to be *right*, not clever.
+    channel 0/1 is the (dy, dx) shift of each block in units of the block size.
+    A real, classical motion estimator (exhaustive-search block matcher with
+    sub-block refinement, the standard in codecs since MPEG-1), not a learned
+    network: everything the video decoder does is built on it, so it has to be
+    *right*, not clever.
 
-    Sub-block resolution matters because real per-frame motion is usually a
-    fraction of a block: an integer-only matcher rounds it to zero and the
-    clip freezes (found by this file's own self-test on a real moving square).
-    """
+    Coarse search: every shift in [-1, +1] block in 1/steps steps. Zero motion is
+    always a candidate and the candidates are tried smallest-first, so a still
+    block stays still (a tie never moves it). Until 2026-11-25 the default was
+    steps=3, whose grid [-1, -1/3, +1/3, +1] has NO zero: every block of every
+    real clip moved by at least 1/3 block (~10 px at 256 px), which is why the
+    trained decoder only tied "repeat the previous frame" on held-out Kinetics
+    clips and the codebook could use at most 16 codes. Refinement: one more
+    +-1/(2*steps) step per block around the coarse best."""
     gray_p = _to_grayscale(prev)
     gray_n = _to_grayscale(nxt)
     batch, _, h, w = gray_p.shape
     gh, gw = h // block, w // block
     base_y = torch.linspace(-1, 1, h, device=prev.device).view(1, h, 1).expand(batch, h, w)
     base_x = torch.linspace(-1, 1, w, device=prev.device).view(1, 1, w).expand(batch, h, w)
-    cand = [(-1 + 2 * i / steps) for i in range(steps + 1)]  # -1 .. +1 block units
+    vals = sorted({round(-1 + 2 * i / steps, 6) for i in range(steps + 1)} | {0.0})
+    cand = sorted(((dy, dx) for dy in vals for dx in vals), key=lambda d: (abs(d[0]) + abs(d[1]), d))
+
+    def block_cost(fy, fx):
+        # fy/fx: per-pixel shift in block units; sample nxt at (p + d): nxt(p + d) ~= prev(p) when d is the motion
+        gy = base_y + fy * (2.0 / gh)
+        gx = base_x + fx * (2.0 / gw)
+        n = F.grid_sample(gray_n, torch.stack([gx, gy], dim=-1), mode="bilinear", padding_mode="border", align_corners=True)
+        return (gray_p - n).abs()[:, 0, : gh * block, : gw * block].reshape(batch, gh, block, gw, block).mean(dim=(2, 4))
+
     best_cost = None
     best_dy = torch.zeros(batch, gh, gw, device=prev.device, dtype=prev.dtype)
     best_dx = torch.zeros(batch, gh, gw, device=prev.device, dtype=prev.dtype)
-    for dy in cand:
-        for dx in cand:
-            # Sample nxt at (p + d): nxt(p + d) ~= prev(p) when d is the motion.
-            gy = base_y + dy * (2.0 / gh)
-            gx = base_x + dx * (2.0 / gw)
-            n = F.grid_sample(gray_n, torch.stack([gx, gy], dim=-1), mode="bilinear",
-                              padding_mode="border", align_corners=True)
-            cost = (gray_p - n).abs().reshape(batch, 1, gh, block, gw, block).mean(dim=(3, 5))[:, 0]
-            if best_cost is None:
-                best_cost = cost
-            better = cost < best_cost
-            best_cost = torch.where(better, cost, best_cost)
-            best_dy = torch.where(better, torch.full_like(best_dy, dy), best_dy)
-            best_dx = torch.where(better, torch.full_like(best_dx, dx), best_dx)
+    for dy, dx in cand:
+        cost = block_cost(dy, dx)
+        if best_cost is None:
+            best_cost = cost
+            continue
+        better = cost < best_cost
+        best_cost = torch.where(better, cost, best_cost)
+        best_dy = torch.where(better, torch.full_like(best_dy, dy), best_dy)
+        best_dx = torch.where(better, torch.full_like(best_dx, dx), best_dx)
+    if refine:
+        half = 1.0 / steps
+        up = lambda t: F.interpolate(t.unsqueeze(1), size=(gh * block, gw * block), mode="nearest")[:, 0]  # noqa: E731
+        pad = lambda t: F.pad(t, (0, w - gw * block, 0, h - gh * block), mode="replicate") if (h != gh * block or w != gw * block) else t  # noqa: E731
+        c_dy, c_dx = best_dy.clone(), best_dx.clone()
+        for ody in (-half, 0.0, half):
+            for odx in (-half, 0.0, half):
+                if ody == 0.0 and odx == 0.0:
+                    continue
+                ty, tx = (c_dy + ody).clamp(-1, 1), (c_dx + odx).clamp(-1, 1)
+                cost = block_cost(pad(up(ty).unsqueeze(1))[:, 0], pad(up(tx).unsqueeze(1))[:, 0])
+                better = cost < best_cost
+                best_cost = torch.where(better, cost, best_cost)
+                best_dy = torch.where(better, ty, best_dy)
+                best_dx = torch.where(better, tx, best_dx)
     return torch.stack([best_dy, best_dx], dim=1)  # (batch, 2, gh, gw)
 
 
