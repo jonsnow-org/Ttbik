@@ -185,6 +185,10 @@
     "sham-v2-motion-tokenizer": {
       "role": "مُرمِّز الحركة لفيديو شام برو (motion_tokenizer.pt بجانب نقطة الحفظ في novaai2026/sham-v2)؛ يُنشر فقط إذا تغلّب على عرض الشرائح على مقاطع محجوزة",
       "writer": "sham_v2_motion_tokenizer"
+    },
+    "sham-v2-runtime-wheels": {
+      "role": "عجلة llama-cpp-python المثبّتة (sha256) داخل novaai2026/sham-v2 تحت runtime_wheels/ لفك ترميز q4_k_m؛ استوديو cn لا يقرأ أصول GitHub",
+      "writer": "sham_v2_runtime_wheels"
     }
   },
   "dynamic_dataset_patterns": [
@@ -1036,6 +1040,16 @@
       "reads": [],
       "writes": [
         "sham-v2-motion-tokenizer"
+      ]
+    },
+    "sham_v2_runtime_wheels": {
+      "file": ".github/workflows/sham-v2-runtime-wheels.yml",
+      "title": "نسخ عجلة llama-cpp-python إلى مستودع شام برو (يُدفع يدويًا)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-v2-runtime-wheels"
       ]
     }
   },
