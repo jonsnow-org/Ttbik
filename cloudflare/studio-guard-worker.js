@@ -7,17 +7,20 @@
 const HOSTS = { cn: "www.modelscope.cn", ai: "www.modelscope.ai" };
 export const STUDIOS = [
   ["cn", "novaai2026", "sham-trainer-1", "train"],
+  // owner 2026-11-25: every trainer runs on cn; the international site is for serving only. ai sham-trainer-1 (Sham's T-LDM writer, ms1) -> cn sham-tldm-writer,
+  // ai sham-trainer-tools (ms3) -> cn sham-trainer-tools. (ai sham-trainer-2 is Nova's computer hub despite its name; sham-runner-1 is the GitHub runner.)
+  ["cn", "novaai2026", "sham-tldm-writer", "train"],
+  ["cn", "novaai2026", "sham-trainer-tools", "train"],
   ["cn", "novaai2026", "sham2-tldm", "train"],
   ["cn", "novaai2026", "sham-donor-qwen35-9b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-gemma4-e4b-test", "warm"],
   ["cn", "novaai2026", "sham-donor-minicpmo45-test", "warm"],
   ["cn", "novaai2026", "sham-v2-server", "warm"],            // chat Studios that keep-warm-chat-studios.yml covers (GitHub drops most of its cron runs)
   ["cn", "novaai2026", "lfm25-inference-server", "warm"],
-  ["ai", "Jonjithup", "sham-trainer-1", "train"],
-  ["ai", "Jonjithup", "sham-trainer-2", "train"],
-  ["ai", "Jonjithup", "sham-trainer-tools", "train"],
+  ["ai", "Jonjithup", "sham-trainer-2", "train"],              // Nova's computer hub despite the name (browserComputer.ts): kept up like a trainer
   ["ai", "Jonjithup", "sham-runner-1", "runner"],
   ["ai", "Jonjithup", "coder-inference-server-16", "warm"],
+  ["ai", "Jonjithup", "nova-tldm-reader", "warm"],             // Nova's own T-LDM reader (owner option 2, 2026-11-25): generate_tldm only
 ];
 
 export function norm(s) {

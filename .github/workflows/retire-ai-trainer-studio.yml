@@ -1,0 +1,51 @@
+name: Retire an international trainer Studio (after its cn replacement runs)
+
+# Owner 2026-11-25: every trainer runs on cn (novaai2026); the international site (Jonjithup) is for serving only, and its 5-Studio limit is needed for Nova's T-LDM reader.
+# Deletes ONE international trainer Studio, and only:
+#   - a name on the allow-list below (the two trainers that moved), never a serving Studio (Nova chat, Nova computer, runner, reader, Sham);
+#   - when its cn replacement exists and is Running (so training never stops);
+#   - when `confirm` repeats the exact name.
+# Training state lives in the published lineages (Kaggle / ModelScope head repos); the cn replacement starts from them. Nothing secret is printed.
+on:
+  workflow_dispatch:
+    inputs:
+      studio:
+        description: "international Studio to delete: sham-trainer-1 | sham-trainer-tools"
+        required: true
+      confirm:
+        description: "type the same name again"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the allow-list and the cn replacement, then delete
+        env:
+          TAI: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          TCN: ${{ secrets.MODELSCOPE_TOKEN }}
+          NAME: ${{ inputs.studio }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -uo pipefail
+          case "$NAME" in
+            sham-trainer-1) CN=sham-tldm-writer ;;
+            sham-trainer-tools) CN=sham-trainer-tools ;;
+            *) echo "::error::$NAME is not an international trainer on the allow-list"; exit 1 ;;
+          esac
+          [ "$CONFIRM" = "$NAME" ] || { echo "::error::confirm must repeat the name"; exit 1; }
+          state() { curl -sS -H "Authorization: Bearer $1" "$2/openapi/v1/studios/$3/$4" | python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print(d.get('status') or d.get('Status') or '')" 2>/dev/null; }
+          cn=$(state "$TCN" https://www.modelscope.cn novaai2026 "$CN")
+          echo "cn replacement $CN: $cn"
+          case "$cn" in Running|running) ;; *) echo "::error::cn replacement $CN is not Running ($cn): nothing deleted"; exit 1 ;; esac
+          ai=$(state "$TAI" https://www.modelscope.ai Jonjithup "$NAME")
+          echo "international $NAME before: ${ai:-absent}"
+          [ -n "$ai" ] || { echo "already gone"; exit 0; }
+          code=$(curl -sS -o del.json -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TAI" "https://www.modelscope.ai/openapi/v1/studios/Jonjithup/$NAME")
+          echo "delete http $code"; head -c 1000 del.json; echo
+          [ "$code" -lt 300 ] || exit 1
+          sleep 10
+          echo "after: $(state "$TAI" https://www.modelscope.ai Jonjithup "$NAME")"

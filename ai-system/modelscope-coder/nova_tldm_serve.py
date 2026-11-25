@@ -163,7 +163,14 @@ def _load_writer(model_path: str = ""):
     if tok_path is None:
         raise RuntimeError("no tokenizer")
     tk = Tokenizer.from_file(str(tok_path))
-    reader = LlamaReader(f"http://127.0.0.1:{EMBED_PORT}")
+    # the head reads the features it was TRAINED on: the 35B's final layer (llama-gguf, the embedding server) or Nova's own token_embd rows (gguf-token-embd,
+    # the cn trainer's head: no server, read from the same GGUF). Serving one with the other reader's features would be a silent wrong answer, so the kind is followed.
+    if str(payload.get("reader") or "") == "gguf-token-embd":
+        from sham_tldm.gguf_embed_reader import GgufEmbedReader
+        sc = payload.get("feature_scale")
+        reader = GgufEmbedReader(model_path, scale=float(sc) if sc else None)
+    else:
+        reader = LlamaReader(f"http://127.0.0.1:{EMBED_PORT}")
     steps, confident = int(cfg.get("diffusion_steps", 10)), float(cfg.get("confident", 0.0))
     encode = lambda text, k: (tk.encode(text).ids[:k] + [0] * k)[:k]               # noqa: E731  (the trainer's encode: ids padded with 0)
 
