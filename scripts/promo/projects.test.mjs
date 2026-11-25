@@ -70,3 +70,10 @@ test("video renderer imports the shared project-name helper used by its title sc
     if (projectLanguage(project) !== "en") assert.ok(projectName(project, "ar"), `${project.id}: Arabic project name`);
   }
 });
+
+
+test("full 16-project production batch has enough time to render videos and all review artifacts", () => {
+  const workflow = fs.readFileSync(".github/workflows/promo-projects.yml", "utf8");
+  const timeout = Number(workflow.match(/^\\s*timeout-minutes:\\s*(\\d+)\\s*$/m)?.[1] || 0);
+  assert.ok(timeout >= 60, `promo-projects make job timeout is ${timeout} minutes; expected at least 60`);
+});
