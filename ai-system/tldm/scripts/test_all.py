@@ -761,6 +761,37 @@ def open_episodes_run_for_real_fit_the_block_and_never_look_like_a_live_suite_ta
         assert live not in tasks
 
 
+@test
+def real_requests_are_executed_verified_only_held_out_and_fit_the_block():
+    import json as _j
+    import random
+    import tempfile
+    import augment as A
+    import real_requests as R
+    rng = random.Random(5)
+    eps = [R.episode(rng) for _ in range(200)]
+    assert len({t for t, _, _ in eps}) > 60, "real-phrased requests must vary"
+    assert not {c["q"] for c in R.ACCEPT} & {t for t, _, _ in eps}
+    assert A.delex("run echo GO_123 in the terminal")[2].get("@T1") == "GO_123"
+    for task, plan, reply_t in eps[:60]:
+        got = R.run_plan(task, plan, reply_t, T.fresh)
+        if got is None:
+            continue                                             # a command the sandbox refuses: dropped, never trained as a success
+        steps, reply = got
+        assert steps[-1][1] == reply and all(tg.startswith("$ ") for _, tg in steps[:-1])
+    case = R.ACCEPT[0]
+    assert R.accept_ok(case, ["echo SHAM_OK"], ["SHAM_OK"], [True], "SHAM_OK")
+    assert not R.accept_ok(case, [], [], [], "SHAM_OK") and not R.accept_ok(case, ["echo SHAM_OK"], ["x"], [False], "SHAM_OK")
+    rows = [{"schema": R.SCHEMA, "verified": True, "success": True, "task": "اعرض الملفات", "steps": [["ls", "a.txt", True]], "ref_reply": "a.txt"},
+            {"schema": R.SCHEMA, "verified": True, "success": True, "task": "x", "steps": [["ls", "", False]], "ref_reply": ""},
+            {"schema": R.SCHEMA, "verified": False, "success": True, "task": "y", "steps": [["ls", "a", True]], "ref_reply": "a"}]
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+        f.write("\n".join(_j.dumps(r, ensure_ascii=False) for r in rows) + "\nnot json\n")
+    got = R.live(f.name)
+    assert got == [("اعرض الملفات", [("ls", "a.txt")], "a.txt")], got
+    assert R.live_steps(got)[0][1] == [([], "$ ls"), ([("ls", "a.txt")], "a.txt")]
+
+
 if __name__ == "__main__":
     failed = 0
     for f in TESTS:

@@ -34,6 +34,7 @@ import rewordings as RW  # noqa: E402
 import trajectories as J  # noqa: E402
 import augment as AUG  # noqa: E402
 import identity as ID  # noqa: E402
+import real_requests as RR  # noqa: E402
 import retention as RT  # noqa: E402
 from sham_tldm.donor import FeatureTLDM  # noqa: E402
 
@@ -99,24 +100,37 @@ class ChatTok:
 
 
 @torch.no_grad()
-def chat_answer(body, ct, q, max_new=40):
-    """Greedy answer of the body itself (KV cache), as the donor chat writes it: the identity check reads the MODEL, never a rewritten reply."""
+def chat_ids(body, ct, q, max_new=40):
+    """Greedy answer ids of the body itself (KV cache). -> (ids, ended): ended = the body wrote its end-of-turn within max_new tokens."""
     body.eval()
     ids = torch.tensor([ct.prompt(q)])
+    max_new = max(0, min(int(max_new), int(getattr(getattr(body, "cfg", None), "max_seq_len", 1 << 30)) - ids.shape[1] - 1))
     logits, _, past = body(ids, use_cache=True)
     out = []
     for _ in range(max_new):
         nxt = int(logits[0, -1].float().argmax())
         if nxt == ct.end:
-            break
+            return out, True
         out.append(nxt)
         logits, _, past = body(torch.tensor([[nxt]]), past_key_values=past, use_cache=True)
-    return ct.dec(out)
+    return out, False
 
 
-def identity_eval(body, ct):
+def chat_answer(body, ct, q, max_new=40):
+    """Greedy answer of the body itself, as the donor chat writes it: the identity check reads the MODEL, never a rewritten reply."""
+    return ct.dec(chat_ids(body, ct, q, max_new)[0])
+
+
+def identity_eval(body, ct, leak=True):
+    """Held-out identity questions must name Sham Pro (never the donor); with leak=True also the share of ORDINARY prompts whose answer announces
+    the name (ID.LEAK_PROMPTS; the live «أنا شام برو on every request» bug). name_leak must stay at the base body's level (0)."""
     rows = [(q, chat_answer(body, ct, q)) for q in ID.HELDOUT]
-    return {"ok": round(sum(ID.identity_ok(a) for _, a in rows) / len(rows), 3), "answers": [[q, a[:200]] for q, a in rows]}
+    res = {"ok": round(sum(ID.identity_ok(a) for _, a in rows) / len(rows), 3), "answers": [[q, a[:200]] for q, a in rows]}
+    if leak:
+        lrows = [(q, chat_answer(body, ct, q, 48)) for q in ID.LEAK_PROMPTS]
+        res["name_leak"] = round(sum(ID.name_leak(a) for _, a in lrows) / len(lrows), 3)
+        res["leaked"] = [[q, a[:160]] for q, a in lrows if ID.name_leak(a)]
+    return res
 
 
 @torch.no_grad()
@@ -145,7 +159,7 @@ def retention_eval(body, ct, base, max_new=48):
     return {"ok": round(sum(r["ok"] for r in rows) / max(1, len(rows)), 3), "rows": rows}
 
 
-def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, replay=True):
+def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, replay=True, replay_max=384):
     """Train ONLY the body's LoRA adapters on data/identity.py (loss on the answer), on the in-memory copy. -> results; the adapters stay in `body`.
     replay (default): every batch also holds RT.PROMPTS answered by the body itself BEFORE the LoRA (self-distillation), so the LoRA learns the name
     without forgetting facts or the tool-call format (live 2026-11-18: identity-only LoRA answered Brussels for Syria and dropped computer_run)."""
@@ -165,13 +179,20 @@ def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, repla
     rx, base = [], {}
     if replay:
         t1 = time.time()
-        for q in list(RT.PROMPTS) + list(RT.CHECKS):
-            base[q] = chat_answer(body, ct, q, 48)        # the body's own answer, no LoRA yet (adapter_up = 0)
+        full, cut = 0, 0
         for q in RT.PROMPTS:
-            pr, t = ct.prompt(q), ct.enc(base[q]) + ([ct.end] if ct.end is not None else [])
+            # 2026-11-25: FULL-length self-answers (until the body's own end-of-turn, up to replay_max tokens). Before, every replay answer was cut at 48 tokens
+            # and still given the end-of-turn token, so the LoRA learned to stop mid-answer. A cut answer (rare) keeps its tokens but gets no end-of-turn.
+            ids_q, ended = chat_ids(body, ct, q, int(replay_max))
+            base[q] = ct.dec(ids_q)
+            full, cut = full + int(ended), cut + int(not ended)
+            t = list(ids_q) + ([ct.end] if (ended and ct.end is not None) else [])
+            pr = ct.prompt(q)
             if t:
                 rx.append((pr + t, [-100] * len(pr) + t))
-        log(f"retention replay: {len(rx)} self-answers read in {time.time() - t1:.0f}s")
+        for q in RT.CHECKS:
+            base[q] = chat_answer(body, ct, q, 48)        # held-out checks: only words are compared
+        log(f"retention replay: {len(rx)} full self-answers ({full} ended, {cut} hit {replay_max} tokens) read in {time.time() - t1:.0f}s")
     opt = torch.optim.AdamW(ad, lr=lr, weight_decay=0.0)
     body.train()
     t0 = time.time()
@@ -181,12 +202,14 @@ def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, repla
             pick = rng.sample(ex, min(half, len(ex))) + rng.sample(rx, min(batch - half, len(rx)))
         else:
             pick = rng.sample(ex, min(batch, len(ex)))
-        n = max(len(x) for x, _ in pick)
-        ids = torch.tensor([x + [0] * (n - len(x)) for x, _ in pick])
-        lab = torch.tensor([y + [-100] * (n - len(y)) for _, y in pick])
+        # one example at a time, gradients accumulated: full-length replay answers (up to replay_max tokens) padded into one batch with a 150k-vocab logits
+        # tensor would not fit next to the 2B body on the 8 GB trainer Studio
         opt.zero_grad(set_to_none=True)
-        _, loss = body(ids, labels=lab)
-        loss.float().backward()
+        loss = 0.0
+        for x, y in pick:
+            _, li = body(torch.tensor([x]), labels=torch.tensor([y]))
+            (li.float() / len(pick)).backward()
+            loss += float(li) / len(pick)
         torch.nn.utils.clip_grad_norm_(ad, 1.0)
         opt.step()
         if step % 10 == 0 or step == steps - 1:
@@ -195,7 +218,9 @@ def identity_lora(body, ct, steps=80, lr=2e-4, batch=4, seed=0, log=print, repla
     for p in body.parameters():
         p.requires_grad = False
     after = {"identity": identity_eval(body, ct), "general_nll": general_nll(body, ct)}
-    log(f"identity after LoRA: {after['identity']['ok']} (general nll {after['general_nll']})")
+    log(f"identity after LoRA: {after['identity']['ok']} (general nll {after['general_nll']}); name leak on ordinary prompts {before['identity'].get('name_leak')} -> {after['identity'].get('name_leak')}")
+    leak_b, leak_a = before["identity"].get("name_leak", 0.0), after["identity"].get("name_leak", 0.0)
+    after["name_leak_ok"] = bool(leak_a <= leak_b)
     if replay:
         after["retention"] = retention_eval(body, ct, base)
         log(f"retention after LoRA: {after['retention']['ok']} (held-out facts / tool call still as the base answered)")
@@ -416,6 +441,74 @@ def load_loop_extra(path, encode, ln, block, cap=3000, share=0.2, base_rows=0, s
     return xs, ys, len(rows)
 
 
+def real_data(tk_encode, cfg, episodes, term_factory, live_path="", seed=11, log=print):
+    """Agent-loop views from REAL requests (data/real_requests.py): real-phrased requests EXECUTED on the model's computer (kept only when every command
+    succeeded) + the model's own verified successful turns from the experience log (live_path). Targets longer than the loop block are skipped (never
+    trained as a cut reply). -> (xs, ys, info)."""
+    rng = random.Random(seed)
+    n, block = int(cfg["loop_in_len"]), int(cfg["loop_block"])
+    eps, kept, dropped = [], 0, 0
+    for _ in range(int(episodes)):
+        task, plan, reply_t = RR.episode(rng)
+        got = RR.run_plan(task, plan, reply_t, term_factory)
+        if got is None:
+            dropped += 1
+            continue
+        kept += 1
+        eps.append((task, got[0]))
+    live = RR.live_steps(RR.live(live_path)) if live_path else []
+    eps += live
+    xs, ys, skipped = [], [], 0
+    for task, steps in eps:
+        for hist, tgt in steps:
+            dt, dh, slots = J.delex_view(task, hist, True)
+            t = AUG.apply_slots(tgt, slots)
+            if len(t.encode("utf-8")) > block:
+                skipped += 1
+                continue
+            xs.append(loop_ids(tk_encode, dt, dh, n))
+            ys.append(encode_bytes(t, block))
+    info = {"executed_kept": kept, "executed_dropped": dropped, "live_turns": len(live), "views": len(xs), "skipped_long": skipped}
+    log(f"real requests: {kept} executed episodes kept ({dropped} failed and dropped), {len(live)} live verified turns -> {len(xs)} loop views")
+    return xs, ys, info
+
+
+def real_acceptance(head, reader, tk_encode, cfg, term_factory, max_steps=4):
+    """The acceptance test on REAL prompts (RR.ACCEPT, never trained on), run like serving runs the loop head on the model's computer:
+    write a block; "$ cmd" runs, anything else is the reply. Pass = RR.accept_ok (commands ran and succeeded, no unfilled slot, the expected output / file is real)."""
+    n = int(cfg["loop_in_len"])
+    rows = []
+    for case in RR.ACCEPT:
+        term, hist, cmds, outs, oks, reply = term_factory(), [], [], [], [], ""
+        try:
+            for _ in range(max_steps):
+                dt, dh, slots = J.delex_view(case["q"], hist, True)
+                h, pad = reader.feats([loop_ids(tk_encode, dt, dh, n)], n)
+                out, _ = head.generate(h, pad, steps=int(cfg["diffusion_steps"]), confident=float(cfg.get("confident", 0.0)))
+                text = AUG.relex(decode_bytes(out[0].tolist()), slots)
+                if not text.startswith("$ "):
+                    reply = text
+                    break
+                cmd = text[2:].strip()
+                r = term.run(cmd)
+                if getattr(r, "needs_confirmation", False):
+                    r = term.run(cmd, confirm=True)
+                res = (r.out if r.ok else (r.refused or r.out)).strip().replace("\n", " ")
+                cmds.append(cmd)
+                outs.append(res)
+                oks.append(bool(r.ok))
+                hist.append((cmd, res))
+
+            def read_file(name, d=getattr(term, "dir", "")):
+                p = os.path.join(d, name)
+                return open(p, encoding="utf-8", errors="replace").read() if d and os.path.isfile(p) else None
+            ok = RR.accept_ok(case, cmds, outs, oks, reply, read_file)
+        finally:
+            term.close()
+        rows.append({"q": case["q"], "ok": ok, "cmds": [c[:80] for c in cmds], "reply": reply[:80]})
+    return {"n": len(rows), "pass": round(sum(r["ok"] for r in rows) / max(1, len(rows)), 3), "rows": rows}
+
+
 def head_args(cfg, d_in, block):
     return dict(d_in=d_in, d=int(cfg.get("head_d", 256)), latents=int(cfg["latents"]), think_steps=int(cfg["think_steps"]), block=block,
                 writer_layers=int(cfg["writer_layers"]), heads=int(cfg["heads"]))
@@ -427,7 +520,7 @@ def run_cached(body, encode, cfg, a, log=print):
     ident = None
     if a.identity:
         ct = getattr(encode, "chat", None) or ChatTok(lambda t: [i for i in encode(t, 256) if i], lambda ids: "", None)
-        ident = identity_lora(body, ct, steps=int(a.identity_steps), log=log)
+        ident = identity_lora(body, ct, steps=int(a.identity_steps), log=log, replay_max=int(getattr(a, "replay_max", 384)))
     reader = BodyReader(body, a.device, dtype)
     n = int(cfg["in_len"])
     rows = list(T.TRAIN) + (RW.generate(per_command=int(cfg.get("rewordings_per_command", 24))) if cfg.get("rewordings", False) else [])
@@ -460,6 +553,12 @@ def run_cached(body, encode, cfg, a, log=print):
         log(f"loop features: {len(lx)} views in {time.time() - t0:.0f}s")
         lcfg = dict(cfg, steps=int(cfg.get("loop_steps", 900)), batch=int(cfg.get("loop_batch", 64)))
         ex, ey, nex = load_loop_extra(getattr(a, "loop_extra", ""), encode, ln, int(cfg["loop_block"]), base_rows=len(lx))
+        rx, ry, rinfo = [], [], {}
+        if int(getattr(a, "real_episodes", 0) or 0) > 0 or getattr(a, "real_log", ""):
+            rx, ry, rinfo = real_data(encode, cfg, int(getattr(a, "real_episodes", 0) or 0), tf, getattr(a, "real_log", ""), log=log)
+            t0 = time.time()
+            reader.feats(rx, ln)
+            log(f"real request views: {len(rx)} in {time.time() - t0:.0f}s")
         if nex:
             t0 = time.time()
             reader.feats(ex, ln)
@@ -484,6 +583,26 @@ def run_cached(body, encode, cfg, a, log=print):
                     log("loop: the head WITH the extra traces wins and is the one shipped")
                 else:
                     log("loop: the in-domain head is kept (the extra traces did not win)")
+            if rx:
+                # 2026-11-25 (owner): the head is retrained on REAL requests. A/B on the real-prompt acceptance test: the head trained WITH the real views
+                # is shipped when it passes more real prompts and keeps the full-task benchmark (at most 0.05 lower).
+                acc0 = real_acceptance(head, reader, encode, cfg, tf)
+                head_r = FeatureTLDM(**head_args(cfg, reader.d, int(cfg["loop_block"])))
+                train_head(head_r, reader, lx + ex + rx if nex else lx + rx, ly + ey + ry if nex else ly + ry, ln, lcfg, seed, log)
+                br = loop_benchmark(head_r, reader, encode, cfg, episodes=int(cfg.get("loop_eval_episodes", 60)), term_factory=tf)
+                acc1 = real_acceptance(head_r, reader, encode, cfg, tf)
+                log(f"loop seed {seed} +real: full task {br['all']['success']}; real-prompt acceptance {acc0['pass']} -> {acc1['pass']}")
+                entry["real"] = {"acceptance_before": acc0["pass"], "acceptance_after": acc1["pass"], "full_task_after": br["all"]["success"], **rinfo}
+                if acc1["pass"] > acc0["pass"] and br["all"]["success"] >= b["all"]["success"] - 0.05:
+                    head, b = head_r, br
+                    entry.update({k: br[k] for k in ("all", "simple", "multi_step")})
+                    entry["variant"] = (entry.get("variant", "") + " + real requests").strip(" +")
+                    res["real_acceptance"] = acc1
+                    log("loop: the head trained on real requests wins and is the one shipped")
+                else:
+                    res["real_acceptance"] = acc0
+                    log("loop: the head without real requests is kept (real requests did not win the acceptance test)")
+                res["real_acceptance_baseline"] = acc0["pass"]
             res["loop"].append(entry)
             heads[f"loop_seed{seed}"] = {k: v.detach().cpu() for k, v in head.state_dict().items()}
     res["body_read_secs"] = round(reader.secs, 1)
@@ -512,6 +631,9 @@ def main(argv=None):
     ap.add_argument("--loop", action="store_true", help="also train the agent-loop head and run the full-task benchmark (with --cached)")
     ap.add_argument("--loop_seeds", type=int, default=1)
     ap.add_argument("--loop_extra", default="", help="(--cached --loop) JSONL(.gz) of real executed shell views (data/sham2_snapshots.py loop); trained as a second loop head, shipped only if it wins the in-domain benchmark")
+    ap.add_argument("--real_episodes", type=int, default=0, help="(--cached --loop) real-phrased requests executed on the model's computer (data/real_requests.py) for the loop head")
+    ap.add_argument("--real_log", default="", help="(--cached --loop) the experience log (sessions.jsonl): the model's own verified successful turns")
+    ap.add_argument("--replay_max", type=int, default=384, help="(--identity) max tokens of each full-length replay self-answer")
     ap.add_argument("--identity", action="store_true", help="(--cached) train the body's LoRA on data/identity.py first; check identity before/after")
     ap.add_argument("--identity_steps", type=int, default=80)
     ap.add_argument("--terminal", default="computer", help="computer = Sham's own embedded computer (default, owner 2026-11-18) | sandbox = the test sandbox")

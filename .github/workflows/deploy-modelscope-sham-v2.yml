@@ -19,6 +19,9 @@ on:
       - ai-system/modelscope-sham/sham_tldm_experience.py
       - ai-system/modelscope-sham/sham_pro_coordinator.py
       - ai-system/modelscope-sham/sham_mesh_node.py
+      # the loop head's serving code: the delex/relex slots must match the head the trainer publishes
+      - ai-system/tldm/data/augment.py
+      - ai-system/tldm/sham_tldm/**
       - ai-system/supervision/sham_v2_chat_smoke.py
       - scripts/transplant/stage_sham_v2_studio.py
   # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.

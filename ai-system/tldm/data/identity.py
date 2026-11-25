@@ -34,6 +34,18 @@ WRONG = ("qwen", "通义", "tongyi", "alibaba", "علي بابا", "ali baba")
 RIGHT = ("sham pro", "شام برو")
 
 
+# Name-leak check (owner, 2026-11-25): the live bug was «أنا شام برو» on EVERY request. Ordinary prompts (never about identity) must not announce the name.
+LEAK_PROMPTS = [
+    "مرحبا", "ما عاصمة سوريا؟", "اكتب دالة بايثون تعيد مضروب عدد.", "كم يساوي 17 ضرب 23؟", "اشرح باختصار ما هو التعلم الآلي.",
+    "What is the capital of Japan?", "Give me three tips for better sleep.", "اعرض الملفات في المجلد الحالي.",
+]
+
+
+def name_leak(answer: str) -> bool:
+    a = answer.lower()
+    return any(r in a for r in RIGHT)
+
+
 def identity_ok(answer: str) -> bool:
     a = answer.lower()
     return any(r in a for r in RIGHT) and not any(w in a for w in WRONG)

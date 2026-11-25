@@ -14,7 +14,9 @@ NUM = re.compile(r"(?<![\w@.])\d+(?![\w.])")
 # 2026-11-22 (open arguments): a GitHub repository `owner/name` (R) and a code-like token such as ZX7Q-4821 (T) are copied like file names and numbers:
 # the task may name any of them and the writer has never seen it. Neither pattern matches a single row of the old training/held-out sets (tested).
 REPO = re.compile(r"(?<![\w@/.:-])[A-Za-z][\w.-]{1,38}/[A-Za-z][\w.-]{1,38}(?![\w/])")
-TOKEN = re.compile(r"(?<![\w@-])(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\d)[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+(?![\w-])")
+# 2026-11-25 (real requests): also an upper-case token joined by underscores (SHAM_OK, GO_123), the form the live probe and users type; before, «echo SHAM_OK»
+# was not a slot, so the head had to remember the literal word (it wrote `echo @T1` / garbage instead).
+TOKEN = re.compile(r"(?<![\w@-])(?:(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\d)[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})+|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![\w-])")
 
 
 def delex(task: str, cmd: str | None = None):
