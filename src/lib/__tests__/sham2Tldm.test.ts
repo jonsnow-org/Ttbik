@@ -1,6 +1,6 @@
 import { setTldmEnabled, tldmAllowedFor, tldmEnabled, tldmOpenToAll } from "@/lib/coderModels";
 import { shamConfirmText } from "@/lib/shamExec";
-import { shamGenerateChat, shamGenerateTldm, shamModeCtx, shamTldmCtx, shamTldmOn, shamTldmSessionId, shamVariant } from "@/lib/shamStudio";
+import { shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, tldmHeadOnlyText, shamModeCtx, shamTldmCtx, shamTldmOn, shamTldmSessionId, shamVariant } from "@/lib/shamStudio";
 
 function sseFetch(data: string) {
   const chunk = new TextEncoder().encode(data.endsWith("\n") ? data : data + "\n");
@@ -110,6 +110,61 @@ describe("Sham 2 T-LDM owner path", () => {
       global.fetch = real;
       delete process.env.MODELSCOPE_API_TOKEN;
     }
+  });
+
+  it("a head reply with no working command (the fixed «تعذّر…» line) is never the answer: Sham Pro's body answers instead (same Studio, never Sham 1)", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const urls: string[] = [];
+    const real = global.fetch;
+    let lastApi = "";
+    global.fetch = (async (input: any) => {
+      const u = String(input);
+      urls.push(u);
+      if (u.includes("/call/v2/")) { lastApi = u.split("/call/v2/")[1]; return { ok: true, json: async () => ({ event_id: "e1" }) } as any; }
+      return sseFetch(lastApi === "generate_tldm"
+        ? 'data: [{"type":"text","text":"تعذّر عليّ تحديد أمر مناسب لهذا الطلب.","tldm":true,"computer":"model_computer"}]\n'
+        : 'data: [{"type":"text","text":"العاصمة الفرنسية هي باريس."}]\n');
+    }) as any;
+    try {
+      const reply = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamGenerateChat([{ role: "user", content: "ما عاصمة فرنسا؟" }])));
+      expect(reply).toMatchObject({ type: "text", text: "العاصمة الفرنسية هي باريس." });
+      expect(urls.some((u) => u.includes("/call/v2/generate_tldm"))).toBe(true);
+      expect(urls.some((u) => u.includes("/call/v2/generate_chat"))).toBe(true);
+      expect(urls.every((u) => u.includes("sham-v2"))).toBe(true);
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
+  it("the streamed path does not emit the head's fixed line either", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    const real = global.fetch;
+    let lastApi = "";
+    global.fetch = (async (input: any) => {
+      const u = String(input);
+      if (u.includes("/call/v2/")) { lastApi = u.split("/call/v2/")[1]; return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any; }
+      return sseFetch(lastApi === "generate_tldm"
+        ? 'data: [{"type":"text","text":"تعذّر عليّ تحديد أمر مناسب لهذا الطلب.","tldm":true}]\n'
+        : 'event: generating\ndata: ["باريس"]\n\nevent: complete\ndata: ["باريس"]\n');
+    }) as any;
+    const pieces: string[] = [];
+    try {
+      await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamGenerateChatStream([{ role: "user", content: "ما عاصمة فرنسا؟" }], 64, 20000, (p) => pieces.push(p))));
+      expect(pieces.join("")).not.toContain("تعذّر");
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+    }
+  });
+
+  it("tldmHeadOnlyText: only a text with no working command counts as head-only", () => {
+    expect(tldmHeadOnlyText({ type: "text", text: "تعذّر عليّ تحديد أمر مناسب لهذا الطلب." } as never)).toBe(true);
+    expect(tldmHeadOnlyText({ type: "text", text: "x", computer_steps: [{ command: "ls", ok: false }] } as never)).toBe(true);
+    expect(tldmHeadOnlyText({ type: "text", text: "a.txt", computer_steps: [{ command: "ls", ok: true }] } as never)).toBe(false);
+    expect(tldmHeadOnlyText({ type: "confirm", text: "?" } as never)).toBe(false);
+    expect(tldmHeadOnlyText({ type: "error", text: "e" } as never)).toBe(false);
+    expect(tldmHeadOnlyText(null)).toBe(false);
   });
 
   it("refuses to run T-LDM on Sham 1", async () => {

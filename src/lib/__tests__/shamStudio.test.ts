@@ -123,6 +123,72 @@ describe("shamStudio streamed chat", () => {
     }
   });
 
+  // Real Gradio (live 2026-11-25): the generator's `complete` event repeats its LAST yielded piece.
+  const gradioBody = (pieces: string[]) => new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const piece of pieces) controller.enqueue(encoder.encode(`event: generating\ndata: [${JSON.stringify(piece)}]\n\n`));
+      controller.enqueue(encoder.encode(`event: complete\ndata: [${JSON.stringify(pieces[pieces.length - 1])}]\n\n`));
+      controller.close();
+    },
+  });
+
+  it("readShamSseDeltas: the complete event's repeat of the last piece is not appended («باريسيس»)", async () => {
+    const response = { body: gradioBody(["العاصمة الفرنسية هي ", "بار", "يس"]), text: async () => "" } as unknown as Response;
+    const seen: string[] = [];
+    await expect(readShamSseDeltas(response, (p) => seen.push(p))).resolves.toBe("العاصمة الفرنسية هي باريس");
+    expect(seen).toEqual(["العاصمة الفرنسية هي ", "بار", "يس"]);
+  });
+
+  it("deltas that look like the start or the end of the answer are kept as they are, and the answer is never written twice (live repeat bug)", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    // «17» repeats the start, «ال» repeats the start of «التقاط», «1» after «5»: each broke the old per-delta merge
+    const pieces = ["17", " ضرب 3 يساوي ", "**5", "1**", " و", "17", " ", "ال", "تقاط", " ال", "ضوء"];
+    global.fetch = (async (url: string) => {
+      if (String(url).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      return { ok: true, status: 200, body: gradioBody(pieces), text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: string[] = [];
+      const reply = await shamVariant.run("v2", () => shamGenerateChatStream([{ role: "user", content: "كم يساوي 17 ضرب 3؟" }], 64, 5000, (p) => seen.push(p)));
+      expect(reply).toMatchObject({ type: "text", text: pieces.join("") });
+      expect(seen.join("")).toBe(pieces.join(""));
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+  });
+
+  it("a reconnect that replays the answer from the start shows only the new text", async () => {
+    process.env.MODELSCOPE_API_TOKEN = "t";
+    process.env.SHAM_V2_OVERFLOW_URL = "off";
+    const real = global.fetch;
+    let gets = 0;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes("/call/v2/")) return { ok: true, status: 200, json: async () => ({ event_id: "e1" }) } as any;
+      gets++;
+      if (gets === 1) {
+        const body = new ReadableStream<Uint8Array>({
+          start(c) { c.enqueue(encoder.encode('event: generating\ndata: ["أهلاً "]\n\n')); c.error(Object.assign(new Error("aborted"), { name: "TimeoutError" })); },
+        });
+        return { ok: true, status: 200, body, text: async () => "" } as any;
+      }
+      return { ok: true, status: 200, body: gradioBody(["أهلاً ", "بك"]), text: async () => "" } as any;
+    }) as any;
+    try {
+      const seen: string[] = [];
+      const reply = await shamVariant.run("v2", () => shamGenerateChatStream([{ role: "user", content: "مرحبا" }], 64, 5000, (p) => seen.push(p)));
+      expect(reply).toMatchObject({ type: "text", text: "أهلاً بك" });
+      expect(seen.join("")).toBe("أهلاً بك");
+    } finally {
+      global.fetch = real;
+      delete process.env.MODELSCOPE_API_TOKEN;
+      delete process.env.SHAM_V2_OVERFLOW_URL;
+    }
+  });
+
   it("reconnects to the same Gradio event id after a dropped result stream", async () => {
     process.env.MODELSCOPE_API_TOKEN = "t";
     process.env.SHAM_V2_OVERFLOW_URL = "off";

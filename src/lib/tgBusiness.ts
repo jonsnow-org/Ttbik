@@ -167,19 +167,34 @@ export const defaultGenerate: Generate = async (model, system, history, incoming
     const t = String(o?.reply?.type === "done" ? o.reply.text || "" : "").trim();
     return t || null;
   }
+  // Sham Pro: its own native role chat (generate_chat on sham-v2-server). It used chat_memory, an endpoint the Sham Pro Studio does not have
+  // (only the legacy Sham Studio does), so every Business reply by Sham Pro came back empty. The contact's turns go as native roles; the owner's
+  // rules ride in front of the newest message (the v2 chat takes user/assistant roles only). No T-LDM, no tools, no other model.
+  void memoryKey;
   const S = await import("@/lib/shamStudio");
-  const prompt = `${system}\n\nContact: ${incoming}`;
-  const mem = { userId: memoryKey, history: pairs(history), summary: "", facts: {} };
-  const r = await S.shamVariant.run("v2", () => S.shamChatMemory(prompt, mem, 220, 45000, { bypassContentHeuristics: false })).catch(() => null);
+  const turns = businessShamTurns(system, history, incoming);
+  const r = await S.shamVariant.run("v2", () => S.shamGenerateChat(turns, 220, 45000, { bypassContentHeuristics: false, direct: true })).catch(() => null);
   const t = r && r.type === "text" ? String(r.text || "").trim() : "";
   return t || null;
 };
-const pairs = (h: Turn[]): { q: string; a: string }[] => {
-  const out: { q: string; a: string }[] = [];
-  let q = "";
-  for (const t of h) { if (t.role === "user") q = q ? `${q}\n${t.text}` : t.text; else { out.push({ q, a: t.text }); q = ""; } }
-  return out.slice(-6);
-};
+
+/** Native user/assistant turns for Sham Pro: consecutive same-role turns merged, the first one a user turn, the rules in front of the newest message. */
+export function businessShamTurns(system: string, history: Turn[], incoming: string): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const h of history.slice(-10)) {
+    const role = h.role === "user" ? "user" : "assistant";
+    const text = String(h.text || "").trim();
+    if (!text) continue;
+    if (!out.length && role === "assistant") continue;
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content += `\n${text}`;
+    else out.push({ role, content: text });
+  }
+  const last = out[out.length - 1];
+  if (last && last.role === "user") last.content = `${system}\n\nContact (earlier): ${last.content}\nContact: ${incoming}`;
+  else out.push({ role: "user", content: `${system}\n\nContact: ${incoming}` });
+  return out;
+}
 
 const PER_HOUR = 40;
 const hits = new Map<string, number[]>();

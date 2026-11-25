@@ -11,7 +11,7 @@ import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamT
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
 import { shamAdminNotice } from "@/lib/shamAdminNotice";
-import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
+import { isPlainQuestion, needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -45,7 +45,27 @@ function isCapabilityQuestion(text: string): boolean {
   return /(?:هل\s+(?:لديك|عندك)\s+(?:خبرة|معرفة|قدرة|مهارة)|(?:ماذا|ما)\s+(?:(?:الذي\s+)?(?:تستطيع|تتقن|تفعل|وظيفتك|قدراتك)|تقدر|تجيد)|(?:تستطيع|تقدر|تجيد)\s+(?:البرمجة|الكود|الشرح))/i.test(t);
 }
 
-export async function shamAgentRun(opts: {
+/** The text only repeats the user's request (same words, punctuation and spacing aside). */
+export function isEchoOfRequest(text: string, request: string): boolean {
+  const norm = (x: string) => String(x || "").normalize("NFKC").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[\s\p{P}\p{S}]+/gu, "").toLocaleLowerCase("ar");
+  const a = norm(text), b = norm(request);
+  return Boolean(a && b && (a === b || (a.length >= 6 && b.includes(a) && a.length >= b.length * 0.8)));
+}
+
+/** The tool-conversation format ends its prompt with «شام:»; the body sometimes repeats that speaker label at the start of its answer
+ *  (live probe 2026-11-25: «شام: بايثون هو لغة…»). The label is not part of the answer. */
+export function stripSpeakerLabel(text: string): string {
+  return String(text || "").replace(/^\s*(?:شام(?:\s*برو)?|sham(?:\s*pro)?)\s*[:：]\s*/i, "");
+}
+
+export async function shamAgentRun(opts: Parameters<typeof shamAgentRunInner>[0]): Promise<ShamAgentResult> {
+  const r = await shamAgentRunInner(opts);
+  if (r.kind === "text") return { ...r, text: stripSpeakerLabel(r.text) || r.text };
+  if (r.kind === "ask") return { ...r, question: stripSpeakerLabel(r.question) || r.question };
+  return r;
+}
+
+async function shamAgentRunInner(opts: {
   text: string;
   history?: { q: string; a: string }[];
   ctx: ShamCtx;
@@ -137,8 +157,11 @@ export async function shamAgentRun(opts: {
   const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
   const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
   const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !requiresWorkspaceAgent && !hasWorkspaceTarget;
+  // Sham Pro: a plain knowledge question that only MENTIONS code words («ما الفرق بين بايثون وجافاسكربت؟») is conversation. Classed as code it went to the
+  // tool loop and timed out with no answer after ~150 s (live repeat probe 2026-11-25). Sham-only rule: the shared classifier (modes.ts) is not changed.
+  const plainKnowledgeQuestion = v2 && prof.klass === "code" && isPlainQuestion(opts.text) && !/```|\n/.test(opts.text) && opts.text.length <= 240;
   const directChatIntent = !requiresWorkspaceAgent &&
-    (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
+    (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
   // («python3 -c "pornt iu…"») whose garbled text («الخرج: 811») became the reply; a plain answer then waited for the WHOLE non-streamed body answer (~17 s mean,
   // up to 41 s). A greeting / question / explanation is conversation: it goes straight to the body's streamed chat below (first words in ~2.4 s). Work
@@ -269,7 +292,10 @@ export async function shamAgentRun(opts: {
         tldmHandedOff = true;
         break tldmHead;
       }
-      if (!(ran.length && headReadable) && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
+      // live repeat probe 2026-11-25: «اشرح لي التمثيل الضوئي» -> the head ran a working but unrelated command and its log «الخرج: 221» stood as the answer.
+      // The head's own text stands only for an explicit computer task (the user asked to run / list / install something); otherwise the body writes the reply.
+      const headStands = ran.length > 0 && headReadable && tldmComputerTask;
+      if (!headStands && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
         const last = chatMessages[chatMessages.length - 1];
         const turns = ran.length && last?.role === "user"
           ? [...chatMessages.slice(0, -1), { role: "user" as const, content: `${last.content}\n\n[ما نُفّذ على حاسوبي الآن]\n${ran.map((step) => `$ ${String(step?.command || "").slice(0, 300)}\n${String(step?.result || "").slice(0, 1200)}`).join("\n").slice(0, 6000)}\n\nهذه أوامر نفذتُها على حاسوبي ونتائجها؛ استعملها فقط إن كانت صحيحة ومتعلقة بطلبي، ثم أجب عن طلبي أعلاه بلغة طلبي وباختصار.` }]
@@ -564,6 +590,15 @@ export async function shamAgentRun(opts: {
     if (asked) {
       let q = "";
       try { q = String((JSON.parse(asked.function.arguments || "{}") as { question?: string }).question || ""); } catch { /* the validator already checked it */ }
+      // live repeat probe 2026-11-25: «ما الفرق بين بايثون وجافاسكربت؟» came back as ask_user with the user's OWN question, i.e. the user's words echoed as
+      // Sham Pro's reply. An echo is not a clarifying question: Sham Pro's body answers the request directly (same model, same Studio).
+      if (v2 && isEchoOfRequest(q, opts.text) && left() > 4000) {
+        const turns = shamDirectChatMessages(opts.history, opts.text);
+        if (lastUserContent(turns) !== opts.text) turns.push({ role: "user", content: opts.text });
+        const said = await shamModeCtx.run(effMode, () => shamGenerateChat(turns, maxNew, Math.max(1000, Math.min(opts.askMs ?? 90000, left() - 1000)), { bypassContentHeuristics: Boolean(opts.ctx.owner), direct: true }));
+        const text = said?.type === "text" ? String(said.text || "").trim() : "";
+        if (text && !isEchoOfRequest(text, opts.text)) return { kind: "text", text, used, steps: steps + 1 };
+      }
       return { kind: "ask", question: q, used, steps: steps + 1 };
     }
     const write = valid.find((c) => shamNeedsOk(c));

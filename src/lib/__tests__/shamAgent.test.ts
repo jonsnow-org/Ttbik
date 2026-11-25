@@ -1,4 +1,4 @@
-import { SHAM_TOOL_NAMES, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
+import { SHAM_TOOL_NAMES, isEchoOfRequest, shamAgentRun, shamToolDefs, type ShamAsk } from "@/lib/shamAgent";
 import { shamConfirmText, shamRunTool, shamSavePending, shamTakePending, type ShamCtx } from "@/lib/shamExec";
 import { DEFAULT_URL, DEFAULT_V2_URL, shamBases, shamGenerateTldm, shamTldmCtx, shamVariant } from "@/lib/shamStudio";
 
@@ -116,6 +116,18 @@ describe("Sham's own agent loop", () => {
       const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "شغّل echo ZX7Q-4821", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
       expect(r).toMatchObject({ kind: "text", text: "الخرج: ZX7Q-4821", used: ["computer_run"] });
       expect(chat).not.toHaveBeenCalled();
+    } finally { tldm.mockRestore(); chat.mockRestore(); }
+  });
+
+  it("a working but unrelated head command on a question that is not a computer task: the head's log («الخرج: 221») is not the answer, the body writes it (2026-11-25 repeat probe)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: 221", tldm: true,
+      computer_steps: [{ command: "python3 -c 'print(13*17)'", ok: true, result: "221" }] } as any);
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "def reverse(s):\n    return s[::-1]" } as any);
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "اكتب دالة بايثون تعكس نصاً", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
+      expect(r).toMatchObject({ kind: "text", text: "def reverse(s):\n    return s[::-1]" });
+      expect(chat).toHaveBeenCalled();
     } finally { tldm.mockRestore(); chat.mockRestore(); }
   });
 
@@ -394,6 +406,20 @@ describe("Sham's own agent loop", () => {
     const c = await runV1({ text: "مرحبا", ctx, tools, budgetMs: 60000, ask: script([null]) });
     expect(c.kind).toBe("none");
   });
+  it("Sham Pro: an ask_user that only echoes the user's own request is not sent back as the reply; the body answers it (2026-11-25 live probe)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "أصلحت الأخطاء: كان المتغير غير معرّف." } as any);
+    try {
+      const text = "صلّح الأخطاء في الكود";
+      const seenAsk: string[] = [];
+      const r = await shamVariant.run("v2", () => shamAgentRun({ text, ctx, tools: shamToolDefs(false), budgetMs: 60000,
+        agentAsk: script([say(`<tool_call>{"name":"ask_user","arguments":{"question":"${text}؟"}}</tool_call>`)], seenAsk) }));
+      expect(seenAsk.length).toBe(1);
+      expect(r).toMatchObject({ kind: "text", text: "أصلحت الأخطاء: كان المتغير غير معرّف." });
+      expect(isEchoOfRequest("ما الفرق بين بايثون وجافاسكربت؟", "ما الفرق بين بايثون وجافاسكربت؟")).toBe(true);
+      expect(isEchoOfRequest("أي مستودع؟", "صلّح الأخطاء")).toBe(false);
+    } finally { chat.mockRestore(); }
+  });
   it("stops at the step limit and asks for the final answer without tools", async () => {
     const tools = shamToolDefs(false), seen: string[] = [];
     const call = say('<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>');
@@ -524,5 +550,30 @@ describe("a picture goes to the background leg, which waits long", () => {
     expect(b).toMatchObject({ kind: "reply", reply: { type: "image" } });
     expect(got).toEqual(["image:أرنب يلعب"]);
     expect(asks).toEqual([]);                                                   // the model is not asked again
+  });
+});
+
+describe("stripSpeakerLabel", () => {
+  it("drops a leading «شام:» / «شام برو:» speaker label only", async () => {
+    const { stripSpeakerLabel } = await import("@/lib/shamAgent");
+    expect(stripSpeakerLabel("شام: بايثون لغة")).toBe("بايثون لغة");
+    expect(stripSpeakerLabel("شام برو: أهلاً")).toBe("أهلاً");
+    expect(stripSpeakerLabel("Sham Pro: hi")).toBe("hi");
+    expect(stripSpeakerLabel("أنا شام برو: مساعد")).toBe("أنا شام برو: مساعد");
+    expect(stripSpeakerLabel("شامل: كلمة")).toBe("شامل: كلمة");
+  });
+});
+
+describe("Sham Pro plain knowledge questions that mention code words", () => {
+  it("«ما الفرق بين بايثون وجافاسكربت؟» is answered by the body's direct chat, not the tool loop (2026-11-25: timed out with no answer)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValue({ type: "text", text: "بايثون لغة عامة، وجافاسكربت لغة الويب." } as any);
+    const seen: string[] = [];
+    try {
+      const r = await shamVariant.run("v2", () => shamAgentRun({ text: "ما الفرق بين بايثون وجافاسكربت؟", ctx, tools: shamToolDefs(false), budgetMs: 60000,
+        agentAsk: script([say("لا يجب أن يُسأل")], seen) }));
+      expect(r).toMatchObject({ kind: "text", text: "بايثون لغة عامة، وجافاسكربت لغة الويب." });
+      expect(seen).toHaveLength(0);
+    } finally { chat.mockRestore(); }
   });
 });
