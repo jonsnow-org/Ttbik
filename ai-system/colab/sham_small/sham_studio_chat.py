@@ -358,6 +358,12 @@ def qwen3_chat_stream(model, tokenizer, messages: list[dict], max_new_tokens: in
         if len(text) > len(prev):
             yield text[len(prev):]
             prev = text
+    # 2026-11-25 live probe: the held-back last token was never sent, so every streamed answer lost its final token («17 × 3 = 5» for 51).
+    # The answer is finished here: flush whatever the last token completes.
+    if held:
+        text = tokenizer.decode(held)
+        if len(text) > len(prev) and text.startswith(prev):
+            yield text[len(prev):]
 
 
 def studio_generate_stream(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default"):
