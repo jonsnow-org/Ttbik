@@ -41,7 +41,7 @@ _LOCK = threading.Lock()
 
 def enabled() -> bool:
     # the Studio has no settable environment: the deploy workflow writes the marker file nova_tldm.on next to app.py for the Studios listed in NOVA_TLDM_STUDIOS (owner order 2026-11-23: Nova carries T-LDM)
-    return os.environ.get("NOVA_TLDM", "0").strip() == "1" or (HERE / "nova_tldm.on").is_file()
+    return os.environ.get("NOVA_TLDM", "0").strip() == "1" or (HERE / "nova_tldm.on").is_file() or (HERE / "tldm_reader.on").is_file()
 
 
 def error_json(text: str) -> str:
@@ -211,7 +211,7 @@ def _ensure_deps() -> str:
         return f"اعتماديات T-LDM لنوفا لم تُحمَّل ({type(exc).__name__})."
 
 
-def load(llama_exe: str, model_path: str):
+def load(llama_exe: str, model_path: str, threads: int = 2):
     with _LOCK:
         if _STATE["writer"] is not None:
             return _STATE["writer"], ""
@@ -219,7 +219,7 @@ def load(llama_exe: str, model_path: str):
         if bad:
             return None, bad + " لم يُستخدم نموذج آخر."
         try:
-            if not ensure_embed_server(llama_exe, model_path):
+            if not ensure_embed_server(llama_exe, model_path, threads):
                 return None, "خادم القراءة الثاني لنوفا لم يبدأ. لم يُستخدم نموذج آخر."
             _STATE["writer"] = _load_writer(model_path)
             return _STATE["writer"], ""

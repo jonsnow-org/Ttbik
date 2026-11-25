@@ -328,8 +328,42 @@ def _start_server(model: Path, bindir: Path) -> None:
     _PROC["p"] = subprocess.Popen(cmd, env=env, stdout=log, stderr=log, cwd=str(bindir))
 
 
+# Owner decision 2026-11-25 (T-5, option 2): Nova's T-LDM READER runs on its OWN Studio, so the chat Studio keeps all its memory for Nova's chat (the reader beside the chat
+# server on one 16 GB box thrashed, #1225). A Studio with `tldm_reader.on` next to app.py (deploy-modelscope-coder.yml, role=tldm-reader) serves ONLY generate_tldm: no chat
+# llama-server, no slots. Same body file (Nova's own GGUF, its weights untouched), same head. `chat` there answers an honest error: it is never a second chat Studio.
+def _reader_only() -> bool:
+    return (HERE / "tldm_reader.on").exists() or os.environ.get("NOVA_TLDM_READER", "").strip() == "1"
+
+
+def _reader_supervisor() -> None:
+    """Reader Studio: fetch the body + llama.cpp, start the embedding reader and the head; restart the reader if it exits."""
+    import nova_tldm_serve as nt
+    STATE["role"] = "tldm-reader"
+    while True:
+        try:
+            if nt._STATE.get("writer") is None or (nt._STATE.get("embed") is not None and nt._STATE["embed"].poll() is not None):
+                nt._STATE["writer"] = None
+                STATE.update(phase="loading", error="", detail="T-LDM reader: fetching Nova's body")
+                bindir = _llama_dir()
+                model = _download_model()
+                _PATHS.update(model=str(model), bindir=str(bindir))
+                STATE.update(detail="T-LDM reader: starting the embedding reader and the head")
+                _w, err = nt.load(str(Path(bindir) / "llama-server"), str(model), threads=THREADS)
+                if err:
+                    raise RuntimeError(err)
+                STATE.update(phase="ready", detail="", ready_at=time.time())
+                _log("tldm reader ready", STATE.get("model"))
+        except Exception as exc:  # noqa: BLE001
+            STATE.update(phase="error", error=str(exc)[:300])
+            _log("tldm reader failed:", type(exc).__name__, str(exc)[:200])
+            time.sleep(60)
+        time.sleep(10)
+
+
 def _supervisor() -> None:
     """Brings the server up, and back up if it ever exits. Never crashes the app: the reason is in `status`."""
+    if _reader_only():
+        return _reader_supervisor()
     while True:
         try:
             if _PROC["p"] is None or _PROC["p"].poll() is not None:
@@ -776,6 +810,8 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
         assert isinstance(msgs, list) and msgs
     except Exception as exc:
         return json.dumps({"type": "error", "error": f"bad messages: {exc}"[:200]})
+    if _reader_only():                      # never a second chat Studio: the caller learns where it is, nothing answers in Nova's name from here
+        return json.dumps({"type": "error", "error": "this Studio is Nova's T-LDM reader only (generate_tldm); chat runs on Nova's chat Studio. No other model was used."})
     jid = uuid.uuid4().hex
     job = {"messages": msgs, "tools": tls, "max_tokens": int(_num(max_tokens, 0)), "think": _think_flag(think)[0], "think_cap": _think_flag(think)[1], "conv": _conv_key(msgs), "start": _start_key(msgs, tls),
            "temperature": _num(temperature, 0.6), "status": "queued", "text": "", "reasoning": "", "created": time.time(),
@@ -914,7 +950,8 @@ def status() -> str:
 
 def start_background() -> None:
     threading.Thread(target=_supervisor, daemon=True).start()
-    threading.Thread(target=_runner, daemon=True).start()
+    if not _reader_only():
+        threading.Thread(target=_runner, daemon=True).start()
 
 
 def generate_tldm(messages_json: str, session: str = "", max_new_tokens: float = 512, tldm_flag: float = 1, confirm_cmd: str = "", confirm_ok: float = 0,
