@@ -19,7 +19,7 @@ function applyTaskModelFilter(where: string[], model?: TaskModelFilter, column =
   else if (model === "sham") where.push(`${column} IN ('sham_v1', 'sham')`);
   else where.push(`${column} = 'model:${model}'`);
 }
-export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info" | "screen";
+export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info" | "screen" | "replace";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
   steps: number; started_at: string; updated_at: string; finished_at: string | null; thread_id?: string | null;
