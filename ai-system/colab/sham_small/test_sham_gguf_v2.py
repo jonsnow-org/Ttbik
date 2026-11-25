@@ -52,6 +52,62 @@ class V2FastPath(unittest.TestCase):
         self.assertEqual(plain, used)
         self.assertIsNone(sham_gguf.cached_fast(model))
 
+    def _big_model(self):
+        # k-quants work on 256-wide blocks: a body whose rows are multiples of 256, so q4_k_m really quantises (not a fallback type)
+        from model import ShamSmall, ShamSmallConfig
+        torch.manual_seed(3)
+        cfg = ShamSmallConfig(vocab_size=512, d_model=256, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=512, max_seq_len=128,
+                              qk_norm=True, head_dim=64)
+        return ShamSmall(cfg).eval()
+
+    def test_q4_k_m_on_a_small_disk_goes_through_q8_0_not_f16(self):
+        """Sham Pro's Studio (2026-11-25): ~5.7 GB free before the export, f16 (4.2 GB) + q4_k_m (1.3 GB) did not fit, so it stayed on q8_0.
+        Now Q8_0 is written directly and requantised: no f16 file, the result is q4_k_m, and the Q8_0 file is gone afterwards."""
+        import shutil as sh
+        import sham_gguf
+        model = self._big_model()
+        n = sum(p.numel() for p in model.parameters())
+        real = sh.disk_usage
+        fake_free = int(n * 1.07) + int(n * 0.7) + 200 * 2**20 + int(n * 0.4)      # room for Q8_0 + q4_k_m, NOT for f16 + q4_k_m
+        written = []
+        orig_write = sham_gguf.write_gguf
+
+        def spy(m, path, dtype="f32"):
+            written.append(dtype)
+            return orig_write(m, path, dtype)
+        sham_gguf.write_gguf = spy
+        sham_gguf.shutil.disk_usage = lambda p: type(real(p))(real(p).total, real(p).total - fake_free, fake_free)
+        try:
+            fm = sham_gguf.fast_model(model, "q4_k_m")
+        finally:
+            sham_gguf.shutil.disk_usage = real
+            sham_gguf.write_gguf = orig_write
+        try:
+            self.assertIsNotNone(fm)
+            self.assertEqual(written, ["q8_0"])
+            self.assertEqual(sham_gguf.fast_kind(model), "q4_k_m")
+            folder = Path(fm.llm.model_path).parent
+            self.assertEqual(sorted(f.name for f in folder.iterdir()), ["sham-q4_k_m.gguf"])
+        finally:
+            sham_gguf._FAST.pop((id(model), "q4_k_m"), None)
+            sh.rmtree(Path(fm.llm.model_path).parent, ignore_errors=True) if fm is not None else None
+
+    def test_stale_export_folders_are_freed_but_a_live_copy_is_kept(self):
+        import shutil as sh
+        import sham_gguf
+        stale = Path(tempfile.mkdtemp(prefix=sham_gguf._TMP_PREFIX))
+        (stale / "sham-q8_0.gguf").write_bytes(b"x" * 4096)
+        live = Path(tempfile.mkdtemp(prefix=sham_gguf._TMP_PREFIX))
+        (live / "sham-q4_k_m.gguf").write_bytes(b"y" * 10)
+        try:
+            freed = sham_gguf.free_stale_exports(keep=[live / "sham-q4_k_m.gguf"])
+            self.assertGreaterEqual(freed, 4096)
+            self.assertFalse(stale.exists())
+            self.assertTrue(live.exists())
+        finally:
+            sh.rmtree(stale, ignore_errors=True)
+            sh.rmtree(live, ignore_errors=True)
+
     def test_unsupported_donors_are_refused_not_exported_wrong(self):
         from model import ShamSmall, ShamSmallConfig
         import sham_gguf

@@ -258,8 +258,17 @@ def _load(model_dir: Path) -> None:
                 with _LOCK:
                     view = plain_view(body)
                 STATE["fast_decode"] = "building"
-                fm = fast_model(body, os.environ.get("SHAM_GGUF_KIND", "q8_0").strip().lower() or "q8_0", source=view)      # both Shams: q8_0 (+0.24% loss; q4_k_m +2.7%)
-                STATE["fast_decode"] = "llama.cpp" if fm is not None else "pytorch (llama.cpp copy refused or unavailable: see the log)"
+                # 2026-11-25 (owner-approved): Sham Pro (v2, 2.09B on 2 vCPUs) decodes through q4_k_m (~1.5-2x the q8_0 speed, ~2.7% loss; identity turns still decode in
+                # PyTorch with the adapter). On the ~10 GB Studio the f16 + q4_k_m pair did not fit, so sham_gguf now writes Q8_0 first and requantises it (no f16 file);
+                # a q4_k_m copy that disagrees with PyTorch falls back to q8_0. Sham v1 keeps q8_0. SHAM_GGUF_KIND overrides both.
+                default_kind = "q4_k_m" if _V2 else "q8_0"
+                fm = fast_model(body, os.environ.get("SHAM_GGUF_KIND", default_kind).strip().lower() or default_kind, source=view)
+                try:
+                    from sham_gguf import fast_kind
+                    kind_used = fast_kind(body)
+                except Exception:
+                    kind_used = ""
+                STATE["fast_decode"] = (f"llama.cpp ({kind_used})" if kind_used else "llama.cpp") if fm is not None else "pytorch (llama.cpp copy refused or unavailable: see the log)"
                 del view
             except Exception as exc:
                 print(f"fast decoding not prepared ({type(exc).__name__}: {str(exc)[:100]})", flush=True)
