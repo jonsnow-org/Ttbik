@@ -183,6 +183,18 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
         # absent instead of shipping a slideshow.
         motion_tokenizer = MotionTokenizer(MotionTokenizerConfig(num_codes=MOTION_VOCAB_SIZE)).eval()
 
+    if real and motion_tokenizer is not None:
+        # Sham v2's own motion rows (sham_motion_rows.py): applied only when trained for THIS checkpoint and THIS motion tokenizer
+        explicit = os.environ.get("SHAM_MOTION_TOKENIZER_PATH")
+        mt_path = Path(explicit) if explicit else next(iter(sorted(Path(checkpoint_path).parent.glob("motion_tokenizer*.pt"))), None)
+        try:
+            import sham_motion_rows
+            _state["motion_rows_status"] = sham_motion_rows.apply(model, Path(checkpoint_path).parent, mt_path)
+        except Exception as exc:  # noqa: BLE001
+            _state["motion_rows_status"] = {"motion_rows": f"refused: {type(exc).__name__}: {str(exc)[:120]}"}
+        print(f"motion rows: {_state['motion_rows_status'].get('motion_rows')}")
+    else:
+        _state["motion_rows_status"] = {"motion_rows": "no motion tokenizer (video answers NO_VIDEO)"}
     _state["model"] = model
     _state["text_tokenizer"] = text_tokenizer
     _state["image_tokenizer"] = image_tokenizer

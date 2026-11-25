@@ -31,6 +31,7 @@ on:
       - "Sham v2 signed runtime code sync"
       - "Sham v2 runtime wheels (mirror llama-cpp-python into Sham's own model repo)"
       - "Sham v2 motion tokenizer (train on real clips, publish next to the checkpoint)"
+      - "Sham v2 motion rows (train Sham's own motion tokens on real clips, publish next to the checkpoint)"
     types: [completed]
     branches:
       - claude/free-services-marketplace-h6rwk2
