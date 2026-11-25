@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -118,6 +119,33 @@ def main() -> int:
         row["identity_prompt"] = q in IDENTITY_Q
         report.append(row)
         print("\n" + json.dumps(row, ensure_ascii=False))
+    # the work path: the head on a real command, and the body's own tool step (agent_step) on a files request
+    work = []
+    try:
+        msgs = json.dumps([{"role": "user", "content": "شغّل الأمر echo SHAM_OK على حاسوبك"}], ensure_ascii=False)
+        out, secs, _ = call("generate_tldm", {"messages_json": msgs, "session": "probe-w-" + str(int(time.time())), "max_new_tokens": 512, "tldm_flag": 1, "owner": 0, "deny_list": "rm -rf /"})
+        o = _j(out)
+        work.append({"path": "head", "s": round(secs, 2), "type": o.get("type"), "text": str(o.get("text") or "")[:200], "steps": o.get("computer_steps") or [], "command": o.get("command"),
+                     "unfilled_slot": bool(re.search(r"@[A-Z]\d", json.dumps(o, ensure_ascii=False)))})
+    except Exception as exc:
+        work.append({"path": "head", "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+    tools = [{"type": "function", "function": {"name": "computer_run", "description": "Run a bash command in your private persistent Linux workspace.",
+              "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}}]
+    try:
+        out, secs, _ = call("agent_step", {"prompt": ("أنت وكيل يعمل على حاسوب Linux خاص بالنموذج المحدد.\n" "الأدوات المتاحة لك:\n" "- computer_run(command) — نفّذ أمراً حقيقياً في طرفيتك الدائمة.\n" "طلب المستخدم: اعرض الملفات في المجلد الحالي على حاسوبك."), "tools_json": json.dumps(tools), "max_new_tokens": 160, "session": "probe-a"})
+        o = _j(out)
+        work.append({"path": "agent_step", "s": round(secs, 2), "type": o.get("type"), "text": str(o.get("text") or "")[:300],
+                     "tool_call": o.get("tool_call") or (o.get("message") or {}).get("tool_calls"), "embedded": str(o.get("embedded") or "")[:400]})
+    except Exception as exc:
+        work.append({"path": "agent_step", "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+    for w in work:
+        print("\nWORK " + json.dumps(w, ensure_ascii=False))
+    try:
+        st, _, _ = call("status", {}, timeout=60)
+        so = _j(st)
+        print("\nSTATUS_AFTER", json.dumps({k: so.get(k) for k in ("identity_mode", "fast_decode", "memory_mib", "build", "identity_lora")}, ensure_ascii=False))
+    except Exception:
+        pass
     leaks = [r["q"] for r in report if r["names_itself"] and not r["identity_prompt"]]
     hs = [r["head_s"] for r in report if r.get("head_s")]
     bs = [r["body_s"] for r in report if r.get("body_s")]
@@ -132,3 +160,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+# run: after #1243 deploy
