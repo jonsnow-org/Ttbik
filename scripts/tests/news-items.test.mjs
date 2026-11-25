@@ -26,7 +26,8 @@ test("latest news entry and public sitemap exports are usable", () => {
 test("25 November news has matching Arabic and English slugs, dates, source URLs and paragraph counts", () => {
   for (const slug of [
     "us-section-301-proposed-tariffs-14-economies-2026",
-    "us-q3-gdp-pce-inflation-october-2026"
+    "us-q3-gdp-pce-inflation-october-2026",
+    "libya-benghazi-naval-officers-drone-attack-2026"
   ]) {
     const ar = getNewsItem(slug);
     const en = EN_NEWS.find((item) => item.slug === slug);
