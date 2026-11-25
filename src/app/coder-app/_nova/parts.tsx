@@ -13,6 +13,7 @@ import { STR, type Lang, type Str } from "../i18n";
 import OwnerModelsPanel from "./OwnerModelsPanel";
 import OwnerPricing from "./OwnerPricing";
 import OwnerTelegram from "./OwnerTelegram";
+import OwnerPromo from "./OwnerPromo";
 import { bindBack, bindMain, getLaunch, guard, haptic, openExternal, payInvoice, rawInitData } from "../_tma/sdk";
 
 export type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
@@ -547,7 +548,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
   const [stalls, setStalls] = useState<any[] | null>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
-  const [tab, setTab] = useState<"models" | "pricing" | "telegram" | "training" | "users" | "health">("models");
+  const [tab, setTab] = useState<"models" | "pricing" | "telegram" | "promo" | "training" | "users" | "health">("models");
   const [fail, setFail] = useState("");
   const load = useCallback(async () => {
     setFail("");
@@ -582,7 +583,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
     <List>
       <Section>
         <SegmentedControl>
-          {([["models", "🤖", ar ? "النماذج" : "Models"], ["pricing", "🏷️", ar ? "التسعير" : "Pricing"], ["telegram", "✈️", ar ? "تيليجرام" : "Telegram"], ["training", "🏋️", ar ? "التدريب" : "Training"], ["users", "👥", ar ? "المستخدمون" : "Users"], ["health", "🩺", ar ? "الصحة" : "Health"]] as const).map(([id, ic, lb]) => (
+          {([["models", "🤖", ar ? "النماذج" : "Models"], ["pricing", "🏷️", ar ? "التسعير" : "Pricing"], ["telegram", "✈️", ar ? "تيليجرام" : "Telegram"], ["promo", "📣", ar ? "الترويج" : "Promotion"], ["training", "🏋️", ar ? "التدريب" : "Training"], ["users", "👥", ar ? "المستخدمون" : "Users"], ["health", "🩺", ar ? "الصحة" : "Health"]] as const).map(([id, ic, lb]) => (
             <SegmentedControl.Item key={id} selected={tab === id} onClick={() => { haptic("light"); setTab(id); }}>{ic} {lb}</SegmentedControl.Item>
           ))}
         </SegmentedControl>
@@ -594,6 +595,7 @@ export function PanelPage({ lang }: { lang: Lang }) {
       )}
       {tab === "models" && <OwnerModelsPanel ar={ar} api={api} haptic={haptic} models={models} reload={load} />}
       {tab === "telegram" && <OwnerTelegram ar={ar} api={api} haptic={haptic} />}
+      {tab === "promo" && <OwnerPromo ar={ar} api={api} haptic={haptic} />}
       {tab === "pricing" && <OwnerPricing lang={lang} api={api} haptic={haptic} models={models} reload={load} />}
       {tab === "training" && (<>
       <Section header={ar ? "التدريب" : "Training"} footer={tr?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>

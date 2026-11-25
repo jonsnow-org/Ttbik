@@ -313,7 +313,36 @@ const compactOn = (): boolean => (process.env.CODER_TOOLS_COMPACT || "").toLower
  * with the same start on every request a NEW conversation read 24 new tokens instead of 9,000 (6 s instead of minutes), and the cache survived other conversations; the earlier
  * way (a small list that grows with load_tools) re-read the whole prompt (6,138 tokens, from cache 0) the moment a group was added. CODER_TOOL_GROUPS=lazy = the earlier way, =off = every tool of coderTools().
  */
-export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[], keep: string[] = []): CoderTool[] {
+/** The groups a conversation uses, most recently loaded / called FIRST (the order a small context keeps them in when they do not all fit). */
+export function loadedGroupsByRecency(msgs: CoderMessage[], groups: Record<string, CoderTool[]>): string[] {
+  const out: string[] = [];
+  const of = new Map<string, string>();
+  for (const [g, ts] of Object.entries(groups)) for (const t of ts) of.set(t.function.name, g);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const calls = (msgs[i] as { tool_calls?: CoderToolCall[] }).tool_calls || [];
+    for (let j = calls.length - 1; j >= 0; j--) {
+      const name = calls[j]?.function?.name || "";
+      const gs = name === "load_tools" ? loadArgs(calls[j]) : of.has(name) ? [of.get(name)!] : [];
+      for (const g of gs) if (groups[g] && !out.includes(g)) out.push(g);
+    }
+  }
+  return out;
+}
+/** Tokens a tool list costs in the prompt. Calibrated on the live Studio (2026-11-24, runs 38530d / 909df7): the full list, 46k characters of JSON, was ~11.3k tokens
+ *  (~4 characters a token); 3.5 keeps a margin so a list that "fits" here really fits the 16,384 window. */
+export const toolTokens = (ts: CoderTool[]): number => Math.ceil(JSON.stringify(ts).length / 3.5);
+
+/**
+ * The tools for the next step of this conversation.
+ * Default: ONE fixed list (ask_user, delegate, then every group in a fixed order). Measured on a llama.cpp server with Nova's real prompt (2 cores, 9k-token start):
+ * with the same start on every request a NEW conversation read 24 new tokens instead of 9,000 (6 s instead of minutes), and the cache survived other conversations; the earlier
+ * way (a small list that grows with load_tools) re-read the whole prompt (6,138 tokens, from cache 0) the moment a group was added. CODER_TOOL_GROUPS=lazy = the earlier way, =off = every tool of coderTools().
+ *
+ * `budgetTokens` (small contexts only): what the tool schemas may cost in this step. Live 2026-11-24 (runs 38530d, 909df7) the model loaded almost every group: the prompt
+ * grew to 16,458 / 16,669 tokens in a 16,384 window and every retry failed the same way (history trimming cannot remove tool schemas). Over the budget, the most
+ * recently loaded groups stay (whole, else with short descriptions), older ones go back behind load_tools (the model can load them again when it needs them).
+ */
+export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[], keep: string[] = [], budgetTokens?: number): CoderTool[] {
   const mode = (process.env.CODER_TOOL_GROUPS || "").toLowerCase();
   if (mode === "off" && !toolGroupsLazy()) return coderTools(github, connectors);
   const groups = toolGroups(github, connectors);
@@ -324,8 +353,23 @@ export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderM
   const loaded = loadedGroups(msgs, groups);
   // At <=16k, stale sticky groups from earlier tasks can recreate the oversized schema list. The model can reload what it needs via load_tools.
   if (ctxTokens() > 16384) for (const g of keep) if (groups[g]) loaded.add(g); // larger contexts retain groups across segment breaks
+  const compactGroups = new Set<string>();
+  if (budgetTokens !== undefined && Number.isFinite(budgetTokens)) {
+    const recent = loadedGroupsByRecency(msgs, groups);
+    const order = [...recent, ...[...loaded].filter((g) => !recent.includes(g))];
+    const fixedPart = [loadToolsTool(Object.keys(groups)), ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : [])];
+    let left = budgetTokens - toolTokens(fixedPart);
+    loaded.clear();
+    for (const g of order) {
+      const whole = toolTokens(groups[g]);
+      if (whole <= left) { loaded.add(g); left -= whole; continue; }
+      const small = toolTokens(groups[g].map(compactTool));
+      if (small <= left) { loaded.add(g); compactGroups.add(g); left -= small; }
+    }
+  }
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
-  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap((g) => groups[g])];   // canonical order: the same set is always the same text (prompt cache)
+  const of = (g: string) => (compactGroups.has(g) ? groups[g].map(compactTool) : groups[g]);
+  return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(delegateAvailable() ? [DELEGATE_TOOL] : []), ...Object.keys(groups).filter((g) => loaded.has(g)).flatMap(of)];   // canonical order: the same set is always the same text (prompt cache)
 }
 
 export type Accuracy = "fast" | "balanced" | "precise";
