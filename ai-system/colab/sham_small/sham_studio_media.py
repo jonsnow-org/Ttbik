@@ -175,6 +175,16 @@ def _video_chunk_frames() -> int:
         return 12
 
 
+def _motion_scale() -> float:
+    """Guidance for the MOTION tokens (SHAM_VIDEO_MOTION_CFG, default 1.0 = plain conditional sampling). The keyframe keeps the image scale.
+    At 1.0 the unconditional pass stops once the keyframe is written: half the forwards for ~3000 motion tokens of a 6 s clip on a 2-CPU Studio."""
+    import os
+    try:
+        return max(1.0, float(os.environ.get("SHAM_VIDEO_MOTION_CFG", "1.0")))
+    except ValueError:
+        return 1.0
+
+
 def _motion_span(model, prefix: list[int], n_frames: int, vpf: int, scale: float):
     """Generate ONE motion block (n_frames frames' worth of flow tokens) after
     `prefix` (which already ends at <MOTION_START>)."""
@@ -184,7 +194,7 @@ def _motion_span(model, prefix: list[int], n_frames: int, vpf: int, scale: float
     allowed = [mot] * (vpf * n_frames) + [None]
     cond = torch.tensor([prefix], dtype=torch.long)
     uncond = torch.tensor([prefix[:2]], dtype=torch.long)
-    return guided_span(model, cond, uncond, forced, allowed, scale=scale, temperature=1.0, top_k=40)[0].tolist()
+    return guided_span(model, cond, uncond, forced, allowed, scale=_motion_scale(), temperature=1.0, top_k=40)[0].tolist()
 
 
 def _long_video_frames(model, image_tokenizer, motion_tokenizer, cond_prefix, uncond_prefix, num_frames: int, scale: float) -> torch.Tensor:
@@ -206,7 +216,8 @@ def _long_video_frames(model, image_tokenizer, motion_tokenizer, cond_prefix, un
     allowed = [img] * n + [None, None] + [(MOTION_VOCAB_BASE, MOTION_VOCAB_BASE + MOTION_VOCAB_SIZE)] * (vpf * (chunk - 1)) + [None, None]
     cond = torch.tensor([head], dtype=torch.long)
     uncond = torch.tensor([uncond_prefix + [SpecialTokens.VIDEO_START, SpecialTokens.IMAGE_START]], dtype=torch.long)
-    span = guided_span(model, cond, uncond, forced, allowed, scale=scale, temperature=1.0, top_k=40)[0].tolist()
+    scales = [scale] * (n + 2) + [_motion_scale()] * (vpf * (chunk - 1) + 2)          # keyframe guided, motion at the motion scale
+    span = guided_span(model, cond, uncond, forced, allowed, scale=scales, temperature=1.0, top_k=40)[0].tolist()
     seq = cond[0].tolist() + span
     frames = decode_clip(image_tokenizer, motion_tokenizer, torch.tensor([seq], dtype=torch.long), chunk)[0]
     # Passes 2..: one more motion block per pass, conditioned on the last keyframe
@@ -247,7 +258,8 @@ def _video_result(model, image_tokenizer, motion_tokenizer, cond_prefix, uncond_
         allowed = ([None] + [img] * n + [None, None] + [mot] * (vpf * deltas) + [None, None])
         cond = torch.tensor([cond_prefix + [SpecialTokens.VIDEO_START]], dtype=torch.long)
         uncond = torch.tensor([uncond_prefix + [SpecialTokens.VIDEO_START]], dtype=torch.long)
-        span = guided_span(model, cond, uncond, forced, allowed, scale=_scale(), temperature=1.0, top_k=40)
+        scales = [_scale()] * (1 + n + 2) + [_motion_scale()] * (vpf * deltas + 2)
+        span = guided_span(model, cond, uncond, forced, allowed, scale=scales, temperature=1.0, top_k=40)
         seq = torch.cat([cond, span], dim=1)
         frames = decode_clip(image_tokenizer, motion_tokenizer, seq, num_frames)[0]
     else:

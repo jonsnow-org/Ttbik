@@ -223,21 +223,31 @@ def _media_plan(kind: str, n: int, per_frame: int = 0):
 
 @torch.no_grad()
 def guided_span(model, cond_ids: torch.Tensor, uncond_ids: torch.Tensor, forced_ids, allowed_ranges,
-                scale: float = 3.0, temperature: float = 1.0, top_k: int | None = 40) -> torch.Tensor:
+                scale=3.0, temperature: float = 1.0, top_k: int | None = 40) -> torch.Tensor:
     """cond_ids/uncond_ids: (1, len), both already ending in the span's start
-    token. Returns the generated span (1, len(forced_ids))."""
+    token. Returns the generated span (1, len(forced_ids)).
+    `scale`: one guidance scale, or one per step. A step at scale 1.0 is plain conditional sampling (u + 1*(c - u) = c); once every remaining
+    step is at 1.0 the unconditional pass stops (half the forwards: Sham Pro's video motion tokens, 2026-11-25)."""
     model.eval()
+    scales = list(scale) if isinstance(scale, (list, tuple)) else [float(scale)] * len(forced_ids)
+    need_u = [False] * len(scales)
+    tail = False
+    for i in range(len(scales) - 1, -1, -1):                  # need_u[i]: some step >= i still uses guidance
+        tail = tail or scales[i] != 1.0
+        need_u[i] = tail
     past_c = past_u = None
     nc, nu = cond_ids, uncond_ids
     out = []
     for step, forced in enumerate(forced_ids):
         lc, _, past_c = model(nc, past_key_values=past_c, use_cache=True)
-        lu, _, past_u = model(nu, past_key_values=past_u, use_cache=True)
+        lu = None
+        if need_u[step]:
+            lu, _, past_u = model(nu, past_key_values=past_u, use_cache=True)
         if forced is not None:
             tok = forced
         else:
-            c, u = lc[:, -1].float(), lu[:, -1].float()
-            logits = u + scale * (c - u)
+            c = lc[:, -1].float()
+            logits = c if (lu is None or scales[step] == 1.0) else lu[:, -1].float() + scales[step] * (c - lu[:, -1].float())
             tok = int(_generate._sample_from_logits(logits, temperature=temperature, top_k=top_k,
                                                    allowed_range=allowed_ranges[step])[0, 0])
         out.append(tok)
