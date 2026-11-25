@@ -42,6 +42,13 @@ class LoadMode(unittest.TestCase):
     def test_small_model_keeps_default(self):
         self.assertEqual(self.mode(2.7), "")
 
+    def test_refused_mlock_goes_plain_mmap(self):
+        app._LOCK["refused"] = True
+        try:
+            self.assertEqual(self.mode(12.3), "")
+        finally:
+            app._LOCK["refused"] = False
+
     def test_env_overrides(self):
         self.assertEqual(self.mode(2.7, {"CODER_LOAD_MODE": "none"}), "none")
         self.assertEqual(self.mode(12.3, {"CODER_LOAD_MODE": "off"}), "")
@@ -65,14 +72,14 @@ class CacheBudget(unittest.TestCase):
                 os.environ.pop("CODER_CTX_CHECKPOINTS", None)
             return app._cache_budget(m)
 
-    def test_big_model_small_cache(self):
-        self.assertEqual(self.budget(12.3), ("256", "4"))
+    def test_big_model_keeps_measured_values(self):
+        self.assertEqual(self.budget(12.3), ("1024", "8"))           # reverted: 256 / 4 measured slower live (2026-11-25)
 
     def test_small_model_keeps_old_values(self):
         self.assertEqual(self.budget(2.7), ("1024", "8"))
 
     def test_env_overrides(self):
-        self.assertEqual(self.budget(12.3, {"CODER_CACHE_RAM_MB": "1024", "CODER_CTX_CHECKPOINTS": "8"}), ("1024", "8"))
+        self.assertEqual(self.budget(12.3, {"CODER_CACHE_RAM_MB": "256", "CODER_CTX_CHECKPOINTS": "4"}), ("256", "4"))
 
 
 if __name__ == "__main__":
