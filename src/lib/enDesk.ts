@@ -971,7 +971,7 @@ export const EN_EVENTS: DeskItem[] = [
     "WHO lists the 2026 16 Days of Activism against Gender-Based Violence campaign among its events for 25 November to 10 December 2026. It begins on the International Day for the Elimination of Violence against Women and ends on Human Rights Day.",
     "UN Women's official 2026 concept note sets the global theme: 'UNiTE to End Violence Against Women and Girls: Ensure Justice, Protect Survivors, End Impunity.'",
     "The campaign is global and multi-country, not a single venue-based conference. Local organizations may hold different events during the period; WHO's listing gives no single start time or time zone.",
-    "Status as of 24 November 2026: upcoming; it begins the following day, 25 November, and runs through 10 December. Location: global. No unified time has been published.",
+    "Status as of 25 November 2026: ongoing; it began today and runs through 10 December. Location: global. No unified time has been published.",
     "Campaign period: 25 November–10 December 2026. This is the global campaign window, not a common timetable for every local activity."
   ],
   "sources": [
