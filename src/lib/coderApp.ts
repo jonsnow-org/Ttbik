@@ -249,6 +249,75 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
       return { ok: true };
     }
+    case "promo": {
+      // owner panel → Promotion: our projects, the groups the bot is a member of (with the owner's per-group settings), the switch and the log
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/promoSupervisor");
+      const F = await import("@/lib/tgFeatures");
+      const store = P.sqlStore(db);
+      const cur = await F.refreshTgFeatures(db, true);
+      return { on: cur.promo, projects: await store.projects(), targets: await store.targets(), log: await store.logs(60), limits: P.LIMITS };
+    }
+    case "promo_set": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const P = await import("@/lib/promoSupervisor");
+      const F = await import("@/lib/tgFeatures");
+      const store = P.sqlStore(db);
+      const what = String(body.what || "");
+      try {
+        if (what === "switch") { await F.setTgAudience("tg_promo", String(body.value) as never, db); return { ok: true }; }
+        if (what === "project_add") return { ok: true, project: await store.addProject(P.normProject(body)) };
+        if (what === "project_update") {
+          const id = Number(body.id);
+          const old = (await store.projects()).find((x) => x.id === id);
+          if (!old) throw new Error("no such project");
+          await store.updateProject(id, P.normProject({ ...old, ...body }));
+          return { ok: true };
+        }
+        if (what === "project_delete") { await store.deleteProject(Number(body.id)); return { ok: true }; }
+        const chatId = String(body.chatId || "");
+        const t = chatId ? await store.target(chatId) : null;
+        if (what === "target_update") {
+          if (!t) throw new Error("unknown group");
+          const n = { ...t, ...P.normTargetSettings(body) };
+          if (n.enabled && !n.allowLinks) throw new Error("confirm first that this group's rules allow links");
+          if (n.enabled && t.botId !== deps.botRow.id) throw new Error("this group belongs to another bot");
+          if (n.enabled && !t.enabled) {
+            const v = await P.verifyTarget(deps.bot.api as never, n, Number(String(deps.botRow.token).split(":")[0]));        // Telegram's real answer before the first post
+            await store.putTarget(v.t);
+            if (!v.ok) throw new Error(v.note || "the bot cannot post in this group");
+            return { ok: true };
+          }
+          await store.putTarget(n);
+          return { ok: true };
+        }
+        if (what === "target_delete") { await store.deleteTarget(chatId); return { ok: true }; }
+        if (what === "verify") {
+          if (!t) throw new Error("unknown group");
+          const v = await P.verifyTarget(deps.bot.api as never, t, Number(String(deps.botRow.token).split(":")[0]));
+          await store.putTarget(v.t);
+          return { ok: v.ok, note: v.note };
+        }
+        if (what === "preview") return { ok: true, ...(await P.preview(store, chatId, Number(body.projectId))) };     // sends nothing
+        if (what === "suggest") {
+          // our own active bots (the owner's), with their real @username from Telegram: one tap adds one as a project
+          const { prisma } = await import("@/lib/prisma");
+          const { ownerIds } = await import("@/lib/coderAuth");
+          const { Bot } = await import("grammy");
+          const rows = await prisma.bot.findMany({ where: { isActive: true, ownerId: { in: ownerIds() }, NOT: { id: deps.botRow.id } }, take: 30, orderBy: { created_at: "desc" } });
+          const have = new Set((await store.projects()).map((x) => x.link.toLowerCase()));
+          const out: { title: string; link: string; template: string }[] = [];
+          await Promise.all(rows.map(async (r) => {
+            const me = await Promise.race([new Bot(r.token).api.getMe(), new Promise<null>((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
+            if (!me?.username) return;
+            const link = `https://t.me/${me.username}`;
+            if (!have.has(link.toLowerCase())) out.push({ title: me.first_name || me.username, link, template: r.template });
+          }));
+          return { ok: true, suggestions: out };
+        }
+        throw new Error("unknown action");
+      } catch (e) { if (e instanceof AppError) throw e; throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
+    }
     case "mesh_flag": {
       // every user's Mini App polls this: the owner's one switch decides whether devices join the mesh (default off)
       const M = await import("@/lib/meshPolicy");
