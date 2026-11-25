@@ -16,6 +16,60 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "us-section-301-proposed-tariffs-14-economies-2026",
+  "title": "US proposes new trade tariffs on imports from 14 economies",
+  "date": "25 November 2026",
+  "contextDateLabel": "USTR statement: 25 November 2026 (no publication time shown); Associated Press report: 25 November 2026 (no publication time displayed); Sham AI publication date: 25 November 2026. Written comments are due 5 January 2027; hearings are scheduled for 25 January 2027 (the notice gives no time or venue).",
+  "dek": "The US Trade Representative announced findings in 14 Section 301 investigations and proposed tariffs on imports from 14 economies, including China, the European Union, Japan and India. The measures are open for public comment; they are not tariffs that have taken effect.",
+  "body": [
+    "On 25 November 2026, the Office of the US Trade Representative said it had determined in 14 investigations that certain industrial practices linked to structural excess manufacturing capacity were unreasonable and burdened US commerce. It proposed responsive action under Section 301 of the Trade Act of 1974. The economies include China, the European Union, Japan, India, South Korea, Taiwan and Vietnam, alongside seven others.",
+    "The 14 economies named by USTR are China, the European Union, Singapore, Switzerland, Indonesia, Malaysia, Cambodia, Thailand, Korea, Vietnam, Taiwan, Bangladesh, Japan and India. The office said it had not made determinations on Mexico or Norway. Proposed rates vary by economy and product, with exemptions and adjustments for some existing duties and trade commitments; they should not be reduced to one uniform rate.",
+    "USTR said the proposals are subject to public comment. Written comments and requests to appear at hearings, with a summary of testimony, are due by 5 January 2027. Hearings are scheduled to begin on 25 January 2027 and continue as appropriate. The notice does not state a hearing time or venue.",
+    "The Associated Press reported that the US Trade Representative did not expect the tariffs to take effect earlier than a couple of months from the announcement. That is an attributed expectation, not a final legal implementation date; USTR's notice does not announce a definitive start date. The measures therefore remain proposals under consultation, not tariffs currently in force.",
+    "Investigation findings and proposal date: 25 November 2026; AP report date: 25 November 2026. Written-comment deadline: 5 January 2027; hearings: 25 January 2027. The notice gives no hearing time or venue and does not establish that the proposed tariffs have taken effect."
+  ],
+  "sources": [
+    {
+      "href": "https://ustr.gov/about/policy-offices/press-office/press-releases/2026/november/ustr-makes-determinations-and-proposes-actions-14-section-301-investigations-relating-structural",
+      "label": "Office of the US Trade Representative — findings and proposed actions in 14 Section 301 investigations, 25 November 2026"
+    },
+    {
+      "href": "https://apnews.com/article/367083ea32f71fd7f70029ba7df66bf0",
+      "label": "Associated Press — US plans new tariffs on China, the EU and other trading partners, 25 November 2026"
+    }
+  ]
+},
+
+{
+  "slug": "us-q3-gdp-pce-inflation-october-2026",
+  "title": "US economy grows 4.3% in Q3 as October PCE inflation reaches 3.8%",
+  "date": "25 November 2026",
+  "contextDateLabel": "US Bureau of Economic Analysis (BEA) releases: 25 November 2026 at 8:30 a.m. EST (13:30 UTC; 16:30 Istanbul); Reuters report: 25 November 2026 at 13:45 UTC (16:45 Istanbul). GDP reference period: Q3, July–September 2026; PCE inflation reference period: October 2026; Sham AI publication date: 25 November 2026.",
+  "dek": "The BEA raised its estimate of real GDP growth to a 4.3% annualized pace in the third quarter, while October PCE inflation reached 3.8% year over year and core PCE reached 3.3%. The figures cover different reporting periods and are not an economic forecast.",
+  "body": [
+    "On 25 November 2026, the US Bureau of Economic Analysis released its second estimate of third-quarter gross domestic product, reporting that real GDP grew at a 4.3% annualized rate in July–September. The advance estimate was 3.4%, while the second quarter grew 2.2%. An annualized rate converts the quarterly change into a yearly pace; it does not mean the economy grew 4.3% over the three-month period itself.",
+    "The BEA said the upward revision mainly reflected higher estimates for investment and consumer spending. Real final sales to private domestic purchasers rose at a 5.8% annualized rate in the third quarter. These figures describe third-quarter activity, not October inflation.",
+    "In a separate October personal-income and outlays release, the Personal Consumption Expenditures (PCE) price index rose 0.3% from September and 3.8% from October 2025. The core index, which excludes food and energy, increased 0.3% month over month and 3.3% year over year. The BEA also reported that real personal consumption expenditures fell by US$5.8 billion, or less than 0.1%, during the month.",
+    "Personal income increased 0.7% in October and disposable personal income rose 0.8%; the personal saving rate was 4.1%. Reuters reported that GDP growth was the fastest since the third quarter of 2023 and that annual core inflation was the highest since November 2023. These descriptions refer to published data, not a forecast for prices or interest rates.",
+    "Both BEA releases were issued at 8:30 a.m. Eastern Time on 25 November 2026 (13:30 UTC; 16:30 Istanbul). Reuters published its report at 13:45 UTC (16:45 Istanbul). GDP covers July–September 2026, while the PCE price data cover October 2026. This is a news briefing, not financial or investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bea.gov/news/2026/gdp-second-estimate-and-corporate-profits-3rd-quarter-2026",
+      "label": "US Bureau of Economic Analysis — GDP second estimate and corporate profits, Q3 2026, 25 November 2026"
+    },
+    {
+      "href": "https://www.bea.gov/news/2026/personal-income-and-outlays-october-2026",
+      "label": "US Bureau of Economic Analysis — Personal Income and Outlays, October 2026, 25 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/us-inflation-rises-further-october-2026-11-25/",
+      "label": "Reuters — US economy grows strongly in Q3 as October inflation remains high, 25 November 2026, 13:45 UTC"
+    }
+  ]
+},
+
+{
   "slug": "gaza-meningitis-epidemic-alert-2026",
   "title": "Gaza issues meningitis epidemic alert after 272 cases were reported in October",
   "date": "24 November 2026",
