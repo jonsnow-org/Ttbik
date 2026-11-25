@@ -560,6 +560,11 @@ def load_chat(body, tok, token: str | None = None, confirm=None):
     """-> (chat, error_text). error_text is set when the head cannot be used; chat is then None."""
     path = download_head(token)
     if path is None:
+        # download_head calls the hub (snapshot_download) on every request, and a transient hub error ("Failed to check existence of
+        # repo", common right after a deploy) returns None. A head already loaded in this process keeps serving: before 2026-11-25 such a
+        # hiccup switched Sham Pro's T-LDM off (missing_message) until the Studio was restarted, although the head was in memory.
+        if _LOADED.get("chat") is not None:
+            return _LOADED["chat"], ""
         return None, missing_message()
     key = str(path)
     if _LOADED.get("path") == key and _LOADED.get("chat") is not None:

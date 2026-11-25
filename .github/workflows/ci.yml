@@ -74,6 +74,8 @@ jobs:
           python -m unittest ai-system/modelscope-coder/tests/test_slot_restore.py -v
           python -m unittest ai-system/modelscope-coder/tests/test_view_type.py -v
           python -m unittest ai-system/modelscope-coder/tests/test_load_mode.py -v
+          python -m unittest ai-system/modelscope-coder/tests/test_tldm_reader_role.py -v       # the reader Studio role (generate_tldm only, no chat): added 2026-11-25, never in CI until now
+          python -m unittest ai-system/modelscope-coder/tests/test_tldm_reader_recovery.py -v  # a dead feature reader must not take the loaded head down
           python ai-system/modelscope-coder/tests/test_think_cap.py
           python -m py_compile ai-system/app/main.py ai-system/app/council.py ai-system/app/nova_media_studio.py ai-system/app/nova_media_routing.py ai-system/app/test_nova_media_studio.py ai-system/app/test_nova_media_routing.py ai-system/modelscope-media/app.py ai-system/modelscope-studio/app.py ai-system/colab/sham_small/sham_studio_chat.py
 

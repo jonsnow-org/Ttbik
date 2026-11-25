@@ -43,6 +43,18 @@ class Sham2TldmServe(unittest.TestCase):
         self.assertEqual(out["fallback"], "none")
         self.assertIn("شام 1", out["text"])
 
+    def test_a_hub_hiccup_keeps_the_head_that_is_already_loaded(self):
+        """download_head runs on every request; a transient hub error must not switch an already loaded head off (live 2026-11-25)."""
+        chat = object()
+        S._LOADED.update(path="/cache/sham2_heads.pt", chat=chat)
+        with mock.patch.object(S, "download_head", return_value=None):
+            self.assertEqual(S.load_chat(None, None), (chat, ""))
+        S._LOADED.clear()                                             # nothing loaded yet: the honest "head is not there" error stays
+        with mock.patch.object(S, "download_head", return_value=None):
+            loaded, err = S.load_chat(None, None)
+        self.assertIsNone(loaded)
+        self.assertEqual(err, S.missing_message())
+
     def test_repo_override(self):
         os.environ["SHAM_TLDM_REPO"] = "Jonjithup/sham2-tldm-head"
         self.assertEqual(S.repo_id(), "Jonjithup/sham2-tldm-head")

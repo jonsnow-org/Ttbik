@@ -214,7 +214,16 @@ def _ensure_deps() -> str:
 def load(llama_exe: str, model_path: str, threads: int = 2):
     with _LOCK:
         if _STATE["writer"] is not None:
-            return _STATE["writer"], ""
+            embed = _STATE.get("embed")
+            if embed is None or embed.poll() is None:
+                return _STATE["writer"], ""
+            # The feature reader exited (memory, or the box killed it): the head is still loaded and valid, so the reader is restarted and
+            # the SAME head keeps serving. Before 2026-11-25 the cached writer was returned as it was and every T-LDM call failed (the reader's
+            # HTTP client had nothing to talk to) until the whole Studio was restarted.
+            if ensure_embed_server(llama_exe, model_path, threads):
+                print("nova_tldm: the feature reader exited and restarted; the loaded head keeps serving", flush=True)
+                return _STATE["writer"], ""
+            return None, "خادم القراءة الثاني لنوفا توقف ولم يعد يبدأ. لم يُستخدم نموذج آخر."
         bad = _ensure_deps()
         if bad:
             return None, bad + " لم يُستخدم نموذج آخر."
