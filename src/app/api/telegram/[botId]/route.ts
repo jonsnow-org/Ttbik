@@ -149,6 +149,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
+      // Telegram Business / Secretary mode (owner's panel switch, off by default): the shared bot replies INSIDE a linked user's own account, by the model that user chose
+      // for that connection (Nova or Sham Pro), after checking the granted right. Never reaches the chat handlers below (src/lib/tgBusiness.ts).
+      if (botRow.template === "NOVA_BOT" && (body.business_connection || body.business_message || body.edited_business_message || body.deleted_business_messages)) {
+        const B = await import("@/lib/tgBusiness");
+        if (body.business_connection) await B.handleBusinessConnection(bot.api as never, body.business_connection).catch(() => null);
+        else if (body.business_message) await B.handleBusinessMessage(bot.api as never, body.business_message).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
       if (botRow.template === "NOVA_BOT") { const { rememberThread } = await import("@/lib/tgThread"); rememberThread(body); }
       // Guest mode (Bot API 10.0, panel switch, off by default): someone mentioned the bot in a chat it is not in; one short, tool-less answer (src/lib/tgGuest.ts).
       if (body.guest_message && botRow.template === "NOVA_BOT") {

@@ -211,7 +211,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       let error = "";
       try { info = await F.readBotInfo(deps.bot.api as never); } catch (e) { error = String((e as Error)?.message || e).slice(0, 200); }
       const R = await import("@/lib/telegramRich");
-      return { rich: cur.rich || R.richMode(), guestMode: cur.guest, info, invite: F.inviteLink(info?.username || ""), error };
+      return { rich: cur.rich || R.richMode(), guestMode: cur.guest, businessMode: cur.business, info, invite: F.inviteLink(info?.username || ""), error };
     }
     case "tg_set": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
@@ -220,7 +220,32 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       try {
         if (key === "rich") await F.setTgAudience("tg_rich", String(body.value) as never, db);
         else if (key === "guest") await F.setGuestMode(deps.bot.api as never, String(body.value) as never, db);
+        else if (key === "business") await F.setTgAudience("tg_business", String(body.value) as never, db);
         else await F.setTelegramSetting(deps.bot.api as never, key, Boolean(body.value));
+      } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
+      return { ok: true };
+    }
+    case "biz": {
+      // "Permissions & linked chats" (Telegram Business): ONLY this user's own connections, rights, chosen model and activity
+      const B = await import("@/lib/tgBusiness");
+      const F = await import("@/lib/tgFeatures");
+      const aud = await F.businessAudience(db).catch(() => "off" as const);
+      const available = aud === "all" || (aud === "owner" && user.tier === "owner");
+      const conns = await B.connectionsOf(user.chatId, db);
+      const out = [];
+      for (const c of conns) out.push({ id: c.id, enabled: c.enabled, model: c.model, rights: c.rights, instructions: c.instructions, since: c.createdAt || null, activity: await B.activityOf(user.chatId, c.id, db, 30) });
+      return { available, models: B.BUSINESS_MODELS.map((id) => ({ id, name: B.BUSINESS_MODEL_LABEL[id] })), rights: B.RIGHTS, connections: out };
+    }
+    case "biz_set": {
+      const B = await import("@/lib/tgBusiness");
+      const id = String(body.id || "");
+      const what = String(body.what || "");
+      try {
+        if (what === "model") await B.setConnectionModel(user.chatId, id, body.model, body.confirm, db);       // explicit confirmation required; the chat /model switch never comes here
+        else if (what === "enabled") await B.setConnectionEnabled(user.chatId, id, Boolean(body.on), db);
+        else if (what === "instructions") await B.setConnectionInstructions(user.chatId, id, body.text, db);
+        else if (what === "forget") await B.forgetConnection(user.chatId, id, db);
+        else throw new Error("unknown action");
       } catch (e) { throw new AppError(400, String((e as Error)?.message || e).slice(0, 200)); }
       return { ok: true };
     }
