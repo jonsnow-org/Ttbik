@@ -72,8 +72,40 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  let conns: any[] = [];
+  // The Studio side of the same question: a reply that never came is either Telegram's refusal (above) or the model's own Studio.
   try {
+    const OC = await import("@/lib/openCoderStudio");
+    const bases = OC.coderStudioUrls();
+    const st = await OC.allStudioStatus(6000);
+    out.studios = st.map((s, i) => ({
+      studio: String(bases[i] || "?").replace(/^https:\/\//, "").split(".")[0],
+      phase: s?.phase ?? null, model: s?.model ?? null, queue: s?.queue ?? null,
+    }));
+  } catch {
+    out.studios = "unavailable";
+  }
+
+  // `gen=1`: one tiny real completion, to see what the reply the owner's test never got actually looked like (type/failure/timing).
+  if (req.nextUrl.searchParams.get("gen") === "1") {
+    const t0 = Date.now();
+    try {
+      const OC = await import("@/lib/openCoderStudio");
+      const o: { reply: unknown; failure?: string; status?: number; detail?: string } = await OC.withEngineModel("coder", () => OC.coderChat(
+        [{ role: "user", content: "جواب من كلمتين: تم." }] as never,
+        { tools: [], maxTokens: 8, think: false, temperature: 0, waitS: 20, timeoutMs: 30000, model: "coder", tag: "biz-probe" },
+      )).catch((e) => ({ reply: null, failure: "network", detail: String((e as Error)?.message || e).slice(0, 120) }));
+      const r = o?.reply as { type?: string; text?: string; job?: string; error?: string; phase?: string } | null;
+      out.gen = {
+        ms: Date.now() - t0, status: o?.status ?? null, failure: o?.failure ?? null, detail: o?.detail ? String(o.detail).slice(0, 160) : null,
+        type: r?.type ?? null, error: r?.error ? String(r.error).slice(0, 160) : null, phase: r?.phase ?? null,
+        job: r?.job ? "yes" : null, text: r?.type === "done" ? String(r.text || "").slice(0, 80) : null,
+      };
+    } catch (e) {
+      out.gen = { ms: Date.now() - t0, error: String((e as Error)?.message || e).slice(0, 160) };
+    }
+  }
+
+  let conns: any[] = [];  try {
     conns = await prismaDb.query<any>(`SELECT * FROM tg_business_connections ORDER BY updated_at DESC LIMIT 10`);
   } catch {
     out.connections = "tg_business_connections readable only after the first business update";

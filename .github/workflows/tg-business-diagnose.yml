@@ -9,6 +9,10 @@ on:
         description: "also ask Telegram for each stored connection (getBusinessConnection)"
         type: string
         default: "1"
+      gen:
+        description: "also make one tiny real completion on Nova's Studio and report what came back"
+        type: string
+        default: "1"
 permissions:
   contents: read
 jobs:
@@ -20,9 +24,10 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           PROBE: ${{ inputs.probe }}
+          GEN: ${{ inputs.gen }}
         run: |
           set -eu
-          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}"
+          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-1}"
           code=$(curl -sS -m 90 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
           echo "HTTP ${code}"
           head -c 4000 biz.json; echo
@@ -45,6 +50,17 @@ jobs:
           print(f"bot @{b.get('username')} | secretary mode (can_connect_to_business) = {b.get('canConnectBusiness')}")
           print(f"webhook = {b.get('webhookUrl')} | pending = {b.get('pending')} | allowed_updates = {b.get('allowedUpdates')}")
           print(f"last delivery error = {b.get('lastError')} ({b.get('lastErrorAgoMin')} min ago)")
+          st = d.get("studios")
+          if isinstance(st, str):
+              print("studios:", st)
+          else:
+              for s in st or []:
+                  print(f"  studio {s['studio']} | phase={s['phase']} model={s['model']} queue={s['queue']}")
+          g = d.get("gen")
+          if g:
+              print(f"probe completion: {g.get('ms')} ms | type={g.get('type')} status={g.get('status')} failure={g.get('failure')} phase={g.get('phase')} job={g.get('job')}")
+              print(f"  error={g.get('error')} detail={g.get('detail')}")
+              print(f"  text={g.get('text')!r}")
           cs = d.get("connections")
           if isinstance(cs, str):
               print("connections:", cs)

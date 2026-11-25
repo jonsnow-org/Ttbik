@@ -145,7 +145,29 @@ export async function activityOf(userId: string | number, id: string, db: Db = p
 
 // ---------------------------------------------------------------- the reply
 export type Turn = { role: "user" | "assistant"; text: string };
-export type Generate = (model: BusinessModel, system: string, history: Turn[], incoming: string, memoryKey: string) => Promise<string | null>;
+/** A reply, or no reply WITH the reason the Studio gave (the log then says why, not just "did not answer"). */
+export type GenOutcome = { text: string | null; why?: string };
+export type Generate = (model: BusinessModel, system: string, history: Turn[], incoming: string, memoryKey: string) => Promise<string | null | GenOutcome>;
+
+/** How long one Business reply may spend inside the 60 s Telegram webhook (a timeout there means the contact sees nothing at all). */
+function genBudgetMs(): number {
+  const n = Number(process.env.TG_BIZ_GEN_MS || 0);
+  return Number.isFinite(n) && n >= 10000 ? Math.min(50000, n) : 46000;
+}
+
+/** The Studio's own words for a call that produced no text: rate limit, blocked, loading, error, gone, deadline. */
+function whyNoReply(o: { failure?: string; status?: number; detail?: string } | null | undefined, r: { type?: string; error?: string; phase?: string } | null | undefined): string {
+  const s = (v: unknown, n = 120) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+  if (!r) return `studio ${s(o?.failure || "no answer", 20)}${o?.status ? ` ${o.status}` : ""}${o?.detail ? `: ${s(o.detail)}` : ""}`;
+  const t = String(r.type || "?");
+  if (t === "error") return `studio error: ${s(r.error) || "no message"}`;
+  if (t === "loading") return `studio loading${r.phase ? ` (${s(r.phase, 30)})` : ""}`;
+  if (t === "pending") return "still running at the deadline (the job was cancelled)";
+  if (t === "gone") return "the job is gone (Studio restarted)";
+  if (t === "cancelled") return "cancelled";
+  if (t === "done") return "empty answer";
+  return `studio ${s(t, 30)}`;
+}
 
 export function systemFor(c: Connection, ownerName: string): string {
   const who = ownerName ? `${ownerName}` : "the account owner";
@@ -161,11 +183,28 @@ export function systemFor(c: Connection, ownerName: string): string {
 /** Default generator: our own model servers only, the chosen model only. */
 export const defaultGenerate: Generate = async (model, system, history, incoming, memoryKey) => {
   if (model === "coder") {
-    const { coderChat } = await import("@/lib/openCoderStudio");
+    const OC = await import("@/lib/openCoderStudio");
     const messages = [{ role: "system", content: system }, ...history.map((h) => ({ role: h.role, content: h.text })), { role: "user", content: incoming }];
-    const o = await coderChat(messages as never, { tools: [], maxTokens: 400, think: false, temperature: 0.5, waitS: 20, timeoutMs: 40000, model: "coder", tag: "business" }).catch(() => null);
-    const t = String(o?.reply?.type === "done" ? o.reply.text || "" : "").trim();
-    return t || null;
+    const deadline = Date.now() + genBudgetMs();
+    type ReplyLike = { type?: string; text?: string; job?: string; error?: string; phase?: string };
+    const o: { reply: unknown; failure?: string; status?: number; detail?: string } = await OC.coderChat(messages as never, { tools: [], maxTokens: 400, think: false, temperature: 0.5, waitS: 20, timeoutMs: 40000, model: "coder", tag: "business" })
+      .catch((e) => ({ reply: null, failure: "network", detail: String((e as Error)?.message || e).slice(0, 120) }));
+    let r = (o?.reply || null) as ReplyLike | null;
+    // Nova is the 35B model on the owner's Studio: a chat call that has not finished inside `wait_s` answers "pending" + a job id and
+    // the text arrives on job_result. Accepting "done" alone dropped every answer from a busy or cold Studio — the owner's live test
+    // (2026-11-25) sent three messages inside his account and all three were logged as "did not answer" with nothing sent.
+    for (let i = 0; r?.type === "pending" && r.job && Date.now() + 4000 < deadline && i < 20; i++) {
+      const job: string = String(r.job);
+      await new Promise((res) => setTimeout(res, 2000));
+      const next = await OC.withEngineModel("coder", () => OC.coderJobResult(job, 0, 8000)).catch(() => null);
+      r = ((next?.reply || null) as ReplyLike | null) || r;
+    }
+    if (r?.type === "pending" && r.job) {
+      const job: string = String(r.job);
+      await OC.withEngineModel("coder", () => OC.coderCancel(job)).catch(() => null);
+    }
+    const t = r?.type === "done" ? String(r.text || "").trim() : "";
+    return t || { text: null, why: whyNoReply(o, r) };
   }
   // Sham Pro: its own native role chat (generate_chat on sham-v2-server). It used chat_memory, an endpoint the Sham Pro Studio does not have
   // (only the legacy Sham Studio does), so every Business reply by Sham Pro came back empty. The contact's turns go as native roles; the owner's
@@ -175,7 +214,9 @@ export const defaultGenerate: Generate = async (model, system, history, incoming
   const turns = businessShamTurns(system, history, incoming);
   const r = await S.shamVariant.run("v2", () => S.shamGenerateChat(turns, 220, 45000, { bypassContentHeuristics: false, direct: true })).catch(() => null);
   const t = r && r.type === "text" ? String(r.text || "").trim() : "";
-  return t || null;
+  if (t) return t;
+  const why = r ? `sham ${r.type}${r.reason ? `: ${String(r.reason).slice(0, 100)}` : ""}` : `sham no answer${S.shamLastFailure() ? `: ${String(S.shamLastFailure()).slice(0, 120)}` : ""}`;
+  return { text: null, why };
 };
 
 /** Native user/assistant turns for Sham Pro: consecutive same-role turns merged, the first one a user turn, the rules in front of the newest message. */
@@ -287,9 +328,12 @@ export async function handleBusinessMessage(api: RawApi, msg: any, deps: Deps = 
     if (!owner && !allowed(c.id)) { await logEvent(db, c, chatId, model, "skip", "", "hourly limit"); return { result: "skipped", note: "rate limit" }; }
     if (hasRight(c.rights, "can_read_messages") && msg?.message_id) await api.raw.readBusinessMessage({ business_connection_id: c.id, chat_id: Number(chatId), message_id: msg.message_id }).catch(() => null);
     await api.raw.sendChatAction({ business_connection_id: c.id, chat_id: Number(chatId), action: "typing" }).catch(() => null);
-    const reply = await (deps.generate || defaultGenerate)(model, systemFor(c, ""), history, text, `biz:${c.id}:${chatId}`).catch(() => null);
+    const made = await (deps.generate || defaultGenerate)(model, systemFor(c, ""), history, text, `biz:${c.id}:${chatId}`)
+      .catch((e) => ({ text: null, why: String((e as Error)?.message || e).slice(0, 120) }));
+    const gen: GenOutcome = typeof made === "string" ? { text: made } : made || { text: null };
+    const reply = String(gen.text || "").trim() || null;
     if (!reply) {
-      await logEvent(db, c, chatId, model, "fail", "", `${model} did not answer; nothing sent (no fallback)`);
+      await logEvent(db, c, chatId, model, "fail", "", `${model} did not answer${gen.why ? `: ${gen.why}` : ""}; nothing sent (no fallback)`);
       const last = noticeAt.get(c.id) || 0;
       if (Date.now() - last > 30 * 60000) {
         noticeAt.set(c.id, Date.now());
