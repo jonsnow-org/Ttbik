@@ -269,7 +269,10 @@ export async function shamAgentRun(opts: {
         tldmHandedOff = true;
         break tldmHead;
       }
-      if (!(ran.length && headReadable) && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
+      // live repeat probe 2026-11-25: «اشرح لي التمثيل الضوئي» -> the head ran a working but unrelated command and its log «الخرج: 221» stood as the answer.
+      // The head's own text stands only for an explicit computer task (the user asked to run / list / install something); otherwise the body writes the reply.
+      const headStands = ran.length > 0 && headReadable && tldmComputerTask;
+      if (!headStands && !used.filter((name) => name !== "computer_run").length && tldmSteps === 1 && chatMessages.length) {
         const last = chatMessages[chatMessages.length - 1];
         const turns = ran.length && last?.role === "user"
           ? [...chatMessages.slice(0, -1), { role: "user" as const, content: `${last.content}\n\n[ما نُفّذ على حاسوبي الآن]\n${ran.map((step) => `$ ${String(step?.command || "").slice(0, 300)}\n${String(step?.result || "").slice(0, 1200)}`).join("\n").slice(0, 6000)}\n\nهذه أوامر نفذتُها على حاسوبي ونتائجها؛ استعملها فقط إن كانت صحيحة ومتعلقة بطلبي، ثم أجب عن طلبي أعلاه بلغة طلبي وباختصار.` }]

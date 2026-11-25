@@ -119,6 +119,18 @@ describe("Sham's own agent loop", () => {
     } finally { tldm.mockRestore(); chat.mockRestore(); }
   });
 
+  it("a working but unrelated head command on a question that is not a computer task: the head's log («الخرج: 221») is not the answer, the body writes it (2026-11-25 repeat probe)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: 221", tldm: true,
+      computer_steps: [{ command: "python3 -c 'print(13*17)'", ok: true, result: "221" }] } as any);
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValueOnce({ type: "text", text: "def reverse(s):\n    return s[::-1]" } as any);
+    try {
+      const r = await shamVariant.run("v2", () => shamTldmCtx.run(true, () => shamAgentRun({ text: "اكتب دالة بايثون تعكس نصاً", ctx, tools: shamToolDefs(false), budgetMs: 30000 })));
+      expect(r).toMatchObject({ kind: "text", text: "def reverse(s):\n    return s[::-1]" });
+      expect(chat).toHaveBeenCalled();
+    } finally { tldm.mockRestore(); chat.mockRestore(); }
+  });
+
   it("broken head commands (bash syntax errors) and garbled head text never become the reply: Sham Pro's body's tool loop takes the work (2026-11-24 live probe)", async () => {
     const studio = await import("@/lib/shamStudio");
     const tldm = jest.spyOn(studio, "shamGenerateTldm").mockResolvedValueOnce({ type: "text", text: "الخرج: 811", tldm: true,

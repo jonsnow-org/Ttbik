@@ -361,6 +361,15 @@ export async function shamCoordinate(
   return { type: "error", text: "ردّ المنسّق غير مقروء." };
 }
 
+/** The T-LDM head's own text with no command that worked behind it. The 4.5M head writes command lines, not conversation: on an ordinary question it
+ *  answers the SAME fixed line («تعذّر عليّ تحديد أمر مناسب لهذا الطلب.», live repeat probe 2026-11-25: 3 of 5 different questions) or a garbled log.
+ *  Such a text is never shown as Sham Pro's answer; the body (same model) writes it. Confirmations, tool requests, errors and busy notices pass as they are. */
+export function tldmHeadOnlyText(reply: ShamReply | null | undefined): boolean {
+  if (!reply || reply.type !== "text") return false;
+  const worked = Array.isArray(reply.computer_steps) && reply.computer_steps.some((step) => step && step.ok !== false && String(step.command || "").trim());
+  return !worked;
+}
+
 /** Send native conversation turns to Qwen3. This v2-only endpoint adds no system prompt. */
 export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens = 768, timeoutMs = 90000, opts: { bypassContentHeuristics?: boolean; direct?: boolean } = {}): Promise<ShamReply | null> {
   if (shamVariant.getStore() !== "v2") {
@@ -368,7 +377,11 @@ export async function shamGenerateChat(messages: ShamChatMessage[], maxNewTokens
     return null;
   }
   // `direct`: the answer is written by Sham Pro's own body from a long tool result handed to it (the T-LDM head decided to call the tool; a 4.5M head cannot summarise a file).
-  if (shamTldmOn() && !opts.direct) return shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
+  if (shamTldmOn() && !opts.direct) {
+    const headed = await shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
+    if (!tldmHeadOnlyText(headed)) return headed;
+    // the head ran nothing: its text is a fixed line or a garbled command log, never an answer; Sham Pro's own body answers below (same model, same Studio)
+  }
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
     setFailure("generate_chat requires a final user turn");
@@ -469,9 +482,12 @@ export async function shamGenerateChatStream(
   // `direct`: Sham Pro's own body writes this answer (conversation, or the reply after the T-LDM head's work), streamed; see shamAgent.ts.
   if (shamTldmOn() && !opts.direct) {
     const reply = await shamGenerateTldm(messages, shamTldmSessionId(), timeoutMs, opts);
-    const text = String(reply?.text || "");
-    if (reply?.type === "text" && text && onDelta) onDelta(text);
-    return reply;
+    if (!tldmHeadOnlyText(reply)) {
+      const text = String(reply?.text || "");
+      if (reply?.type === "text" && text && onDelta) onDelta(text);
+      return reply;
+    }
+    // the head ran nothing: Sham Pro's body streams the answer below (same model), instead of the head's fixed line
   }
   const valid = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
   if (!valid.length || valid[valid.length - 1].role !== "user") {
