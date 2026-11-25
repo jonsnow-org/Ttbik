@@ -48,6 +48,8 @@ describe("agent capacity follows actual Nova Studio count", () => {
 });
 
 describe("fixed tool list (default)", () => {
+  beforeEach(() => noteStudioCtx("test-32k", 32768));   // these describe a Studio with a large window (Nova's 16k default has its own tests)
+  afterEach(() => forgetStudioCtx());
   beforeAll(() => { delete process.env.CODER_TOOL_GROUPS; });
   afterAll(() => { process.env.CODER_TOOL_GROUPS = "lazy"; });
   it("every step carries the same list: ask_user, delegate, then all groups; no load_tools", () => {
@@ -96,6 +98,8 @@ describe("small-context tool schema safety", () => {
 });
 
 describe("tool groups the model loads itself (CODER_TOOL_GROUPS=lazy)", () => {
+  beforeEach(() => noteStudioCtx("test-32k", 32768));   // these describe a Studio with a large window (Nova's 16k default has its own tests)
+  afterEach(() => forgetStudioCtx());
   it("a fresh conversation carries only load_tools, ask_user and delegate, with the groups available here", () => {
     const t = coderToolsFor(true, false, [{ role: "user", content: "من انت" }]);
     expect(names(t)).toEqual(["load_tools", "ask_user", "delegate"]);
@@ -191,7 +195,11 @@ describe("githubQuery", () => {
 describe("one context size for every budget", () => {
   const ctx = require("@/lib/coderContext");
   afterEach(() => { ctx.forgetStudioCtx(); delete process.env.CODER_CTX_TOKENS; });
+  it("nothing reported yet = Nova's real 16,384 window (a cold process used to assume 32,768 and overflow)", () => {
+    expect(ctx.ctxTokens()).toBe(16384);
+  });
   it("at the old 32,768 tokens every budget keeps its old value", () => {
+    ctx.noteStudioCtx("https://big", 32768);
     expect(ctx.ctxTokens()).toBe(32768);
     expect(ctx.historyChars()).toBe(24000);                 // the history window is capped (slow CPU reads), the other budgets keep their old values
     expect(ctx.segmentCharsFor()).toBe(52500);
@@ -212,7 +220,7 @@ describe("one context size for every budget", () => {
     process.env.CODER_CTX_TOKENS = "98304";
     expect(ctx.ctxTokens()).toBe(98304);
     process.env.CODER_CTX_TOKENS = "5";
-    expect(ctx.ctxTokens()).toBe(32768);
+    expect(ctx.ctxTokens()).toBe(16384);
   });
 });
 
