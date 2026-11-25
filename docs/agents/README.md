@@ -1,28 +1,31 @@
-# Supervisor bots — one per section
+# Supervisor coverage — one scheduled monitor
 
-Created 2026-10-20 at the owner's order: «a bot for every section of the project, each able to analyse, execute and work freely in its section, to get the maximum activity — without harming the coins, their images or the workflow».
+The repository keeps one charter per project section, but it does not run a separate scheduled bot for every charter. These documents define scope, safety boundaries and escalation; one read-only monitor performs the operational checks.
 
-| Section id | Charter | Looks after | Cadence (UTC, staggered) |
+| Section id | Charter | Looks after | Scheduled coverage |
 |---|---|---|---|
-| `zenobia` | [zenobia.md](zenobia.md) | ZNB / ZNBt coin, caravan bot, seasons, passports, the coin's English posts | every 6 h (minute 07) |
-| `palmyra-launch` | [palmyra-launch.md](palmyra-launch.md) | the launch platform + the per-coin tools every coin shares (pages, indexer, alerts/votes/journey, referrals read-only, coins channel features) | every 6 h (minute 21) |
-| `athar` | [athar.md](athar.md) | Athar NFT project — **read-mostly**, reports only operational facts | every 6 h (minute 37) |
-| `telegram-bots` | [telegram-bots.md](telegram-bots.md) | every hosted bot template, Mini Apps, bot payments | every 6 h (minute 49) |
-| `promo` | [promo.md](promo.md) | channels, videos, YouTube, announcements, coverage of new tools/features | twice a day |
-| `site-content` | [site-content.md](site-content.md) | news, articles, free tools, markets/prices, SEO, site errors | every 6 h (minute 13) |
+| `zenobia` | [zenobia.md](zenobia.md) | ZNB / ZNBt coin, caravan bot, seasons, passports, the coin's English posts | hourly via monitor.yml |
+| `palmyra-launch` | [palmyra-launch.md](palmyra-launch.md) | the launch platform + the per-coin tools every coin shares (pages, indexer, alerts/votes/journey, referrals read-only, coins channel features) | hourly via monitor.yml |
+| `athar` | [athar.md](athar.md) | Athar NFT project — **read-mostly**, reports only operational facts | hourly via monitor.yml |
+| `telegram-bots` | [telegram-bots.md](telegram-bots.md) | every hosted bot template, Mini Apps, bot payments | hourly via monitor.yml |
+| `promo` | [promo.md](promo.md) | channels, videos, YouTube, announcements, coverage of new tools/features | hourly via monitor.yml |
+| `site-content` | [site-content.md](site-content.md) | news, articles, free tools, markets/prices, SEO, site errors | hourly via monitor.yml |
 
 Shared rules: [COMMON.md](COMMON.md) (read first; it is protected — a PR that changes it needs the owner's `owner-approved` label). Map of the whole repository: [../REPO_NOTEBOOK.md](../REPO_NOTEBOOK.md). Guide for Grok: [../GROK_GUIDE.md](../GROK_GUIDE.md).
 
-## How a supervisor runs
-Supervisors are **GitHub Actions bots**: they run on GitHub's schedule whether or not any Claude session exists. `.github/workflows/monitor.yml` (hourly, the single monitoring bot) runs `scripts/supervisors/run.mjs <section>` for zenobia, palmyra-launch, telegram-bots, site-content and athar; `promo-supervisor.yml` does the same for promo. Each keeps one rolling issue `Supervisor report: <section>` (label `supervisor-<section>`), rewritten every run, with **e-mail control** (owner's order 2026-11-01: only important reports reach the inbox): the issue body is rewritten silently, and a comment (= an e-mail) is posted only when a `fail` has lasted 6 hours, plus one comment when it recovers; blips and warnings never comment (`notifyDecision`); a non-ok status adds the label `needs-attention`. The only automatic action ("tier 1 repair") is one rerun of the failed jobs of a short list of idempotent workflows (`RERUN_OK` in `scripts/supervisors/run.mjs`: coin index, error triage, coin guard, zenobia watch, project videos); they never edit code, merge, post, or touch money. **Conflict rules** (`decideRerun`, unit-tested): a bot acts only if the failure is the latest run and has stayed unfixed for **12 hours** (owner's order 2026-10-25), nobody pushed to `main` or production in the last 15 minutes, no run of that workflow is queued or running (someone already re-dispatched it), it was not retried before, and **no open issue is labelled `bots-pause`**. To keep the bots out of your way while you work, open an issue with the label `bots-pause` and close it when you are done. Skipped failures are listed in the report under "Not touched". A Claude session (or the owner) reads the issues and does the fixing; the charters in this folder say what it may do. (Scheduled Claude routines were tried and removed: they cannot reach GitHub and depend on a session being alive.)
+## How monitoring runs
+` .github/workflows/monitor.yml ` is the only scheduled supervisor. It runs hourly at minute 11 UTC and invokes `scripts/supervisors/run.mjs all` for all six sections: zenobia, palmyra-launch, telegram-bots, site-content, promo and athar. It rewrites one issue, `Monitoring: all systems`, rather than maintaining separate scheduled reports for each section.
 
+The former `promo-supervisor.yml`, `error-triage.yml`, `oracle-freshness.yml`, `stale-issues.yml` and per-section supervisor workflows were retired on 2026-11-14; they are not active schedules. Promo and site-content are sections of the unified report, not separate scheduled jobs.
+
+The monitor has `actions: read` only and is strictly read-only: it never dispatches or reruns workflows, publishes to Telegram, merges pull requests, or changes funds. It edits the single issue silently; a comment (= an e-mail) is added only after a failure lasts 6+ hours and once more on recovery. Repeated site errors create an `auto-error` issue only when the same fingerprint reaches 10 occurrences. Fixes are made through reviewed code changes, not by rerunning publishing workflows.
 ## Technical safety net (not just rules)
 - `deploy/hosting/protected-paths.json` lists what no agent may change. **Owner's order 2026-11-22: it covers ONLY Athar, the coin platform (Palmyra Launch), the coins and the contracts; the rest of the repository (servers, gate, workflows, database files, bots, site, tools) is no longer guarded.** Owner's order 2026-11-06 removed every hands-off rule except Athar, so the list now holds only live-money guards (the coin and stage images, frozen coin facts, contracts, Athar, Oracle, the gate, the payout wallet); the Sham AI model and the general notices were removed. `scripts/agent-guard.mjs` checks a change against it; `.github/workflows/agent-guard.yml` runs it on every pull request (skipped for the `main → production` sync PR and the Athar session's branch). The owner lets a reviewed exception through by labelling the PR `owner-approved`.
 - `scripts/znbt-frozen-check.mjs` (CI on every push) fails the build if the coin's on-chain facts drift.
 - Hourly `znbt-guard` watches the coin's image address, the gate and both servers.
 - Merge flow limits Vercel builds: one sync PR per day per supervisor, only for production-relevant changes.
 
-## Adding or changing a supervisor
+## Adding or changing a monitored section
 1. Write/adjust `docs/agents/<section>.md` (mission, territory, frozen, owner-only switches, health checks, allowed actions, escalation, report fields).
 2. Add the section to `SECTIONS` in `scripts/supervisors/run.mjs` (pages, workflows with a max age in hours, error-issue keywords) (`monitor.yml` runs every section in one job: `run.mjs all`); extend `scripts/supervisors/run.test.mjs`.
 3. Add the section to the table above.
