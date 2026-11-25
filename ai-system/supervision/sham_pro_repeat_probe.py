@@ -33,24 +33,31 @@ def call(api: str, payload: dict, timeout: float = 240) -> str:
     eid = sub.json()["event_id"]
     res = requests.get(f"{BASE}/gradio_api/call/{api}/{eid}", headers=_headers(), timeout=timeout, stream=True)
     res.raise_for_status()
-    pieces, event = [], ""
+    pieces, final, event = [], None, ""
     for line in res.iter_lines(decode_unicode=True):
         if not line:
             continue
         if line.startswith("event:"):
             event = line[6:].strip()
-            if event in ("complete", "error") and event == "error":
-                pieces.append("[gradio error]")
             continue
-        if line.startswith("data:") and event != "complete":
-            try:
-                data = json.loads(line[5:].strip())
-            except json.JSONDecodeError:
-                continue
-            if isinstance(data, list) and data:
-                pieces.append(str(data[0]))
-        if event == "complete":
+        if not line.startswith("data:"):
+            continue
+        try:
+            data = json.loads(line[5:].strip())
+        except json.JSONDecodeError:
+            data = None
+        if event == "error":
+            pieces.append(f"[gradio error: {str(data)[:200]}]")
             break
+        value = str(data[0]) if isinstance(data, list) and data else None
+        if value is None:
+            continue
+        if event == "complete":                   # the final value (a plain call's only value; a generator's last yield)
+            final = value
+            break
+        pieces.append(value)
+    if final is not None:
+        pieces.append(final)
     return pieces
 
 
@@ -75,7 +82,8 @@ def ask(path: str, q: str, history: list, session: str) -> str:
     if path == "stream":
         out = call("generate_chat_stream", {"messages_json": json.dumps(msgs, ensure_ascii=False), "max_new_tokens": 160, "temperature": 0.6, "think_tokens": 0})
         # gradio "generating" events of a generator carry the latest yielded piece; a cumulative or per-piece stream both end in the full text
-        joined = "".join(out)
+        print(f"   (stream events: {len(out)}; last-3 lengths {[len(x) for x in out[-3:]]})")
+        joined = "".join(out[:-1]) if len(out) > 1 else "".join(out)
         return out[-1] if out and len(out[-1]) >= len(joined) / 2 else joined
     if path == "tldm":
         out = call("generate_tldm", {"messages_json": json.dumps(msgs, ensure_ascii=False), "session": session, "max_new_tokens": 512, "tldm_flag": 1, "owner": 1})
