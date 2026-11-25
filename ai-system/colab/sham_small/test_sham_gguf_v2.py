@@ -116,5 +116,47 @@ class V2FastPath(unittest.TestCase):
             sham_gguf.write_gguf(ShamSmall(cfg).eval(), "/tmp/never.gguf", "f16")
 
 
+class AgreementVerdict(unittest.TestCase):
+    """The gate that decides whether a llama.cpp copy is used (no llama.cpp needed). Live 2026-11-25: Sham Pro's q4_k_m agreed on 3/6 top tokens and was refused,
+    exactly what the donor's own Q8_0 -> Q4_K_M copy gives on this box (top-5 6/6... 5/6, cosine 0.983); a wrongly wired copy has cosine ~0.5."""
+
+    def _pairs(self, noise: float, shuffle: bool = False, flat: bool = True):
+        g = torch.Generator().manual_seed(0)
+        refs = [torch.randn(2000, generator=g) * (0.3 if flat else 3.0) for _ in range(6)]
+        for r in refs:
+            r[torch.randint(0, 2000, (1,), generator=g)] += 4.0          # one clear favourite and a crowd of near-ties behind it
+        got = [r + noise * torch.randn(2000, generator=g) for r in refs]
+        if shuffle:
+            got = got[1:] + got[:1]
+        return list(zip(refs, got))
+
+    def test_quantisation_noise_on_flat_logits_keeps_the_k_quant(self):
+        from sham_gguf import agreement_verdict
+        ok, agree, why = agreement_verdict("q4_k_m", self._pairs(0.05))
+        self.assertTrue(ok, why)
+
+    def test_a_wrong_copy_is_refused(self):
+        from sham_gguf import agreement_verdict
+        ok, _, why = agreement_verdict("q4_k_m", self._pairs(0.05, shuffle=True))
+        self.assertFalse(ok, why)
+        self.assertFalse(agreement_verdict("q4_k_m", self._pairs(1.5))[0])
+
+    def test_top_token_rule_is_kept_and_8_bit_or_f16_never_use_the_looser_rule(self):
+        from sham_gguf import agreement_verdict
+        exact = [(r, r.clone()) for r, _ in self._pairs(0.0)]
+        self.assertEqual(agreement_verdict("f16", exact)[:2], (True, 6))
+        g = torch.Generator().manual_seed(1)
+        tied = []
+        for _ in range(6):
+            r = torch.randn(50, generator=g)
+            r[0], r[1] = 5.0, 4.999
+            c = r.clone()
+            c[0], c[1] = 4.999, 5.0                                          # every top token flips between two near-ties, the function is the same
+            tied.append((r, c))
+        self.assertTrue(agreement_verdict("q4_k_m", tied)[0])
+        self.assertFalse(agreement_verdict("q8_0", tied)[0])
+        self.assertFalse(agreement_verdict("f16", tied)[0])
+
+
 if __name__ == "__main__":
     unittest.main()
