@@ -60,10 +60,11 @@ jobs:
           if os.environ.get("SITE") == "ai" and not only:
               raise SystemExit("site=ai needs an explicit 'studio' (the STUDIOS list is the cn pool)")
           names = [only] if only else [l.strip() for l in open("ai-system/modelscope-coder/STUDIOS") if l.strip() and not l.startswith("#")]
-          ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?)$")
+          # nova-tldm-reader(-<n>): Nova's OWN T-LDM reader Studio (owner 2026-11-25, T-5 option 2; listed in NOVA_TLDM_READER_STUDIOS); it serves generate_tldm only, never chat
+          ok = re.compile(r"^(coder-inference-server(-[0-9]{1,2})?|nova-tldm-reader(-[0-9]{1,2})?)$")
           bad = [n for n in names if not ok.match(n)]
           if bad:
-              raise SystemExit(f"refusing studio names {bad} (only coder-inference-server, coder-inference-server-<n>; never Sham's)")
+              raise SystemExit(f"refusing studio names {bad} (only coder-inference-server, coder-inference-server-<n>, nova-tldm-reader(-<n>); never Sham's)")
           if not names:             # owner 2026-11-22: the cn Studios are free for training; Nova no longer runs on cn, so an empty cn pool deploys nothing
               open(os.environ["GITHUB_OUTPUT"], "a").write("list=[]\n")
               print("STUDIOS is empty: nothing to deploy")
@@ -125,6 +126,8 @@ jobs:
           api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
           echo "user:";      api /users/me | python3 -c "import json,sys;d=json.load(sys.stdin);x=d.get('data') or d.get('Data') or d;print({k:x.get(k) for k in ('username','name','level') if isinstance(x,dict)})" || true
           echo "hardware:";  api "/studios/hardware?sdk_type=gradio" | tee hw.json | head -c 3000; echo
+          # the account's Studios (names + status only): a "create too many studios" refusal needs to know which ones hold the quota
+          echo "studios:"; api "/studios?owner=$OWNER&page_number=1&page_size=50" | python3 -c "import json,sys;d=json.load(sys.stdin);x=(d.get('data') or {});L=x.get('studios') or x.get('items') or x.get('list') or (x if isinstance(x,list) else []);print(d.get('code') or '', d.get('message') or '', x.get('total_count', '') if isinstance(x,dict) else '');[print(' ', i.get('name') or i.get('repo_name') or i.get('path'), i.get('status') or i.get('state'), i.get('hardware') or '', i.get('last_modified') or i.get('gmt_modified') or '') for i in L if isinstance(i,dict)]" 2>&1 | head -60
           echo "sdk:";       api "/studios/sdk-versions?sdk_type=gradio" | tee sdk.json | head -c 1500; echo
           code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
           echo "studio http $code"; head -c 1500 studio.json; echo
@@ -176,6 +179,8 @@ jobs:
           if grep -qxF "${REPO}" ai-system/modelscope-coder/VISION_STUDIOS 2>/dev/null; then echo on > ms-studio/vision.on; else rm -f ms-studio/vision.on; fi
           # a Studio listed in NOVA_TLDM_STUDIOS serves Nova's T-LDM head (nova_tldm_serve.py): the marker file switches it on, any other Studio has none
           if grep -qxF "${REPO}" ai-system/modelscope-coder/NOVA_TLDM_STUDIOS 2>/dev/null; then echo on > ms-studio/nova_tldm.on; else rm -f ms-studio/nova_tldm.on; fi
+          # a Studio listed in NOVA_TLDM_READER_STUDIOS is Nova's dedicated T-LDM reader: generate_tldm only, no chat server (app.py _reader_only)
+          if grep -qxF "${REPO}" ai-system/modelscope-coder/NOVA_TLDM_READER_STUDIOS 2>/dev/null; then echo on > ms-studio/tldm_reader.on; else rm -f ms-studio/tldm_reader.on; fi
           # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
           line=$(grep -E "^${REPO} " ai-system/modelscope-coder/MODEL_OVERRIDES 2>/dev/null | head -1 || true)
           if [ -n "$line" ]; then echo "$line" | cut -d' ' -f2- > ms-studio/model.override; else rm -f ms-studio/model.override; fi
@@ -190,6 +195,7 @@ jobs:
           grep -q 'llama-\*.part' .gitattributes 2>/dev/null || printf 'llama-*.part* -filter -diff -merge -text\n' >> .gitattributes
           if [ -f nova_tldm.on ]; then git add nova_tldm.on; else git rm -q --cached --ignore-unmatch nova_tldm.on; fi
           git add app.py requirements.txt nova_tldm_serve.py tldm .gitattributes llama-${LLAMA_BUILD}.part*
+          if [ -f tldm_reader.on ]; then git add tldm_reader.on; else git rm -q --cached --ignore-unmatch tldm_reader.on; fi
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"
