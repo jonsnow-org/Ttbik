@@ -6,7 +6,7 @@ import { stripThinkTags } from "@/lib/thinkTags";
 import { ARABIC_ONLY_NOTE, isPersianLeak } from "@/lib/scriptGuard";
 import { vetMedia } from "@/lib/mediaQuality";
 import { orderV2, tracked } from "@/lib/shamPool";
-import { isRetryableStreamError, mergeResumedStream } from "@/lib/shamLiveReply";
+import { isRetryableStreamError } from "@/lib/shamLiveReply";
 // Calls Sham, the owner's own model hosted on a ModelScope Studio (ai-system/modelscope-sham/app.py), with the Gradio call protocol: (a chat here is answered by the model itself)
 // POST {base}/gradio_api/call/v2/<api> -> {event_id}; GET {base}/gradio_api/call/<api>/<event_id> streams `data:` lines holding a list.
 // The Studio is private: every call carries the account token (env MODELSCOPE_API_TOKEN, never logged). No token -> null.
@@ -421,14 +421,21 @@ export async function readShamSseDeltas(response: Response, onDelta: (piece: str
   const decoder = new TextDecoder();
   let buffered = "";
   let full = "";
+  let event = "";
+  let streamed = 0;
   const consume = (line: string) => {
+    if (line.startsWith("event:")) { event = line.slice(6).trim(); return; }
     if (!line.startsWith("data:")) return;
+    // Gradio's `complete` event of a generator repeats its LAST yielded value. Appended as one more delta it doubled the answer's last piece
+    // (live repeat probe 2026-11-25: «باريسيس», «شامام», «511»). After streamed pieces it is skipped; alone (a one-shot endpoint) it is the answer.
+    if (event === "complete" && streamed > 0) return;
     let data: unknown;
     try { data = JSON.parse(line.slice(5).trim()); } catch { return; }
     if (!Array.isArray(data) || !data.length) return;
     // The piece is kept verbatim (never trimmed): a leading/trailing space is part of the answer, and trimming
     // each delta would join two words together.
     const piece = typeof data[0] === "string" ? data[0] : JSON.stringify(data[0]);
+    if (event !== "complete") streamed++;
     full += piece;
     onDelta(piece);
   };
@@ -449,6 +456,12 @@ export async function readShamSseDeltas(response: Response, onDelta: (piece: str
     try { reader.releaseLock(); } catch { /* already closed */ }
   }
   return full;
+}
+
+function commonPrefix(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
 }
 
 /** A typed Studio reply ({type:"busy"|"error"|...}) is not streamed text: it is one JSON object, never a written answer. */
@@ -522,14 +535,29 @@ export async function shamGenerateChatStream(
     // (never resubmit) until the deadline, and merge a replay so tokens already shown are not doubled.
     let full = "";
     let lastErr = "";
-    const collect = (piece: string) => {
-      const next = mergeResumedStream(full, piece);
-      const extra = next.startsWith(full) ? next.slice(full.length) : "";
-      full = next;
-      if (extra) emit(extra);
-    };
+    // Each piece is a DELTA (the Studio yields only the new text). Live 2026-11-25: every delta went through mergeResumedStream(full, piece), whose
+    // prefix / overlap rules are for whole replays: a delta that matched the start of the answer was dropped and one that overlapped its end lost
+    // letters («قاط الضوء» for «التقاط»), and the final merge of the clean text with the corrupted one wrote the answer twice
+    // («17 ضرب 3 يساوي **5**17 ضرب 3 يساوي **51**»). Now deltas are appended; only a reconnect that replays from the start is merged.
+    let attempt = 0;
     while (Date.now() < deadline) {
       const left = Math.max(1, deadline - Date.now());
+      let conn = "";
+      let replay: boolean | null = attempt++ === 0 || !full ? false : null;
+      const collect = (piece: string) => {
+        if (!piece) return;
+        conn += piece;
+        if (replay === null) replay = full.startsWith(conn) || conn.startsWith(full);     // first piece after a reconnect: replay from the start, or a continuation?
+        if (!replay) { full += piece; emit(piece); return; }
+        if (conn.length <= full.length) {
+          if (!full.startsWith(conn)) { replay = false; const extra = conn.slice(commonPrefix(full, conn)); full += extra; if (extra) emit(extra); }
+          return;
+        }
+        if (conn.startsWith(full)) { const extra = conn.slice(full.length); full = conn; emit(extra); return; }
+        replay = false;
+        full += piece;
+        emit(piece);
+      };
       try {
         const res = await fetch(`${base}/gradio_api/call/generate_chat_stream/${event_id}`, { headers, cache: "no-store", signal: AbortSignal.timeout(left) });
         if (!res.ok) {
@@ -539,8 +567,7 @@ export async function shamGenerateChatStream(
           await new Promise((r) => setTimeout(r, 400));
           continue;
         }
-        const chunk = await readShamSseDeltas(res, collect);
-        full = mergeResumedStream(full, chunk);
+        await readShamSseDeltas(res, collect);
         if (full.trim()) break;
         lastErr = "empty answer";
         if (left < 800) break;
