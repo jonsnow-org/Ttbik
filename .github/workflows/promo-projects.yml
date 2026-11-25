@@ -45,7 +45,7 @@ jobs:
     if: github.event_name != 'pull_request'
     # Playwright 1.56.1 provides Chromium builds for Ubuntu 24.04; ubuntu-latest moved to 26.04 and fails installation.
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
