@@ -11,7 +11,7 @@ import { SHAM_NEEDS_OK, shamNeedsOk, SHAM_TOOLS, shamContext, shamRunTool, shamT
 import { shamGenerateAgentStep, shamGenerateAny, shamGenerateChat, shamGenerateChatStream, shamGenerateTldm, shamModeCtx, shamNoteFailure, shamTldmOn, shamTldmSession, shamTldmSessionId, shamVariant, type ShamReply } from "@/lib/shamStudio";
 import { historyFromTurns, isEchoedPriorReply, isTrainingStatusReply, lastUserContent, shamDirectChatMessages, STALE_REPLY_USER } from "@/lib/shamReplyGuard";
 import { shamAdminNotice } from "@/lib/shamAdminNotice";
-import { needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
+import { isPlainQuestion, needsFreshFacts, requiresProgressCard, resolveProfile } from "@/lib/modes";
 import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
@@ -157,8 +157,11 @@ async function shamAgentRunInner(opts: {
   const hasRepositoryLocator = /\b[\w.-]+\x2f[\w.-]+\b/i.test(opts.text);
   const requiresWorkspaceAgent = hasRepositoryLocator || (hasWorkspaceTarget && hasWorkspaceAction);
   const directCapability = isCapabilityQuestion(opts.text) && prof.klass !== "agentic" && !requiresWorkspaceAgent && !hasWorkspaceTarget;
+  // Sham Pro: a plain knowledge question that only MENTIONS code words («ما الفرق بين بايثون وجافاسكربت؟») is conversation. Classed as code it went to the
+  // tool loop and timed out with no answer after ~150 s (live repeat probe 2026-11-25). Sham-only rule: the shared classifier (modes.ts) is not changed.
+  const plainKnowledgeQuestion = v2 && prof.klass === "code" && isPlainQuestion(opts.text) && !/```|\n/.test(opts.text) && opts.text.length <= 240;
   const directChatIntent = !requiresWorkspaceAgent &&
-    (prof.klass === "chat" || prof.klass === "trivial" || directCapability);
+    (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
   // («python3 -c "pornt iu…"») whose garbled text («الخرج: 811») became the reply; a plain answer then waited for the WHOLE non-streamed body answer (~17 s mean,
   // up to 41 s). A greeting / question / explanation is conversation: it goes straight to the body's streamed chat below (first words in ~2.4 s). Work

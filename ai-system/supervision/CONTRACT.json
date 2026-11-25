@@ -858,6 +858,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_pro_live_repeat": {
+      "file": ".github/workflows/sham-pro-live-repeat.yml",
+      "title": "فحص تكرار ردود شام برو عبر جولة البوت الحقيقية على استوديوه للقراءة فقط (أسئلة مختلفة = ردود مختلفة)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "sham_v2_media_check": {
       "file": ".github/workflows/sham-v2-media-check.yml",
       "title": "فحص وسائط شام v2 الحقيقية على استوديوه للقراءة فقط (صورة/كلام/فيديو)",

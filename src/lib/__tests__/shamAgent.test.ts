@@ -563,3 +563,17 @@ describe("stripSpeakerLabel", () => {
     expect(stripSpeakerLabel("شامل: كلمة")).toBe("شامل: كلمة");
   });
 });
+
+describe("Sham Pro plain knowledge questions that mention code words", () => {
+  it("«ما الفرق بين بايثون وجافاسكربت؟» is answered by the body's direct chat, not the tool loop (2026-11-25: timed out with no answer)", async () => {
+    const studio = await import("@/lib/shamStudio");
+    const chat = jest.spyOn(studio, "shamGenerateChat").mockResolvedValue({ type: "text", text: "بايثون لغة عامة، وجافاسكربت لغة الويب." } as any);
+    const seen: string[] = [];
+    try {
+      const r = await shamVariant.run("v2", () => shamAgentRun({ text: "ما الفرق بين بايثون وجافاسكربت؟", ctx, tools: shamToolDefs(false), budgetMs: 60000,
+        agentAsk: script([say("لا يجب أن يُسأل")], seen) }));
+      expect(r).toMatchObject({ kind: "text", text: "بايثون لغة عامة، وجافاسكربت لغة الويب." });
+      expect(seen).toHaveLength(0);
+    } finally { chat.mockRestore(); }
+  });
+});
