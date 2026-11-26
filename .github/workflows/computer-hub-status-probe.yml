@@ -18,11 +18,14 @@ jobs:
     steps:
       - name: Read the live computer-only status (no writes)
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          # The production computer host moved to the international 16 GB Studio on 2026-11-22 (deploy-minicpmo-big.yml): the cn
+          # nova-inference-server is left empty on the owner's order and answers 401 to this token, so reading it here reported
+          # "401" for a computer that is actually elsewhere (run 45831438715).
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           python3 - <<'PY'
           import json, os, sys, time, urllib.request, urllib.error
-          api = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
+          api = "https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai"
           req = urllib.request.Request(
               api + "/gradio_api/run/status",
               data=b'{"data":[]}',
