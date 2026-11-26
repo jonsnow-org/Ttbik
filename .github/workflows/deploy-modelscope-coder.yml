@@ -312,7 +312,15 @@ jobs:
           ev=$(curl -sS -m 60 -X POST -H "Authorization: Bearer $T" -H 'content-type: application/json' -d @probe.json "$API/gradio_api/call/generate_tldm" | python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" 2>/dev/null || true)
           [ -n "$ev" ] || { echo "::error::the reader Studio refused the call (no event id)"; exit 1; }
           out=$(curl -sS -m 180 -H "Authorization: Bearer $T" "$API/gradio_api/call/generate_tldm/$ev")
-          reply=$(printf '%s' "$out" | python3 -c "import json,sys;d=json.load(sys.stdin);x=(d.get('data') or [''])[0];j=json.loads(x) if isinstance(x,str) and x.strip().startswith('{') else {};print((j.get('type','?')+' | '+str(j.get('text') or j.get('error') or j.get('tool_name') or ''))[:180])" 2>/dev/null || echo "unreadable: ${out:0:160}")
+          reply=$(printf '%s' "$out" | python3 -c "
+          import json, re, sys
+          raw = sys.stdin.read()
+          m = re.search(r'^data:\\s*(.+)$', raw, re.M)          # Gradio answers as SSE: event: complete / data: [\"<json>\"]
+          x = json.loads(m.group(1)) if m else None
+          s = x[0] if isinstance(x, list) and x else ''
+          j = json.loads(s) if isinstance(s, str) and s.strip().startswith('{') else {}
+          print((str(j.get('type', 'unparsed')) + ' | ' + str(j.get('text') or j.get('error') or j.get('tool_name') or j.get('reason') or s))[:200].replace(chr(10), ' '))
+          " 2>/dev/null || echo "unreadable: ${out:0:160}")
           echo "::notice title=T-LDM reader probe::$reply"
           case "$reply" in error*) echo "::error::the reader answered an error: $reply"; exit 1;; esac
           echo "the reader answered: $reply"
