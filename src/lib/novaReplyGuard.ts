@@ -92,6 +92,16 @@ export function priorAssistantReplies(messages: Array<{ role?: string; content?:
   return out;
 }
 
+/**
+ * A short conversational reply («أنا بخير، شكرًا لك.»): a small model answers a greeting or a "are you well" the same way each time, and
+ * that repetition is the answer, not a stale copy. Live 2026-11-26: Nova wrote exactly that, the echo guard replaced it, the task was sent
+ * back to work, the re-run failed, and the owner saw no reply at all. Only a substantive (long) copy is worth replacing.
+ */
+export function isShortConversationalReply(text: string): boolean {
+  const words = normReply(text).split(" ").filter(Boolean);
+  return words.length > 0 && words.length <= 12 && normReply(text).length <= 80;
+}
+
 /** The reply is a word-for-word (or near) copy of a previous assistant turn in this chat. */
 export function isEchoedPriorReply(reply: string, prior: string[] | undefined): boolean {
   const text = String(reply || "").trim();
@@ -115,6 +125,6 @@ export function visibleNovaReply(text: string, prior?: string[]): NovaVisible {
   if (off()) return { text: collapsed, blocked: "" };
   const stale = hasArabic(collapsed) ? NOVA_STALE_AR : NOVA_STALE_EN;
   if (isStatusDumpReply(collapsed)) return { text: stale, blocked: "report" };
-  if (isEchoedPriorReply(collapsed, prior)) return { text: stale, blocked: "echo" };
+  if (isEchoedPriorReply(collapsed, prior) && !isShortConversationalReply(collapsed)) return { text: stale, blocked: "echo" };
   return { text: collapsed, blocked: "" };
 }

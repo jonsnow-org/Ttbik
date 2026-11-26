@@ -1,4 +1,4 @@
-import { collapseAdjacentDuplicateSentences, isEchoedPriorReply, isStatusDumpReply, nearSameReply, normReply, priorAssistantReplies, visibleNovaReply, NOVA_STALE_AR, NOVA_STALE_EN } from "@/lib/novaReplyGuard";
+import { collapseAdjacentDuplicateSentences, isEchoedPriorReply, isShortConversationalReply, isStatusDumpReply, nearSameReply, normReply, priorAssistantReplies, visibleNovaReply, NOVA_STALE_AR, NOVA_STALE_EN } from "@/lib/novaReplyGuard";
 
 describe("Nova reply guard: collapse adjacent duplicate sentence blocks", () => {
   it("removes a repeated greeting-plus-identity block without rewriting the wording", () => {
@@ -51,7 +51,8 @@ describe("visibleNovaReply: last-line defense before the answer is shown", () =>
   afterEach(() => { if (keep === undefined) delete process.env.CODER_REPLY_GUARD; else process.env.CODER_REPLY_GUARD = keep; });
 
   it("replaces a copied prior reply with an honest Arabic line", () => {
-    const prior = "أهلاً، أنا بخير. كيف أساعدك اليوم؟";
+    // a substantive answer, not a greeting: a short conversational repeat is shown now (see the test below)
+    const prior = "عاصمة مصر هي القاهرة، وهي أكبر مدينة عربية من حيث عدد السكان، وتقع على ضفاف النيل في شمال البلاد.";
     expect(visibleNovaReply(prior, [prior])).toEqual({ text: NOVA_STALE_AR, blocked: "echo" });
   });
 
@@ -78,5 +79,14 @@ describe("visibleNovaReply: last-line defense before the answer is shown", () =>
     expect(visibleNovaReply(prior, [prior])).toEqual({ text: prior, blocked: "" });
     const block = "جملة مكررة طويلة بما يكفي لتُطوى هنا تماماً.";
     expect(visibleNovaReply(block + " " + block, []).text).toBe(block);
+  });
+
+  it("shows a short conversational answer that repeats a previous turn, and still replaces a long copied answer", () => {
+    const short = "أنا بخير، شكرًا لك.";
+    expect(isShortConversationalReply(short)).toBe(true);
+    expect(isShortConversationalReply("أنا Nova AI وأكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص. كيف أساعدك؟")).toBe(false);
+    expect(visibleNovaReply(short, [short])).toEqual({ text: short, blocked: "" });          // live 2026-11-26: this was turned into a silence
+    const identity = "أنا Nova AI على منصة Sham AI. أكتب الكود وأصنع الصور والفيديو والصوت وأعمل على GitHub وعلى حاسوبي الخاص.";
+    expect(visibleNovaReply(identity, [identity]).blocked).toBe("echo");                      // a copied long answer stays replaced
   });
 });
