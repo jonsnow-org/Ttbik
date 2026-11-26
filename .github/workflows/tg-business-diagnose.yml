@@ -17,6 +17,10 @@ on:
         description: "end-to-end proof for this model (coder or sham_v2): a business_message update goes through the real webhook and the log must show in then sent with Telegram's message_id"
         type: string
         default: ""
+      send:
+        description: "1: also send one business reply through grammY itself, no model in the way (separates a Telegram refusal from a library difference)"
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -80,6 +84,24 @@ jobs:
               print(f"log rows (newest first) = {len(lg)}")
               for r in lg[:20]:
                   print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
+          PY
+      - name: one send through grammY, no model in the way
+        if: ${{ always() && inputs.send == '1' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 60 -o send.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d '{"sendProbe":true}' \
+            https://89-168-89-15.sslip.io/api/ops/tg-business || echo 000)
+          echo "HTTP ${code}"
+          cat send.json; echo
+          python3 - <<'PY'
+          import json
+          d = json.load(open("send.json"))
+          g = d.get("grammy") or {}
+          print(f"grammy send: ok={g.get('ok')} message_id={g.get('messageId')} code={g.get('errorCode')} desc={g.get('description')!r} sent={g.get('sent')!r} error={g.get('error')!r}")
           PY
       - name: the whole path, through the real webhook
         # always(): a prove-only run must not be skipped because the state read above failed (it is slow through the gate).
