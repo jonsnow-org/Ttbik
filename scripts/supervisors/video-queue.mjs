@@ -13,7 +13,7 @@ export function assessVideoQueue({
       return match ? { ...release, episodeId: Number(match[1]) } : null;
     })
     .filter(Boolean)
-    .sort((a, b) => Date.parse(b.published_at || 0) - Date.parse(a.published_at || 0));
+    .sort((a, b) => Date.parse(b.published_at || "1970-01-01T00:00:00Z") - Date.parse(a.published_at || "1970-01-01T00:00:00Z"));
 
   const releasedIds = new Set(videoReleases.map((release) => release.episodeId));
   const pending = episodes.filter((episode) => !releasedIds.has(Number(episode.id)));
