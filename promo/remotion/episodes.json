@@ -227,6 +227,34 @@
    "voice": "ar-SA-ZariyahNeural",
    "rate": "-5%",
    "rec": true
+  },
+  {
+   "id": 18,
+   "path": "/free-tools/shared-costs",
+   "title": "تقسيم المصاريف بين الأصدقاء",
+   "hook": "من يدفع لمن بعد الرحلة؟",
+   "input": "أحمد\nسارة\nمحمد\nفاتورة الغداء\n300",
+   "script": "في رحلة أو غداء جماعي، قد يدفع كل شخص فاتورة مختلفة. أداة تقسيم المصاريف من شام AI تجمع المشاركين والمبالغ، وتحسب رصيد كل شخص وتقترح تسوية واضحة بأقل عدد من التحويلات. جرّبها مجاناً؛ الحسابات تبقى في متصفحك ولا تنفذ الأداة أي تحويل مالي.",
+   "ctaTitle": "قسّم المصاريف مجاناً",
+   "caption": "Split group expenses with Sham AI. Add participants and a bill to see each person's balance and a suggested settlement. Calculations stay in your browser; no money is transferred.\nقسّم مصاريف الرحلات والفواتير مع شام AI. أضف المشاركين والمبلغ لتعرف رصيد كل شخص والتسوية المقترحة. الحسابات تبقى في المتصفح ولا تنفّذ الأداة تحويلات مالية.\nhttps://ttbik-gate.jonsnowx1r.workers.dev/free-tools/shared-costs",
+   "lang": "ar",
+   "voice": "ar-SA-ZariyahNeural",
+   "rate": "-5%",
+   "rec": true
+  },
+  {
+   "id": 19,
+   "path": "/free-tools/store-net-profit",
+   "title": "حاسبة صافي ربح المتجر الإلكتروني",
+   "hook": "كم يبقى من كل طلب بعد التكاليف؟",
+   "input": "100\n40\n10\n2.5\n1\n0\n15\n10\n100",
+   "script": "قبل أن توسّع إعلانات متجرك، احسب ما يبقى من الطلب بعد تكلفة المنتج والشحن ورسوم الدفع والإعلان والمرتجعات. حاسبة صافي ربح المتجر من شام AI تعرض نتيجة الطلب والشهر وأقصى تكلفة إعلان عند التعادل. الأرقام الافتراضية أمثلة قابلة للتعديل، والنتيجة تقديرية وليست بديلاً عن المحاسبة المهنية.",
+   "ctaTitle": "احسب صافي الربح",
+   "caption": "Estimate your online store's net result after product cost, shipping, payment fees, ads and returns. Edit the example inputs; results are estimates, not professional accounting advice.\nاحسب صافي نتيجة متجرك بعد تكلفة المنتج والشحن ورسوم الدفع والإعلان والمرتجعات. عدّل الأرقام الافتراضية؛ النتائج تقديرية ولا تغني عن محاسبة مهنية.\nhttps://ttbik-gate.jonsnowx1r.workers.dev/free-tools/store-net-profit",
+   "lang": "ar",
+   "voice": "ar-SA-ZariyahNeural",
+   "rate": "-5%",
+   "rec": true
   }
  ]
 }
