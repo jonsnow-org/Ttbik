@@ -50,6 +50,28 @@ async function tgRaw(token: string, method: string, body?: Record<string, unknow
   }
 }
 
+/**
+ * One `sendMessage` through grammY itself (the library the webhook uses), no model in the way: if the handler's send is refused while
+ * the same call by plain fetch is accepted, the library's call is what differs. Reports what grammY threw and the body it parsed.
+ */
+async function grammySend(token: string, connId: string, chat: string, text: string) {
+  const { Bot } = await import("grammy");
+  const bot = new Bot(token);
+  try {
+    const r = await bot.api.raw.sendMessage({ business_connection_id: connId, chat_id: Number(chat), text });
+    return { ok: true, messageId: Number((r as { message_id?: unknown })?.message_id) || null };
+  } catch (e) {
+    const x = e as { message?: string; error_code?: number; description?: string; payload?: unknown } | null;
+    return {
+      ok: false,
+      error: String(x?.message || e).slice(0, 200),
+      errorCode: x?.error_code ?? null,
+      description: x?.description ?? null,
+      sent: x?.payload ? JSON.stringify(x.payload).slice(0, 300) : null,
+    };
+  }
+}
+
 /** owner id -> "5001" stays, larger ids keep the first two digits only */
 const maskId = (v: string) => (v.length <= 5 ? v : `${v.slice(0, 2)}***${v.slice(-2)}`);
 const rightsOf = (v: unknown) => Object.keys(normRights(v));
@@ -206,6 +228,12 @@ export async function POST(req: NextRequest) {
   }
   if (!chat || chat === ownerId) {
     return NextResponse.json({ error: "no contact chat to prove with", hint: "the account owner's own chat is context, never answered" }, { status: 409 });
+  }
+
+  // `sendProbe`: the same reply, through grammY, with no model in the way — this separates "Telegram refused" from "grammY's call differed".
+  if (body?.sendProbe === true) {
+    const g = await grammySend(bot.token, connId, chat, String(body?.text || "اختبار الإرسال من نوفا").slice(0, 200));
+    return NextResponse.json({ model, chat: maskId(chat), grammy: g }, { headers: { "Cache-Control": "no-store" } });
   }
 
   const previousModel = String(conn.model || "coder");
