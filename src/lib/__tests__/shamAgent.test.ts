@@ -373,7 +373,10 @@ describe("Sham's own agent loop", () => {
       ask: script([say("تقريري من سجلّي.")], seen),
     }));
     expect(r).toMatchObject({ kind: "text", used: ["self_review"] });   // a words-only self-review is replaced by the engine's own real report
-    expect((r as { text: string }).text).toContain("تقرير من سجلّك الحقيقي");
+    const said = (r as { text: string }).text;
+    expect(said).toContain("هذا تحليلي من سجلّي الحقيقي");               // the owner's own sentence, not the model-facing report
+    expect(said).not.toContain("اختر أضعف رقم");
+    expect(said).not.toContain("— ما يُقال للمالك —");
     expect(seen[0]).toContain("self_review");
     expect(seen[0]).toContain("لا تستدعِ الأداة نفسها مرتين");
   });
@@ -398,6 +401,53 @@ describe("Sham's own agent loop", () => {
     });
     expect(ran).toEqual(["self_review"]);
     expect(r).toMatchObject({ kind: "text", text: "تقرير من سجلّك الحقيقي: 62 جولة، مهارة واحدة." });
+  });
+  it("hands the owner the self_review owner section, never the engine's directive report (live 2026-11-26)", async () => {
+    // Eighth and ninth probes: the stored turn was the engine report itself, ending with «اختر أضعف رقم أعلاه… skill_save».
+    const toolResult = [
+      "هذا تحليلي من سجلّي الحقيقي، لا من تقدير:",
+      "• جولاتي المحفوظة في كل المحادثات: 63.",
+      "• مهاراتي التي كتبتها بيدي: 1 — «quick_answer» (استُعملت 0 مرة).",
+      "— ما يُقال للمالك —",
+      "تقرير من سجلّك الحقيقي (أرقام من الجداول، لا تقديرات):",
+      "• الجولات المحفوظة لهذا النموذج في كل المحادثات: 63.",
+      "اختر أضعف رقم أعلاه، اذكر إصلاحاً واحداً محدداً له، ثم خزّن الإجراء الذي يعالجه بـ skill_save.",
+    ].join("\n");
+    const r = await runV1({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 4, continuable: true,
+      ask: script([say('<tool_call>{"name":"memory_search","arguments":{"query":"تقرير"}}</tool_call>'), null]),
+      exec: async () => toolResult,
+    });
+    expect(r.kind).toBe("text");
+    const text = (r as { text: string }).text;
+    expect(text.startsWith("هذا تحليلي من سجلّي الحقيقي")).toBe(true);
+    expect(text).toContain("63");
+    expect(text).toContain("quick_answer");
+    for (const leak of ["اختر أضعف رقم", "skill_save", "— ما يُقال للمالك —", "self_review"]) expect(text).not.toContain(leak);
+  });
+  it("strips a directive line the model echoes into its own self-development answer", async () => {
+    const r = await runV1({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 3,
+      ask: script([say('<tool_call>{"name":"memory_search","arguments":{"query":"تقرير"}}</tool_call>'), say("لديّ 63 جولة و1 مهارة.\nاختر أضعف رقم أعلاه ثم skill_save.")]),
+      exec: async () => "تقرير من سجلّك الحقيقي: 63 جولة.",
+    });
+    expect(r.kind).toBe("text");
+    const text = (r as { text: string }).text;
+    expect(text).toContain("لديّ 63 جولة");
+    expect(text).not.toContain("اختر أضعف رقم");
+    expect(text).not.toContain("skill_save");
+  });
+  it("never sends the model's invented numbers when its own self_review failed (live 2026-11-26)", async () => {
+    const r = await runV1({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000,
+      ask: script([say("عندي 14 مهمة محفوظة ونسبة 100%.")]),
+      exec: async () => "error: تعذّر قراءة سجلّك الآن: connection refused.",
+    });
+    expect(r.kind).toBe("text");
+    const text = (r as { text: string }).text;
+    expect(text).toContain("تعذّر قراءة سجلّي");
+    expect(text).not.toContain("14");
+    expect(text).not.toContain("100%");
   });
   it("with no tool result recorded, a broken call is still reported honestly", async () => {
     const r = await runV1({

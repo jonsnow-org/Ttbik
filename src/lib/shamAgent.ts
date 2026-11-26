@@ -16,7 +16,7 @@ import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
-import { isSelfDevelopmentRequest, savedSkillsNote } from "@/lib/shamSkills";
+import { isSelfDevelopmentRequest, ownerAnswerFromTool, savedSkillsNote, stripInternal } from "@/lib/shamSkills";
 
 /** What Sham may use: its own tools (shamExec.ts). */
 export const SHAM_TOOL_NAMES = SHAM_TOOLS.map((t) => t.function.name);
@@ -164,6 +164,12 @@ async function shamAgentRunInner(opts: {
   // «طوّر نفسك / أضف لنفسك مهارة / حلّل نفسك» is not ordinary chat: it must reach the loop where skill_save and self_review really exist
   // (live chat 2026-11-26: Sham Pro listed eight skills it had "added" and nothing was stored anywhere).
   const selfDev = isSelfDevelopmentRequest(opts.text);
+  // A self-development answer is read by a person, never by the engine: the tool's owner section replaces its diagnostic report, and any
+  // directive line / JSON / tool name the model echoes is stripped (live 2026-11-26: the owner received «اختر أضعف رقم أعلاه… skill_save»).
+  const answer = (t: string): string => {
+    if (!selfDev) return t;
+    return ownerAnswerFromTool(t) || stripInternal(t) || SELF_REVIEW_UNREADABLE;
+  };
   const directChatIntent = !requiresWorkspaceAgent && !selfDev &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
@@ -491,7 +497,7 @@ async function shamAgentRunInner(opts: {
     // the background leg is still the right place to wait longer.
     if (!reply) {
       const fromTool = used.length ? lastToolAnswer(messages, 1500) : "";
-      if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: fromTool, used, steps };
+      if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: answer(fromTool), used, steps };
       return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };
     }
     if (reply.type === "tool_call_error" && left() > 6000) {
@@ -556,10 +562,12 @@ async function shamAgentRunInner(opts: {
         if (left() > 8000) {
           const again = await stepAsk(`${shamToolConversation(messages, [], lim).replace(/\nشام:$/, "")}\n[من سجلّك الحقيقي أعلاه — اكتب تقريرك النهائي بأرقامه كما هي، بلا استدعاء أدوات.]\nشام:`, Math.min(maxNew, 250), Math.min(30000, left() - 500), []);
           const said = again && again.type === "text" ? String(again.text || "").trim() : "";
-          if (said) return { kind: "text", text: said, used, steps: steps + 1 };
+          if (said) return { kind: "text", text: answer(said), used, steps: steps + 1 };
         }
-        return { kind: "text", text: report, used, steps: steps + 1 };
+        return { kind: "text", text: answer(report), used, steps: steps + 1 };
       }
+      // The record could not be read: the model's words here are its own guess at numbers it never saw, so they are not sent.
+      return { kind: "text", text: SELF_REVIEW_UNREADABLE, used, steps: steps + 1 };
     }
     if (!valid.length) {
       if (p.calls.length || brokenCallAttempt(p.text)) {
@@ -599,11 +607,11 @@ async function shamAgentRunInner(opts: {
         try {
           const checked = await verifier(verifyPrompt, Math.min(maxNew, 180), Math.min(25000, left() - 500));
           if (checked?.type === "text" && String(checked.text || "").trim()) {
-            return { kind: "text", text: String(checked.text).trim(), used, steps: steps + 1 };
+            return { kind: "text", text: answer(String(checked.text).trim()), used, steps: steps + 1 };
           }
         } catch { /* keep the proposed answer rather than lose recorded tool results */ }
       }
-      return final ? { kind: "text", text: final, used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
+      return final ? { kind: "text", text: answer(final), used, steps: steps + 1 } : { kind: "none", used, steps: steps + 1 };
     }
     const made = valid.find((c) => c.function.name === "make_media");
     if (made) {
@@ -698,7 +706,7 @@ async function shamAgentRunInner(opts: {
   // out of time with a report already recorded (self-review, its skill list): the owner gets that real result now
   if (outOfTime && used.length) {
     const fromTool = lastToolAnswer(messages, 1500);
-    if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: fromTool, used, steps };
+    if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: answer(fromTool), used, steps };
   }
   // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
   if (opts.continuable && used.length) return { kind: "more", messages, used, steps };      // a repeated-call round also hands over: the next leg starts from the results already recorded
@@ -727,8 +735,11 @@ async function shamAgentRunInner(opts: {
   }
   // the last leg ran out with a real tool result: an honest report beats «no answer from Sham in time»
   const leftover = used.length ? lastToolAnswer(messages, 1500) : "";
-  return leftover ? { kind: "text", text: leftover, used, steps } : { kind: "none", used, steps };
+  return leftover ? { kind: "text", text: answer(leftover), used, steps } : { kind: "none", used, steps };
 }
+
+/** What the owner reads when the real record cannot be read: no figure is ever invented in its place. */
+const SELF_REVIEW_UNREADABLE = "تعذّر قراءة سجلّي الآن، فلا أستطيع إعطاء أرقام حقيقية بدل الأرقام. أعد المحاولة بعد قليل.";
 
 /** Tools whose own output IS what the owner asked for (a report), not a step on the way to one. */
 const REPORT_TOOLS = new Set(["self_review", "skill_list", "skill", "skill_delete"]);
