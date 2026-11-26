@@ -89,7 +89,8 @@ export async function GET(req: NextRequest) {
   // report shows exactly what a contact's message would have produced: the text that would be sent, or the reason nothing was.
   // One model per request keeps this inside the front door's own request time limit.
   const gen = req.nextUrl.searchParams.get("gen") || "";
-  if (gen) {
+  // `gen=0` (the default of a prove-only run) asks no model: generation is the slow part and the front door drops long requests.
+  if (gen && gen !== "0") {
     let instructions = "";
     try {
       const rows = await prismaDb.query<{ instructions: string }>(`SELECT instructions FROM tg_business_connections ORDER BY updated_at DESC LIMIT 1`);
