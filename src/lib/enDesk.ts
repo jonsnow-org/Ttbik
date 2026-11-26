@@ -16,6 +16,34 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "south-korea-bok-rate-hike-growth-outlook-2026",
+  "title": "Bank of Korea raises base rate to 3.25% and lifts growth forecasts",
+  "date": "26 November 2026",
+  "contextDateLabel": "Monetary Policy Board decision: Thursday, 26 November 2026. The Bank of Korea's official statement is dated 26 November and displays no publication time. Reuters published at 01:05 UTC (04:05 Istanbul) on 26 November; AP's page displays no publication time. Sham AI publication date: 26 November 2026.",
+  "dek": "The Bank of Korea raised its base rate by 25 basis points to 3.25% and lifted its growth forecasts for 2026 and 2027, while warning that inflation would remain above target and household-debt risks persisted.",
+  "body": [
+    "On Thursday, 26 November 2026, the Bank of Korea's Monetary Policy Board raised the base rate by 25 basis points, from 3.00% to 3.25%. The bank said domestic growth had strengthened, inflation was expected to remain above target for a considerable time, and financial-stability risks persisted.",
+    "The decision passed by five votes to two; two board members preferred to keep the rate at 3.00%. The official statement said consumer-price inflation was 2.8% year on year in October, above the bank's 2% target.",
+    "The bank raised its GDP growth forecasts to 3.9% for 2026, from 3.3% in August, and to 4.1% for 2027, from 2.9%. It cited strong exports and investment, particularly in semiconductors linked to demand for AI infrastructure. These are official forecasts, not realised outcomes.",
+    "The bank also raised its 2027 consumer-inflation forecast to 2.4%, from 2.3%, and said inflation could remain above target through next year before gradually converging in 2028. It pointed to faster household-loan growth and continuing financial-imbalance risks linked to housing in Seoul and nearby areas.",
+    "The Bank of Korea published its official decision on 26 November 2026 in Seoul; the page does not display a publication time. Reuters published its report that day at 01:05 UTC (04:05 Istanbul), while AP's page does not show a publication time. The bank's projections are not guarantees of future growth or inflation."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bok.or.kr/eng/bbs/E0000634/view.do?depth=400423&menuNo=400423&nttId=11067086&programType=newsDataEng&relate=Y",
+      "label": "Bank of Korea — Monetary Policy Decision & Opening Remarks, 26 November 2026 (official statement)"
+    },
+    {
+      "href": "https://www.reuters.com/markets/asia/south-koreas-central-bank-resumes-tightening-with-quarter-point-hike-2026-11-26/",
+      "label": "Reuters — South Korea's central bank raises rates and lifts growth forecasts, 26 November 2026, 01:05 UTC"
+    },
+    {
+      "href": "https://apnews.com/article/b9cef57c80c2ceb5e273b71b9a32c9d9",
+      "label": "Associated Press — South Korea's central bank raises key interest rate to fight inflation, 26 November 2026"
+    }
+  ]
+},
+{
   "slug": "dr-congo-bundibugyo-ebola-outbreak-12021-cases-2026",
   "title": "Ebola outbreak in eastern Congo passes 12,000 confirmed cases as fighting disrupts response",
   "date": "26 November 2026",

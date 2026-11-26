@@ -48,7 +48,8 @@ test("26 November news has matching Arabic and English slugs, dates, source URLs
   for (const slug of [
     "dr-congo-bundibugyo-ebola-outbreak-12021-cases-2026",
     "uk-net-migration-june-2026-77000",
-    "taiwan-ntu-on-device-generative-ai-chips-2026"
+    "taiwan-ntu-on-device-generative-ai-chips-2026",
+    "south-korea-bok-rate-hike-growth-outlook-2026"
   ]) {
     const ar = getNewsItem(slug);
     const en = EN_NEWS.find((item) => item.slug === slug);

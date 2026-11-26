@@ -1,9 +1,8 @@
-"""Regression guards for Sham's tool-call training data (owner's order 2026-11-06).
+"""Regression guards for Sham v1 tool-call training data (owner's order 2026-11-06).
 
-The live engine (src/lib/shamExec.ts) offers every tool; the chat stage must train on
-the SAME tool set, or the trained model answers requests for a tool it never saw. That
-exact gap — tool data wired into v2 only, never into v1's chat stage — is what these
-tests keep closed.
+The v1 chat stage must train on every tool visible to v1. Four self-review and skill
+management tools are deliberately Sham Pro-only and filtered by shamTools() for v1;
+they must not be mistaken for missing v1 training examples or leaked into its dataset.
 """
 from __future__ import annotations
 
@@ -28,11 +27,20 @@ def _fake(text: str) -> list[int]:
 
 
 class ToolCoverageTests(unittest.TestCase):
-    def test_training_covers_every_tool_the_live_engine_offers(self):
-        live = set(re.findall(r'tool\("([a-z_]+)"', SHAM_EXEC.read_text(encoding="utf-8")))
+    def test_v1_training_covers_its_live_tool_set_without_importing_sham_pro_tools(self):
+        source = SHAM_EXEC.read_text(encoding="utf-8")
+        live = set(re.findall(r'tool\("([a-z_]+)"', source))
         self.assertTrue(live, "no tools parsed from shamExec.ts")
-        missing = sorted(live - set(TOOL_SPECS))
-        self.assertEqual(missing, [], f"tools the engine offers but training never teaches: {missing}")
+
+        match = re.search(r"SHAM_SELF_TOOLS\s*=\s*new Set\(\[([^\]]+)\]\)", source, re.S)
+        self.assertIsNotNone(match, "Sham Pro-only tools must stay explicitly scoped")
+        pro_only = set(re.findall(r'"([a-z_]+)"', match.group(1)))
+        self.assertEqual(pro_only, {"self_review", "skill_save", "skill_list", "skill_delete"})
+        self.assertIn("proSkill || !SHAM_SELF_TOOLS.has(t.function.name)", source)
+        self.assertTrue(pro_only.isdisjoint(TOOL_SPECS), "Sham Pro-only tools must not leak into Sham v1 training")
+
+        missing = sorted(live - pro_only - set(TOOL_SPECS))
+        self.assertEqual(missing, [], f"v1 tools offered by the engine but absent from v1 training: {missing}")
 
     def test_tool_batches_are_on_by_default_and_real(self):
         self.assertGreater(mix_share(), 0.0, "tool training must be ON by default")

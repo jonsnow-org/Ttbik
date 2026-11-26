@@ -136,7 +136,7 @@ export async function settleDueSponsors(): Promise<{ settled: number; prizes: nu
     await announce(bot.token, bot.id, s, winners).catch(() => null);
   }
   // unclaimed prizes lapse after CLAIM_DAYS (the Stars stay in the bot's balance)
-  await prisma.$executeRaw`UPDATE contest_prizes SET status = 'EXPIRED' WHERE status = 'CLAIMABLE' AND created_at < now() - make_interval(days => ${CLAIM_DAYS})`;
+  await prisma.$executeRaw`UPDATE contest_prizes SET status = 'EXPIRED' WHERE status = 'CLAIMABLE' AND created_at < now() - make_interval(days => ${CLAIM_DAYS}::int)`;
   return out;
 }
 
@@ -183,7 +183,7 @@ export async function retryPendingPrizes(): Promise<number> {
   if (!bot) return 0;
   const rows = await prisma.$queryRaw<(PrizeRow & SponsorRow)[]>`
     SELECT p.id, p.sponsor_code, p.rank, p.user_id, p.user_name, p.kind, p.status, s.code, s.name, s.url, s.prize, s.prize_mode, s.prize_secret, s.starts_at, s.ends_at, s.contact
-    FROM contest_prizes p JOIN khatma_sponsors s ON s.code = p.sponsor_code WHERE p.status = 'FAILED_FUNDS' AND p.created_at > now() - make_interval(days => ${CLAIM_DAYS}) ORDER BY p.id LIMIT 20`;
+    FROM contest_prizes p JOIN khatma_sponsors s ON s.code = p.sponsor_code WHERE p.status = 'FAILED_FUNDS' AND p.created_at > now() - make_interval(days => ${CLAIM_DAYS}::int) ORDER BY p.id LIMIT 20`;
   let n = 0;
   for (const p of rows) {
     const st = await deliver(bot.token, p, p).catch(() => "FAILED_FUNDS");
