@@ -211,7 +211,12 @@ export const defaultGenerate: Generate = async (model, system, history, incoming
     }
     if (r?.type === "pending" && r.job) {
       const job: string = String(r.job);
-      await OC.withEngineModel("coder", () => OC.coderCancel(job)).catch(() => null);
+      // The job may have finished between the last poll and this line: read it once more BEFORE cancelling, or a finished answer
+      // is thrown away and the contact is left with nothing (the log said "still running" for an answer that already existed).
+      const late = await OC.withEngineModel("coder", () => OC.coderJobResult(job, 0, 8000)).catch(() => null);
+      const got = (late?.reply || null) as ReplyLike | null;
+      if (got?.type === "done" && String(got.text || "").trim()) r = got;
+      else await OC.withEngineModel("coder", () => OC.coderCancel(job)).catch(() => null);
     }
     const t = r?.type === "done" ? String(r.text || "").trim() : "";
     return t || { text: null, why: whyNoReply(o, r) };
