@@ -485,7 +485,10 @@ async function shamAgentRunInner(opts: {
       reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     }
     if (opts.continuable && (reply?.type === "busy" || reply?.type === "loading")) return { kind: "more", messages, used, steps };
-    if (!reply) return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };      // the Studio is slow (CPU): the background leg waits longer instead of giving up
+    // The Studio is slow (CPU): the background leg waits longer instead of giving up. A leg that already ran a tool and then went silent
+    // must hand over too — live 2026-11-26: self_review returned its real report, the seconds left were not enough for the model to write it,
+    // and the owner got «no answer from Sham in time» although the recorded report was right there for the next leg.
+    if (!reply) return opts.continuable && (steps === 0 || used.length) ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };
     if (reply.type === "tool_call_error" && left() > 6000) {
       opts.onEvent?.("info", "استدعاء الأداة لم يجتز فحص الصيغة؛ طلبت من شام تصحيحه ولم أنفّذ شيئاً.");
       const retry = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\n[تصحيح من المحرك] لم يُنفّذ أي استدعاء. أعد بناء استدعاء واحد لأداة موجودة في القائمة بصيغة JSON صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
@@ -668,7 +671,7 @@ async function shamAgentRunInner(opts: {
   }
 
   // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
-  if (!forcedFinal && opts.continuable && used.length) return { kind: "more", messages, used, steps };
+  if (opts.continuable && used.length) return { kind: "more", messages, used, steps };      // a repeated-call round also hands over: the next leg starts from the results already recorded
   // out of steps or time: ask for the final answer from what was found, with no tools shown
   if (left() > 5000 && used.length) {
     const prompt = shamToolConversation(messages, [], lim).replace(/\nشام:$/, "\n[اكتب الجواب النهائي الآن مما وجدتَه، بلا استدعاء أدوات.]\nشام:");

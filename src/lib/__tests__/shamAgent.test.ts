@@ -376,6 +376,18 @@ describe("Sham's own agent loop", () => {
     expect(seen[0]).toContain("self_review");
     expect(seen[0]).toContain("لا تستدعِ الأداة نفسها مرتين");
   });
+  it("hands a leg that already ran a tool to the next leg instead of failing (live 2026-11-26, self_review)", async () => {
+    // Fifth probe: self_review returned its real report, the seconds left were not enough for the model to write it, and the owner got
+    // «no answer from Sham in time» although the recorded report was ready for another leg.
+    const r = await runV1({
+      text: "حلّل نفسك", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 4, continuable: true,
+      ask: script([say('<tool_call>{"name":"memory_search","arguments":{"query":"تقرير"}}</tool_call>'), null]),
+      exec: async () => "تقرير من سجلّك الحقيقي: 62 جولة، مهارة واحدة.",
+    });
+    expect(r.kind).toBe("more");
+    expect((r as { used: string[] }).used).toEqual(["memory_search"]);
+    expect(JSON.stringify((r as { messages: unknown[] }).messages)).toContain("62 جولة");
+  });
   it("with no tool result recorded, a broken call is still reported honestly", async () => {
     const r = await runV1({
       text: "افعلها", ctx, tools: shamToolDefs(false), budgetMs: 30000,
