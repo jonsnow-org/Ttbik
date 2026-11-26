@@ -21,6 +21,10 @@ on:
         description: "1: also send one business reply through grammY itself, no model in the way (separates a Telegram refusal from a library difference)"
         type: string
         default: ""
+      db:
+        description: "1: read one Arabic row out of the business log and back, to say whether a mangled row is the database's doing"
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -85,6 +89,15 @@ jobs:
               for r in lg[:20]:
                   print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
           PY
+      - name: one Arabic row, out of the log and back
+        if: ${{ always() && inputs.db == '1' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          curl -sS -m 60 -X POST -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d '{"dbProbe":true}' https://89-168-89-15.sslip.io/api/ops/tg-business -o db.json --fail || true
+          cat db.json 2>/dev/null; echo
       - name: one send through grammY, no model in the way
         if: ${{ always() && inputs.send == '1' }}
         env:
