@@ -437,6 +437,32 @@ describe("Sham's own agent loop", () => {
     expect(text).not.toContain("اختر أضعف رقم");
     expect(text).not.toContain("skill_save");
   });
+  it("runs self_review itself before the model's first step, so a silent Studio still answers with the real numbers (live 2026-11-26)", async () => {
+    // The deployed agent-step endpoint returned nothing for the self-review prompt: no tool ran, every leg handed over empty,
+    // and one request chained legs for ~50 minutes. The engine now grounds the turn in its own self_review first.
+    const ran: string[] = [];
+    const prompts: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "قم بتحليل نفسك وقدراتك وماهي المشاكل التي تواجهك", ctx, tools: shamToolDefs(false), budgetMs: 60000, continuable: true,
+      agentAsk: async (p) => { prompts.push(p); return null; },
+      exec: async (c) => { ran.push(c.function.name); return "هذا تحليلي من سجلّي الحقيقي، لا من تقدير:\n• جولاتي المحفوظة في كل المحادثات: 63.\n— ما يُقال للمالك —\nتقرير من سجلّك الحقيقي (أرقام من الجداول):\n• الجولات: 63.\nاختر أضعف رقم أعلاه ثم skill_save."; },
+    }));
+    expect(ran).toEqual(["self_review"]);                      // the engine ran it, not the silent model
+    expect(r.kind).toBe("text");                               // never an empty leg chain
+    const text = (r as { text: string }).text;
+    expect(text).toContain("هذا تحليلي من سجلّي الحقيقي");
+    expect(text).toContain("63");
+    expect(text).not.toContain("اختر أضعف رقم");
+    expect(text).not.toContain("skill_save");
+    expect(prompts[0]).toContain("self_review");               // the model is shown the recorded result to phrase
+  });
+  it("a leg that gets nothing back and ran nothing ends instead of handing over empty legs (live 2026-11-26)", async () => {
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "لخّص لي آخر الأخبار التقنية", ctx, tools: shamToolDefs(false), budgetMs: 60000, continuable: true,
+      agentAsk: async () => null,
+    }));
+    expect(r).toMatchObject({ kind: "none", used: [] });
+  });
   it("never sends the model's invented numbers when its own self_review failed (live 2026-11-26)", async () => {
     const r = await runV1({
       text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000,

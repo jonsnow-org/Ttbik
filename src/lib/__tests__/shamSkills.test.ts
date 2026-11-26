@@ -1,7 +1,7 @@
 // Sham Pro's own skill file and self-review (owner 2026-11-26): the model claimed eight skills it had \"added\" and nothing was stored. A skill is a row
 // it writes with skill_save, opens later with skill, and a review is numbers from its own tables — never an opinion about itself. Fake SQL engine, no DB.
 import { cleanSkill, ensureSkillTable, isSelfDevelopmentRequest, listShamSkills, OWNER_MARK, ownerAnswerFromTool, removeShamSkill, saveShamSkill, savedSkillText, savedSkillsNote, selfReviewAnswer, shamSelfReview, shamSelfReviewData, SHAM_SKILLS_MAX, stripInternal } from "@/lib/shamSkills";
-import { shamTools } from "@/lib/shamExec";
+import { setShamHost, shamRunTool, shamTools, type ShamHost } from "@/lib/shamExec";
 import { shamVariant } from "@/lib/shamStudio";
 import type { Db } from "@/lib/shamDb";
 
@@ -149,7 +149,7 @@ describe("Sham Pro reviews its own record", () => {
   it("counts this chat's real tasks, including a leftover running row, and the owner's sentence says so", async () => {
     const db = fakeDb();
     db.tasks.push("done", "done", "failed", "running");
-    const d = await shamSelfReviewData(db, "sham_v2", "chat:1", 420066855);
+    const d = await shamSelfReviewData(db, "sham_v2", "chat:1", { total: 4, done: 2, failed: 1, running: 1 });
     expect(d).toMatchObject({ tasks: { total: 4, done: 2, failed: 1, running: 1 } });
     const answer = selfReviewAnswer(d as never);
     expect(answer).toContain("مهامي في هذه المحادثة: 4");
@@ -161,7 +161,7 @@ describe("Sham Pro reviews its own record", () => {
     await saveShamSkill(db, "sham_v2", "chat:1", SKILL);
     db.turns.push({ chat_key: "chat:1|v2", question: "ما عاصمة مصر؟", answer: "القاهرة." });
     db.tasks.push("done", "failed");
-    const out = await shamSelfReview(db, "sham_v2", "chat:1", 420066855);
+    const out = await shamSelfReview(db, "sham_v2", "chat:1", { total: 2, done: 1, failed: 1, running: 0 });
     expect(out).toContain(OWNER_MARK);                                     // the model still reads its report
     const answer = ownerAnswerFromTool(out);
     expect(answer.startsWith("هذا تحليلي من سجلّي الحقيقي")).toBe(true);
@@ -229,5 +229,27 @@ describe("nothing aimed at the model reaches the owner", () => {
     expect(ownerAnswerFromTool(`جواب نظيف.\n${OWNER_MARK}\nتقرير داخلي: 63 جولة.`)).toBe("جواب نظيف.");
     expect(ownerAnswerFromTool("جواب بلا علامة.")).toBe("جواب بلا علامة.");
     expect(ownerAnswerFromTool("")).toBe("");
+  });
+});
+
+describe("self_review reads its task rows through the host", () => {
+  // The task table belongs to the platform: Sham asks ShamHost for the counts (which applies the lease rule first instead of reading a Nova table itself).
+  it("asks the host once with this chat, and the owner's sentence carries those counts", async () => {
+    const db = fakeDb();
+    const asked: Array<[number, string]> = [];
+    setShamHost({ tasks: { review: async (chatId: number, model: string) => { asked.push([chatId, model]); return { total: 3, done: 1, failed: 1, running: 1 }; } } } as unknown as ShamHost);
+    try {
+      const out = await shamRunTool(
+        { id: "1", type: "function", function: { name: "self_review", arguments: "{}" } } as never,
+        { chatId: 42, db, githubToken: null, chatKey: "chat:1", runId: "sham-42", modelId: "sham_v2", owner: true } as never,
+      );
+      expect(asked).toEqual([[42, "sham_v2"]]);
+      const answer = ownerAnswerFromTool(out);
+      expect(answer).toContain("مهامي في هذه المحادثة: 3");
+      expect(answer).toContain("1 قيد التشغيل");
+      expect(answer).not.toContain("اختر أضعف رقم");
+    } finally {
+      setShamHost(null);
+    }
   });
 });

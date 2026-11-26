@@ -6,6 +6,7 @@ import { bankAdd, bankRecall } from "@/lib/coderBank";
 import { readSandboxFile, runSandboxTool, SANDBOX_TOOLS } from "@/lib/coderSandbox";
 import { prismaDb as platformDb, resolveConnections, tierFor, coderChatKey, type Db as PlatformDb } from "@/lib/coderAuth";
 import { checkLimit, addUsage } from "@/lib/coderPlans";
+import { reapStaleTasks } from "@/lib/coderTasks";
 import { connectedIds, connectorApi, mcpRequest } from "@/lib/coderConnectors";
 import { memoryTool } from "@/lib/coderMemory";
 import * as S from "@/lib/coderSchedules";
@@ -58,6 +59,19 @@ export const shamHost: ShamHost = {
   limits: {
     ok: async (chatId, metric, amount, db) => (await checkLimit(chatId, metric, amount, d(db))).ok,
     add: (chatId, metric, amount, db) => addUsage(chatId, metric, amount, d(db)),
+  },
+  tasks: {
+    review: async (chatId, model, db) => {
+      const real = d(db);
+      await reapStaleTasks(chatId, real).catch(() => null);
+      try {
+        const rows = await real.query<{ total: string | number; done: string | number; failed: string | number; running: string | number }>(
+          `SELECT count(*) AS total, count(*) FILTER (WHERE status = 'done') AS done, count(*) FILTER (WHERE status NOT IN ('done','running','waiting')) AS failed, count(*) FILTER (WHERE status IN ('running','waiting')) AS running FROM coder_tasks WHERE chat_key = $1 AND slot = $2`,
+          coderChatKey(chatId), model);
+        const t = rows[0];
+        return t ? { total: Number(t.total) || 0, done: Number(t.done) || 0, failed: Number(t.failed) || 0, running: Number(t.running) || 0 } : null;
+      } catch { return null; }
+    },
   },
   memory: (memoryKey, tool, args, runId, db) => memoryTool(memoryKey, tool, args, runId, d(db)),
   schedules: {
