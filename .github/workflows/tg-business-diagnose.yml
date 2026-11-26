@@ -25,6 +25,10 @@ on:
         description: "1: read one Arabic row out of the business log and back, to say whether a mangled row is the database's doing"
         type: string
         default: ""
+      chat:
+        description: "inject ONE plain chat message into this server's own webhook (a Telegram id; empty = do not inject)"
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -47,6 +51,47 @@ jobs:
           echo "HTTP ${code}"
           head -c 4000 biz.json; echo
           [ "${code}" = "200" ] || exit 1
+      - name: the plain chat path (Nova and Sham), verbatim
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          # Oracle directly: the webhook, the engine list and the Sham flags are per-server state.
+          code=$(curl -sS -m 60 -o chat.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" \
+            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+          echo "HTTP ${code}"
+          [ "${code}" = "200" ] || { head -c 500 chat.json 2>/dev/null; echo; exit 0; }
+          python3 - <<'PY'
+          import json
+          d = json.load(open("chat.json"))
+          b = d.get("bot") or {}
+          t = d.get("telegram") or {}
+          print(f"bot = {b.get('id')} active={b.get('active')} @{t.get('username')} | webhook host={t.get('webhookHost')} pending={t.get('pending')}")
+          print(f"last delivery error = {t.get('lastErrorMessage')} ({t.get('lastErrorAt')})")
+          e = d.get("engines") or {}
+          print(f"engines = {e.get('count')} {e.get('hosts')}")
+          print("flags:", json.dumps(d.get("flags") or {}, ensure_ascii=False))
+          print("last Sham runs:")
+          for r in d.get("tasks") or []:
+              print(f"  {r.get('updatedAt')} {r.get('status'):<8} {r.get('slot'):<9} {r.get('runId')} :: {r.get('title')}")
+          print("their own last lines:")
+          for ev in d.get("events") or []:
+              print(f"  {ev.get('at')} {ev.get('kind'):<8} {ev.get('runId')} :: {ev.get('text')}")
+          PY
+      - name: one plain chat message, injected into the real webhook
+        if: ${{ always() && inputs.chat != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -u
+          code=$(curl -sS -m 130 -o inject.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"text\":\"اختبار: هل ترد؟\"}" \
+            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+          echo "HTTP ${code}"
+          head -c 1200 inject.json 2>/dev/null; echo
       - name: the report, readable
         if: always()
         run: |
