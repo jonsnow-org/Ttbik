@@ -17,7 +17,7 @@ import { shamAgentOn, shamAgentRun, shamToolCtx, shamToolDefs } from "@/lib/sham
 import { shamClaimUpdate, shamConfirmText, shamRunTool, shamSavePending, shamSaveRun, shamTakePending, shamTakeRun, type ShamRun, type ShamMediaJob } from "@/lib/shamExec";
 import { later } from "@/lib/coderRuntime";
 import { createShamTypist, finalizeShamEdit, type ShamTypist } from "@/lib/shamLiveReply";
-import { isTrainingStatusReply, STALE_REPLY_USER, visibleShamReply } from "@/lib/shamReplyGuard";
+import { isTrainingStatusReply, STALE_REPLY_USER, stripToolCallMarkup, visibleShamReply } from "@/lib/shamReplyGuard";
 import { shamAdminNotice } from "@/lib/shamAdminNotice";
 import { clearStopped, draftStopped } from "@/lib/liveReply";
 import { postShamContinuation } from "@/lib/shamContinuation";
@@ -805,7 +805,9 @@ export async function sendShamReply(bot: TelegramBot, chatId: number, reply: Sha
     }
     // a long answer arrives in several messages (Telegram allows ~4096 characters each) instead of being cut
     // (a report beyond ~24000 characters goes as a file: nothing is ever cut; chunks break at line ends and each stays under Telegram's 4096)
-    const full = reply.text;
+    // A tool call is never shown: the engine reads it, the user does not (live 2026-11-26, the old Sham sent <tool_call>… as its answer).
+    const full = stripToolCallMarkup(reply.text);
+    if (!full) return;                                        // a bare call is markup, not an empty message in the chat
     if (full.length > 24000) await bot.api.sendDocument(chatId, new InputFile(Buffer.from(full, "utf8"), "report.txt")).catch(() => null);
     else for (let i = 0; i < full.length;) {
       let end = Math.min(full.length, i + 3800);
@@ -1488,19 +1490,39 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           }
           if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
           const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
-          let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000, { bypassContentHeuristics: rawTest }) : null;
-          if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest });
+          // The Studio sometimes answers with a tool call instead of words. This plain path runs no tools, so a bare call is NOT an
+          // answer: it is dropped and the next step asks again (live 2026-11-26: <tool_call>{"name": "computer_search"…} was sent and
+          // saved as the reply, which is exactly the silence the owner saw). One extra ask, in words only, before the caller gives up.
+          let toolOnly = false;
+          const words = (reply: ShamReply | null): ShamReply | null => {
+            if (!reply || reply.type !== "text") return reply;
+            const clean = stripToolCallMarkup(String(reply.text || ""));
+            if (!clean) toolOnly = true;
+            return clean ? { ...reply, text: clean } : null;
+          };
+          const memArgs = mem ? { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts } : null;
+          let any = memArgs ? words(await shamChatMemory(text, memArgs, 80, 45000, { bypassContentHeuristics: rawTest })) : null;
+          if (!any && memArgs && toolOnly && Date.now() - t0 < 22000) {
+            any = words(await shamChatMemory(`${text}\n\nأجب الآن بكلمات فقط، دون أي استدعاء أداة.`, memArgs, 80, 14000, { bypassContentHeuristics: rawTest }));
+          }
+          if (!any) any = words(await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest }));
           const left = 52000 - (Date.now() - t0);
-          if (!any && left > 15000) any = await shamGenerateAny(text, 80, left, { bypassContentHeuristics: rawTest });
+          if (!any && left > 15000) any = words(await shamGenerateAny(text, 80, left, { bypassContentHeuristics: rawTest }));
           if (any) {
             await sendShamReply(bot, chatId, any);
             if (any.type === "text" && any.text) await saveChatTurn(chatId, text, any.text);
             return;
           }
-          const reply = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
+          const raw = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
+          const reply = raw ? stripToolCallMarkup(raw) : "";
           if (reply) {
             await saveChatTurn(chatId, text, reply);
             await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
+            return;
+          }
+          if (toolOnly) {
+            // No words came back at all: say that plainly instead of "getting ready" (which would be untrue).
+            await bot.api.sendMessage(update.message.chat.id, "⚠️ ردّ شام استدعاء أداة بدل الجواب، ومسار شام القديم لا ينفّذ الأدوات، فلم يُرسل نصّ. أعد إرسال رسالتك بصيغة أخرى.").catch(() => null);
             return;
           }
           // the Studio did not answer in time (asleep or still loading): say so instead of Nova's pause notice
