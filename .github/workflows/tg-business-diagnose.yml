@@ -30,7 +30,7 @@ permissions:
 jobs:
   show:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
       - name: the business state, verbatim
         env:
@@ -126,7 +126,7 @@ jobs:
           set -eu
           # Oracle directly, not the gate: the front door drops a request that takes longer than ~20 s, and a reply here
           # may spend longer than that in the model before Telegram accepts it.
-          code=$(curl -sS -m 120 -o prove.json -w '%{http_code}' -X POST \
+          code=$(curl -sS -m 200 -o prove.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
             -d "{\"model\":\"${MODEL}\"}" \
             https://89-168-89-15.sslip.io/api/ops/tg-business || echo 000)

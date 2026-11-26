@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
     // The webhook answers Telegram at once and the reply lands when the model is done, so the proof waits for THIS update's rows
     // (never an older attempt's) instead of reading the log a millisecond after the post.
     let log: any[] = [];
-    for (const until = Date.now() + 100000; Date.now() < until;) {
+    for (const until = Date.now() + 175000; Date.now() < until;) {
       log = await prismaDb.query<any>(
         `SELECT at, chat_id, model, dir, text, note FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 AND at >= to_timestamp($3 / 1000.0) ORDER BY at DESC, id DESC LIMIT 4`,
         connId, chat, startedAt,
