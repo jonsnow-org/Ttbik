@@ -712,7 +712,7 @@ test("26 November Bank of England Financial Stability Report is bilingual, sourc
   assert.ok(arabic.sources.some((source) => source.href === "https://www.bankofengland.co.uk/financial-stability-report/2026/november-2026"));
   assert.ok(arabic.sources.some((source) => source.href === "https://www.wsj.com/world/uk/boe-warns-scale-and-breadth-of-ai-financing-poses-threat-to-financial-stability-005ad739"));
   assert.match(arabic.paragraphs.join(" "), /305 مليارات دولار/);
-  assert.match(english.body.join(" "), /US\\$305 billion/);
+  assert.match(english.body.join(" "), /US\$305 billion/);
   assert.match(arabic.paragraphs.join(" "), /التشفير المقاوم للحوسبة الكمّية/);
   assert.match(english.body.join(" "), /quantum-resistant cryptography/);
   assert.match(arabic.paragraphs.join(" "), /النظام المالي البريطاني ظل صامداً/);
