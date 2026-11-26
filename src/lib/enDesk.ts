@@ -16,6 +16,31 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "bank-of-england-ai-financing-financial-stability-quantum-risk-2026",
+  "title": "Bank of England warns AI financing links deepen financial-system risks",
+  "date": "26 November 2026",
+  "contextDateLabel": "Official Bank of England report publication: 26 November 2026 (the page displays no publication time); Wall Street Journal report date: 26 November 2026 (the page displays no publication time); Sham AI publication: 26 November 2026.",
+  "dek": "The Bank's November report says AI financing is deepening links across markets, while frontier AI and shared technology dependencies heighten cyber and operational risks. It urges preparation for quantum-resistant cryptography and says the UK banking system remains resilient.",
+  "category": "Economy & Technology",
+  "body": [
+    "The Bank of England published its November 2026 Financial Stability Report on 26 November. The Financial Policy Committee said AI-related investment is supporting global growth, but its financing now spans equities, public bonds, private credit and more complex arrangements. These links can make stress in one part of the financial system spread to another. The Bank's page does not display a publication time.",
+    "The report estimated that bond issuance by large technology firms known as hyperscalers would exceed US$305 billion in 2026, about 8% of global investment-grade issuance. It also noted that some AI-related companies finance other firms in the sector through arrangements linked to future revenue commitments, making exposures harder to trace. The figure is the Bank's estimate for the year, not a final tally.",
+    "The Committee warned that advances in frontier AI, agents and open-weight models could increase cyber and operational risks, particularly if vulnerability discovery and exploitation outpace firms' ability to remediate weaknesses. It also said common technologies and third-party providers can create shared dependencies, allowing disruption at one provider to affect multiple firms.",
+    "The report described quantum computing as a longer-term threat to widely used cryptography and called for an orderly transition to quantum-resistant cryptography. It did not report a quantum-enabled attack; its message was about early preparation and protecting critical financial services.",
+    "The Bank said the UK financial system remained resilient and that banks continued to be well capitalised and highly liquid. The official report was published on 26 November 2026 without a time shown on its page; the Wall Street Journal also reported on it that day without displaying a publication time. The report is a risk assessment, not an announcement of a banking collapse or investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bankofengland.co.uk/financial-stability-report/2026/november-2026",
+      "label": "Bank of England — Financial Stability Report, November 2026, 26 November (official report)"
+    },
+    {
+      "href": "https://www.wsj.com/world/uk/boe-warns-scale-and-breadth-of-ai-financing-poses-threat-to-financial-stability-005ad739",
+      "label": "The Wall Street Journal — Bank of England warns AI financing links pose financial-stability risks, 26 November 2026"
+    }
+  ]
+},
+{
   "slug": "south-korea-bok-rate-hike-growth-outlook-2026",
   "title": "Bank of Korea raises base rate to 3.25% and lifts growth forecasts",
   "date": "26 November 2026",
