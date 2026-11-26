@@ -13,6 +13,10 @@ on:
         description: "also ask each model's business generator for one short reply (what a contact would have received, or why not)"
         type: string
         default: "1"
+      prove:
+        description: "end-to-end proof for this model (coder or sham_v2): a business_message update goes through the real webhook and the log must show in then sent with Telegram's message_id"
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -76,4 +80,32 @@ jobs:
               print(f"log rows (newest first) = {len(lg)}")
               for r in lg[:20]:
                   print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
+          PY
+      - name: the whole path, through the real webhook
+        if: ${{ inputs.prove != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MODEL: ${{ inputs.prove }}
+        run: |
+          set -eu
+          # Oracle directly, not the gate: the front door drops a request that takes longer than ~20 s, and a reply here
+          # may spend longer than that in the model before Telegram accepts it.
+          code=$(curl -sS -m 120 -o prove.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"model\":\"${MODEL}\"}" \
+            https://89-168-89-15.sslip.io/api/ops/tg-business || echo 000)
+          echo "HTTP ${code}"
+          cat prove.json; echo
+          [ "${code}" = "200" ] || exit 1
+          python3 - <<'PY'
+          import json
+          d = json.load(open("prove.json"))
+          if d.get("error"):
+              print("error:", d["error"], "|", d.get("hint", "")); raise SystemExit(0)
+          print(f"webhook over HTTP = {d['webhook']['http']} | chat = {d['chat']}")
+          for r in d.get("rows") or []:
+              print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:70]}")
+          print(f"passed for {d['model']} = {d['passed']} | message_id = {d.get('messageId')}")
+          if not d.get("passed"):
+              raise SystemExit(1)
           PY

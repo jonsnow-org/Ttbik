@@ -39,7 +39,7 @@ export function normRights(raw: unknown): Rights {
 export const hasRight = (rights: Rights | undefined, r: Right): boolean => Boolean(rights && rights[r] === true);
 
 export type Connection = { id: string; userId: string; userChatId: string; rights: Rights; enabled: boolean; model: BusinessModel; instructions: string; createdAt?: string; updatedAt?: string };
-export type LogRow = { at: string; chatId: string; model: string; dir: "in" | "own" | "out" | "skip" | "fail"; text: string; note: string };
+export type LogRow = { at: string; chatId: string; model: string; dir: "in" | "own" | "out" | "sent" | "skip" | "fail"; text: string; note: string };
 
 let ready = false;
 async function tables(db: Db): Promise<void> {
@@ -132,7 +132,7 @@ export async function logEvent(db: Db, c: Connection, chatId: string, model: str
 export async function historyOf(db: Db, c: Connection, chatId: string, model: BusinessModel, limit = 12): Promise<{ role: "user" | "assistant"; text: string }[]> {
   await tables(db);
   const rows = await db.query<{ dir: string; text: string }>(
-    `SELECT dir, text FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 AND model = $3 AND dir IN ('in', 'own', 'out') ORDER BY at DESC, id DESC LIMIT $4`,
+    `SELECT dir, text FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 AND model = $3 AND dir IN ('in', 'own', 'out', 'sent') ORDER BY at DESC, id DESC LIMIT $4`,
     c.id, chatId, model, limit,
   );
   return rows.reverse().map((r) => ({ role: r.dir === "in" ? "user" : "assistant", text: String(r.text || "") }));
@@ -343,9 +343,12 @@ export async function handleBusinessMessage(api: RawApi, msg: any, deps: Deps = 
     }
     const outDenied = deny.length ? tldmDeniedByOwner(reply, deny) : "";
     if (outDenied) { await logEvent(db, c, chatId, model, "skip", "", `reply blocked: ${outDenied}`); return { result: "skipped", note: outDenied }; }
-    const sent = await api.raw.sendMessage({ business_connection_id: c.id, chat_id: Number(chatId), text: reply.slice(0, 4000) }).then(() => true).catch((e) => String((e as Error)?.message || e).slice(0, 200));
-    if (sent !== true) { await logEvent(db, c, chatId, model, "fail", reply, `Telegram refused: ${sent}`); return { result: "failed", note: String(sent) }; }
-    await logEvent(db, c, chatId, model, "out", reply, BUSINESS_MODEL_LABEL[model].en);
+    const sent = await api.raw.sendMessage({ business_connection_id: c.id, chat_id: Number(chatId), text: reply.slice(0, 4000) })
+      .then((r) => ({ ok: true as const, messageId: Number((r as { message_id?: unknown })?.message_id) || 0 }))
+      .catch((e) => ({ ok: false as const, error: String((e as Error)?.message || e).slice(0, 200) }));
+    // `sent` carries Telegram's own message id: the proof that the interface accepted the reply, not just that we called it.
+    if (!sent.ok) { await logEvent(db, c, chatId, model, "fail", reply, `Telegram refused: ${sent.error}`); return { result: "failed", note: sent.error }; }
+    await logEvent(db, c, chatId, model, "sent", reply, `message_id=${sent.messageId || "?"} · ${BUSINESS_MODEL_LABEL[model].en}`);
     return { result: "replied", note: model };
   } catch (e) { return { result: "failed", note: String((e as Error)?.message || e).slice(0, 200) }; }
 }
