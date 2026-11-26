@@ -141,9 +141,11 @@ jobs:
               if now != was:
                   print("the chat changed — reading it out:", flush=True)
                   print(json.dumps({k: d.get(k) for k in ("chat", "chatTasks", "chatTurns", "chatEvents")}, ensure_ascii=False, indent=1)[:6000], flush=True)
-                  # a reply has landed once a new turn or a finished/failed task is visible; give the events one more read
-                  if (turns and turns[0]["at"] != (stamp(before)[0])) or any(
-                          t["status"] in ("done", "failed") for t in tasks):
+                  # a reply has landed once a new turn, or the NEWEST task (this message's own, not an older finished one), is finished/failed
+                  wasTask = stamp(before)[1]
+                  newest = tasks[0] if tasks else None
+                  fresh = bool(newest) and (not wasTask or newest["runId"] != wasTask[0])
+                  if (turns and turns[0]["at"] != (stamp(before)[0])) or (fresh and newest["status"] in ("done", "failed")):
                       time.sleep(6)
                       d = get()
                       print("final read:", flush=True)
