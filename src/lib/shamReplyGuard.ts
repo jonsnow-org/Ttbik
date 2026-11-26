@@ -109,9 +109,25 @@ export function collapseAdjacentDuplicateSentences(text: string): string {
   return cleaned.trim();
 }
 
+/**
+ * A tool call is markup the engine reads, never words the user reads. Live 2026-11-26: a plain chat message made the old Sham
+ * answer `<tool_call>{"name": "computer_search", …}</tool_call>` — its plain (non-durable) path runs no tools, so that markup went
+ * into the chat and into memory as if it were the answer. Everything the user can see goes through here first.
+ */
+export function stripToolCallMarkup(text: string): string {
+  let out = String(text || "")
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, " ")
+    .replace(/<tool_call>[\s\S]*$/i, " ")                                  // a call the Studio's own cut left open
+    .replace(/<\/?(?:tool_call|function|parameter)\b[^>]*>/gi, " ");
+  // a dangling "<tool_c" / "</tool_call" at the very end (the same cut), never a word: only a fragment that starts with '<'
+  const dangling = out.match(/<\/?[a-z_]*(?:\s[^>\n]*)?$/i);
+  if (dangling?.index !== undefined && dangling[0].startsWith("<")) out = out.slice(0, dangling.index);
+  return out.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** Last-line defense before a reply is shown: repeated sentences, training reports and copied prior answers stay out of the chat. */
 export function visibleShamReply(text: string, history?: Array<{ q?: string; a?: string }>): { text: string; blocked: "echo" | "report" | "" } {
-  const raw = collapseAdjacentDuplicateSentences(String(text || "").trim());
+  const raw = collapseAdjacentDuplicateSentences(stripToolCallMarkup(String(text || "").trim()));
   if (!raw) return { text: "", blocked: "" };
   if (isTrainingStatusReply(raw)) return { text: STALE_REPLY_USER, blocked: "report" };
   if (isEchoedPriorReply(raw, history)) return { text: STALE_REPLY_USER, blocked: "echo" };
