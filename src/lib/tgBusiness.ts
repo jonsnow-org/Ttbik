@@ -155,7 +155,11 @@ export type Generate = (model: BusinessModel, system: string, history: Turn[], i
  *  contact got nothing. */
 function genBudgetMs(): number {
   const n = Number(process.env.TG_BIZ_GEN_MS || 0);
-  return Number.isFinite(n) && n >= 10000 ? Math.min(300000, n) : 180000;
+  const wanted = Number.isFinite(n) && n > 0 ? n : 180000;
+  // 2026-11-26 (owner's live log): every «مرحبا» in his account ended as «still running at the deadline (the job was cancelled)» and
+  // the contact got nothing. The webhook already answered Telegram before this runs, so a longer wait costs only a later reply — while a
+  // short one throws away an answer the CPU Studio was still writing (it also sits behind other jobs on a 2-vCPU box). Floor: 150 s.
+  return Math.min(300000, Math.max(150000, wanted));
 }
 
 /** The Studio's own words for a call that produced no text: rate limit, blocked, loading, error, gone, deadline. */

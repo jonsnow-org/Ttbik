@@ -39,8 +39,11 @@ jobs:
           GEN: ${{ inputs.gen || '0' }}
         run: |
           set -eu
-          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-0}"
-          code=$(curl -sS -m 90 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
+          # Oracle directly, not the gate: the front door gives a read-only request ~20 s and then answers its own
+          # "site is updating" page, and gen=1 spends a model reply's time on top of the probes. Reading it through
+          # the gate made this step fail every time gen=1 (HTTP 503, run 45831100238) instead of reporting the state.
+          url="https://89-168-89-15.sslip.io/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-0}"
+          code=$(curl -sS -m 150 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
           echo "HTTP ${code}"
           head -c 4000 biz.json; echo
           [ "${code}" = "200" ] || exit 1

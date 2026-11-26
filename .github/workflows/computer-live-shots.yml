@@ -25,10 +25,12 @@ jobs:
       - name: Shoot each model's own screen
         env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
+          # the computer hub is the international Studio (its own token); the cn nova-inference-server was left empty 2026-11-22
+          T_NOVA2: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           SHOT_ONLY: ${{ inputs.only }}
           SHAM_MODELSCOPE_URL: https://studio-novaai2026-sham-v1-server.api-inference.modelscope.net
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
-          COMPUTER_STUDIO_URL: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+          COMPUTER_STUDIO_URL: https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai
         run: python3 scripts/ops/computer_live_shots.py
       - uses: actions/upload-artifact@v4
         if: always()
