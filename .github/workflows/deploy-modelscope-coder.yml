@@ -213,12 +213,24 @@ jobs:
           # nova2-tldm-head is PRIVATE (train_gguf_head publishes visibility=1): the reader fetches it at boot, so the Studio
           # needs the account's own read token. It goes in as a secret (settings -> Secret, value never read back), never in the repo.
           body=$(python3 -c 'import json,os;print(json.dumps({"key":"MODELSCOPE_API_TOKEN","value":os.environ["T"]}))')
+          ok=""
           for m in POST PUT; do          # POST adds it, PUT replaces an existing key
             code=$(curl -sS -o sec.json -w '%{http_code}' -X $m -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
             echo "$m secret: HTTP $code $(sed "s/${T}/***/g" sec.json | head -c 300)"
-            case "$code" in 2??) exit 0;; esac
+            case "$code" in 2??) ok=1; break;; esac
           done
-          echo "::error::the reader Studio could not be given read access to the private head repo"; exit 1
+          [ -n "$ok" ] || { echo "::error::the reader Studio could not be given read access to the private head repo"; exit 1; }
+          # the SDK logs in and downloads against modelscope.cn unless told otherwise (live run 45759988515: "login skipped: HTTPError",
+          # then 404 on the private head repo). These are plaintext settings, not secrets: they only name the site the token belongs to.
+          for kv in MODELSCOPE_DOMAIN=www.modelscope.ai MODELSCOPE_ENDPOINT=https://www.modelscope.ai; do
+            body=$(python3 -c 'import json,sys;k,v=sys.argv[1].split("=",1);print(json.dumps({"key":k,"value":v}))' "$kv")
+            code=$(curl -sS -o var.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios/$OWNER/$REPO/variables")
+            [ "$code" = 200 ] || [ "$code" = 201 ] || code=$(curl -sS -o var.json -w '%{http_code}' -X PUT -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios/$OWNER/$REPO/variables")
+            echo "variable ${kv%%=*}: HTTP $code $(head -c 200 var.json)"
+          done
+          # what the Studio will read, seen with its own token (the value is never printed)
+          code=$(curl -sS -o head.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/api/v1/models/$OWNER/nova2-tldm-head")
+          echo "head repo with the Studio's token: HTTP $code $(python3 -c 'import json;d=json.load(open("head.json"));x=d.get("Data") or d.get("data") or {};print({k:x.get(k) for k in ("Name","Visibility","Path") if k in x})' 2>/dev/null || head -c 200 head.json)"
 
       - name: Deploy and show status
         if: github.event_name == 'push' || inputs.redeploy != 'false'
