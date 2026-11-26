@@ -372,7 +372,8 @@ describe("Sham's own agent loop", () => {
       text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 30000,
       ask: script([say("تقريري من سجلّي.")], seen),
     }));
-    expect(r).toMatchObject({ kind: "text", text: "تقريري من سجلّي." });
+    expect(r).toMatchObject({ kind: "text", used: ["self_review"] });   // a words-only self-review is replaced by the engine's own real report
+    expect((r as { text: string }).text).toContain("تقرير من سجلّك الحقيقي");
     expect(seen[0]).toContain("self_review");
     expect(seen[0]).toContain("لا تستدعِ الأداة نفسها مرتين");
   });
@@ -386,6 +387,17 @@ describe("Sham's own agent loop", () => {
     });
     expect(r).toMatchObject({ kind: "text", text: "تقرير من سجلّك الحقيقي: 62 جولة، مهارة واحدة." });
     expect((r as { used: string[] }).used).toEqual(["memory_search"]);
+  });
+  it("a self-development answer with no tool call gets the engine's own self_review, not invented numbers (live 2026-11-26)", async () => {
+    // Seventh probe: Sham Pro answered «14 مهام محفوظة، 100%» without running anything; self_review had never been called.
+    const ran: string[] = [];
+    const r = await runV1({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 60000,
+      ask: script([say("عندي 14 مهمة محفوظة ونسبة 100%."), null]),
+      exec: async (c) => { ran.push(c.function.name); return "تقرير من سجلّك الحقيقي: 62 جولة، مهارة واحدة."; },
+    });
+    expect(ran).toEqual(["self_review"]);
+    expect(r).toMatchObject({ kind: "text", text: "تقرير من سجلّك الحقيقي: 62 جولة، مهارة واحدة." });
   });
   it("with no tool result recorded, a broken call is still reported honestly", async () => {
     const r = await runV1({
