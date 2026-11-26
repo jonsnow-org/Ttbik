@@ -155,10 +155,11 @@ export type Generate = (model: BusinessModel, system: string, history: Turn[], i
  *  contact got nothing. */
 function genBudgetMs(): number {
   const n = Number(process.env.TG_BIZ_GEN_MS || 0);
-  const wanted = Number.isFinite(n) && n > 0 ? n : 180000;
-  // 2026-11-26 (owner's live log): every «مرحبا» in his account ended as «still running at the deadline (the job was cancelled)» and
-  // the contact got nothing. The webhook already answered Telegram before this runs, so a longer wait costs only a later reply — while a
-  // short one throws away an answer the CPU Studio was still writing (it also sits behind other jobs on a 2-vCPU box). Floor: 150 s.
+  const wanted = Number.isFinite(n) && n > 0 ? n : 240000;
+  // Measured on the owner's own log (2026-11-26): the replies that failed at the old 70 s default were cut at 68-69 s, and the one that
+  // failed after #1302 raised it to 180 s was cut at 177 s «still running» — so 180 s is not a safe ceiling for this 2-vCPU Studio, which
+  // also serves other jobs. The same model answered the 13:45 probe in 13.9 s. The webhook has already answered Telegram before this
+  // runs, so waiting longer only delays the reply; cutting it early loses the answer entirely. Default 240 s, never below 150 s.
   return Math.min(300000, Math.max(150000, wanted));
 }
 
