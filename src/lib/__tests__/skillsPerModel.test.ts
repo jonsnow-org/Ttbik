@@ -32,8 +32,10 @@ describe("design and logo skills, one copy per model", () => {
     for (const f of ["skillsNova.ts", "skillsSham.ts", "skillsShamPro.ts"]) expect(fs.readFileSync(path.join(dir, f), "utf8")).not.toMatch(/^import /m);
   });
   it("each Sham's skill tool offers its own names", async () => {
-    const names = (variant: "v1" | "v2") => shamVariant.run(variant, () => (shamTools(false) as any[]).find((t) => t.function.name === "skill").function.parameters.properties.name.enum);
-    expect(names("v1")).toEqual(SHAM_SKILL_NAMES);
-    expect(names("v2")).toEqual(SHAMPRO_SKILL_NAMES);
+    const param = (variant: "v1" | "v2") => shamVariant.run(variant, () => (shamTools(false) as any[]).find((t) => t.function.name === "skill").function.parameters.properties.name);
+    expect(param("v1").enum).toEqual(SHAM_SKILL_NAMES);
+    // Sham Pro also opens the skills it saved itself (shamSkills.ts), so its name is free text that lists the built-in ones
+    expect(param("v2").enum).toBeUndefined();
+    for (const n of SHAMPRO_SKILL_NAMES) expect(param("v2").description).toContain(n);
   });
 });

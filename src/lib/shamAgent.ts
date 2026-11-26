@@ -16,6 +16,7 @@ import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { isSelfDevelopmentRequest, savedSkillsNote } from "@/lib/shamSkills";
 
 /** What Sham may use: its own tools (shamExec.ts). */
 export const SHAM_TOOL_NAMES = SHAM_TOOLS.map((t) => t.function.name);
@@ -160,7 +161,10 @@ async function shamAgentRunInner(opts: {
   // Sham Pro: a plain knowledge question that only MENTIONS code words («ما الفرق بين بايثون وجافاسكربت؟») is conversation. Classed as code it went to the
   // tool loop and timed out with no answer after ~150 s (live repeat probe 2026-11-25). Sham-only rule: the shared classifier (modes.ts) is not changed.
   const plainKnowledgeQuestion = v2 && prof.klass === "code" && isPlainQuestion(opts.text) && !/```|\n/.test(opts.text) && opts.text.length <= 240;
-  const directChatIntent = !requiresWorkspaceAgent &&
+  // «طوّر نفسك / أضف لنفسك مهارة / حلّل نفسك» is not ordinary chat: it must reach the loop where skill_save and self_review really exist
+  // (live chat 2026-11-26: Sham Pro listed eight skills it had "added" and nothing was stored anywhere).
+  const selfDev = isSelfDevelopmentRequest(opts.text);
+  const directChatIntent = !requiresWorkspaceAgent && !selfDev &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
   // («python3 -c "pornt iu…"») whose garbled text («الخرج: 811») became the reply; a plain answer then waited for the WHOLE non-streamed body answer (~17 s mean,
@@ -171,7 +175,7 @@ async function shamAgentRunInner(opts: {
   // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
   let tldmHandedOff = false;
-  tldmHead: if (v2 && shamTldmOn() && !tldmPlainTurn) {
+  tldmHead: if (v2 && shamTldmOn() && !tldmPlainTurn && !selfDev) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -413,6 +417,9 @@ async function shamAgentRunInner(opts: {
   };
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string; seconds?: number } = {}): Promise<ShamReply | null> =>
     generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
+  // what Sham Pro already taught ITSELF: one short line, so a saved skill is reachable (and claimable truthfully) instead of being guessed
+  let selfNote = "";
+  if (v2) { try { selfNote = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { selfNote = ""; } }
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
@@ -448,9 +455,10 @@ async function shamAgentRunInner(opts: {
     if (await isStopped()) return { kind: "stopped", used, steps };
     if (left() < 6000) break;
     // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
-    const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
+    const bare = prof.lite && !selfDev && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
-    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
+    const head = [k.note, selfNote && toolsNow.length ? selfNote : ""].filter(Boolean).join("\n");
+    const prompt = head ? `${head}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
