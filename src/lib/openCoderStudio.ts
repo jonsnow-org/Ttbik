@@ -70,9 +70,10 @@ export function nova2Urls(): string[] {
 // a missing reader is an honest error (novaTldm.ts). NOVA_TLDM_READER_URL replaces the address; "off" = the old in-Studio head (the chat pool).
 export const NOVA_TLDM_READER_DEFAULT = "https://studio-jonjithup-nova-tldm-reader.api-inference.modelscope.ai";
 export function novaTldmReaderUrl(): string {
-  // 2026-11-25: the international account is at its Studio limit ("create too many studios", 5/5), so the reader Studio does not exist yet: no default address until it
-  // does (set NOVA_TLDM_READER_URL=NOVA_TLDM_READER_DEFAULT then). Until then Nova's T-LDM stays exactly as it is (off), nothing is called.
-  const raw = (process.env.NOVA_TLDM_READER_URL ?? "").trim().replace(/\/+$/, "");
+  // 2026-11-26: the reader Studio exists now and is live (deployed, and a real generate_tldm call answered: run 45765990789), so its address is the built-in
+  // default: Oracle and the backup sites build from this repo, and Vercel's variables are not needed for Nova's T-LDM. NOVA_TLDM_READER_URL still replaces the
+  // address; "off"/"none"/"0" (or the empty default in tests) leaves it off.
+  const raw = ((process.env.NOVA_TLDM_READER_URL ?? "").trim() || (process.env.NODE_ENV === "test" ? "" : NOVA_TLDM_READER_DEFAULT)).replace(/\/+$/, "");
   if (/^(off|none|0)$/i.test(raw) || !/^https:\/\//.test(raw) || /nova-inference-server|sham/i.test(raw)) return "";
   return raw;
 }
