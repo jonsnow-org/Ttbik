@@ -45,7 +45,10 @@ jobs:
     if: github.event_name != 'pull_request'
     # Playwright 1.56.1 provides Chromium builds for Ubuntu 24.04; ubuntu-latest moved to 26.04 and fails installation.
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    # 40 minutes cut the job in the middle of "make the narrated videos" (run 45562278365: cancelled at exactly
+    # 40:00 in that step, every later step skipped), so the weekly run has produced nothing since 2026-11-09.
+    # The videos are made for every campaign in one job; give it room to finish instead of cancelling it.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
