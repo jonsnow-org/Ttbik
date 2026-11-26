@@ -16,6 +16,90 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "dr-congo-bundibugyo-ebola-outbreak-12021-cases-2026",
+  "title": "Ebola outbreak in eastern Congo passes 12,000 confirmed cases as fighting disrupts response",
+  "date": "26 November 2026",
+  "contextDateLabel": "The outbreak was declared in Ituri in mid-May 2026. Ministry of Health data reported by AP and Reuters on Thursday, 26 November: 12,021 confirmed cases and 5,904 deaths. Reuters published at 05:29 UTC (08:29 Istanbul); the Associated Press published at 08:41 UTC (11:41 Istanbul). Fighting resumed near Iga-Barrière on Thursday morning; AP reported the evacuation of about a dozen people from Akwe hospital to Bunia on Tuesday, 24 November, citing the WHO incident manager.",
+  "dek": "Confirmed cases of Ebola disease caused by Bundibugyo virus have passed 12,000 in eastern Democratic Republic of the Congo, according to Ministry of Health data cited by AP and Reuters. Fighting in Ituri is disrupting access for response teams and the monitoring of exposed people.",
+  "body": [
+    "Ministry of Health data from the Democratic Republic of the Congo, reported by the Associated Press and Reuters on Thursday, 26 November 2026, showed 12,021 confirmed infections and 5,904 deaths in the ongoing outbreak. These are figures reported by health authorities on Thursday, not a forecast or a final tally.",
+    "The outbreak was declared in mid-May 2026 in Ituri province in the country's northeast and is caused by the Bundibugyo species of Ebola virus. Reuters said cases had spread to eight of the country's 26 provinces. Both agencies reported that no treatment or vaccine is approved for this virus species as of their reports.",
+    "The health emergency is unfolding alongside renewed fighting between the Congolese army and fighters from the Convention for the Popular Revolution near Iga-Barrière, about 25 kilometres north of Bunia, on Thursday morning. AP reported new displacement and said clashes had prevented teams from reaching some communities, disrupted monitoring of exposed people and left some treatment centres with fewer staff.",
+    "The AP quoted Catherine Smallwood, the World Health Organization's Ebola incident manager, as saying that about a dozen people, including two WHO personnel and Congolese health officials, were evacuated to Bunia on Tuesday, 24 November, after being trapped for three days in a hospital in Akwe amid crossfire. This account is attributed to the official quoted by AP and does not describe every response team.",
+    "Data date: Thursday, 26 November 2026. Publication times: Reuters at 05:29 UTC (08:29 Istanbul) and AP at 08:41 UTC (11:41 Istanbul). Location: Ituri, Bunia and other areas of eastern Democratic Republic of the Congo. Case and death totals are attributed to the Congolese Ministry of Health as reported by the two agencies."
+  ],
+  "sources": [
+    {
+      "href": "https://apnews.com/article/congo-ebola-outbreak-violence-0a0bc05d76d3278319472178a16be14b",
+      "label": "Associated Press — Ebola outbreak in Congo reaches 12,000 cases as violence forces some responders to evacuate, 26 November 2026, 08:41 UTC"
+    },
+    {
+      "href": "https://www.reuters.com/business/healthcare-pharmaceuticals/congos-ebola-cases-exceed-12000-responders-struggle-contain-outbreak-2026-11-26/",
+      "label": "Reuters — Congo's Ebola cases exceed 12,000 as responders struggle to contain outbreak, 26 November 2026, 05:29 UTC"
+    }
+  ]
+},
+{
+  "slug": "uk-net-migration-june-2026-77000",
+  "title": "UK long-term net migration falls to 77,000 in the year ending June",
+  "date": "26 November 2026",
+  "contextDateLabel": "UK Office for National Statistics release date: 26 November 2026 (no publication time displayed on the release page); Reuters report: 26 November at 09:35 UTC (12:35 Istanbul). Measurement period: the 12 months ending June 2026, not November. Estimates are provisional and may be revised.",
+  "dek": "The UK Office for National Statistics provisionally estimated long-term net migration at 77,000 in the year ending June 2026, compared with a revised 204,000 in the previous year. The office stressed that the figures are provisional and some components carry greater uncertainty.",
+  "body": [
+    "Provisional estimates published by the UK Office for National Statistics on 26 November 2026 put long-term international net migration at 77,000 in the 12 months ending June 2026, compared with an updated estimate of 204,000 for the previous year. The ONS defines long-term migration as a move to or from the UK lasting 12 months or more.",
+    "The ONS estimated 738,000 long-term arrivals and 661,000 departures during the same period; the difference is the 77,000 net figure. It said the annual decline was driven mainly by lower immigration from non-EU nationals, while emigration remained broadly stable.",
+    "By nationality grouping, provisional net migration was 258,000 for non-EU+ nationals, negative 137,000 for British nationals and negative 45,000 for EU+ nationals. These estimates describe the specified 12-month period, not migration during the month or day of publication.",
+    "The ONS warned that the figures are provisional. Some estimates for British nationals used an extended 15-month projection because updated administrative data from the Department for Work and Pensions was delayed. The office is also investigating a data issue affecting family-migration estimates and plans to update the figures in May 2027. It cautioned that comparisons with 1997 are affected by changes in measurement methods, from surveys to administrative records.",
+    "Publication date: ONS, 26 November 2026, with no release time displayed; Reuters, 09:35 UTC (12:35 Istanbul). Data period: the year ending June 2026. Reuters described the figure as the lowest since 1997 outside the pandemic period, subject to the ONS caveats on provisional estimates and methodology changes."
+  ],
+  "sources": [
+    {
+      "href": "https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/internationalmigration/bulletins/longterminternationalmigrationprovisional/yearendingjune2026",
+      "label": "UK Office for National Statistics — Long-term international migration, provisional: year ending June 2026, 26 November 2026"
+    },
+    {
+      "href": "https://blog.ons.gov.uk/2026/11/26/behind-the-numbers-what-is-driving-the-latest-fall-in-net-migration/",
+      "label": "ONS — Behind the numbers: what is driving the latest fall in net migration?, 26 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/world/uk/uk-annual-net-migration-drops-77000-year-june-2026-2026-11-26/",
+      "label": "Reuters — UK net migration falls to almost three-decade low, excluding pandemic slump, 26 November 2026, 09:35 UTC"
+    }
+  ]
+},
+{
+  "slug": "taiwan-ntu-on-device-generative-ai-chips-2026",
+  "title": "Taiwan highlights research chips designed to run generative AI more efficiently on devices",
+  "date": "26 November 2026",
+  "contextDateLabel": "Taiwan's National Science and Technology Council page shows a last-modified date of 25 November 2026; Taipei Times published its report on 26 November 2026, with no time displayed. Results from the first and second generations were presented at IEEE VLSI symposia in 2024 and 2025; the next chip was fabricated on a 16-nanometre process in October 2026. Sham AI publication date: 26 November 2026.",
+  "dek": "Taiwan's NSTC outlined research processors from National Taiwan University intended to reduce the cost of running Transformer models on devices. The published efficiency figures are laboratory results and research comparisons, not evidence that the chips are commercially available.",
+  "body": [
+    "Taiwan's National Science and Technology Council (NSTC) published an update about a National Taiwan University research team led by Professor Chia-Hsiang Yang, which developed two generations of Transformer learning processor chips for on-device generative AI. Taipei Times reported on the work on 26 November 2026; the official NSTC page shows a last-modified date of 25 November.",
+    "The council said the first-generation chip was fabricated using a 40-nanometre process and reached a stated peak efficiency of 99.2 tera operations per second per watt (TOPS/W). In the NSTC's comparison with research published at the time, this exceeded the efficiency of selected Transformer processors designed for inference; the comparison should not be generalised to every chip or operating condition.",
+    "The second generation uses a forward-pass learning approach intended to reduce the need to store backpropagation information, lowering memory and computation requirements during training. The NSTC reported a peak efficiency of 157 TOPS/W and a research comparison of 1.6 to 7.6 times against published Transformer learning processors.",
+    "The council said the team is developing a subsequent design to address memory-bandwidth bottlenecks in inference through data compression and improved external-memory transfers and management. That chip completed fabrication in October 2026 using a 16-nanometre process. The announcement did not say that a commercial product or consumer device had been released.",
+    "The first- and second-generation findings were presented at the IEEE Symposium on VLSI Technology and Circuits in 2024 and 2025. Location: National Taiwan University, Taipei, Taiwan. Newspaper report date: 26 November 2026; official NSTC page last-modified date: 25 November 2026. Performance figures and comparisons are attributed to the NSTC."
+  ],
+  "sources": [
+    {
+      "href": "https://www.nstc.gov.tw/folksonomy/detail/bf85636f-e366-4fee-a801-fc045175506b?l=en",
+      "label": "Taiwan National Science and Technology Council — Breaking Through Generative AI's Energy Bottleneck: NTU Team Develops High-Efficiency Transformer Learning Processor Chips, last modified 25 November 2026"
+    },
+    {
+      "href": "https://www.taipeitimes.com/News/taiwan/archives/2026/11/26/2003868419",
+      "label": "Taipei Times — NTU develops chips for on-device generative AI, 26 November 2026"
+    },
+    {
+      "href": "https://ieeexplore.ieee.org/document/10631391",
+      "label": "IEEE Xplore — VLSI 2024 paper cited by the official announcement"
+    },
+    {
+      "href": "https://ieeexplore.ieee.org/document/11075103",
+      "label": "IEEE Xplore — VLSI 2025 paper cited by the official announcement"
+    }
+  ]
+},
+{
   "slug": "libya-benghazi-naval-officers-drone-attack-2026",
   "title": "Two Libyan naval officers die after drone attack on Russian warship in Benghazi",
   "date": "25 November 2026",
