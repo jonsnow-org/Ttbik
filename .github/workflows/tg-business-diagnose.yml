@@ -106,6 +106,9 @@ jobs:
           print(f"webhook over HTTP = {d['webhook']['http']} | chat = {d['chat']}")
           for r in d.get("rows") or []:
               print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:70]}")
+          if d.get("telegramDirect"):
+              x = d["telegramDirect"]
+              print(f"telegram direct: http={x.get('http')} ok={x.get('ok')} code={x.get('errorCode')} desc={x.get('description')!r} message_id={x.get('messageId')} err={x.get('error')!r}")
           print(f"passed for {d['model']} = {d['passed']} | message_id = {d.get('messageId')}")
           if not d.get("passed"):
               raise SystemExit(1)
