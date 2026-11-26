@@ -693,3 +693,28 @@ test("Cuba's WHO release and the 16 Days event use direct official WHO pages", (
   assert.ok(eventEn.sources.some((source) => source.href === "https://www.who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026"));
   assert.deepEqual(sourceUrls(eventAr), sourceUrls(eventEn));
 });
+
+
+test("26 November Bank of England Financial Stability Report is bilingual, source-matched and preserves the report's risk qualifiers", () => {
+  const slug = "bank-of-england-ai-financing-financial-stability-quantum-risk-2026";
+  const arabic = NEWS_ITEMS.find((item) => item.slug === slug);
+  const english = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(arabic, "Arabic Bank of England briefing is missing");
+  assert.ok(english, "English Bank of England briefing is missing");
+  assert.equal(arabic.dateIso, "2026-11-26");
+  assert.equal(english.date, "26 November 2026");
+  assert.equal(dateNumbers(arabic.contextDateLabel), dateNumbers(english.contextDateLabel));
+  assert.match(arabic.contextDateLabel, /لا تعرض الصفحة ساعة النشر/);
+  assert.match(english.contextDateLabel, /no publication time/i);
+  assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
+  assert.equal(arabic.paragraphs.length, english.body.length);
+  assert.ok(arabic.paragraphs.length >= 5);
+  assert.ok(arabic.sources.some((source) => source.href === "https://www.bankofengland.co.uk/financial-stability-report/2026/november-2026"));
+  assert.ok(arabic.sources.some((source) => source.href === "https://www.wsj.com/world/uk/boe-warns-scale-and-breadth-of-ai-financing-poses-threat-to-financial-stability-005ad739"));
+  assert.match(arabic.paragraphs.join(" "), /305 مليارات دولار/);
+  assert.match(english.body.join(" "), /US\\$305 billion/);
+  assert.match(arabic.paragraphs.join(" "), /التشفير المقاوم للحوسبة الكمّية/);
+  assert.match(english.body.join(" "), /quantum-resistant cryptography/);
+  assert.match(arabic.paragraphs.join(" "), /النظام المالي البريطاني ظل صامداً/);
+  assert.match(english.body.join(" "), /UK financial system remained resilient/);
+});
