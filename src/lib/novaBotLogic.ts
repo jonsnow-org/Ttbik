@@ -1346,6 +1346,8 @@ async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, 
   const first = await shamThinkPatient(text, memoryKey, mem, shamReplyTokens(), 28000, 40000, rawTest);
   if (shamThinkUnavailable(first)) return false;
   const r = first.reply;
+  // A call is not words here either: fall through to the older chain, which has its own retries, instead of answering with silence.
+  if (r?.type === "text" && !stripToolCallMarkup(r.text || "")) return false;
   let reasked = false;
   await sendShamLater(bot, chatId, r?.later);
   const card = r?.type === "pending" && Boolean(r.job) && requiresProgressCard(text)
@@ -1488,7 +1490,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
             await startShamDurableTask(bot, chatId, text, _botRow?.id, mem);
             return;
           }
-          if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
+          // The Studio's own one-step `think` holds a real chat turn (tools run inside it), so the old Sham asks it too: its plain chain
+          // answers a tool call with another tool call. A Studio without `think` returns false and the chain below runs as before.
+          if (process.env.SHAM_THINK !== "0" && (requiresProgressCard(text) || shamVariant.getStore() === "v1") && (await shamThinkAndSend(bot, chatId, text, mem))) return;
           const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
           // The Studio sometimes answers with a tool call instead of words. This plain path runs no tools, so a bare call is NOT an
           // answer: it is dropped and the next step asks again (live 2026-11-26: <tool_call>{"name": "computer_search"…} was sent and
