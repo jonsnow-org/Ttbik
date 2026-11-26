@@ -29,6 +29,10 @@ on:
         description: "inject ONE plain chat message into this server's own webhook (a Telegram id; empty = do not inject)"
         type: string
         default: ""
+      gate:
+        description: "1: read this chat's selected model and its last runs, then inject the same message again through the public front door"
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -55,11 +59,13 @@ jobs:
         if: always()
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
         run: |
           set -u
           # Oracle directly: the webhook, the engine list and the Sham flags are per-server state.
+          q=""; [ -n "${CHAT:-}" ] && q="?chat=${CHAT}"
           code=$(curl -sS -m 60 -o chat.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" \
-            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe${q}" || echo 000)
           echo "HTTP ${code}"
           [ "${code}" = "200" ] || { head -c 500 chat.json 2>/dev/null; echo; exit 0; }
           python3 - <<'PY'
@@ -78,6 +84,12 @@ jobs:
           print("their own last lines:")
           for ev in d.get("events") or []:
               print(f"  {ev.get('at')} {ev.get('kind'):<8} {ev.get('runId')} :: {ev.get('text')}")
+          c = d.get("chat")
+          if c:
+              print(f"selected model for {c.get('id')} = {c.get('model')} (freei={c.get('freei')})")
+              print("that chat's last runs (any model):")
+              for r in d.get("chatTasks") or []:
+                  print(f"  {r.get('updatedAt')} {r.get('status'):<8} {r.get('slot'):<9} {r.get('runId')} :: {r.get('title')}")
           PY
       - name: one plain chat message, injected into the real webhook
         if: ${{ always() && inputs.chat != '' }}
@@ -92,6 +104,21 @@ jobs:
             https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
           echo "HTTP ${code}"
           head -c 1200 inject.json 2>/dev/null; echo
+      - name: the same message again, through the public front door
+        if: ${{ always() && inputs.gate == '1' && inputs.chat != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -u
+          # The real path Telegram uses. A 200 here with no run in the next read means the front door answers while the site
+          # never receives the update; a 504 means the gate cut the request the site was still working on.
+          code=$(curl -sS -m 130 -o gate.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"via\":\"gate\",\"text\":\"اختبار البوابة: هل ترد؟\"}" \
+            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+          echo "HTTP ${code}"
+          head -c 1200 gate.json 2>/dev/null; echo
       - name: the report, readable
         if: always()
         run: |
