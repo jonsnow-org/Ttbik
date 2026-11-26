@@ -149,10 +149,13 @@ export type Turn = { role: "user" | "assistant"; text: string };
 export type GenOutcome = { text: string | null; why?: string };
 export type Generate = (model: BusinessModel, system: string, history: Turn[], incoming: string, memoryKey: string) => Promise<string | null | GenOutcome>;
 
-/** How long one Business reply may spend inside the 60 s Telegram webhook (a timeout there means the contact sees nothing at all). */
+/** How long one Business reply may spend in the model. The webhook no longer waits for it (it answers Telegram at once and the reply lands
+ *  when it is ready), so the only cost of a longer budget is a later reply — while a short one drops the answer entirely. Nova writes on a
+ *  CPU model: ~48 s when the Studio is free, but a queued job behind a cancelled attempt measured past 70 s twice on 2026-11-26 and the
+ *  contact got nothing. */
 function genBudgetMs(): number {
   const n = Number(process.env.TG_BIZ_GEN_MS || 0);
-  return Number.isFinite(n) && n >= 10000 ? Math.min(120000, n) : 70000;
+  return Number.isFinite(n) && n >= 10000 ? Math.min(300000, n) : 180000;
 }
 
 /** The Studio's own words for a call that produced no text: rate limit, blocked, loading, error, gone, deadline. */
@@ -195,7 +198,7 @@ export const defaultGenerate: Generate = async (model, system, history, incoming
     // Nova is the 35B model on the owner's Studio: a chat call that has not finished inside `wait_s` answers "pending" + a job id and
     // the text arrives on job_result. Accepting "done" alone dropped every answer from a busy or cold Studio — the owner's live test
     // (2026-11-25) sent three messages inside his account and all three were logged as "did not answer" with nothing sent.
-    for (let i = 0; r?.type === "pending" && r.job && Date.now() + 4000 < deadline && i < 30; i++) {
+    for (let i = 0; r?.type === "pending" && r.job && Date.now() + 4000 < deadline && i < 90; i++) {
       const job: string = String(r.job);
       await new Promise((res) => setTimeout(res, 2000));
       const next = await OC.withEngineModel("coder", () => OC.coderJobResult(job, 0, 8000)).catch(() => null);
