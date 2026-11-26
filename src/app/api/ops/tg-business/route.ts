@@ -34,6 +34,22 @@ async function tg(token: string, method: string, body?: Record<string, unknown>)
   }
 }
 
+/** The same call, but the WHOLE Bot API answer is kept (ok / error_code / description): a refusal is only useful with Telegram's words. */
+async function tgRaw(token: string, method: string, body?: Record<string, unknown>): Promise<Record<string, unknown> & { http: number; error?: string }> {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: body ? "POST" : "GET",
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+    const j = await r.json().catch(() => null);
+    return { http: r.status, ...(j && typeof j === "object" ? (j as Record<string, unknown>) : { body: "not json" }) };
+  } catch (e) {
+    return { http: 0, error: String((e as Error)?.message || e).slice(0, 160) };
+  }
+}
+
 /** owner id -> "5001" stays, larger ids keep the first two digits only */
 const maskId = (v: string) => (v.length <= 5 ? v : `${v.slice(0, 2)}***${v.slice(-2)}`);
 const rightsOf = (v: unknown) => Object.keys(normRights(v));
@@ -174,7 +190,7 @@ export async function POST(req: NextRequest) {
   const model = body?.model === "sham_v2" ? "sham_v2" : "coder";
   const text = String(body?.text || "مرحبا").slice(0, 200);
   const B = await import("@/lib/tgBusiness");
-  const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, select: { id: true, webhookSecret: true } }).catch(() => null);
+  const bot = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, select: { id: true, webhookSecret: true, token: true } }).catch(() => null);
   if (!bot) return NextResponse.json({ error: "no active NOVA_BOT row" }, { status: 503 });
   const rows = await prismaDb.query<any>(`SELECT id, user_id, model FROM tg_business_connections WHERE enabled ORDER BY updated_at DESC LIMIT 1`).catch(() => []);
   const conn = rows[0];
@@ -220,14 +236,21 @@ export async function POST(req: NextRequest) {
       connId, chat,
     ).catch(() => []);
     const reply = log.find((r) => r.dir === "sent");
+    // A refusal is only actionable with Telegram's own words: ask the Bot API for the same reply directly, and report its raw
+    // answer (code + description). This is a real call to Telegram, not a simulation; nothing is logged as `sent` from it.
+    const refused = !reply ? log.find((r) => r.dir === "fail" && String(r.text || "").trim()) : null;
+    const direct = refused
+      ? await tgRaw(bot.token, "sendMessage", { business_connection_id: connId, chat_id: Number(chat), text: String(refused.text || "").slice(0, 4000) })
+      : null;
     return NextResponse.json({
       model, webhook: { http: posted.status, body: posted.body },
       chat: maskId(chat),
       passed: Boolean(reply),
       messageId: reply ? (String(reply.note || "").match(/message_id=(\d+)/)?.[1] ?? null) : null,
+      ...(direct ? { telegramDirect: { http: direct.http, ok: direct.ok ?? null, errorCode: direct.error_code ?? null, description: direct.description ?? null, messageId: (direct.result as { message_id?: unknown } | undefined)?.message_id ?? null, error: direct.error ?? null } } : {}),
       rows: log.reverse().map((r) => ({
         at: new Date(r.at).toISOString(), dir: String(r.dir), model: String(r.model),
-        note: String(r.note || "").slice(0, 160), text: String(r.text || "").slice(0, 90),
+        note: String(r.note || "").slice(0, 320), text: String(r.text || "").slice(0, 90),
       })),
     }, { headers: { "Cache-Control": "no-store" } });
   } finally {

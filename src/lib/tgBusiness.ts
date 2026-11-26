@@ -289,6 +289,25 @@ export async function handleBusinessConnection(api: RawApi, bc: any, deps: Deps 
 
 export type BizResult = "replied" | "ignored" | "skipped" | "failed";
 
+/**
+ * Telegram's own words for a failed API call. grammY's message alone can read `(undefined: undefined)` when the body it parsed
+ * carries no `error_code`/`description`, so the fields, the parsed body and the wrapped cause are all read here: the log then says
+ * WHY the interface refused (rights, chat, connection) instead of a bare "failed". Never includes the token (it is not in any of these).
+ */
+function callFailure(e: unknown): string {
+  const x = e as { message?: string; error_code?: number; description?: string; payload?: unknown; error?: unknown } | null;
+  const parts: string[] = [String(x?.message || e || "unknown error")];
+  if (x?.error_code != null || x?.description) parts.push(`telegram ${x?.error_code ?? "?"}: ${String(x?.description ?? "").slice(0, 160)}`);
+  for (const extra of [x?.payload, x?.error]) {
+    if (!extra || typeof extra !== "object") continue;
+    const o = extra as Record<string, unknown>;
+    const shape = o.error_code != null || o.description ? `${o.error_code ?? "?"}: ${String(o.description ?? "")}` : JSON.stringify(o).slice(0, 120);
+    parts.push(`body ${shape.slice(0, 160)}`);
+    break;
+  }
+  return parts.join(" | ").slice(0, 300);
+}
+
 /** `business_message`: one reply by the connection's chosen model, after every check. Never throws. */
 export async function handleBusinessMessage(api: RawApi, msg: any, deps: Deps = {}): Promise<{ result: BizResult; note: string }> {
   const db = deps.db || prismaDb;
@@ -345,7 +364,7 @@ export async function handleBusinessMessage(api: RawApi, msg: any, deps: Deps = 
     if (outDenied) { await logEvent(db, c, chatId, model, "skip", "", `reply blocked: ${outDenied}`); return { result: "skipped", note: outDenied }; }
     const sent = await api.raw.sendMessage({ business_connection_id: c.id, chat_id: Number(chatId), text: reply.slice(0, 4000) })
       .then((r) => ({ ok: true as const, messageId: Number((r as { message_id?: unknown })?.message_id) || 0 }))
-      .catch((e) => ({ ok: false as const, error: String((e as Error)?.message || e).slice(0, 200) }));
+      .catch((e) => ({ ok: false as const, error: callFailure(e) }));
     // `sent` carries Telegram's own message id: the proof that the interface accepted the reply, not just that we called it.
     if (!sent.ok) { await logEvent(db, c, chatId, model, "fail", reply, `Telegram refused: ${sent.error}`); return { result: "failed", note: sent.error }; }
     await logEvent(db, c, chatId, model, "sent", reply, `message_id=${sent.messageId || "?"} · ${BUSINESS_MODEL_LABEL[model].en}`);
