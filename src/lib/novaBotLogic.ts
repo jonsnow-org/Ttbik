@@ -1468,45 +1468,53 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         return;
       }
       if (text && shamStudioEnabled()) {
-        // the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any); an older text-only Studio answers with plain text
-        // plain message -> chat_auto (Studio-side intent routing), then generate_any for a Studio that has no chat_auto yet
-        // the webhook has 60 s (maxDuration): the fallback only runs with the time chat_auto left (a fast "no such api" leaves nearly all of it)
-        const t0 = Date.now();
-        // the chat's recent turns + rolling summary + facts go with the message (chat_memory); an older Studio, or no database, falls back to chat_auto
-        const mem = await loadChatMemory(chatId, text);
-        // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
-        // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
-        // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
-        if (shamAgentOn()) {
-          if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram re-delivered this very message (same update id): it is already being handled
-          // Telegram gets its answer at once and the work goes on in the background (as the coder does): a slow Studio can no longer make Telegram resend
-          const variant = shamVariant.getStore() || "v1", mode = shamModeCtx.getStore() || {};
-          // Off the 60s webhook: save the task and hand it to /api/sham/continue (300s, resumable run id).
-          await startShamDurableTask(bot, chatId, text, _botRow?.id, mem);
+        try {
+          // the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any); an older text-only Studio answers with plain text
+          // plain message -> chat_auto (Studio-side intent routing), then generate_any for a Studio that has no chat_auto yet
+          // the webhook has 60 s (maxDuration): the fallback only runs with the time chat_auto left (a fast "no such api" leaves nearly all of it)
+          const t0 = Date.now();
+          // the chat's recent turns + rolling summary + facts go with the message (chat_memory); an older Studio, or no database, falls back to chat_auto
+          const mem = await loadChatMemory(chatId, text);
+          // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
+          // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
+          // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
+          if (shamAgentOn()) {
+            if (!(await shamClaimUpdate(chatId, update.update_id))) return;       // Telegram re-delivered this very message (same update id): it is already being handled
+            // Telegram gets its answer at once and the work goes on in the background (as the coder does): a slow Studio can no longer make Telegram resend
+            const variant = shamVariant.getStore() || "v1", mode = shamModeCtx.getStore() || {};
+            // Off the 60s webhook: save the task and hand it to /api/sham/continue (300s, resumable run id).
+            await startShamDurableTask(bot, chatId, text, _botRow?.id, mem);
+            return;
+          }
+          if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
+          const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
+          let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000, { bypassContentHeuristics: rawTest }) : null;
+          if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest });
+          const left = 52000 - (Date.now() - t0);
+          if (!any && left > 15000) any = await shamGenerateAny(text, 80, left, { bypassContentHeuristics: rawTest });
+          if (any) {
+            await sendShamReply(bot, chatId, any);
+            if (any.type === "text" && any.text) await saveChatTurn(chatId, text, any.text);
+            return;
+          }
+          const reply = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
+          if (reply) {
+            await saveChatTurn(chatId, text, reply);
+            await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
+            return;
+          }
+          // the Studio did not answer in time (asleep or still loading): say so instead of Nova's pause notice
+          // the "getting ready" line belongs to the OLD Sham only (its Studio sleeps); the new Sham gets the honest status line instead (owner's order, 2026-10-26)
+          if (shamVariant.getStore() === "v2") await sendShamReply(bot, update.message.chat.id, null);
+          else await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
           return;
-        }
-        if (process.env.SHAM_THINK !== "0" && requiresProgressCard(text) && (await shamThinkAndSend(bot, chatId, text, mem))) return;
-        const rawTest = tierFor(chatId) === "owner" && process.env.MODEL_RAW_TEST_MODE !== "0";
-        let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000, { bypassContentHeuristics: rawTest }) : null;
-        if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest });
-        const left = 52000 - (Date.now() - t0);
-        if (!any && left > 15000) any = await shamGenerateAny(text, 80, left, { bypassContentHeuristics: rawTest });
-        if (any) {
-          await sendShamReply(bot, chatId, any);
-          if (any.type === "text" && any.text) await saveChatTurn(chatId, text, any.text);
+        } catch (error) {
+          // Silence is the one answer the old Sham must never give: a throw anywhere above (memory, Studio call, a send) used to end the
+          // webhook with nothing in the chat, which is exactly the state the owner reported as «شام القديم لا يرد».
+          const why = String((error as Error)?.message || error).replace(/\s+/g, " ").trim().slice(0, 200);
+          await bot.api.sendMessage(update.message.chat.id, `⚠️ تعذّر على شام الرد على رسالتك الآن${why ? ` (${why})` : ""}. أعد إرسالها بعد قليل.`).catch(() => null);
           return;
-        }
-        const reply = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
-        if (reply) {
-          await saveChatTurn(chatId, text, reply);
-          await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
-          return;
-        }
-        // the Studio did not answer in time (asleep or still loading): say so instead of Nova's pause notice
-        // the "getting ready" line belongs to the OLD Sham only (its Studio sleeps); the new Sham gets the honest status line instead (owner's order, 2026-10-26)
-        if (shamVariant.getStore() === "v2") await sendShamReply(bot, update.message.chat.id, null);
-        else await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
-        return;
+      }
       }
       await bot.api.sendMessage(update.message.chat.id, NOVA_LEGACY_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     }
