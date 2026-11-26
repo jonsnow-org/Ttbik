@@ -119,9 +119,15 @@ export function stripToolCallMarkup(text: string): string {
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, " ")
     .replace(/<tool_call>[\s\S]*$/i, " ")                                  // a call the Studio's own cut left open
     .replace(/<\/?(?:tool_call|function|parameter)\b[^>]*>/gi, " ");
+  // The same call, mangled by the Studio: "<tool_ call>", "</ tool_call>", "<tool_callous>" (live 2026-11-26, the second old-Sham
+  // answer). From the first such tag on, the rest is the call and its JSON arguments — never words.
+  const mangled = out.search(/<\s*\/?\s*tool[\s_]*c/i);
+  if (mangled >= 0) out = out.slice(0, mangled);
+  // …or the arguments with no tag left at all: a call-shaped JSON object is not an answer either.
+  if (/^\s*[{[]/.test(out) && /"(?:name|arguments|parameters|path|content|id)"\s*:/.test(out)) return "";
   // a dangling "<tool_c" / "</tool_call" at the very end (the same cut), never a word: only a fragment that starts with '<'
-  const dangling = out.match(/<\/?[a-z_]*(?:\s[^>\n]*)?$/i);
-  if (dangling?.index !== undefined && dangling[0].startsWith("<")) out = out.slice(0, dangling.index);
+  const dangling = out.match(/<\/?[a-z_]*\s*[^>\n]*$/i);
+  if (dangling?.index !== undefined && out.slice(dangling.index).startsWith("<")) out = out.slice(0, dangling.index);
   return out.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 

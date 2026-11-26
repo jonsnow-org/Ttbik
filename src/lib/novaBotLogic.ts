@@ -1502,8 +1502,10 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           };
           const memArgs = mem ? { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts } : null;
           let any = memArgs ? words(await shamChatMemory(text, memArgs, 80, 45000, { bypassContentHeuristics: rawTest })) : null;
-          if (!any && memArgs && toolOnly && Date.now() - t0 < 22000) {
-            any = words(await shamChatMemory(`${text}\n\nأجب الآن بكلمات فقط، دون أي استدعاء أداة.`, memArgs, 80, 14000, { bypassContentHeuristics: rawTest }));
+          if (!any && toolOnly && Date.now() - t0 < 24000) {
+            // Not the same tool protocol again (it answers a call every time): a plain completion has no tools to call.
+            const plain = await shamGenerate(`${text}\n\nأجب بكلمات فقط، دون أي استدعاء أداة.`, 80, 16000).catch(() => null);
+            any = words(plain ? ({ type: "text", text: plain } as ShamReply) : null);
           }
           if (!any) any = words(await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)), { bypassContentHeuristics: rawTest }));
           const left = 52000 - (Date.now() - t0);
