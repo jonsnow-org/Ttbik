@@ -1,6 +1,6 @@
 // Sham Pro's own skill file and self-review (owner 2026-11-26): the model claimed eight skills it had \"added\" and nothing was stored. A skill is a row
 // it writes with skill_save, opens later with skill, and a review is numbers from its own tables — never an opinion about itself. Fake SQL engine, no DB.
-import { cleanSkill, ensureSkillTable, isSelfDevelopmentRequest, listShamSkills, removeShamSkill, saveShamSkill, savedSkillText, savedSkillsNote, shamSelfReview, SHAM_SKILLS_MAX } from "@/lib/shamSkills";
+import { cleanSkill, ensureSkillTable, isSelfDevelopmentRequest, listShamSkills, OWNER_MARK, ownerAnswerFromTool, removeShamSkill, saveShamSkill, savedSkillText, savedSkillsNote, selfReviewAnswer, shamSelfReview, shamSelfReviewData, SHAM_SKILLS_MAX, stripInternal } from "@/lib/shamSkills";
 import { shamTools } from "@/lib/shamExec";
 import { shamVariant } from "@/lib/shamStudio";
 import type { Db } from "@/lib/shamDb";
@@ -12,10 +12,12 @@ type TurnRow = { chat_key: string; question: string; answer: string };
 function fakeDb(opts: { fail?: boolean } = {}) {
   const skills: SkillRow[] = [];
   const turns: TurnRow[] = [];
+  const tasks: string[] = [];
   const db = Object.assign(Object.create(null), {
     ddl: true,
     skills,
     turns,
+    tasks,
     exec: async (sql: string, ...args: unknown[]) => {
       if (opts.fail) throw new Error("connection refused");
       const a = args as unknown[];
@@ -45,12 +47,16 @@ function fakeDb(opts: { fail?: boolean } = {}) {
       if (sql.includes("FROM sham_skills WHERE model=$1 AND name=$2")) return skills.filter((s) => s.model === a[0] && s.name === a[1]) as T[];
       if (sql.includes("SELECT count(*) AS n FROM sham_skills")) return [{ n: skills.filter((s) => s.model === a[0]).length }] as T[];
       if (sql.includes("FROM sham_skills WHERE model=$1 ORDER BY")) return skills.filter((s) => s.model === a[0]).slice().reverse() as T[];
+      if (sql.includes("FROM coder_tasks WHERE chat_key")) {
+        const of = (st: string) => tasks.filter((x) => x === st).length;
+        return [{ total: tasks.length, done: of("done"), failed: tasks.filter((x) => !["done", "running", "waiting"].includes(x)).length, running: of("running") + of("waiting") }] as T[];
+      }
       if (sql.includes("FROM sham_chat_memory WHERE chat_key LIKE")) return [{ n: turns.length }] as T[];
       if (sql.includes("FROM sham_chat_memory WHERE chat_key=$1")) return turns.filter((t) => t.chat_key === a[0] || t.chat_key.startsWith(`${String(a[0])}|`)).map((t) => ({ question: t.question, answer: t.answer })) as T[];
       return [] as T[];
     },
   });
-  return db as unknown as Db & { skills: SkillRow[]; turns: TurnRow[] };
+  return db as unknown as Db & { skills: SkillRow[]; turns: TurnRow[]; tasks: string[] };
 }
 
 const SKILL = { name: "quick_answer", title: "Answer in two lines", when: "the user asks a short factual question", steps: "1) web_search(query). 2) answer in the user's language, two lines, with the source." };
@@ -140,6 +146,36 @@ describe("Sham Pro reviews its own record", () => {
     expect(out).toContain("ما عاصمة مصر");
   });
 
+  it("counts this chat's real tasks, including a leftover running row, and the owner's sentence says so", async () => {
+    const db = fakeDb();
+    db.tasks.push("done", "done", "failed", "running");
+    const d = await shamSelfReviewData(db, "sham_v2", "chat:1", 420066855);
+    expect(d).toMatchObject({ tasks: { total: 4, done: 2, failed: 1, running: 1 } });
+    const answer = selfReviewAnswer(d as never);
+    expect(answer).toContain("مهامي في هذه المحادثة: 4");
+    expect(answer).toContain("1 قيد التشغيل");
+  });
+
+  it("gives the owner a clean Arabic answer: no directive line, no marker, no tool name", async () => {
+    const db = fakeDb();
+    await saveShamSkill(db, "sham_v2", "chat:1", SKILL);
+    db.turns.push({ chat_key: "chat:1|v2", question: "ما عاصمة مصر؟", answer: "القاهرة." });
+    db.tasks.push("done", "failed");
+    const out = await shamSelfReview(db, "sham_v2", "chat:1", 420066855);
+    expect(out).toContain(OWNER_MARK);                                     // the model still reads its report
+    const answer = ownerAnswerFromTool(out);
+    expect(answer.startsWith("هذا تحليلي من سجلّي الحقيقي")).toBe(true);
+    expect(answer).toContain("جولاتي المحفوظة في كل المحادثات: 1");
+    expect(answer).toContain("«quick_answer» (استُعملت 0 مرة)");
+    expect(answer).toContain("مهامي في هذه المحادثة: 2");
+    for (const leak of ["اختر أضعف رقم", "skill_save", "self_review", OWNER_MARK, "error:", "{", "• الجولات المحفوظة لهذا النموذج"]) {
+      expect(answer).not.toContain(leak);
+    }
+    // what the model reads is unchanged in substance: same numbers, plus one concrete next action
+    expect(out).toContain("اختر أضعف رقم أعلاه");
+    expect(out).toContain("الجولات المحفوظة لهذا النموذج في كل المحادثات: 1");
+  });
+
   it("says there is no record yet instead of inventing one, and refuses numbers when the table is unreachable", async () => {
     const fresh = await shamSelfReview(fakeDb(), "sham_v2", "chat:1");
     expect(fresh).toContain("لا تحمل جولات محفوظة بعد");
@@ -170,5 +206,28 @@ describe("self-development requests reach the tool loop", () => {
     expect(names("v1")).not.toContain("self_review");
     const save = shamVariant.run("v2", () => shamTools(false).find((t) => t.function.name === "skill_save")!);
     expect((save.function.parameters as { required: string[] }).required).toEqual(["name", "title", "when", "steps"]);
+  });
+});
+
+describe("nothing aimed at the model reaches the owner", () => {
+  it("drops directive lines, JSON and English scaffolding, keeps the Arabic answer", () => {
+    const mixed = [
+      "• مهامي في هذه المحادثة: 14 — 12 منتهية، 2 فاشلة.",
+      "اختر أضعف رقم أعلاه، اذكر إصلاحاً واحداً محدداً له، ثم خزّن الإجراء الذي يعالجه بـ skill_save.",
+      '{"type":"real","runId":"sham-1"}',
+      "tool_calls: self_review",
+      "error: connection refused",
+      "أقرب خطوة: أضيف مهارة واحدة.",
+    ].join("\n");
+    const out = stripInternal(mixed);
+    expect(out).toContain("مهامي في هذه المحادثة: 14");
+    expect(out).toContain("أقرب خطوة");
+    for (const leak of ["اختر أضعف رقم", "skill_save", "runId", "tool_calls", "error:", "self_review", "{"]) expect(out).not.toContain(leak);
+  });
+
+  it("takes the owner section of a tool result, and nothing when there is none", () => {
+    expect(ownerAnswerFromTool(`جواب نظيف.\n${OWNER_MARK}\nتقرير داخلي: 63 جولة.`)).toBe("جواب نظيف.");
+    expect(ownerAnswerFromTool("جواب بلا علامة.")).toBe("جواب بلا علامة.");
+    expect(ownerAnswerFromTool("")).toBe("");
   });
 });
