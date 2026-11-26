@@ -100,7 +100,7 @@ jobs:
           set -o pipefail
           cd ai-system/tldm
           python training/train_gguf_head.py --config "configs/${{ inputs.config || 'nova2.yaml' }}" --reader "${{ inputs.reader || 'server' }}" --gguf "$(ls /tmp/gguf/*.gguf | head -1)" --server http://127.0.0.1:8099 --tokenizer /tmp/tok/tokenizer.json --seeds "${{ inputs.seeds || '3' }}" --steps "${{ inputs.steps || '0' }}" --json /tmp/gguf_head.json --meta "{\"gguf\": \"$(basename "${GGUF_URL:-unknown}")\", \"tokenizer_repo\": \"${TOK_REPO}\", \"config\": \"${{ inputs.config || 'nova2.yaml' }}\", \"reader\": \"${{ inputs.reader || 'server' }}\"}" --out /tmp/nova2_heads.pt 2>&1 | tee /tmp/gguf_head.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gguf-head
