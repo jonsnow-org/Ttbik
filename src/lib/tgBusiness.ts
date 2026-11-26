@@ -152,7 +152,7 @@ export type Generate = (model: BusinessModel, system: string, history: Turn[], i
 /** How long one Business reply may spend inside the 60 s Telegram webhook (a timeout there means the contact sees nothing at all). */
 function genBudgetMs(): number {
   const n = Number(process.env.TG_BIZ_GEN_MS || 0);
-  return Number.isFinite(n) && n >= 10000 ? Math.min(50000, n) : 46000;
+  return Number.isFinite(n) && n >= 10000 ? Math.min(120000, n) : 70000;
 }
 
 /** The Studio's own words for a call that produced no text: rate limit, blocked, loading, error, gone, deadline. */
@@ -187,13 +187,15 @@ export const defaultGenerate: Generate = async (model, system, history, incoming
     const messages = [{ role: "system", content: system }, ...history.map((h) => ({ role: h.role, content: h.text })), { role: "user", content: incoming }];
     const deadline = Date.now() + genBudgetMs();
     type ReplyLike = { type?: string; text?: string; job?: string; error?: string; phase?: string };
-    const o: { reply: unknown; failure?: string; status?: number; detail?: string } = await OC.coderChat(messages as never, { tools: [], maxTokens: 400, think: false, temperature: 0.5, waitS: 20, timeoutMs: 40000, model: "coder", tag: "business" })
+    // A short reply, on purpose: the studio writes at CPU speed, so 400 tokens could spend a minute and the answer arrived after the deadline.
+    // "Reply briefly" is already the instruction; this makes the token budget match it (the owner's live proof answered in ~17 s, timed out at 46 s on 400).
+    const o: { reply: unknown; failure?: string; status?: number; detail?: string } = await OC.coderChat(messages as never, { tools: [], maxTokens: 140, think: false, temperature: 0.5, waitS: 20, timeoutMs: 40000, model: "coder", tag: "business" })
       .catch((e) => ({ reply: null, failure: "network", detail: String((e as Error)?.message || e).slice(0, 120) }));
     let r = (o?.reply || null) as ReplyLike | null;
     // Nova is the 35B model on the owner's Studio: a chat call that has not finished inside `wait_s` answers "pending" + a job id and
     // the text arrives on job_result. Accepting "done" alone dropped every answer from a busy or cold Studio — the owner's live test
     // (2026-11-25) sent three messages inside his account and all three were logged as "did not answer" with nothing sent.
-    for (let i = 0; r?.type === "pending" && r.job && Date.now() + 4000 < deadline && i < 20; i++) {
+    for (let i = 0; r?.type === "pending" && r.job && Date.now() + 4000 < deadline && i < 30; i++) {
       const job: string = String(r.job);
       await new Promise((res) => setTimeout(res, 2000));
       const next = await OC.withEngineModel("coder", () => OC.coderJobResult(job, 0, 8000)).catch(() => null);

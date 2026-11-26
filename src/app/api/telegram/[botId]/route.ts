@@ -168,7 +168,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (botRow.template === "NOVA_BOT" && (body.business_connection || body.business_message || body.edited_business_message || body.deleted_business_messages)) {
         const B = await import("@/lib/tgBusiness");
         if (body.business_connection) await B.handleBusinessConnection(bot.api as never, body.business_connection).catch(() => null);
-        else if (body.business_message) await B.handleBusinessMessage(bot.api as never, body.business_message).catch(() => null);
+        // A reply waits for the owner's own model, and the model can need longer than Telegram gives a webhook (60 s): answer Telegram
+        // at once and let the reply land when the model is done, instead of losing it to the delivery timeout. The handler never throws.
+        else if (body.business_message) void B.handleBusinessMessage(bot.api as never, body.business_message).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
       if (botRow.template === "NOVA_BOT") { const { rememberThread } = await import("@/lib/tgThread"); rememberThread(body); }
