@@ -5,6 +5,7 @@ import { getEngineUrls, hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
 import { coderChatKey } from "@/lib/coderAuth";
 import { shamStudioEnabled } from "@/lib/shamStudio";
 import { shamAgentOn } from "@/lib/shamAgent";
+import { chatKey } from "@/lib/shamMemory";
 
 /**
  * Why a plain chat message in the Nova / Sham bot does or does not get an answer. READ-ONLY (GET), no token in the output.
@@ -18,7 +19,12 @@ import { shamAgentOn } from "@/lib/shamAgent";
  * POST { text?, chat?, via? } injects ONE synthetic private message into this server's own webhook (127.0.0.1) and returns the
  * webhook's status, so a real reply path can be proven end to end; `chat` defaults to the bot owner's Telegram id.
  * `via: "gate"` posts the same update to the URL Telegram uses instead, which tells a working site apart from a front door
- * that answers while the site never sees the update. GET ?chat=<id> also reports that chat's selected model and its last runs.
+ * that answers while the site never sees the update. GET ?chat=<id> also reports that chat's selected model, its last runs and the
+ * last turns Sham saved (the exact text it sent), so a reply that reached the chat can be read back instead of guessed.
+ *
+ * POST { chat, model } selects a model for that chat through the SAME function the Mini App picker and the bot buttons use
+ * (`chooseModel`, the one place a model is chosen) and returns { before, after } so a temporary switch can be put back exactly as it was.
+ * { inject: false } (or no text) makes it a switch-only call, which is how the state is restored after a proof.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -122,6 +128,25 @@ export async function GET(req: NextRequest) {
         rows.map((t) => ({ runId: t.run_id, slot: t.slot, status: t.status, title: String(t.title || "").slice(0, 60), updatedAt: t.updated_at })),
       )
       .catch(() => []);
+    // The turns Sham itself saved for this chat: `answer` is the very string it sent, whichever variant answered (v1's plain
+    // path writes no task row, so without this a real v1 reply was invisible to every probe).
+    out.chatTurns = await prismaDb
+      .query<any>(
+        `SELECT question, answer, created_at FROM sham_chat_memory WHERE chat_key LIKE $1 ORDER BY id DESC LIMIT 4`,
+        `${chatKey(wantChat)}|%`,
+      )
+      .then((rows: any[]) =>
+        rows.map((r) => ({ q: String(r.question || "").slice(0, 120), a: String(r.answer || "").slice(0, 500), at: r.created_at })),
+      )
+      .catch(() => []);
+    // Nova's own legs (slot coder / nova2) keep their words in coder_task_events, not in Sham's memory.
+    out.chatEvents = await prismaDb
+      .query<any>(
+        `SELECT run_id, kind, text, created_at FROM coder_task_events WHERE run_id = ANY($1) ORDER BY id DESC LIMIT 10`,
+        (out.chatTasks as any[]).map((t) => t.runId),
+      )
+      .then((rows: any[]) => rows.map((e) => ({ runId: e.run_id, kind: e.kind, text: String(e.text || "").slice(0, 300), at: e.created_at })))
+      .catch(() => []);
   }
 
   out.business = await prismaDb
@@ -137,6 +162,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const text = String(body?.text || "اختبار: هل ترد؟").slice(0, 200);
+  const wantModel = String(body?.model || "").trim();
   const bot = await prisma.bot
     .findFirst({ where: { template: "NOVA_BOT", isActive: true }, select: { id: true, token: true, webhookSecret: true, ownerId: true } })
     .catch(() => null);
@@ -144,6 +170,25 @@ export async function POST(req: NextRequest) {
 
   const chat = String(body?.chat || bot.ownerId || "").trim();
   if (!/^-?\d+$/.test(chat)) return NextResponse.json({ error: "no chat to inject", hint: "pass {\"chat\":\"<telegram id>\"}" }, { status: 409 });
+
+  // The same selection the Mini App picker and the bot's model buttons perform (`chooseModel` is the one place a model is chosen), so a
+  // proof of the old Sham's path is the real path and not a forced variant. `before` is returned so the caller can put the state back.
+  let selected: Record<string, unknown> | null = null;
+  if (wantModel) {
+    const { loadStateStrict, saveStateStrict } = await import("@/lib/coderSections");
+    const { listModels, chooseModel, canonModelId } = await import("@/lib/coderModels");
+    const st = await loadStateStrict(chat, prismaDb).catch(() => null);
+    if (!st) return NextResponse.json({ error: "chat state unavailable" }, { status: 503 });
+    const before = canonModelId(st.model) || null;
+    const okModel = chooseModel(st, await listModels(prismaDb), wantModel, true);   // owner: true — this endpoint is CRON_SECRET-only
+    if (!okModel) return NextResponse.json({ error: "model not available to the owner", model: wantModel, before }, { status: 409 });
+    await saveStateStrict(chat, st, prismaDb);
+    selected = { before, after: st.model, mode: st.mode };
+    // A switch-only call: the state is being changed (or put back), nothing is sent to Telegram.
+    if (body?.inject === false || !body?.text) {
+      return NextResponse.json({ chat: mask(chat), selected }, { headers: { "Cache-Control": "no-store" } });
+    }
+  }
 
   const started = Date.now();
   const update = {
@@ -178,7 +223,7 @@ export async function POST(req: NextRequest) {
     .catch((e) => ({ http: 0, body: String((e as Error)?.message || e).slice(0, 160) }));
 
   return NextResponse.json(
-    { chat: mask(chat), text, via, target: host(target), webhook: posted, ms: Date.now() - started },
+    { chat: mask(chat), text, selected, via, target: host(target), webhook: posted, ms: Date.now() - started },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
