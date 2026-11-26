@@ -520,6 +520,23 @@ async function shamAgentRunInner(opts: {
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
       if (p.calls.length || brokenCallAttempt(p.text)) {
+        // A broken call must not throw away what the tools already returned: live 2026-11-26, self_review
+        // reported its real numbers, the next call was invalid, and the owner got "لم يُنفّذ الاستدعاء الأخير"
+        // instead of the report. With recorded results, ask once for the final answer from them and return it.
+        const salvage = opts.verifyAsk || (!opts.ask ? ask : undefined);
+        if (used.length && salvage && left() > 6500) {
+          opts.onEvent?.("info", "لم تُنفّذ الأداة الأخيرة (طلب غير صالح)؛ أطلب الجواب النهائي من نتائج الأدوات المسجلة.");
+          const salvagePrompt = [
+            shamToolConversation(messages, [], lim).replace(/\nشام:$/, ""),
+            "[تصحيح من المحرك — ليست مهمة جديدة]",
+            "لم يُنفَّذ الاستدعاء الأخير لأنه غير صالح. اكتب الآن الجواب النهائي للمستخدم من نتائج الأدوات المسجلة أعلاه فقط، بلا أي أداة وبلا خطة.",
+          ].join("\n\n");
+          try {
+            const saved = await salvage(salvagePrompt, Math.min(maxNew, 200), Math.min(25000, left() - 500));
+            const savedText = saved?.type === "text" ? String(saved.text || "").trim() : "";
+            if (savedText && !brokenCallAttempt(savedText)) return { kind: "text", text: savedText, used, steps: steps + 1 };
+          } catch { /* keep the honest error line below rather than lose the turn */ }
+        }
         return { kind: "text", text: "لم يُنفّذ الاستدعاء الأخير: لم أتمكّن من تكوين طلب صالح للأداة. أعد المحاولة أو حدّد المعلومات الناقصة.", used, steps: steps + 1 };
       }
       const final = p.text.trim();
