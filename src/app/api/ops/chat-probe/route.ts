@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { prismaDb } from "@/lib/coderAuth";
 import { getEngineUrls, hookSecret, safeEqual } from "@/lib/mediaFrontDoor";
+import { coderChatKey } from "@/lib/coderAuth";
 import { shamStudioEnabled } from "@/lib/shamStudio";
 import { shamAgentOn } from "@/lib/shamAgent";
 
@@ -14,8 +15,10 @@ import { shamAgentOn } from "@/lib/shamAgent";
  *  - the durable handoff (startShamDurableTask -> /api/sham/continue) was never confirmed, so the run stays "running",
  *  - or the run failed inside a stage: coder_task_events keeps the stage's own words.
  *
- * POST { text?, chat? } injects ONE synthetic private message into this server's own webhook (127.0.0.1) and returns the
+ * POST { text?, chat?, via? } injects ONE synthetic private message into this server's own webhook (127.0.0.1) and returns the
  * webhook's status, so a real reply path can be proven end to end; `chat` defaults to the bot owner's Telegram id.
+ * `via: "gate"` posts the same update to the URL Telegram uses instead, which tells a working site apart from a front door
+ * that answers while the site never sees the update. GET ?chat=<id> also reports that chat's selected model and its last runs.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -104,6 +107,23 @@ export async function GET(req: NextRequest) {
         .catch(() => [])
     : [];
 
+  // WHICH model answers this chat, and what it ran lately (Nova's coder legs are not 'sham-*' run ids, so they were invisible here).
+  const wantChat = String(req.nextUrl.searchParams.get("chat") || bot?.ownerId || "").trim();
+  if (/^-?\d+$/.test(wantChat)) {
+    const { loadState } = await import("@/lib/coderSections");
+    const st = await loadState(wantChat, prismaDb).catch(() => null);
+    out.chat = { id: mask(wantChat), model: (st as any)?.model || null, freei: Boolean((st as any)?.freei) };
+    out.chatTasks = await prismaDb
+      .query<any>(
+        `SELECT run_id, slot, status, title, updated_at FROM coder_tasks WHERE chat_key = $1 ORDER BY updated_at DESC LIMIT 8`,
+        coderChatKey(Number(wantChat)),
+      )
+      .then((rows: any[]) =>
+        rows.map((t) => ({ runId: t.run_id, slot: t.slot, status: t.status, title: String(t.title || "").slice(0, 60), updatedAt: t.updated_at })),
+      )
+      .catch(() => []);
+  }
+
   out.business = await prismaDb
     .query<any>(`SELECT at, model, dir, note FROM tg_business_log ORDER BY id DESC LIMIT 4`)
     .then((rows: any[]) => rows.map((r) => ({ at: r.at, model: r.model, dir: r.dir, note: String(r.note || "").slice(0, 80) })))
@@ -136,8 +156,19 @@ export async function POST(req: NextRequest) {
       text,
     },
   };
+  // via=gate posts the very same update to the URL Telegram itself uses (the front door), so a working local path and a
+  // silent real one can be told apart: the gate may answer 200/504 while the site never receives the update at all.
   const port = process.env.PORT || "3000";
-  const posted = await fetch(`http://127.0.0.1:${port}/api/telegram/${bot.id}`, {
+  let target = `http://127.0.0.1:${port}/api/telegram/${bot.id}`;
+  let via = "local";
+  if (String(body?.via || "") === "gate") {
+    const info = await tg(bot.token, "getWebhookInfo");
+    const url = String(info?.url || "");
+    if (!url) return NextResponse.json({ error: "Telegram has no webhook url for this bot", info }, { status: 409 });
+    target = url;
+    via = "gate";
+  }
+  const posted = await fetch(target, {
     method: "POST",
     headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": bot.webhookSecret },
     body: JSON.stringify(update),
@@ -147,7 +178,7 @@ export async function POST(req: NextRequest) {
     .catch((e) => ({ http: 0, body: String((e as Error)?.message || e).slice(0, 160) }));
 
   return NextResponse.json(
-    { chat: mask(chat), text, webhook: posted, ms: Date.now() - started },
+    { chat: mask(chat), text, via, target: host(target), webhook: posted, ms: Date.now() - started },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
