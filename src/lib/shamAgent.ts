@@ -395,6 +395,7 @@ async function shamAgentRunInner(opts: {
   let recoveries = 0;
   let mediaRefused = false;
   let steps = 0;
+  let outOfTime = false;
   // A model that repeats the SAME call verbatim learns nothing new: the result is already in the transcript. Live self-review probe 2026-11-26:
   // skill_list ran five times in a row, ate the whole webhook window, and the owner got «no answer from Sham in time» instead of a report.
   const callSig = (c: CoderToolCall) => `${c.function.name}:${String(c.function.arguments || "").trim()}`;
@@ -468,7 +469,7 @@ async function shamAgentRunInner(opts: {
 
   for (; steps < maxSteps; steps++) {
     if (await isStopped()) return { kind: "stopped", used, steps };
-    if (left() < 6000) break;
+    if (left() < 6000) { outOfTime = true; break; }
     // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
     const bare = prof.lite && !selfDev && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
@@ -485,10 +486,14 @@ async function shamAgentRunInner(opts: {
       reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     }
     if (opts.continuable && (reply?.type === "busy" || reply?.type === "loading")) return { kind: "more", messages, used, steps };
-    // The Studio is slow (CPU): the background leg waits longer instead of giving up. A leg that already ran a tool and then went silent
-    // must hand over too — live 2026-11-26: self_review returned its real report, the seconds left were not enough for the model to write it,
-    // and the owner got «no answer from Sham in time» although the recorded report was right there for the next leg.
-    if (!reply) return opts.continuable && (steps === 0 || used.length) ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };
+    // The Studio is slow (CPU) and can take minutes per call: a leg that already ran a tool answers with that real result instead of leaving the
+    // owner with silence or «no answer from Sham in time» (live 2026-11-26: self_review's real report never reached him). With no work done yet,
+    // the background leg is still the right place to wait longer.
+    if (!reply) {
+      const fromTool = used.length ? lastToolAnswer(messages, 1500) : "";
+      if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: fromTool, used, steps };
+      return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };
+    }
     if (reply.type === "tool_call_error" && left() > 6000) {
       opts.onEvent?.("info", "استدعاء الأداة لم يجتز فحص الصيغة؛ طلبت من شام تصحيحه ولم أنفّذ شيئاً.");
       const retry = await stepAsk(`${prompt.replace(/\nشام:$/, "")}\n[تصحيح من المحرك] لم يُنفّذ أي استدعاء. أعد بناء استدعاء واحد لأداة موجودة في القائمة بصيغة JSON صحيحة، أو أجب نصياً إذا لم تحتج أداة.\nشام:`, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
@@ -670,6 +675,11 @@ async function shamAgentRunInner(opts: {
     }
   }
 
+  // out of time with a report already recorded (self-review, its skill list): the owner gets that real result now
+  if (outOfTime && used.length) {
+    const fromTool = lastToolAnswer(messages, 1500);
+    if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: fromTool, used, steps };
+  }
   // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
   if (opts.continuable && used.length) return { kind: "more", messages, used, steps };      // a repeated-call round also hands over: the next leg starts from the results already recorded
   // out of steps or time: ask for the final answer from what was found, with no tools shown
@@ -695,9 +705,32 @@ async function shamAgentRunInner(opts: {
       return { kind: "text", text: final, used, steps };
     }
   }
-  return { kind: "none", used, steps };
+  // the last leg ran out with a real tool result: an honest report beats «no answer from Sham in time»
+  const leftover = used.length ? lastToolAnswer(messages, 1500) : "";
+  return leftover ? { kind: "text", text: leftover, used, steps } : { kind: "none", used, steps };
 }
 
+/** Tools whose own output IS what the owner asked for (a report), not a step on the way to one. */
+const REPORT_TOOLS = new Set(["self_review", "skill_list", "skill", "skill_delete"]);
+
+/** A recorded tool result can be handed over as the answer when the leg cannot write one: a report the owner asked for, the last leg, or a self-development turn. */
+function answersDirectly(result: string, used: string[], selfDev: boolean, continuable: boolean): boolean {
+  if (!result) return false;
+  return !continuable || selfDev || used.some((n) => REPORT_TOOLS.has(n));
+}
+
+
+/** The newest tool result, used as the owner's answer when the model cannot write one in time: it is real data, not a guess. */
+function lastToolAnswer(messages: CoderMessage[], max: number): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: string } | undefined;
+    if (m?.role !== "tool") continue;
+    const text = String(m.content || "").trim();
+    if (!text || /^error/i.test(text)) return "";
+    return text.length > max ? text.slice(0, max) + "…" : text;
+  }
+  return "";
+}
 
 /** Is Sham's agent loop on for the Sham in use? SHAM_AGENT=on / off; unset = the new body only (the old body is switched on once its tool calls prove reliable). */
 export function shamAgentOn(): boolean {
