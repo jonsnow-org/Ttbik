@@ -32,7 +32,7 @@ class ToolCoverageTests(unittest.TestCase):
         live = set(re.findall(r'tool\("([a-z_]+)"', source))
         self.assertTrue(live, "no tools parsed from shamExec.ts")
 
-        match = re.search(r"SHAM_SELF_TOOLS\s*=\s*new Set\(\[([^\]]+)\]\)", source, re.S)
+        match = re.search(r"SHAM_SELF_TOOLS[^=]*=\s*new Set\(\[([^\]]+)\]\)", source, re.S)
         self.assertIsNotNone(match, "Sham Pro-only tools must stay explicitly scoped")
         pro_only = set(re.findall(r'"([a-z_]+)"', match.group(1)))
         self.assertEqual(pro_only, {"self_review", "skill_save", "skill_list", "skill_delete"})
