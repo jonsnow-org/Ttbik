@@ -43,3 +43,25 @@ test("25 November news has matching Arabic and English slugs, dates, source URLs
     assert.equal(ar.paragraphs.length, en.body.length, `${slug}: paragraph counts must match`);
   }
 });
+
+test("26 November news has matching Arabic and English slugs, dates, source URLs and paragraph counts", () => {
+  for (const slug of [
+    "dr-congo-bundibugyo-ebola-outbreak-12021-cases-2026",
+    "uk-net-migration-june-2026-77000",
+    "taiwan-ntu-on-device-generative-ai-chips-2026"
+  ]) {
+    const ar = getNewsItem(slug);
+    const en = EN_NEWS.find((item) => item.slug === slug);
+    assert.ok(ar, `missing Arabic news item: ${slug}`);
+    assert.ok(en, `missing English news item: ${slug}`);
+    assert.equal(ar.dateIso, "2026-11-26");
+    assert.equal(en.date, "26 November 2026");
+    assert.deepEqual(
+      ar.sources.map((source) => source.href).sort(),
+      (en.sources || []).map((source) => source.href).sort(),
+      `${slug}: source URLs must match in both languages`
+    );
+    assert.equal(ar.paragraphs.length, en.body.length, `${slug}: paragraph counts must match`);
+    assert.ok(ar.sources.length >= 2 && (en.sources || []).length >= 2);
+  }
+});
