@@ -461,7 +461,15 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       if (!ctx.owner) return "error: الحذف متاح في محادثة المالك فقط.";
       return await removeShamSkill(ctx.db, ctx.modelId, String(a.name || ""));
     }
-    if (name === "self_review") return clip(await shamSelfReview(ctx.db, ctx.modelId, ctx.chatKey));
+    if (name === "self_review") {
+      // A row left «running» by a dead leg is closed by the same lease rule every other screen uses (coderTasks.reapStaleTasks) BEFORE the
+      // numbers are counted, so the review never reports a ghost task as live and no orphan stays behind.
+      if (ctx.owner) {
+        const { reapStaleTasks } = await import("@/lib/coderTasks");
+        await reapStaleTasks(ctx.chatId, ctx.db).catch(() => null);
+      }
+      return clip(await shamSelfReview(ctx.db, ctx.modelId, ctx.chatKey, ctx.chatId));
+    }
     if (name === "plan") {
       const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
       const rows = (Array.isArray(a.items) ? a.items : []).slice(0, 12).map((x: any) => (x && typeof x === "object" ? x : null)).filter((x: any) => x && String(x.step || "").trim());
