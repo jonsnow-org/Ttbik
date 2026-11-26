@@ -33,6 +33,9 @@ export interface ShamHost {
   /** The services the user linked in the app (Drive, Gmail, Notion, Vercel, Supabase, Slack, Discord, MCP servers): the same ones whichever model is in use. */
   connectors: { api(chatId: number, a: { service?: string; method?: string; path?: string; body?: unknown }, db: Db, fetchImpl?: typeof fetch): Promise<string>; mcp(chatId: number, server: string, method: "tools/list" | "tools/call", params: Record<string, unknown>, db: Db, fetchImpl?: typeof fetch): Promise<string> };
   limits: { ok(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<boolean>; add(chatId: number, metric: "research" | "sandbox_minutes", amount: number, db: Db): Promise<void> };
+  /** This chat's own task rows for one model, counted AFTER the platform's lease rule closes a row a dead leg left «running»,
+   *  so a self-review never reports a ghost task as live and no orphan stays behind. null = could not be read (never zeros). */
+  tasks: { review(chatId: number, model: string, db: Db): Promise<{ total: number; done: number; failed: number; running: number } | null> };
   memory(memoryKey: string, tool: string, args: Record<string, unknown>, runId: string, db: Db): Promise<string>;
   schedules: { list(chatId: number, db: Db): Promise<string>; remove(chatId: number, id: string, db: Db): Promise<boolean>; create(chatId: number, botId: string, args: Record<string, unknown>, db: Db): Promise<string> };
 }
@@ -462,13 +465,10 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
       return await removeShamSkill(ctx.db, ctx.modelId, String(a.name || ""));
     }
     if (name === "self_review") {
-      // A row left «running» by a dead leg is closed by the same lease rule every other screen uses (coderTasks.reapStaleTasks) BEFORE the
-      // numbers are counted, so the review never reports a ghost task as live and no orphan stays behind.
-      if (ctx.owner) {
-        const { reapStaleTasks } = await import("@/lib/coderTasks");
-        await reapStaleTasks(ctx.chatId, ctx.db).catch(() => null);
-      }
-      return clip(await shamSelfReview(ctx.db, ctx.modelId, ctx.chatKey, ctx.chatId));
+      // A row left «running» by a dead leg is closed by the same lease rule every other screen uses BEFORE the numbers are counted,
+      // so the review never reports a ghost task as live and no orphan stays behind (the platform side lives in shamHost.ts).
+      const tasks = ctx.owner ? await (await host()).tasks.review(ctx.chatId, ctx.modelId, ctx.db).catch(() => null) : null;
+      return clip(await shamSelfReview(ctx.db, ctx.modelId, ctx.chatKey, tasks));
     }
     if (name === "plan") {
       const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };

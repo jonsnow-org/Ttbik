@@ -170,6 +170,25 @@ async function shamAgentRunInner(opts: {
     if (!selfDev) return t;
     return ownerAnswerFromTool(t) || stripInternal(t) || SELF_REVIEW_UNREADABLE;
   };
+  // «حلّل نفسك / أضف لنفسك مهارة» is answered from the real record even when the Studio never emits a tool call:
+  // the engine runs its own self_review FIRST (once per request, before the model's first step), so the reply has
+  // the table numbers to stand on. Live 2026-11-26: the agent-step endpoint returned nothing for this prompt, every leg
+  // handed over with no work done, and one request chained legs for ~50 minutes while the owner got no answer at all.
+  const selfReviewCall: CoderToolCall = { id: "engine-self-review", type: "function", function: { name: "self_review", arguments: "{}" } };
+  if (selfDev && !opts.resume && !opts.ask) {
+    let real = "";
+    opts.onEvent?.("tool", "self_review {}");
+    opts.onStep?.({ type: "tool_start", name: "self_review", args: "{}" });
+    try { real = await exec(selfReviewCall, opts.ctx); }
+    catch (e) { real = `error: ${String((e as Error)?.message || e).slice(0, 300)}`; }
+    opts.onStep?.({ type: "tool_end", name: "self_review", ok: !/^error/i.test(real) });
+    opts.onEvent?.("info", clip(real, 300));
+    if (real && !/^error/i.test(real)) {
+      used.push("self_review");
+      messages.push({ role: "assistant", content: "", tool_calls: [selfReviewCall] } as CoderMessage);
+      messages.push({ role: "tool", name: "self_review", tool_call_id: selfReviewCall.id, content: clip(real, 5000) } as CoderMessage);
+    }
+  }
   const directChatIntent = !requiresWorkspaceAgent && !selfDev &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
@@ -496,9 +515,13 @@ async function shamAgentRunInner(opts: {
     // owner with silence or «no answer from Sham in time» (live 2026-11-26: self_review's real report never reached him). With no work done yet,
     // the background leg is still the right place to wait longer.
     if (!reply) {
-      const fromTool = used.length ? lastToolAnswer(messages, 1500) : "";
+      // a self-development turn already carries its real report in the transcript (the engine ran self_review first):
+      // it answers even on a resumed leg that used no tool itself
+      const fromTool = used.length || selfDev ? lastToolAnswer(messages, 1500) : "";
       if (fromTool && answersDirectly(fromTool, used, selfDev, Boolean(opts.continuable))) return { kind: "text", text: answer(fromTool), used, steps };
-      return opts.continuable && steps === 0 ? { kind: "more", messages, used, steps } : { kind: "none", used, steps };
+      // Nothing came back and nothing ran: another leg would wait on the same silence (a leg chain is how one request
+      // stayed "running" for ~50 minutes). The caller reports honestly instead of handing over an empty leg.
+      return { kind: "none", used, steps };
     }
     if (reply.type === "tool_call_error" && left() > 6000) {
       opts.onEvent?.("info", "استدعاء الأداة لم يجتز فحص الصيغة؛ طلبت من شام تصحيحه ولم أنفّذ شيئاً.");

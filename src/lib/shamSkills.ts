@@ -8,7 +8,6 @@
 import type { Db } from "@/lib/shamDb";
 import { prismaDb } from "@/lib/shamDb";
 import { nearSameReply } from "@/lib/shamMemory";
-import { coderChatKey } from "@/lib/coderAuth";
 
 /** A model keeps at most this many of its own skills (each one rides in every tool prompt, and the body has ~1200 prompt tokens). */
 export const SHAM_SKILLS_MAX = 40;
@@ -148,8 +147,10 @@ export type SelfReview = {
   tasks: SelfReviewTasks | null;
 };
 
-/** The real numbers behind `self_review`, read once: turns, skills and this chat's tasks. A read that fails returns the honest error text (never zeros). */
-export async function shamSelfReviewData(db: Db, model: string, chatKey: string, chatId?: number | string): Promise<SelfReview | { error: string }> {
+/** The real numbers behind `self_review`, read once: turns, saved skills and this chat's tasks. A read that fails returns the honest error text (never zeros).
+ *  The task counts come from the host (shamHost.ts: the task table belongs to the platform, and it applies the lease rule before counting);
+ *  Sham's own modules never read a Nova table themselves. `undefined` = not asked for, `null` = the count could not be read. */
+export async function shamSelfReviewData(db: Db, model: string, chatKey: string, tasks?: SelfReviewTasks | null): Promise<SelfReview | { error: string }> {
   let total = 0;
   let rows: { question: string; answer: string }[] = [];
   try {
@@ -169,16 +170,7 @@ export async function shamSelfReviewData(db: Db, model: string, chatKey: string,
   const topics = rows.slice(0, 5).map((r) => String(r.question || "").replace(/\s+/g, " ").trim()).filter(Boolean);
   const skills = await listShamSkills(db, model);
   // This chat's own tasks for this model: the same table every other screen reads, so a leftover row shows up here instead of being guessed at.
-  let tasks: SelfReviewTasks | null = null;
-  if (chatId !== undefined && /^-?\d+$/.test(String(chatId))) {
-    try {
-      const t = await db.query<{ total: string | number; done: string | number; failed: string | number; running: string | number }>(
-        `SELECT count(*) AS total, count(*) FILTER (WHERE status = 'done') AS done, count(*) FILTER (WHERE status NOT IN ('done','running','waiting')) AS failed, count(*) FILTER (WHERE status IN ('running','waiting')) AS running FROM coder_tasks WHERE chat_key = $1 AND slot = $2`,
-        coderChatKey(Number(chatId)), model);
-      if (t.length) tasks = { total: Number(t[0].total) || 0, done: Number(t[0].done) || 0, failed: Number(t[0].failed) || 0, running: Number(t[0].running) || 0 };
-    } catch { tasks = null; }
-  }
-  return { totalTurns: total, chatTurns: rows.length, shortOnes, repeats, avg, topics, skills, tasks };
+  return { totalTurns: total, chatTurns: rows.length, shortOnes, repeats, avg, topics, skills, tasks: tasks === undefined ? null : tasks };
 }
 
 /** The report the model reads (real data + one concrete next action). Never handed to the owner as-is: `selfReviewAnswer` is. */
@@ -244,8 +236,8 @@ export function ownerAnswerFromTool(text: string): string {
 
 /** `self_review`: real numbers from the tables that carry its work, plus what this chat actually asked. No self-praise, no estimates.
  * The model sees the report (and one concrete next action); the owner's own sentence follows OWNER_MARK so a silent model still answers cleanly. */
-export async function shamSelfReview(db: Db, model: string, chatKey: string, chatId?: number | string): Promise<string> {
-  const d = await shamSelfReviewData(db, model, chatKey, chatId);
+export async function shamSelfReview(db: Db, model: string, chatKey: string, tasks?: SelfReviewTasks | null): Promise<string> {
+  const d = await shamSelfReviewData(db, model, chatKey, tasks);
   if ("error" in d) return `error: ${d.error}`;
   // The owner's sentence comes FIRST: a result trimmed on its way to the chat still carries the part a person reads.
   return `${selfReviewAnswer(d)}\n\n${OWNER_MARK}\n${selfReviewReport(d)}`;
