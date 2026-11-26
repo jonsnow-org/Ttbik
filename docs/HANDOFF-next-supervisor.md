@@ -1,6 +1,17 @@
 # ملاحظة تسليم للمشرف القادم — Handoff
 
-آخر تحديث: 2026-11-26 ~01:25 توقيت إسطنبول. أُضيف بعد تحقّق حيّ: مزامنة Oracle لـ#1269، تشغيل q4_k_m، جرد منصة cn، وحالة استديو القارئ `nova-tldm-reader` وسببه الفعلي.
+آخر تحديث: 2026-11-26 ~13:50 UTC. أُضيف قسم «دفعة Business + الحاسوب + التطبيق المصغّر» (PR #1305) بنتائج حيّة أدناه.
+
+## دفعة 2026-11-26 (Business + الحاسوب + التطبيق المصغّر) — PR #1305
+فرع `supervisor/business-computer-probes`، مفتوح بلا دمج: https://github.com/jonsnow-org/Ttbik/pull/1305
+
+- **نوفا في وضع Business (`#1302` لم يكفِ).** قراءة الحالة صارت عبر Oracle مباشرةً لا عبر البوابة (البوابة ترد صفحة «الموقع يُحدَّث» بعد ~20 ث فتفشل الخطوة بـ503 عند `gen=1`، run 45831100238). `run 45832083506` أعاد: `owner switch=owner`، `can_connect_to_business=True`، `pending=0`، آخر خطأ تسليم `None`، الاتصال `enabled=True` و`missing=[]` → **لا عطل في الربط**. توليد حيّ: coder **13,926 ms**، sham_v2 **28,922 ms**.
+- **قياس المهلة الحقيقي من سجل المالك** (هو ما يصحّح تشخيصي الأول في `8ca5b545`): **لا يوجد `TG_BIZ_GEN_MS` مضبوط على 60 ث**؛ الافتراضي القديم كان 46 ثم 70 ث (والفشل عند 68–69 ث)، وحتى الافتراضي الجديد 180 ث قُطع عند **177 ث «still running»**. لذلك `69471fb3` يجعل الافتراضي **240 ث** (الوسيط يضبط بين 150 و300). الرسائل الناجحة `319637` و`319650` تثبت أن المسار يعمل حين يكفي الوقت.
+- **الحاسوب سليم**: `run 45832074035` على `studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai` → `role=computer-only`، `phase=ready`، `app_revision=computer-hub-16gb-2026-11-22-r10-banks`، bootstrap `toolchain/desktop=ready`، `mem_available_gb=14.13`، `can_accept=true`، 67 أداة. كان يُقاس على استوديو cn المفرَّغ فيرد 401. **ما لم يُتحقّق منه:** `egress = partly blocked (9 firewall rules refused by the host)` وسطر متصفح انتهى بـ`exitCode=1` مع `phase=ready` — يحتاجان حملًا حقيقيًا قبل اعتبارهما عطلًا.
+- **التطبيق المصغّر (`/mini-app`): لا خطأ برمجي ظاهر.** صفحة 200، وكل نقاط النهاية العامة 200 بشكل صحيح (`media-feed`, `media-status` `{online:true}`, `media-admin` إعدادات فقط, `media-comments`, `media-stats`, `media-stream` 307 إلى البث) والشخصية ترد **401** بلا `init_data` كما يجب. لا 5xx.
+- **عطل الإعلانات في التطبيق (ليس في الكود):** `highrevenueformat.com/<unit>/invoke.js` يرد **403** في المتصفح و**0 بايت بـ200** بالنداء المباشر لكل مفاتيح البوابة الثلاثة → Adsterra لا يعرض شيئًا على عنوان البوابة. الكود يتعامل بأدب (إعادة محاولتين ثم `onEmpty`). **المطلوب من المالك:** التحقق من أن `ttbik-gate.jonsnowx1r.workers.dev` ما زال مقبولًا/نشطًا في لوحة Adsterra (انظر `docs/HOSTING.md` البند 42). Monetag يعمل (`libtl.com` و`rtmark` 200).
+- `promo-projects.yml`: المهلة 40 → 120 دقيقة (كان يُلغى في منتصف «make the narrated videos» عند 40:00). لم يُشغَّل بعد للتأكد أن الأسبوع يعود كاملًا.
+
 
 ## قواعد ثابتة لا تُخالَف
 - **فرع الإنتاج = `claude/free-services-marketplace-h6rwk2`** (هذا هو المُزامَن مع Oracle). **أي دمج يستهدف هذا الفرع وليس `main`.** الدمج في `main` لا يصل إلى الإنتاج إطلاقاً.
