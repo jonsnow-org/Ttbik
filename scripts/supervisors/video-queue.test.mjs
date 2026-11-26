@@ -16,14 +16,24 @@ const release = (id, daysAgo = 1, assets = [
 
 test("healthy queue requires recent release assets and three ready episodes", () => {
   const result = assessVideoQueue({
-    episodes: [ep(1), ep(2), ep(3), ep(4, { needs: "platform" })],
+    episodes: [ep(1), ep(2), ep(3), ep(4, { needs: "platform" }), ep(5)],
     releases: [release(1), { tag_name: "promo-2", published_at: new Date(NOW).toISOString() }],
     nowMs: NOW,
   });
-  assert.deepEqual(result.readyIds, [2, 3]);
+  assert.deepEqual(result.readyIds, [2, 3, 5]);
   assert.deepEqual(result.blockedIds, [4]);
   assert.equal(result.checks.find((item) => item.name === "Promo video release freshness").level, "ok");
   assert.equal(result.checks.find((item) => item.name === "Promo video release assets").level, "ok");
+  assert.equal(result.checks.find((item) => item.name === "Promo video ready queue").level, "ok");
+});
+
+test("a small but non-empty queue warns before it runs dry", () => {
+  const result = assessVideoQueue({
+    episodes: [ep(1), ep(2), ep(3)],
+    releases: [release(1)],
+    nowMs: NOW,
+  });
+  assert.equal(result.readyIds.length, 2);
   assert.equal(result.checks.find((item) => item.name === "Promo video ready queue").level, "warn");
 });
 
