@@ -230,6 +230,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no contact chat to prove with", hint: "the account owner's own chat is context, never answered" }, { status: 409 });
   }
 
+  // `dbProbe`: does the log itself keep Arabic? One row out and back tells whether a mangled row is the database's doing or the caller's.
+  if (body?.dbProbe === true) {
+    const expected = "مرحبا بالعالم";
+    const settings = await prismaDb.query<{ name: string; setting: string }>(`SELECT name, setting FROM pg_settings WHERE name IN ('client_encoding','server_encoding')`).catch(() => []);
+    const { connectionsOf } = await import("@/lib/tgBusiness");
+    await connectionsOf("0").catch(() => null);   // creates the tables on a fresh process, exactly as the real path does
+    await prismaDb.exec(`INSERT INTO tg_business_log (connection_id, user_id, chat_id, model, dir, text, note) VALUES ($1,$2,$3,$4,'skip',$5,'db probe')`, "__dbprobe__", "0", "0", "coder", expected).catch(() => null);
+    const back = await prismaDb.query<{ text: string }>(`SELECT text FROM tg_business_log WHERE connection_id = $1 ORDER BY id DESC LIMIT 1`, "__dbprobe__").catch(() => []);
+    await prismaDb.exec(`DELETE FROM tg_business_log WHERE connection_id = $1`, "__dbprobe__").catch(() => null);
+    const got = String(back[0]?.text ?? "");
+    return NextResponse.json({ db: { expected, got, same: got === expected, utf8: [...expected].map((c) => c.codePointAt(0)), read: [...got].map((c) => c.codePointAt(0)), settings } }, { headers: { "Cache-Control": "no-store" } });
+  }
+
   // `sendProbe`: the same reply, through grammY, with no model in the way — this separates "Telegram refused" from "grammY's call differed".
   if (body?.sendProbe === true) {
     const g = await grammySend(bot.token, connId, chat, String(body?.text || "اختبار الإرسال من نوفا").slice(0, 200));
@@ -259,10 +272,17 @@ export async function POST(req: NextRequest) {
       signal: AbortSignal.timeout(55000),
     }).then(async (r) => ({ status: r.status, body: (await r.json().catch(() => null)) as unknown }))
       .catch((e) => ({ status: 0, body: String((e as Error)?.message || e).slice(0, 160) }));
-    const log = await prismaDb.query<any>(
-      `SELECT at, chat_id, model, dir, text, note FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 ORDER BY at DESC, id DESC LIMIT 4`,
-      connId, chat,
-    ).catch(() => []);
+    // The webhook answers Telegram at once and the reply lands when the model is done, so the proof waits for THIS update's rows
+    // (never an older attempt's) instead of reading the log a millisecond after the post.
+    let log: any[] = [];
+    for (const until = Date.now() + 100000; Date.now() < until;) {
+      log = await prismaDb.query<any>(
+        `SELECT at, chat_id, model, dir, text, note FROM tg_business_log WHERE connection_id = $1 AND chat_id = $2 AND at >= to_timestamp($3 / 1000.0) ORDER BY at DESC, id DESC LIMIT 4`,
+        connId, chat, startedAt,
+      ).catch(() => []);
+      if (log.some((r) => r.dir === "sent" || r.dir === "fail")) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
     const reply = log.find((r) => r.dir === "sent");
     // A refusal is only actionable with Telegram's own words: ask the Bot API for the same reply directly, and report its raw
     // answer (code + description). This is a real call to Telegram, not a simulation; nothing is logged as `sent` from it.
