@@ -541,6 +541,26 @@ async function shamAgentRunInner(opts: {
     }
     if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
+    // A self-development turn answered in words without running anything is inventing its own record (live 2026-11-26: «14 مهام محفوظة، 100%» while
+    // self_review had never run). The engine runs self_review itself, then the model may put the real numbers in its own words; otherwise the report is the answer.
+    if (!valid.length && selfDev && !used.length && text.trim()) {
+      const call: CoderToolCall = { id: "engine_self_review", type: "function", function: { name: "self_review", arguments: "{\"type\":\"real\"}" } };
+      let report = "";
+      try { report = String(await exec(call, opts.ctx)); } catch (e) { report = `error: ${(e as Error).message || "self_review failed"}`; }
+      if (report && !/^error/i.test(report)) {
+        used.push("self_review");
+        opts.onEvent?.("tool", "self_review {\"type\":\"real\"}");
+        opts.onEvent?.("info", clip(report, 300));
+        messages.push({ role: "assistant", content: text, tool_calls: [call] } as CoderMessage);
+        messages.push({ role: "tool", name: "self_review", tool_call_id: call.id, content: clip(report, toolClip) } as CoderMessage);
+        if (left() > 8000) {
+          const again = await stepAsk(`${shamToolConversation(messages, [], lim).replace(/\nشام:$/, "")}\n[من سجلّك الحقيقي أعلاه — اكتب تقريرك النهائي بأرقامه كما هي، بلا استدعاء أدوات.]\nشام:`, Math.min(maxNew, 250), Math.min(30000, left() - 500), []);
+          const said = again && again.type === "text" ? String(again.text || "").trim() : "";
+          if (said) return { kind: "text", text: said, used, steps: steps + 1 };
+        }
+        return { kind: "text", text: report, used, steps: steps + 1 };
+      }
+    }
     if (!valid.length) {
       if (p.calls.length || brokenCallAttempt(p.text)) {
         // A broken call must not throw away what the tools already returned: live 2026-11-26, self_review
