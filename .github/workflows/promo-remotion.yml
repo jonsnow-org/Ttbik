@@ -29,14 +29,18 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate episode queue and recording inputs
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          node --test scripts/input-values.test.mjs
       - name: Pick episode
         id: pick
         run: |
           DONE=$(gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName -q '.[].tagName' | sed -n 's/^promo-ep-\([0-9]*\)$/\1/p' | paste -sd, -)
           FORCE="${{ inputs.episode }}"
-          ID=$(python3 scripts/prepare.py "$DONE" "$FORCE")
+          ID=$(python3 scripts/prepare.py "$DONE" "$FORCE") || { echo "Episode selection failed; see QUEUE_EXHAUSTED / NO_READY_EPISODE reason above." >&2; exit 1; }
+          if [ -z "$ID" ]; then echo "Episode selector returned an empty id; refusing a no-op run." >&2; exit 1; fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
-          if [ -z "$ID" ]; then echo "All episodes rendered. Add more to episodes.json."; fi
       - name: select public origin (Gate first, Oracle fallback)
         if: steps.pick.outputs.id != ''
         working-directory: .
