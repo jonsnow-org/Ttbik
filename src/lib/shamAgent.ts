@@ -16,6 +16,7 @@ import { forcedMode } from "@/lib/modeForce";
 import { generateShamMediaThroughRoute } from "@/lib/shamMediaRoutes";
 import { SHAM_CODE_NOTE, brokenCallAttempt, codeNotTried, normaliseShamArgs, parseShamToolCalls, shamCorrectionNote, shamToolConversation, validateShamCall } from "@/lib/shamTools";
 import { shamKnobs, type ShamMode } from "@/lib/shamModes";
+import { isSelfDevelopmentRequest, savedSkillsNote } from "@/lib/shamSkills";
 
 /** What Sham may use: its own tools (shamExec.ts). */
 export const SHAM_TOOL_NAMES = SHAM_TOOLS.map((t) => t.function.name);
@@ -160,7 +161,10 @@ async function shamAgentRunInner(opts: {
   // Sham Pro: a plain knowledge question that only MENTIONS code words («ما الفرق بين بايثون وجافاسكربت؟») is conversation. Classed as code it went to the
   // tool loop and timed out with no answer after ~150 s (live repeat probe 2026-11-25). Sham-only rule: the shared classifier (modes.ts) is not changed.
   const plainKnowledgeQuestion = v2 && prof.klass === "code" && isPlainQuestion(opts.text) && !/```|\n/.test(opts.text) && opts.text.length <= 240;
-  const directChatIntent = !requiresWorkspaceAgent &&
+  // «طوّر نفسك / أضف لنفسك مهارة / حلّل نفسك» is not ordinary chat: it must reach the loop where skill_save and self_review really exist
+  // (live chat 2026-11-26: Sham Pro listed eight skills it had "added" and nothing was stored anywhere).
+  const selfDev = isSelfDevelopmentRequest(opts.text);
+  const directChatIntent = !requiresWorkspaceAgent && !selfDev &&
     (prof.klass === "chat" || prof.klass === "trivial" || directCapability || plainKnowledgeQuestion);
   // 2026-11-24 (live probe run 45475040881): every message went to the T-LDM head first (~3.4 s), and on ordinary questions the 4.5M head wrote broken commands
   // («python3 -c "pornt iu…"») whose garbled text («الخرج: 811») became the reply; a plain answer then waited for the WHOLE non-streamed body answer (~17 s mean,
@@ -171,7 +175,7 @@ async function shamAgentRunInner(opts: {
   // T-LDM, when on, is the tool loop: commands run on Sham 2's existing internal computer.
   // Sensitive commands return kind "confirm" so THIS chat (not a global owner inbox) can allow or deny.
   let tldmHandedOff = false;
-  tldmHead: if (v2 && shamTldmOn() && !tldmPlainTurn) {
+  tldmHead: if (v2 && shamTldmOn() && !tldmPlainTurn && !selfDev) {
     const session = shamTldmSessionId(opts.ctx.chatId);
     const timeout = Math.min(opts.askMs ?? 180000, Math.max(1000, left() - 1000));
     const chatMessages = messages
@@ -391,6 +395,16 @@ async function shamAgentRunInner(opts: {
   let recoveries = 0;
   let mediaRefused = false;
   let steps = 0;
+  // A model that repeats the SAME call verbatim learns nothing new: the result is already in the transcript. Live self-review probe 2026-11-26:
+  // skill_list ran five times in a row, ate the whole webhook window, and the owner got «no answer from Sham in time» instead of a report.
+  const callSig = (c: CoderToolCall) => `${c.function.name}:${String(c.function.arguments || "").trim()}`;
+  const seenCalls = new Set<string>();
+  for (const m of messages) {
+    const calls = (m as { tool_calls?: CoderToolCall[] }).tool_calls;
+    if (Array.isArray(calls)) for (const c of calls) seenCalls.add(callSig(c));
+  }
+  let repeatRounds = 0;
+  let forcedFinal = false;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
     let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown; seconds?: number } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
@@ -413,6 +427,14 @@ async function shamAgentRunInner(opts: {
   };
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string; seconds?: number } = {}): Promise<ShamReply | null> =>
     generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
+  // what Sham Pro already taught ITSELF: one short line, so a saved skill is reachable (and claimable truthfully) instead of being guessed
+  let selfNote = "";
+  if (v2) {
+    try { selfNote = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { selfNote = ""; }
+    // A self-review request must read its own record: live probe 2026-11-26 called skill_list (twice) and never reached self_review, so the report the owner
+    // asked for never existed. The routing line is only for these turns; the tool list itself is unchanged.
+    if (selfDev) selfNote = ["طلب عمل على نفسك: نفّذ self_review مرة واحدة للأرقام الحقيقية ثم اكتب التقرير، ولا تستدعِ الأداة نفسها مرتين.", selfNote].filter(Boolean).join("\n");
+  }
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
@@ -448,9 +470,10 @@ async function shamAgentRunInner(opts: {
     if (await isStopped()) return { kind: "stopped", used, steps };
     if (left() < 6000) break;
     // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
-    const bare = prof.lite && steps === 0 && !opts.resume && recoveries === 0;
+    const bare = prof.lite && !selfDev && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
-    const prompt = k.note ? `${k.note}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
+    const head = [k.note, selfNote && toolsNow.length ? selfNote : ""].filter(Boolean).join("\n");
+    const prompt = head ? `${head}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
     // every Studio is on other people's work: the request WAITS in line (the user sees the position, never "busy") and is asked again; out of time it moves to the next background leg
@@ -512,6 +535,23 @@ async function shamAgentRunInner(opts: {
     const valid = p.calls.filter((c) => !validateShamCall(c, toolsNow));
     if (!valid.length) {
       if (p.calls.length || brokenCallAttempt(p.text)) {
+        // A broken call must not throw away what the tools already returned: live 2026-11-26, self_review
+        // reported its real numbers, the next call was invalid, and the owner got "لم يُنفّذ الاستدعاء الأخير"
+        // instead of the report. With recorded results, ask once for the final answer from them and return it.
+        const salvage = opts.verifyAsk || (!opts.ask ? ask : undefined);
+        if (used.length && salvage && left() > 6500) {
+          opts.onEvent?.("info", "لم تُنفّذ الأداة الأخيرة (طلب غير صالح)؛ أطلب الجواب النهائي من نتائج الأدوات المسجلة.");
+          const salvagePrompt = [
+            shamToolConversation(messages, [], lim).replace(/\nشام:$/, ""),
+            "[تصحيح من المحرك — ليست مهمة جديدة]",
+            "لم يُنفَّذ الاستدعاء الأخير لأنه غير صالح. اكتب الآن الجواب النهائي للمستخدم من نتائج الأدوات المسجلة أعلاه فقط، بلا أي أداة وبلا خطة.",
+          ].join("\n\n");
+          try {
+            const saved = await salvage(salvagePrompt, Math.min(maxNew, 200), Math.min(25000, left() - 500));
+            const savedText = saved?.type === "text" ? String(saved.text || "").trim() : "";
+            if (savedText && !brokenCallAttempt(savedText)) return { kind: "text", text: savedText, used, steps: steps + 1 };
+          } catch { /* keep the honest error line below rather than lose the turn */ }
+        }
         return { kind: "text", text: "لم يُنفّذ الاستدعاء الأخير: لم أتمكّن من تكوين طلب صالح للأداة. أعد المحاولة أو حدّد المعلومات الناقصة.", used, steps: steps + 1 };
       }
       const final = p.text.trim();
@@ -603,9 +643,18 @@ async function shamAgentRunInner(opts: {
     }
     const write = valid.find((c) => shamNeedsOk(c));
     if (write) return { kind: "confirm", call: write, used, steps: steps + 1 };
+    if (valid.every((c) => seenCalls.has(callSig(c)))) {
+      repeatRounds++;
+      opts.onEvent?.("info", "استدعاء مكرر حرفياً: نتيجته موجودة أعلاه؛ لن يُنفَّذ مرة ثانية.");
+      messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
+      for (const c of valid.slice(0, 3)) messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: "error: this exact call already ran above and its result is in the transcript. Do not repeat it — call a different tool, or write the final answer now from the results you already have." } as CoderMessage);
+      if (repeatRounds > 1 && left() > 8000) { forcedFinal = true; break; }
+      continue;
+    }
     messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
     for (const c of valid.slice(0, 3)) {
       if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
+      seenCalls.add(callSig(c));
       used.push(c.function.name);
       opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
       opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
@@ -619,7 +668,7 @@ async function shamAgentRunInner(opts: {
   }
 
   // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
-  if (opts.continuable && used.length) return { kind: "more", messages, used, steps };
+  if (!forcedFinal && opts.continuable && used.length) return { kind: "more", messages, used, steps };
   // out of steps or time: ask for the final answer from what was found, with no tools shown
   if (left() > 5000 && used.length) {
     const prompt = shamToolConversation(messages, [], lim).replace(/\nشام:$/, "\n[اكتب الجواب النهائي الآن مما وجدتَه، بلا استدعاء أدوات.]\nشام:");

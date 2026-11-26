@@ -17,6 +17,8 @@ export function shamToolsEnabled(): boolean {
 
 const FORMAT_BASE = 'لاستعمال أداة اكتب سطراً واحداً بهذا الشكل ثم انتظر النتيجة: <tool_call>{"name": "اسم_الأداة", "arguments": {...}}</tool_call>. إن لم تحتج أداة فأجب مباشرة.';
 const FORMAT_ASK = " إن كانت معلومة ناقصة عند المستخدم (أي مستودع؟ أي فرع؟ أي ملف؟ أو أي خادم MCP؟) فاسأله بـ ask_user ولا تخمّن. إذا طلب المستخدم عملاً على GitHub أو Vercel أو خدمة مرتبطة، فاستعمل الأداة الفعلية ولا تكتفِ بإجابة عامة عن القدرة. استخدم connector_api لقراءة خدمات الحساب المرتبط، وmcp_list_tools لمعرفة أدوات خادم MCP، ولا تخمّن المعرّفات أو أسماء الأدوات. طلبات الكتابة عبر الموصلات أو MCP تتطلب تأكيد المستخدم؛ لا تعرضها كأنها نُفذت قبل ظهور نتيجة تنفيذ مؤكدة.";
+// The owner asked Sham Pro to develop ITSELF and it listed skills nothing stored (live chat 2026-11-26): a skill is a row, and only a tool result says so
+const FORMAT_SELF = " إذا طلب المستخدم أن تطوّر نفسك أو تضيف لنفسك مهارة: لا تكتفِ بوصفها. خزّنها فعلاً بـ skill_save (name, title, when, steps بأسماء الأدوات الحقيقية) ثم قل ما خُزِّن بالاسم. مهارة لم تُرجِع لها skill_save «حُفظت» لم تُضَف، ولا تدّعِ مهارة أو إصلاحاً غير مذكور في قائمة مهاراتك أو في نتيجة أداة. ولتحليل نفسك استخدم self_review (أرقام حقيقية) بدل التخمين.";
 const FORMAT_CODE = " وإذا كتبت كوداً أو عدّلت مشروعاً فاعمل في حاسوبك الدائم: اكتب الملف بـ computer_write أو computer_edit، ثم شغّله فعلياً بـ computer_run. للأوامر التي تتجاوز 90 ثانية استخدم computer_job وانتظر نتيجته. لا تستخدم مساحة sandbox المؤقتة للعمل العادي.";
 
 /** The loaded tools as short lines: name(arg, optional?) — the first words of what it does. */
@@ -64,7 +66,7 @@ export function shamToolBlock(tools: CoderTool[], maxChars = 2600): string {
     if (i >= 0) ex[i] += ' (repo="owner/name")';
     if (j >= 0) ex[j] += "؛ الاختبارات: python3 -m unittest -v f (اسم الوحدة بلا .py)";
   }
-  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_BASE}${has.has("ask_user") ? FORMAT_ASK : ""}${has.has("computer_run") && has.has("computer_write") ? FORMAT_CODE : ""}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
+  return `الأدوات المتاحة لك:\n${lines.join("\n")}\n${FORMAT_BASE}${has.has("skill_save") ? FORMAT_SELF : ""}${has.has("ask_user") ? FORMAT_ASK : ""}${has.has("computer_run") && has.has("computer_write") ? FORMAT_CODE : ""}${ex.length ? `\nأمثلة على اختيار الأداة: ${ex.join("؛ ")}.` : ""}`;
 }
 
 /** Harmless spelling of an argument the model gets "almost" right is fixed here instead of failing the call: a GitHub URL / `.git` / trailing slash in `repo`. */

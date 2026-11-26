@@ -56,7 +56,7 @@ export type Pending = { calls: CoderToolCall[]; reason: string; summary: string;
 export type Run = {
   resumes?: number;                                    // how many times a worker that disappeared was picked up again (resumeOrphan), capped
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
-  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; nudges?: number; histChars?: number; cutTurn?: number; cutNotice?: boolean; ctxStamped?: boolean; coldReset?: boolean; thinkOff?: boolean; outageSaid?: boolean; queueMoves?: number; avoidHome?: boolean; pfLogged?: string; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number; kind?: "secret" | "handoff"; secretName?: string; handoff?: { kind: string; reason: string }; model?: string };
   prefetched?: boolean; ctxOverBy?: number; softSteps?: number; dropToolsOnce?: boolean; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; lastAnnouncement?: string; replyGuardRecoveries?: number; readDrift?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
@@ -2460,6 +2460,10 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
             const nPrompt = Number(/request \((\d+) tokens\)/.exec(String(r.error || ""))?.[1]) || Number(/"n_prompt_tokens":(\d+)/.exec(String(r.error || ""))?.[1]) || 0;
             if (nPrompt > nCtx && nCtx > 0) run.ctxOverBy = (run.ctxOverBy || 0) + (nPrompt - nCtx) + 512;   // the next attempt's tool budget shrinks by at least the overflow
             run.histChars = Math.max(6000, Math.floor((run.histChars || historyChars()) / 2));
+            // ONE request can be longer than the whole window by itself (a Mini App task may be 12,000 characters: ~7,500 tokens of Arabic + the tool list + the
+            // system text > 16,384). Halving the history cannot help there because trimMessages never splits a message, so the same request went out five times
+            // (unit test «a prompt over the Studio's own window»). The newest turn is now read as its beginning and its end, and the chat is told so.
+            run.cutTurn = Math.max(2000, Math.floor((run.histChars || 6000) * 0.8));
             // 2026-11-23: this used to set run.softSteps = run.step + 1, which withdrew the tools for the REST of the task and told the model «Step budget reached»:
             // live, Nova answered «الميزانية وصلت لحدها» and asked permission instead of working. Once the Studio's context is learned the small tool list applies by itself
             // (toolGroupsLazy); only when it could not be learned is this ONE step sent without tools.
@@ -2921,11 +2925,28 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       if (k >= 0 && ctxText) (st.messages[k] as { ctx?: string }).ctx = `[context for this request]\n${ctxText}`;
       run.ctxStamped = true;
     }
+    // After an overflow, a single oversized turn is shortened to its head and its tail (with a visible marker) instead of being sent again unchanged.
+    const fitTurn = (msgs: CoderMessage[]): CoderMessage[] => {
+      if (!run.cutTurn) return msgs;
+      const k = [...msgs].reverse().findIndex((m) => m.role === "user" && !String(m.content).startsWith("[harness]"));
+      if (k < 0) return msgs;
+      const idx = msgs.length - 1 - k;
+      const text = String(msgs[idx].content || "");
+      if (text.length <= run.cutTurn) return msgs;
+      const head = Math.ceil(run.cutTurn * 0.6), tail = Math.max(0, run.cutTurn - head);
+      const out = msgs.slice();
+      out[idx] = { ...msgs[idx], content: text.slice(0, head) + `\n\n[…] ${text.length - run.cutTurn} حرفاً من هذه الرسالة لم تُقرأ: الطلب أطول من نافذة النموذج.\n\n` + (tail ? text.slice(-tail) : "") };
+      if (!run.cutNotice) {
+        run.cutNotice = true;
+        void taskEvent(run.id, "info", `✂️ رسالتك أطول من نافذة النموذج؛ قرأتُ أوّلها وآخرها (${run.cutTurn} حرفاً) وما بينهما لم يُقرأ.`, db);
+      }
+      return out;
+    };
     const histOf = (): CoderMessage[] => {
-      if (run.histChars) return trimMessages(st.messages, run.histChars);                  // after a context overflow: the old hard cut
+      if (run.histChars) return fitTurn(trimMessages(st.messages, run.histChars));                  // after a context overflow: the old hard cut
       const w = windowFrom(st.messages, st.winStart || 0, historyChars(), Number(process.env.CODER_RESET_CHARS) || 5000);
       st.winStart = w.start;
-      return w.msgs;
+      return fitTurn(w.msgs);
     };
     const wireOf = (m: CoderMessage): CoderMessage => (m.role === "user" && m.ctx ? { role: "user", content: `${m.content}\n\n${m.ctx}` } : m);
     const messages: CoderMessage[] = [{ role: "system", content: withModelIdentity(coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", connectors: connected, agent: run.agent ? (st.lang === "en" ? "en" : "ar") : undefined, agentRole: run.agentRole, agentDepth: run.agentDepth, notes: "", date: false }), novaModelOf(st.model)) }, ...dropStaleHarness(histOf()).map(wireOf)];

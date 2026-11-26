@@ -17,10 +17,12 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -60,6 +62,45 @@ def _find_head() -> Path | None:
     return None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is read as data (the storage URL), never followed with the token attached."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+def _http_download(repo: str, pattern: str, dest: Path) -> Path | None:
+    """One file straight from the international site with the account's token: the SDK's own route cannot be relied on here
+    (live 2026-11-26: its login goes to modelscope.cn while the token and the private head repo are on modelscope.ai, and the
+    download then answers 404). A redirect to storage is followed WITHOUT the token, so nothing is sent to the file host."""
+    token = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or ""
+    if not token or "*" in pattern:
+        return None
+    site = (os.environ.get("MODELSCOPE_ENDPOINT") or "https://www.modelscope.ai").rstrip("/")
+    url = f"{site}/api/v1/models/{repo}/repo?Revision=master&FilePath={pattern}"
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / pattern
+        opener = urllib.request.build_opener(_NoRedirect)
+        try:
+            with opener.open(urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"}), timeout=60) as r:
+                data, status = r.read(), r.status
+        except urllib.error.HTTPError as eh:
+            if eh.code not in (301, 302, 303, 307, 308):
+                raise
+            where = eh.headers.get("Location") or ""
+            with urllib.request.urlopen(where, timeout=600) as r:      # the storage URL is already signed: no token goes with it
+                data, status = r.read(), r.status
+        if status != 200 or len(data) < 1000:
+            return None
+        out.write_bytes(data)
+        print(f"nova_tldm: {repo}/{pattern} fetched directly ({len(data) / 1e6:.1f} MB)", flush=True)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        print(f"nova_tldm: direct download {repo}/{pattern} failed ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
+        return None
+
+
 def _download(repo: str, pattern: str, dest: Path) -> Path | None:
     token = os.environ.get("MODELSCOPE_API_TOKEN") or os.environ.get("MODELSCOPE_TOKEN") or None
     try:
@@ -69,7 +110,7 @@ def _download(repo: str, pattern: str, dest: Path) -> Path | None:
         return hit if hit and hit.is_file() else None
     except Exception as exc:  # noqa: BLE001
         print(f"nova_tldm: download {repo}/{pattern} failed ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
-        return None
+        return _http_download(repo, pattern, dest)
 
 
 def ensure_embed_server(llama_exe: str, model_path: str, threads: int = 2) -> bool:
@@ -163,7 +204,14 @@ def _load_writer(model_path: str = ""):
     if tok_path is None:
         raise RuntimeError("no tokenizer")
     tk = Tokenizer.from_file(str(tok_path))
-    reader = LlamaReader(f"http://127.0.0.1:{EMBED_PORT}")
+    # the head reads the features it was TRAINED on: the 35B's final layer (llama-gguf, the embedding server) or Nova's own token_embd rows (gguf-token-embd,
+    # the cn trainer's head: no server, read from the same GGUF). Serving one with the other reader's features would be a silent wrong answer, so the kind is followed.
+    if str(payload.get("reader") or "") == "gguf-token-embd":
+        from sham_tldm.gguf_embed_reader import GgufEmbedReader
+        sc = payload.get("feature_scale")
+        reader = GgufEmbedReader(model_path, scale=float(sc) if sc else None)
+    else:
+        reader = LlamaReader(f"http://127.0.0.1:{EMBED_PORT}")
     steps, confident = int(cfg.get("diffusion_steps", 10)), float(cfg.get("confident", 0.0))
     encode = lambda text, k: (tk.encode(text).ids[:k] + [0] * k)[:k]               # noqa: E731  (the trainer's encode: ids padded with 0)
 

@@ -1,4 +1,4 @@
-import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES, madeSuccessfulActions, madeSuccessfulChanges } from "../coderFinishGate";
+import { finishNudge, madeChanges, worthALesson, toolNamesIn, execNudge, asksToRun, ranSomething, shouldRecoverBlockedAction, BLOCKED_REPLY_RECOVERIES, madeSuccessfulActions, madeSuccessfulChanges, isSayGoal } from "../coderFinishGate";
 
 const GOAL = "اذهب للمستودع وابحث عن بوت سلاسل يومية يوجد له تطبيق مصغر قم باصلاح وتطوير البوت والتطبيق المصغر بشكل كامل";
 const MENU = "بناءً على تحليلي وجدت البوت. هل تريد أن أقوم بإصلاح الكود؟ أخبرني بالخطوة التي تريد البدء بها!";
@@ -209,5 +209,14 @@ describe("verified changes require a successful matching tool result", () => {
       { role: "tool", tool_call_id: "edit-1", content: "error: permission denied" },
     ];
     expect(finishNudge(GOAL, ["computer_edit"], "تم إصلاح المشكلة", 0, messages)).toMatch(/nothing was changed/i);
+  });
+
+  test("an instruction to say an answer is not an action request, even when it mentions a fix", () => {
+    const say = "اختبار ثالث بعد إصلاح حرس الرد المكرر: قل في سطر واحد فقط أنك بخير وبأن المسار يعمل.";
+    expect(isSayGoal(say)).toBe(true);
+    expect(finishNudge(say, [], "أنا بخير والمسار يعمل بشكل صحيح.", 0)).toBe("");   // live 2026-11-26: this was sent back to work
+    expect(shouldRecoverBlockedAction(say, [], 0)).toBe(false);
+    expect(isSayGoal(GOAL)).toBe(false);                                            // a real repair request is still gated
+    expect(finishNudge(GOAL, ["computer_read"], MENU, 0)).not.toBe("");
   });
 });

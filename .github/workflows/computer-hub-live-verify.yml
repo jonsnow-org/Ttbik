@@ -17,8 +17,10 @@ concurrency:
   group: computer-hub-live-verify
   cancel-in-progress: true
 
+# The production computer host is the international 16 GB Studio since 2026-11-22 (deploy-minicpmo-big.yml); the cn
+# nova-inference-server is left empty on the owner's order, so verifying it here proved nothing about the real computer.
 env:
-  API: https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net
+  API: https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai
 
 jobs:
   verify:
@@ -31,14 +33,14 @@ jobs:
           python-version: "3.12"
       - name: Inspect computer-only runtime, actual memory and bootstrap
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/ops/modelscope_computer_hub_preflight.py scripts/ops/modelscope_computer_smoke.py
           python3 scripts/ops/modelscope_computer_hub_preflight.py --api "$API" --bootstrap-minutes 45 --browser-minutes 20
       - name: Run live persistent terminal, files, jobs, X11 and Chromium tests
         env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           BROWSER_READY: ${{ env.BROWSER_READY }}
         run: |
           set -euo pipefail

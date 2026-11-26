@@ -1,0 +1,182 @@
+name: chat-live-proof
+# Manual, live proof that ONE message in a plain (private) bot chat gets a real reply from ONE chosen model.
+# It selects the model with the same call the Mini App picker and the bot's buttons use (`chooseModel`), injects one update
+# through the URL Telegram itself uses (the front door), reads back the model's own task rows, its saved turn text (the exact
+# string it sent) and its event lines, and ALWAYS puts the chat's model back — even when an earlier step failed.
+# Nothing is written to any Studio and nothing is sent to anyone but the chat named below.
+on:
+  workflow_dispatch:
+    inputs:
+      chat:
+        description: "the chat to prove (a Telegram id); the owner's own chat by default"
+        type: string
+        default: "420066855"
+      model:
+        description: "select this model for the proof: sham = the old Sham, sham_v2 = Sham Pro, coder = Nova"
+        type: string
+        default: "sham"
+      restore:
+        description: "put this model back afterwards"
+        type: string
+        default: "sham_v2"
+      text:
+        description: "the message to inject"
+        type: string
+        default: "اختبار مباشر: هل ترد؟"
+      via:
+        description: "gate = the URL Telegram itself posts to, local = 127.0.0.1 on this server"
+        type: string
+        default: "gate"
+      wait:
+        description: "seconds to watch the chat before putting the model back"
+        type: string
+        default: "150"
+      restore_only:
+        description: "1: only put `restore` back (no switch, no message)"
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: the chat, before anything
+        if: inputs.restore_only != '1'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 60 -o chat-before-switch.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe?chat=${CHAT}" || echo 000)
+          echo "HTTP ${code}"
+          python3 - <<'PY'
+          import json
+          d = json.load(open("chat-before-switch.json"))
+          c = d.get("chat") or {}
+          print(f"selected model = {c.get('model')} (freei={c.get('freei')})")
+          for t in (d.get("chatTasks") or [])[:4]:
+              print(f"  task {t['updatedAt']} {t['status']:<8} {t['slot']:<8} {t['runId']} :: {t['title']}")
+          PY
+      - name: select the model (the Mini App's own call)
+        if: inputs.restore_only != '1'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 60 -o switch.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"model\":\"${MODEL}\",\"inject\":false}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe" || echo 000)
+          echo "HTTP ${code}"; cat switch.json; echo
+          [ "${code}" = "200" ] || exit 1
+      - name: a snapshot to compare against
+        if: inputs.restore_only != '1'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -eu
+          curl -sS -m 60 -o chat-before.json -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe?chat=${CHAT}"
+          python3 -c 'import json;d=json.load(open("chat-before.json"));print("snapshot taken for model", (d.get("chat") or {}).get("model"))'
+      - name: one message, through the path Telegram uses
+        if: inputs.restore_only != '1'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+          TEXT: ${{ inputs.text }}
+          VIA: ${{ inputs.via }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 150 -o inject.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            --data-binary @<(python3 -c 'import json,os;print(json.dumps({"chat":os.environ["CHAT"],"text":os.environ["TEXT"],"via":os.environ["VIA"]}))') \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe" || echo 000)
+          echo "HTTP ${code}"; head -c 1200 inject.json; echo
+      - name: watch the chat until the reply lands
+        if: inputs.restore_only != '1'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+          WAIT: ${{ inputs.wait }}
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          base = "https://89-168-89-15.sslip.io/api/ops/chat-probe"
+          chat, secret = os.environ["CHAT"], os.environ["CRON_SECRET"]
+          deadline = time.time() + float(os.environ.get("WAIT") or 150)
+
+          def get():
+              req = urllib.request.Request(f"{base}?chat={chat}", headers={"Authorization": f"Bearer {secret}"})
+              return json.load(urllib.request.urlopen(req, timeout=40))
+
+          before = json.load(open("chat-before.json"))
+          def stamp(d):
+              turns = d.get("chatTurns") or []
+              tasks = d.get("chatTasks") or []
+              events = d.get("chatEvents") or []
+              return (turns[0]["at"] if turns else None,
+                      (tasks[0]["runId"], tasks[0]["status"]) if tasks else None,
+                      events[0]["at"] if events else None)
+
+          was, last = stamp(before), None
+          while time.time() < deadline:
+              d = get()
+              now = stamp(d)
+              model = (d.get("chat") or {}).get("model")
+              turns = d.get("chatTurns") or []
+              tasks = d.get("chatTasks") or []
+              line = (f"[{time.strftime('%H:%M:%S')}] model={model} "
+                      f"task={(tasks[0]['status'] + ' ' + tasks[0]['runId']) if tasks else '-'} "
+                      f"turns={len(turns)}")
+              if line != last:
+                  print(line, flush=True)
+                  last = line
+              if now != was:
+                  print("the chat changed — reading it out:", flush=True)
+                  print(json.dumps({k: d.get(k) for k in ("chat", "chatTasks", "chatTurns", "chatEvents")}, ensure_ascii=False, indent=1)[:6000], flush=True)
+                  # a reply has landed once a new turn, or the NEWEST task (this message's own, not an older finished one), is finished/failed
+                  wasTask = stamp(before)[1]
+                  newest = tasks[0] if tasks else None
+                  fresh = bool(newest) and (not wasTask or newest["runId"] != wasTask[0])
+                  if (turns and turns[0]["at"] != (stamp(before)[0])) or (fresh and newest["status"] in ("done", "failed")):
+                      time.sleep(6)
+                      d = get()
+                      print("final read:", flush=True)
+                      print(json.dumps({k: d.get(k) for k in ("chat", "chatTasks", "chatTurns", "chatEvents")}, ensure_ascii=False, indent=1)[:6000], flush=True)
+                      break
+              time.sleep(6)
+          else:
+              d = get()
+              print("no change inside the wait; the chat as it stands:", flush=True)
+              print(json.dumps({k: d.get(k) for k in ("chat", "chatTasks", "chatTurns", "chatEvents")}, ensure_ascii=False, indent=1)[:6000], flush=True)
+          PY
+      - name: put the chat's model back
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+          RESTORE: ${{ inputs.restore }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 60 -o restore.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"model\":\"${RESTORE}\",\"inject\":false}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe" || echo 000)
+          echo "HTTP ${code}"; cat restore.json; echo
+      - name: the chat, after the restore
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -eu
+          curl -sS -m 60 -o chat-after.json -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe?chat=${CHAT}"
+          python3 -c 'import json;d=json.load(open("chat-after.json"));c=d.get("chat") or {};print("model now =",c.get("model"),"freei =",c.get("freei"))'

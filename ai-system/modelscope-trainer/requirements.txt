@@ -16,3 +16,4 @@ imageio-ffmpeg
 av
 transformers
 sentencepiece
+gguf

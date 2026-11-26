@@ -6,6 +6,7 @@
 import { HANDOFF_KINDS, HANDOFF_TOOL_DESCRIPTION, HANDOFF_TOOL_NAME } from "@/lib/computerHandoff";
 import { SHAM_SKILL_NAMES, shamSkillText } from "@/lib/skillsSham";
 import { SHAMPRO_SKILL_NAMES, shamproSkillText } from "@/lib/skillsShamPro";
+import { removeShamSkill, saveShamSkill, savedSkillText, listShamSkills, shamSelfReview } from "@/lib/shamSkills";
 import { prismaDb, type Db } from "@/lib/shamDb";
 import { knowledgeSave, knowledgeSearch } from "@/lib/shamKnowledge";
 import type { ShamTool as CoderTool, ShamToolCall as CoderToolCall } from "@/lib/shamTypes";
@@ -88,6 +89,11 @@ export const SHAM_TOOLS: CoderTool[] = [
   tool("plan", "Write or update the task's TODO list: call it first for any task with more than three steps and again when a step is done or the plan changes. Each item is a short step with a status.", obj({ items: { type: "array", items: { type: "object", properties: { step: s("short step"), status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["step"] } } }, ["items"])),
   tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from memory_search, or by a query).", obj({ id: n("memory id"), query: s("text to match when no id") })),
   tool("skill", "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo. It tells you which tools to call, in order. Call it once, then do the work.", obj({ name: { type: "string", enum: SHAM_SKILL_NAMES } }, ["name"])),
+  // SHAM PRO only (filtered in shamTools): a skill it writes ITSELF, stored in sham_skills and loaded by `skill` in every later chat
+  tool("skill_save", "Save a NEW skill for yourself: a procedure you really worked out (name, when to use it, the ordered steps with the real tool names). It is stored in your own skill file and loaded later with skill(name) in any chat. The owner's chat only.", obj({ name: s("lowercase id: letters, digits, - and _, 2-32"), title: s("what it does, one line"), when: s("when to use it"), steps: s("the ordered how-to, with the real tool names and arguments") }, ["name", "title", "when", "steps"])),
+  tool("skill_list", "List your skills: the built-in ones and the ones you saved yourself, with when to use each and how many times it was opened.", obj({})),
+  tool("skill_delete", "Delete a skill YOU saved (a built-in one cannot be deleted).", obj({ name: s("skill id") }, ["name"])),
+  tool("self_review", "Read the real record of your own work instead of guessing: stored turns, short and repeated answers, what this chat asked, and your saved skills with their use counts. It returns numbers; propose one fix per problem it shows.", obj({})),
   tool("browser", "Control this Sham model's persistent headless browser with saved logins and tabs. Open/inspect/click/type/press/scroll/back/wait/aria; manage tabs; select/check/hover forms; upload from the private computer; download into it; inspect console and failed network requests. Localhost is allowed only for a server owned by this exact user+model session; private LAN, metadata and other sessions remain blocked.", obj({ action: { type: "string", enum: ["open", "look", "click", "type", "press", "scroll", "back", "wait", "aria", "tabs", "new_tab", "switch_tab", "close_tab", "upload", "download", "select", "check", "uncheck", "hover", "console", "network"] }, url: s("URL for open"), id: n("element number"), x: n("x for a drawn area"), y: n("y for a drawn area"), selector: s("CSS selector if no numbered element exists"), text: s("text to type or wait for"), enter: { type: "boolean" }, key: s("key name"), dy: n("scroll pixels"), seconds: n("wait seconds, 1-20"), file_path: s("upload source path inside private computer"), output_path: s("download destination inside private computer"), value: s("select option value"), index: n("tab index"), screenshot: { type: "boolean" } }, ["action"])),
   tool("desktop", "Operate your private graphical Linux desktop. Start a display with action=start; use state to read the screen as text (windows, focus, pointer) or frame for the picture; stop when finished; launch terminal, files, browser, LibreOffice Writer/Calc/Impress/Draw, Inkscape, GIMP or Audacity when installed; click, double-click, drag, move, mouse-down/up, type, press keys, scroll, inspect pointer, and use the session clipboard. Inspect screenshots after GUI actions; check computer_apps before launching optional apps.", obj({ action: { type: "string", enum: ["start", "status", "frame", "stop", "launch", "click", "dblclick", "move", "drag", "mousedown", "mouseup", "type", "key", "scroll", "pointer", "clipboard_set", "clipboard_get"] }, app: { type: "string", enum: ["browser", "terminal", "files", "writer", "calc", "impress", "draw", "inkscape", "gimp", "audacity"] }, url: s("URL when launching browser"), x: n("x coordinate from latest screenshot"), y: n("y coordinate"), x2: n("drag destination x"), y2: n("drag destination y"), button: { type: "string", enum: ["left", "middle", "right"] }, text: s("text to type or set on clipboard"), key: s("key name, e.g. Enter, Ctrl+L"), direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: n("scroll amount 1-8") }, ["action"])),
   tool("sandbox_clone", "Create or reopen a SEPARATE temporary task workspace (not your persistent computer) for isolated builds/tests only. Files are not shared with computer_* tools.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
@@ -127,9 +133,15 @@ const CONNECTOR_TOOL_NAMES = new Set(["connector_api", "mcp_list_tools", "mcp_ca
 const GITHUB_TOOLS = new Set(["github_list_files", "github_read_file", "github_read_files", "github_search_code", "github_repo_scan", "github_prs", "github_ci", "github_create_pr", "github_merge_pr", "github_create_issue", "github_comment", "github_run_workflow", "computer_publish", "sandbox_push"]);
 
 /** The tools shown to Sham: GitHub ones only when this chat has a linked token. */
+/** Tools only Sham Pro has: its own writable skill file and the review of its own record. */
+export const SHAM_SELF_TOOLS: ReadonlySet<string> = new Set(["skill_save", "skill_list", "skill_delete", "self_review"]);
+
 export function shamTools(github: boolean, connectors = false): CoderTool[] {
   const proSkill = shamVariant.getStore() === "v2";
-  return SHAM_TOOLS.map((t) => (proSkill && t.function.name === "skill" ? { ...t, function: { ...t.function, parameters: { ...(t.function.parameters as object), properties: { name: { type: "string", enum: SHAMPRO_SKILL_NAMES } } } as typeof t.function.parameters } } : t)).filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2"));
+  return SHAM_TOOLS.map((t) => (proSkill && t.function.name === "skill"
+    ? { ...t, function: { ...t.function, description: "Load a short how-to before work you do not do every day: pdf, word, spreadsheet, presentation, chart, scrape, git, debug, research, plan, data, design (pages and UI), logo — or a skill you saved yourself (skill_list shows them all). Call it once, then do the work.", parameters: obj({ name: s(`skill id: a built-in one (${SHAMPRO_SKILL_NAMES.join(", ")}) or a name you saved with skill_save`) }, ["name"]) } }
+    : t))
+    .filter((t) => (github || !GITHUB_TOOLS.has(t.function.name)) && (connectors || !CONNECTOR_TOOL_NAMES.has(t.function.name)) && (t.function.name !== "github_read_files" || shamVariant.getStore() === "v2") && (proSkill || !SHAM_SELF_TOOLS.has(t.function.name)));
 }
 
 export async function shamContext(chatId: number, botId?: string, db: Db = prismaDb): Promise<ShamCtx> {
@@ -428,7 +440,28 @@ async function shamRunToolInner(call: CoderToolCall, ctx: ShamCtx, approved = fa
         return `sent ${f.path} (${f.bytes.length} bytes) to the user`;
       } catch (e) { return `error: could not send the file: ${String((e as Error)?.message || e).slice(0, 200)}`; }
     }
-    if (name === "skill") return shamVariant.getStore() === "v2" ? shamproSkillText(String(a.name || "")) : shamSkillText(String(a.name || ""));   // each Sham has its OWN skill file
+    if (name === "skill") {   // each Sham has its OWN skill file: Sham Pro's saved rows come first, then its built-in file
+      if (shamVariant.getStore() !== "v2") return shamSkillText(String(a.name || ""));
+      const saved = await savedSkillText(ctx.db, ctx.modelId, String(a.name || ""));
+      return saved || shamproSkillText(String(a.name || ""));
+    }
+    if (name === "skill_save") {
+      // a skill belongs to the MODEL, not to one user: only the owner's chat may write it (anyone else could plant instructions in every reply)
+      if (!ctx.owner) return "error: لم يُحفظ شيء. إضافة مهارات إلى نفسك متاحة في محادثة المالك فقط.";
+      return await saveShamSkill(ctx.db, ctx.modelId, ctx.chatKey, a);
+    }
+    if (name === "skill_list") {
+      const saved = await listShamSkills(ctx.db, ctx.modelId);      const builtin = `المهارات المدمجة (${SHAMPRO_SKILL_NAMES.length}): ${SHAMPRO_SKILL_NAMES.join(", ")}`;
+      const mine = saved.length
+        ? `مهاراتك المحفوظة بيدك (${saved.length}):\n${saved.map((x) => `- ${x.name} (${x.uses}×) — ${x.title} | متى: ${x.when}`).join("\n")}`
+        : "مهاراتك المحفوظة بيدك: لا شيء بعد. أضف واحدة بـ skill_save.";
+      return clip(`${builtin}\n${mine}`);
+    }
+    if (name === "skill_delete") {
+      if (!ctx.owner) return "error: الحذف متاح في محادثة المالك فقط.";
+      return await removeShamSkill(ctx.db, ctx.modelId, String(a.name || ""));
+    }
+    if (name === "self_review") return clip(await shamSelfReview(ctx.db, ctx.modelId, ctx.chatKey));
     if (name === "plan") {
       const mark: Record<string, string> = { pending: "☐", doing: "◐", done: "☑" };
       const rows = (Array.isArray(a.items) ? a.items : []).slice(0, 12).map((x: any) => (x && typeof x === "object" ? x : null)).filter((x: any) => x && String(x.step || "").trim());

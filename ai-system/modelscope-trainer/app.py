@@ -829,6 +829,89 @@ def run_nova(hours: float = 10.0, name: str = "nova2", runner=None, fetch=None, 
     return out
 
 
+# ---- Nova on cn (owner 2026-11-25: every trainer on cn, the international site only serves). A cn Studio has 8 GB, so it cannot run Nova's 35B body (12.3 GB GGUF)
+# for final-layer features; it trains Nova's head on Nova's OWN token embeddings read straight from the GGUF (training/train_gguf_head.py --reader gguf-embd: memmap,
+# no server, no forward pass). Each cycle tries the next step budget; the best report is kept; a head is published to Nova's own repo ONLY above the gate.
+# Name nova2-gguf*: its own work folder (tldm/nova2_gguf), never Sham's files or repos.
+NOVA_GGUF_REPO = "unsloth/Qwen3.6-35B-A3B-GGUF"
+NOVA_GGUF_PATTERN = "*Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
+NOVA_GGUF_STEPS = (350, 500, 800, 1200, 1600)
+
+
+def nova_gguf_mode(name: str) -> bool:
+    return str(name or "").strip().lower().startswith("nova2-gguf")
+
+
+def run_nova_gguf(hours: float = 5.0, name: str = "nova2-gguf", runner=None, fetch=None, publish=None, **_ignored) -> dict:
+    if not nova_gguf_mode(name):
+        raise RuntimeError(f"run_nova_gguf: name {name!r} is not nova2-gguf* (refusing to guess which model)")
+    work = tldm_work() / "nova2_gguf"
+    work.mkdir(parents=True, exist_ok=True)
+    body = work / "body"
+    gguf = next(iter(sorted(body.rglob("*.gguf"))), None) if body.exists() else None
+    tok = next(iter(sorted(body.rglob("tokenizer.json"))), None) if body.exists() else None
+    if gguf is None or tok is None:
+        body.mkdir(parents=True, exist_ok=True)
+        if fetch is not None:
+            fetch(body)
+        else:
+            from modelscope import snapshot_download
+            snapshot_download(os.environ.get("NOVA_GGUF_REPO") or NOVA_GGUF_REPO, allow_patterns=[NOVA_GGUF_PATTERN], local_dir=str(body))
+            snapshot_download(NOVA_DONOR_REPO["nova2"], allow_patterns=["tokenizer.json"], local_dir=str(body / "tok"))
+        gguf = next(iter(sorted(body.rglob("*.gguf"))), None)
+        tok = next(iter(sorted(body.rglob("tokenizer.json"))), None)
+    if gguf is None or tok is None:
+        raise RuntimeError("nova2-gguf: Nova's GGUF or tokenizer is missing (a head must never train on a random body)")
+    state_f = work / "state.json"
+    state = json.loads(state_f.read_text(encoding="utf-8")) if state_f.exists() else {"cycle": 0, "best": None}
+    steps = NOVA_GGUF_STEPS[state["cycle"] % len(NOVA_GGUF_STEPS)]
+    report, heads = work / f"cycle{state['cycle']}.json", work / f"cycle{state['cycle']}_heads.pt"
+    root = tldm_root()
+    cmd = [sys.executable, "-u", str(root / "training" / "train_gguf_head.py"), "--config", str(root / NOVA_CONFIG["nova2"]), "--reader", "gguf-embd", "--gguf", str(gguf),
+           "--tokenizer", str(tok), "--steps", str(steps), "--seeds", os.environ.get("NOVA_SEEDS", "3"), "--json", str(report), "--out", str(heads),
+           "--meta", json.dumps({"gguf": gguf.name, "reader": "gguf-embd", "trainer": "cn"})]
+    if runner is not None:
+        code = int(runner(cmd=cmd, report=report, heads=heads))
+    else:
+        import subprocess
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+        code = int(subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode)
+    state["cycle"] += 1
+    if code != 0 or not report.exists():
+        state_f.write_text(json.dumps(state), encoding="utf-8")
+        raise RuntimeError(f"nova2-gguf train exited with code {code}")
+    res = json.loads(report.read_text(encoding="utf-8"))
+    ho, ho2 = (res.get("heldout") or {}).get("mean"), (res.get("heldout2") or {}).get("mean")
+    out = {"model": "nova2", "reader": "gguf-embd", "steps": steps, "heldout": ho, "heldout2": ho2, "cycle": state["cycle"], "published": False, "hours": float(hours)}
+    best = state.get("best") or {}
+    if ho is not None and ho2 is not None and (ho + ho2) > (best.get("heldout", -1) or -1) + (best.get("heldout2", -1) or -1):
+        state["best"] = {"heldout": ho, "heldout2": ho2, "steps": steps, "cycle": state["cycle"]}
+    blocked = publish_blocked(ho, ho2)
+    if blocked:
+        print(f"nova2-gguf publish skipped: {blocked}", flush=True)
+    elif heads.exists():
+        try:
+            snap = work / "publish_snap"
+            import shutil
+            shutil.rmtree(snap, ignore_errors=True)
+            snap.mkdir()
+            shutil.copy2(heads, snap / "nova2_heads.pt")
+            shutil.copy2(report, snap / "nova2_results.json")
+            if publish is None:
+                sys.path.insert(0, str(SHAM))
+                import sham_inputs
+                publish = sham_inputs.publish_modelscope
+            out["published"] = bool(publish(snap, os.environ.get("NOVA2_HEAD_REPO") or NOVA_HEAD_REPO["nova2"], "nova2 T-LDM heads (gguf-embd reader, head only)"))
+            shutil.rmtree(snap, ignore_errors=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"nova2-gguf publish failed: {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+    state["last"] = out
+    state_f.write_text(json.dumps(state), encoding="utf-8")
+    print("nova2-gguf done " + json.dumps(out), flush=True)
+    return out
+
+
 def nova_donor(which: str, work: Path, fetch=None) -> tuple[Path, Path]:
     """Download (once) a COPY of that Nova's donor body to this Studio's disk; -> (checkpoint, tokenizer). Read only."""
     dest = work / "donor"
@@ -942,6 +1025,8 @@ def _resolve_run_fn(cfg: dict):
     if cfg["job"] == "motion":
         return run_motion
     if cfg["job"] == "tldm":
+        if nova_gguf_mode(cfg["name"]):
+            return run_nova_gguf                               # nova2-gguf*: Nova's head on its own token embeddings (fits a cn 8 GB Studio)
         if nova_mode(cfg["name"]):
             return run_nova                                    # nova2*: the Nova's own head, repo and work folder
         return run_sham2 if sham2_mode(cfg["name"]) else run_tldm
@@ -1733,6 +1818,25 @@ if __name__ == "__main__":
             try:
                 run_nova(name=bad, runner=fake_nova, fetch=fake_nova_fetch, publish=pub)
                 raise AssertionError("run_nova must refuse a name that is not nova2*")
+            except RuntimeError as exc:
+                assert "refusing to guess" in str(exc), exc
+        # ---- Nova on cn: gguf-embd cycles, publish only above the gate, refuses another name
+        gs, gsent = [], []
+        def fake_gguf(cmd, report, heads):
+            gs.append(int(cmd[cmd.index("--steps") + 1]))
+            heads.write_bytes(b"h")
+            report.write_text(json.dumps({"heldout": {"mean": 0.5 if len(gs) == 1 else 0.7}, "heldout2": {"mean": 0.62 if len(gs) == 1 else 0.66}}), encoding="utf-8")
+            return 0
+        def fake_body(dest):
+            (dest / "m.gguf").write_bytes(b"g")
+            (dest / "tokenizer.json").write_text("{}")
+        g1 = run_nova_gguf(name="nova2-gguf-cn1", runner=fake_gguf, fetch=fake_body, publish=lambda d, n, m: gsent.append(n) or "ok")
+        g2 = run_nova_gguf(name="nova2-gguf-cn1", runner=fake_gguf, fetch=fake_body, publish=lambda d, n, m: gsent.append(n) or "ok")
+        assert gs == [350, 500] and not g1["published"] and g2["published"] and gsent == ["nova2-tldm-head"], (gs, g1, g2, gsent)
+        for bad in ("nova2", "sham2-gguf"):
+            try:
+                run_nova_gguf(name=bad, runner=fake_gguf, fetch=fake_body)
+                raise AssertionError("run_nova_gguf must refuse a name that is not nova2-gguf*")
             except RuntimeError as exc:
                 assert "refusing to guess" in str(exc), exc
         os.environ.pop("TLDM_WORK", None)

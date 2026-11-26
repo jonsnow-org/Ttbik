@@ -273,6 +273,20 @@ describe("Nova T-LDM: its own reader Studio (owner decision 2026-11-25, T-5 opti
       global.fetch = real;
     }
   });
+  it("the reader address is the built-in default, so Oracle and the backup sites need no variable", async () => {
+    const { novaTldmReaderUrl } = await import("@/lib/openCoderStudio");
+    const nodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      delete process.env.NOVA_TLDM_READER_URL;
+      expect(novaTldmReaderUrl()).toBe(READER);
+      process.env.NOVA_TLDM_READER_URL = "off";
+      expect(novaTldmReaderUrl()).toBe("");
+    } finally {
+      process.env.NODE_ENV = nodeEnv;
+      delete process.env.NOVA_TLDM_READER_URL;
+    }
+  });
   it("off / a Sham address / not https = no reader", async () => {
     const { novaTldmReaderUrl } = await import("@/lib/openCoderStudio");
     for (const v of ["off", "https://studio-x-sham-v2.api-inference.modelscope.ai", "http://x"]) { process.env.NOVA_TLDM_READER_URL = v; expect(novaTldmReaderUrl()).toBe(""); }

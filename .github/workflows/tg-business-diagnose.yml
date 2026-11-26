@@ -1,0 +1,225 @@
+name: tg-business-diagnose
+# Manual, read-only: why replies inside a linked Telegram account (Business / Secretary mode) do or do not happen.
+# Prints the owner's switch, Telegram's own report (Secretary Mode, webhook, last delivery error), the stored connections
+# compared with the rights Telegram reports right now, and the last decisions in the business log. No tokens in the output.
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "also ask Telegram for each stored connection (getBusinessConnection)"
+        type: string
+        default: "1"
+      gen:
+        description: "also ask each model's business generator for one short reply (what a contact would have received, or why not)"
+        type: string
+        default: "1"
+      prove:
+        description: "end-to-end proof for this model (coder or sham_v2): a business_message update goes through the real webhook and the log must show in then sent with Telegram's message_id"
+        type: string
+        default: ""
+      send:
+        description: "1: also send one business reply through grammY itself, no model in the way (separates a Telegram refusal from a library difference)"
+        type: string
+        default: ""
+      db:
+        description: "1: read one Arabic row out of the business log and back, to say whether a mangled row is the database's doing"
+        type: string
+        default: ""
+      chat:
+        description: "inject ONE plain chat message into this server's own webhook (a Telegram id; empty = do not inject)"
+        type: string
+        default: ""
+      gate:
+        description: "1: read this chat's selected model and its last runs, then inject the same message again through the public front door"
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: the business state, verbatim
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PROBE: ${{ inputs.probe }}
+          GEN: ${{ inputs.gen || '0' }}
+        run: |
+          set -eu
+          # Oracle directly, not the gate: the front door gives a read-only request ~20 s and then answers its own
+          # "site is updating" page, and gen=1 spends a model reply's time on top of the probes. Reading it through
+          # the gate made this step fail every time gen=1 (HTTP 503, run 45831100238) instead of reporting the state.
+          url="https://89-168-89-15.sslip.io/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-0}"
+          code=$(curl -sS -m 150 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
+          echo "HTTP ${code}"
+          head -c 4000 biz.json; echo
+          [ "${code}" = "200" ] || exit 1
+      - name: the plain chat path (Nova and Sham), verbatim
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -u
+          # Oracle directly: the webhook, the engine list and the Sham flags are per-server state.
+          q=""; [ -n "${CHAT:-}" ] && q="?chat=${CHAT}"
+          code=$(curl -sS -m 60 -o chat.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://89-168-89-15.sslip.io/api/ops/chat-probe${q}" || echo 000)
+          echo "HTTP ${code}"
+          [ "${code}" = "200" ] || { head -c 500 chat.json 2>/dev/null; echo; exit 0; }
+          python3 - <<'PY'
+          import json
+          d = json.load(open("chat.json"))
+          b = d.get("bot") or {}
+          t = d.get("telegram") or {}
+          print(f"bot = {b.get('id')} active={b.get('active')} @{t.get('username')} | webhook host={t.get('webhookHost')} pending={t.get('pending')}")
+          print(f"last delivery error = {t.get('lastErrorMessage')} ({t.get('lastErrorAt')})")
+          e = d.get("engines") or {}
+          print(f"engines = {e.get('count')} {e.get('hosts')}")
+          print("flags:", json.dumps(d.get("flags") or {}, ensure_ascii=False))
+          print("last Sham runs:")
+          for r in d.get("tasks") or []:
+              print(f"  {r.get('updatedAt')} {r.get('status'):<8} {r.get('slot'):<9} {r.get('runId')} :: {r.get('title')}")
+          print("their own last lines:")
+          for ev in d.get("events") or []:
+              print(f"  {ev.get('at')} {ev.get('kind'):<8} {ev.get('runId')} :: {ev.get('text')}")
+          c = d.get("chat")
+          if c:
+              print(f"selected model for {c.get('id')} = {c.get('model')} (freei={c.get('freei')})")
+              print("that chat's last runs (any model):")
+              for r in d.get("chatTasks") or []:
+                  print(f"  {r.get('updatedAt')} {r.get('status'):<8} {r.get('slot'):<9} {r.get('runId')} :: {r.get('title')}")
+          PY
+      - name: one plain chat message, injected into the real webhook
+        if: ${{ always() && inputs.chat != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -u
+          code=$(curl -sS -m 130 -o inject.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"text\":\"اختبار: هل ترد؟\"}" \
+            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+          echo "HTTP ${code}"
+          head -c 1200 inject.json 2>/dev/null; echo
+      - name: the same message again, through the public front door
+        if: ${{ always() && inputs.gate == '1' && inputs.chat != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAT: ${{ inputs.chat }}
+        run: |
+          set -u
+          # The real path Telegram uses. A 200 here with no run in the next read means the front door answers while the site
+          # never receives the update; a 504 means the gate cut the request the site was still working on.
+          code=$(curl -sS -m 130 -o gate.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"chat\":\"${CHAT}\",\"via\":\"gate\",\"text\":\"اختبار البوابة: هل ترد؟\"}" \
+            https://89-168-89-15.sslip.io/api/ops/chat-probe || echo 000)
+          echo "HTTP ${code}"
+          head -c 1200 gate.json 2>/dev/null; echo
+      - name: the report, readable
+        if: always()
+        run: |
+          set -eu
+          [ -f biz.json ] || { echo "no body"; exit 0; }
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("biz.json"))
+          except Exception:
+              print("body is not JSON"); raise SystemExit(0)
+          if d.get("error"):
+              print("error:", d["error"]); raise SystemExit(0)
+          print(f"owner switch (tg_business) = {d.get('flag')}")
+          b = d.get("bot") or {}
+          print(f"bot @{b.get('username')} | secretary mode (can_connect_to_business) = {b.get('canConnectBusiness')}")
+          print(f"webhook = {b.get('webhookUrl')} | pending = {b.get('pending')} | allowed_updates = {b.get('allowedUpdates')}")
+          print(f"last delivery error = {b.get('lastError')} ({b.get('lastErrorAgoMin')} min ago)")
+          st = d.get("studios")
+          if isinstance(st, str):
+              print("studios:", st)
+          else:
+              for s in st or []:
+                  print(f"  studio {s['studio']} | phase={s['phase']} model={s['model']} queue={s['queue']}")
+          g = d.get("gen")
+          if g:
+              for one in (g if isinstance(g, list) else [g]):
+                  print(f"reply by {one.get('model')}: {one.get('ms')} ms | text={one.get('text')!r} | why={one.get('why')}")
+          cs = d.get("connections")
+          if isinstance(cs, str):
+              print("connections:", cs)
+          else:
+              print(f"connections = {len(cs)}")
+              for c in cs:
+                  tg = c.get("telegram") or {}
+                  print(f"  {c['id']} user={c['user']} enabled={c['enabled']} model={c['model']} rights={c['rights']}")
+                  print(f"    telegram now: enabled={tg.get('isEnabled')} rights={tg.get('rights')} missing={tg.get('missing')} error={tg.get('error')}")
+          lg = d.get("log")
+          if isinstance(lg, str):
+              print("log:", lg)
+          else:
+              print(f"log rows (newest first) = {len(lg)}")
+              for r in lg[:20]:
+                  print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
+          PY
+      - name: one Arabic row, out of the log and back
+        if: ${{ always() && inputs.db == '1' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          curl -sS -m 60 -X POST -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d '{"dbProbe":true}' https://89-168-89-15.sslip.io/api/ops/tg-business -o db.json --fail || true
+          cat db.json 2>/dev/null; echo
+      - name: one send through grammY, no model in the way
+        if: ${{ always() && inputs.send == '1' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 60 -o send.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d '{"sendProbe":true}' \
+            https://89-168-89-15.sslip.io/api/ops/tg-business || echo 000)
+          echo "HTTP ${code}"
+          cat send.json; echo
+          python3 - <<'PY'
+          import json
+          d = json.load(open("send.json"))
+          g = d.get("grammy") or {}
+          print(f"grammy send: ok={g.get('ok')} message_id={g.get('messageId')} code={g.get('errorCode')} desc={g.get('description')!r} sent={g.get('sent')!r} error={g.get('error')!r}")
+          PY
+      - name: the whole path, through the real webhook
+        # always(): a prove-only run must not be skipped because the state read above failed (it is slow through the gate).
+        if: ${{ always() && inputs.prove != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MODEL: ${{ inputs.prove }}
+        run: |
+          set -eu
+          # Oracle directly, not the gate: the front door drops a request that takes longer than ~20 s, and a reply here
+          # may spend longer than that in the model before Telegram accepts it.
+          code=$(curl -sS -m 200 -o prove.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" -H 'content-type: application/json' \
+            -d "{\"model\":\"${MODEL}\"}" \
+            https://89-168-89-15.sslip.io/api/ops/tg-business || echo 000)
+          echo "HTTP ${code}"
+          cat prove.json; echo
+          [ "${code}" = "200" ] || exit 1
+          python3 - <<'PY'
+          import json
+          d = json.load(open("prove.json"))
+          if d.get("error"):
+              print("error:", d["error"], "|", d.get("hint", "")); raise SystemExit(0)
+          print(f"webhook over HTTP = {d['webhook']['http']} | chat = {d['chat']}")
+          for r in d.get("rows") or []:
+              print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:70]}")
+          if d.get("telegramDirect"):
+              x = d["telegramDirect"]
+              print(f"telegram direct: http={x.get('http')} ok={x.get('ok')} code={x.get('errorCode')} desc={x.get('description')!r} message_id={x.get('messageId')} err={x.get('error')!r}")
+          print(f"passed for {d['model']} = {d['passed']} | message_id = {d.get('messageId')}")
+          if not d.get("passed"):
+              raise SystemExit(1)
+          PY

@@ -558,3 +558,38 @@ describe("a poll the hub refuses for a moment does not end the task", () => {
   }, 70000);
 });
 
+describe("a prompt over the Studio's own window", () => {
+  // Live 2026-11-24: the bot assumed 32,768 while the Studio served 16,384, sent ~15,749 tokens of prompt + tools and got
+  // `exceed_context_size_error`, then retried the SAME prompt six times. The Studio's own error must teach it the real window and
+  // the retry must really be smaller — the tool schemas and the history — and the model must still answer.
+  it("learns the real n_ctx from the Studio's error, cuts the step and the model answers", async () => {
+    const { forgetStudioCtx, ctxTokens } = await import("@/lib/coderContext");
+    forgetStudioCtx();
+    process.env.CODER_CTX_TOKENS = "32768";
+    process.env.CODER_HISTORY_CHARS = "45000";
+    const big = "هذه فقرة طويلة لقياس حد السياق عند هذا النموذج. ".repeat(900);
+    const calls = studio([
+      { type: "pending", job: "j1" },
+      { type: "error", job: "j1", error: "llama.cpp: request (21000 tokens) exceeds the available context size (16384 tokens), try increasing it" },
+      { type: "pending", job: "j2" },
+      { type: "done", job: "j2", text: "عاصمة فرنسا هي باريس.", tool_calls: [] },
+    ]);
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: big }], notes: "", inbox: [], run: { id: "ctx1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 60000);
+    const chats = calls.filter((c) => c.url.includes("/call/v2/chat")).map((c) => (c.body || {}) as any);
+    expect(chats.length).toBeGreaterThanOrEqual(2);
+    expect(String(chats[1].tools || "").length).toBeLessThan(String(chats[0].tools || "").length);          // the retry drops the full tool list
+    expect(String(chats[1].messages || "").length).toBeLessThan(String(chats[0].messages || "").length);    // and sends half the history
+    expect(String(chats[1].messages || "")).toContain("لم تُقرأ");                                          // a single turn over the window is cut, visibly
+    expect(ctxTokens()).toBe(16384);                                                                          // the Studio's number, not the assumed one
+    expect(sent.map((s) => s.text)).toContain("عاصمة فرنسا هي باريس.");
+    await loadState(CHAT, db);                                                 // the run closed cleanly (no state left mid-retry)
+    expect(db.stalls.some((x) => /exceeds the available context size \(16384 tokens\)/.test(String(x.detail)))).toBe(true);
+    delete process.env.CODER_CTX_TOKENS;
+    delete process.env.CODER_HISTORY_CHARS;
+    forgetStudioCtx();
+  }, 70000);
+});
+

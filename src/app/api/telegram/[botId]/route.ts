@@ -168,7 +168,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (botRow.template === "NOVA_BOT" && (body.business_connection || body.business_message || body.edited_business_message || body.deleted_business_messages)) {
         const B = await import("@/lib/tgBusiness");
         if (body.business_connection) await B.handleBusinessConnection(bot.api as never, body.business_connection).catch(() => null);
-        else if (body.business_message) await B.handleBusinessMessage(bot.api as never, body.business_message).catch(() => null);
+        // A reply waits for the owner's own model, and the model can need longer than Telegram gives a webhook (60 s): answer Telegram
+        // at once and let the reply land when the model is done, instead of losing it to the delivery timeout. The handler never throws.
+        //
+        // It also gets a bare Api, with none of the transformers installed on bot.api above: the topic transformer rewrites an answer's
+        // payload (message_thread_id), and Telegram refuses a business reply that carries it. The live proof of 2026-11-26 01:38 was refused
+        // by the library while the identical call by plain fetch was accepted (message_id 319635), so business sends go out exactly as written.
+        else if (body.business_message) void (async () => {
+          const { Api } = await import("grammy");
+          return B.handleBusinessMessage(new Api(botRow.token) as never, body.business_message);
+        })().catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
       if (botRow.template === "NOVA_BOT") { const { rememberThread } = await import("@/lib/tgThread"); rememberThread(body); }

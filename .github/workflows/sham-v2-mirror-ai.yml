@@ -1,0 +1,53 @@
+name: "Sham v2 mirror to the international site (model + T-LDM head, cn -> ai)"
+
+# Owner's platform decision (2026-11-25): Sham Pro is SERVED on modelscope.ai (international account) and TRAINED on modelscope.cn (novaai2026).
+# This copies Sham Pro's own private repos cn -> ai: novaai2026/sham-v2 -> Jonjithup/sham-v2 and novaai2026/sham2-tldm-head -> Jonjithup/sham2-tldm-head.
+# Only changed files are copied, nothing is deleted, tokens are never printed. After a successful copy the international Studio redeploys
+# (deploy-modelscope-sham-v2-ai.yml follows this workflow).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 */2 * * *"            # a head the cn trainer published reaches the served copy within ~2 h
+  workflow_run:
+    workflows:
+      - "Sham v2 signed runtime code sync"
+      - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
+      - "Sham v2 runtime wheels (mirror llama-cpp-python into Sham's own model repo)"
+      - "Sham v2 motion tokenizer (train on real clips, publish next to the checkpoint)"
+      - "Sham v2 motion rows (train Sham's own motion tokens on real clips, publish next to the checkpoint)"
+    types: [completed]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+
+concurrency:
+  group: sham-v2-mirror-ai
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Free runner disk (one big file at a time is held)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+      - run: python -m pip install -q "modelscope>=1.26.0"
+      - name: Mirror
+        env:
+          MS_CN_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MS_AI_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          python scripts/ops/mirror_sham_v2_to_ai.py --selftest
+          python scripts/ops/mirror_sham_v2_to_ai.py novaai2026/sham-v2=Jonjithup/sham-v2 novaai2026/sham2-tldm-head=Jonjithup/sham2-tldm-head

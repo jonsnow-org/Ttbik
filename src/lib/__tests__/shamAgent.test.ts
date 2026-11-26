@@ -338,6 +338,53 @@ describe("Sham's own agent loop", () => {
     expect(ran).toEqual(["web_search"]);
     expect(seen[1]).toMatch(/نتيجة الأداة web_search:\nنتائج: مشمس/);                    // the second step shows Sham the result
   });
+  it("a broken call AFTER a real tool result still answers from that result (live 2026-11-26, self_review)", async () => {
+    // The owner asked for a self-review: self_review returned its real numbers, the next call was malformed,
+    // and the owner was answered «لم يُنفّذ الاستدعاء الأخير» instead of the report the tool had already produced.
+    const saved = "مهاراتك المحفوظة بيدك: 1 — quick_answer (استُخدمت 0 مرة).";
+    const r = await runV1({
+      text: "حلّل مهاراتك المحفوظة", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 4,
+      ask: script([
+        say('<tool_call>{"name":"memory_search","arguments":{"query":"quick_answer"}}</tool_call>'),
+        say('<tool_call>{"name":"no_such_tool","arguments":{}}</tool_call>'),
+      ]),
+      exec: async () => "مهاراتك المحفوظة بيدك: 1 — quick_answer (0×).",
+      verifyAsk: async () => say(saved),
+    });
+    expect(r).toMatchObject({ kind: "text", text: saved, used: ["memory_search"] });
+  });
+  it("never runs the same call twice: a repeating model is sent to the final answer (live 2026-11-26, skill_list ×5)", async () => {
+    // The self-review probe called skill_list five times in a row and the run ended with «no answer from Sham in time».
+    const same = say('<tool_call>{"name":"memory_search","arguments":{"query":"quick_answer"}}</tool_call>');
+    const ran: string[] = [];
+    const r = await runV1({
+      text: "حلّل مهاراتك المحفوظة", ctx, tools: shamToolDefs(false), budgetMs: 60000, maxSteps: 3,
+      ask: script([same, same, same, say("مهارتك المحفوظة: quick_answer.")]),
+      exec: async (c) => { ran.push(c.function.name); return "مهاراتك المحفوظة بيدك: 1 — quick_answer (0×)."; },
+      verifyAsk: async () => say("مهارتك المحفوظة: quick_answer (0×)."),
+    });
+    expect(ran).toEqual(["memory_search"]);                                   // the repeat is answered from the transcript, not executed again
+    expect(r).toMatchObject({ kind: "text", text: "مهارتك المحفوظة: quick_answer (0×).", used: ["memory_search"] });
+  });
+  it("a self-review request is told to run self_review, not to browse the skill list (live 2026-11-26)", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("تقريري من سجلّي.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "تقريري من سجلّي." });
+    expect(seen[0]).toContain("self_review");
+    expect(seen[0]).toContain("لا تستدعِ الأداة نفسها مرتين");
+  });
+  it("with no tool result recorded, a broken call is still reported honestly", async () => {
+    const r = await runV1({
+      text: "افعلها", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say('<tool_call>{"name":"no_such_tool","arguments":{}}</tool_call>')]),
+      verifyAsk: async () => say("لا شيء"),
+    });
+    expect(r.kind).toBe("text");
+    expect((r as { text: string }).text).toContain("لم يُنفّذ الاستدعاء الأخير");
+  });
   it("Sham v2 consumes structured function calls without parsing a tool-call tag in the web app", async () => {
     const seen: string[] = [], ran: string[] = [];
     const answers: any[] = [
