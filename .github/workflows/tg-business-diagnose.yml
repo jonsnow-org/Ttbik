@@ -28,10 +28,10 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           PROBE: ${{ inputs.probe }}
-          GEN: ${{ inputs.gen }}
+          GEN: ${{ inputs.gen || '0' }}
         run: |
           set -eu
-          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-1}"
+          url="https://ttbik-gate.jonsnowx1r.workers.dev/api/ops/tg-business?probe=${PROBE:-1}&gen=${GEN:-0}"
           code=$(curl -sS -m 90 -o biz.json -w '%{http_code}' -H "Authorization: Bearer ${CRON_SECRET}" "$url" || echo 000)
           echo "HTTP ${code}"
           head -c 4000 biz.json; echo
@@ -82,7 +82,8 @@ jobs:
                   print(f"  {r['at']} {r['dir']:<5} {r['model']:<7} {('['+r['note']+'] ') if r['note'] else ''}{r['text'][:60]}")
           PY
       - name: the whole path, through the real webhook
-        if: ${{ inputs.prove != '' }}
+        # always(): a prove-only run must not be skipped because the state read above failed (it is slow through the gate).
+        if: ${{ always() && inputs.prove != '' }}
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           MODEL: ${{ inputs.prove }}
