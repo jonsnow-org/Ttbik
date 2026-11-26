@@ -366,6 +366,16 @@ describe("Sham's own agent loop", () => {
     expect(ran).toEqual(["memory_search"]);                                   // the repeat is answered from the transcript, not executed again
     expect(r).toMatchObject({ kind: "text", text: "مهارتك المحفوظة: quick_answer (0×).", used: ["memory_search"] });
   });
+  it("a self-review request is told to run self_review, not to browse the skill list (live 2026-11-26)", async () => {
+    const seen: string[] = [];
+    const r = await shamVariant.run("v2", () => shamAgentRun({
+      text: "حلّل نفسك وقدراتك الآن", ctx, tools: shamToolDefs(false), budgetMs: 30000,
+      ask: script([say("تقريري من سجلّي.")], seen),
+    }));
+    expect(r).toMatchObject({ kind: "text", text: "تقريري من سجلّي." });
+    expect(seen[0]).toContain("self_review");
+    expect(seen[0]).toContain("لا تستدعِ الأداة نفسها مرتين");
+  });
   it("with no tool result recorded, a broken call is still reported honestly", async () => {
     const r = await runV1({
       text: "افعلها", ctx, tools: shamToolDefs(false), budgetMs: 30000,

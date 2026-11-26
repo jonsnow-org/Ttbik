@@ -429,7 +429,12 @@ async function shamAgentRunInner(opts: {
     generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
   // what Sham Pro already taught ITSELF: one short line, so a saved skill is reachable (and claimable truthfully) instead of being guessed
   let selfNote = "";
-  if (v2) { try { selfNote = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { selfNote = ""; } }
+  if (v2) {
+    try { selfNote = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { selfNote = ""; }
+    // A self-review request must read its own record: live probe 2026-11-26 called skill_list (twice) and never reached self_review, so the report the owner
+    // asked for never existed. The routing line is only for these turns; the tool list itself is unchanged.
+    if (selfDev) selfNote = ["طلب عمل على نفسك: نفّذ self_review مرة واحدة للأرقام الحقيقية ثم اكتب التقرير، ولا تستدعِ الأداة نفسها مرتين.", selfNote].filter(Boolean).join("\n");
+  }
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
