@@ -213,6 +213,20 @@
    "input": "",
    "script": "هل تريد معرفة عدد الأيام بين تاريخين، أو الموعد بعد مئة يوم؟ حاسبة التواريخ من شام إيه آي تعطيك الجواب فوراً بالأيام والأسابيع والأشهر. مجاناً. جرّبها الآن.",
    "ctaTitle": "جرّبها مجاناً"
+  },
+  {
+   "id": 17,
+   "path": "/free-tools/story-card",
+   "title": "بطاقة ستوري للمشاركة",
+   "hook": "نتيجتك تستحق بطاقة جميلة",
+   "input": "نتيجتي من شام AI\nإنجاز اليوم\nخطوة جديدة نحو الهدف",
+   "script": "هل تريد مشاركة نتيجة أو فكرة بصورة جاهزة للستوري؟ مع أداة بطاقة الستوري من شام AI تكتب عنوانك وسطرين، فتظهر أمامك بطاقة عمودية جاهزة للمشاركة. عدّل النص واصنع بطاقتك مجاناً داخل المتصفح.",
+   "ctaTitle": "اصنع بطاقتك مجاناً",
+   "caption": "Create a share-ready 9:16 story card with Sham AI. Add a title and two lines, preview it, and share it. Free and made in your browser.\nاصنع بطاقة ستوري عمودية بنتيجتك أو فكرتك مع شام AI. أضف عنواناً وسطرين، ثم اعرضها وشاركها مجاناً من المتصفح.\nhttps://ttbik-gate.jonsnowx1r.workers.dev/free-tools/story-card",
+   "lang": "ar",
+   "voice": "ar-SA-ZariyahNeural",
+   "rate": "-5%",
+   "rec": true
   }
  ]
 }
