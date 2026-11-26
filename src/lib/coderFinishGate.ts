@@ -77,6 +77,16 @@ export function isActionGoal(goal: string): boolean {
   return ACTION_GOAL.test(String(goal || ""));
 }
 
+/**
+ * An instruction that asks for words, not for work («قل…», «أجب…», «اشرح…», "say" / "explain"). Live 2026-11-26: the owner's
+ * «اختبار ثالث بعد إصلاح حرس الرد المكرر: قل في سطر واحد أنك بخير» matched ACTION_GOAL on the word «إصلاح», so Nova's correct
+ * one-line answer was sent back to work, the re-run failed, and the chat ended with an error instead of the reply.
+ */
+const SAY_GOAL = /(?:^|[\s:،؛.!])(?:قل|قُل|أجب|اجب|اكتب لي|اكتبلي|أخبرني|اخبرني|اشرح|وضّح|لخّص|ترجم|ردّ علي|رد علي|أعطني(?: لي)? سطر|say\b|answer\b|explain\b|tell me\b|describe\b|summari[sz]e\b|translate\b|reply with\b)/i;
+export function isSayGoal(goal: string): boolean {
+  return SAY_GOAL.test(String(goal || ""));
+}
+
 /** A greeting or a question about the model itself: never an action request, whatever the owner asked earlier in the chat. */
 const CHITCHAT = /^[\s\p{P}]*(?:(?:مرحبا|مرحباً|هلا|اهلا|أهلا|أهلاً|السلام عليكم|صباح الخير|مساء الخير|hi|hello|hey)(?!\p{L})[\s\S]{0,40}|[\s\S]{0,30}(?:كيف حالك|كيفك|شلونك|من انت|من أنت|ما اسمك|ما هو اسمك|who are you|how are you|what is your name)[\s\S]{0,30})[\s\p{P}]*$/iu;
 export function isChitChat(text: string): boolean {
@@ -96,6 +106,7 @@ export function finishNudge(goal: string, toolNames: string[], text: string, nud
   const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
   const codeChanged = messages ? madeSuccessfulChanges(messages) : toolNames.some((n) => CODE_CHANGE_TOOL.test(n));
   if (nudges >= 3) return "";
+  if (isSayGoal(goal)) return "";                                    // «قل…»/«اشرح…» asks for an answer, never for a file change
   // A branch/PR is a real step, but it is not proof that the code was fixed.
   if (claimsChanges(text) && !codeChanged) {
     return "[harness] Your answer says things were fixed or changed, but this run made NO edit, write, patch or publish call: nothing was changed. Never report work you did not do. "
@@ -116,7 +127,7 @@ export function finishNudge(goal: string, toolNames: string[], text: string, nud
  */
 export function stalledActionNote(goal: string, toolNames: string[], messages?: GateMessage[]): string {
   const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
-  if (!isActionGoal(goal) || acted) return "";
+  if (!isActionGoal(goal) || isSayGoal(goal) || acted) return "";
   return "⏹️ توقفت قبل تنفيذ أي خطوة: النموذج أعاد نفس الجملة ولم يستدعِ أي أداة، فلم يُغيَّر أي ملف. "
     + "اكتب «تابع» وسأكمل من أول خطوة فعلية: البحث داخل المستودع عن الاسم الذي ذكرته ثم قراءة الملفات التي يجدها.";
 }
@@ -125,7 +136,7 @@ export function stalledActionNote(goal: string, toolNames: string[], messages?: 
 export const BLOCKED_REPLY_RECOVERIES = 2;
 export function shouldRecoverBlockedAction(goal: string, toolNames: string[], recoveries: number, messages?: GateMessage[]): boolean {
   const acted = messages ? madeSuccessfulActions(messages) : madeChanges(toolNames);
-  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !acted;
+  return recoveries < BLOCKED_REPLY_RECOVERIES && isActionGoal(goal) && !isSayGoal(goal) && !acted;
 }
 
 /** A run is a lesson for training only when it did what was asked: an action request that changed nothing is not stored. */
