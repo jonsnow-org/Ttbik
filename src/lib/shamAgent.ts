@@ -395,6 +395,16 @@ async function shamAgentRunInner(opts: {
   let recoveries = 0;
   let mediaRefused = false;
   let steps = 0;
+  // A model that repeats the SAME call verbatim learns nothing new: the result is already in the transcript. Live self-review probe 2026-11-26:
+  // skill_list ran five times in a row, ate the whole webhook window, and the owner got «no answer from Sham in time» instead of a report.
+  const callSig = (c: CoderToolCall) => `${c.function.name}:${String(c.function.arguments || "").trim()}`;
+  const seenCalls = new Set<string>();
+  for (const m of messages) {
+    const calls = (m as { tool_calls?: CoderToolCall[] }).tool_calls;
+    if (Array.isArray(calls)) for (const c of calls) seenCalls.add(callSig(c));
+  }
+  let repeatRounds = 0;
+  let forcedFinal = false;
   const runMedia = async (call: CoderToolCall, usedNow: string[], stepNow: number): Promise<ShamAgentResult> => {
     let a: { kind?: string; prompt?: string; scenes?: unknown; narration?: unknown; seconds?: number } = {};
     try { a = JSON.parse(call.function.arguments || "{}"); } catch { /* validated already */ }
@@ -628,9 +638,18 @@ async function shamAgentRunInner(opts: {
     }
     const write = valid.find((c) => shamNeedsOk(c));
     if (write) return { kind: "confirm", call: write, used, steps: steps + 1 };
+    if (valid.every((c) => seenCalls.has(callSig(c)))) {
+      repeatRounds++;
+      opts.onEvent?.("info", "استدعاء مكرر حرفياً: نتيجته موجودة أعلاه؛ لن يُنفَّذ مرة ثانية.");
+      messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
+      for (const c of valid.slice(0, 3)) messages.push({ role: "tool", name: c.function.name, tool_call_id: c.id, content: "error: this exact call already ran above and its result is in the transcript. Do not repeat it — call a different tool, or write the final answer now from the results you already have." } as CoderMessage);
+      if (repeatRounds > 1 && left() > 8000) { forcedFinal = true; break; }
+      continue;
+    }
     messages.push({ role: "assistant", content: p.text, tool_calls: valid.slice(0, 3) } as CoderMessage);
     for (const c of valid.slice(0, 3)) {
       if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
+      seenCalls.add(callSig(c));
       used.push(c.function.name);
       opts.onEvent?.("tool", `${c.function.name} ${String(c.function.arguments || "").slice(0, 200)}`);
       opts.onStep?.({ type: "tool_start", name: c.function.name, args: String(c.function.arguments || "") });
@@ -644,7 +663,7 @@ async function shamAgentRunInner(opts: {
   }
 
   // out of steps or time with the work still going: the next leg continues it (long tasks, many steps), instead of cutting it short
-  if (opts.continuable && used.length) return { kind: "more", messages, used, steps };
+  if (!forcedFinal && opts.continuable && used.length) return { kind: "more", messages, used, steps };
   // out of steps or time: ask for the final answer from what was found, with no tools shown
   if (left() > 5000 && used.length) {
     const prompt = shamToolConversation(messages, [], lim).replace(/\nشام:$/, "\n[اكتب الجواب النهائي الآن مما وجدتَه، بلا استدعاء أدوات.]\nشام:");
