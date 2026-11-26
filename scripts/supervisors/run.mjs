@@ -3,6 +3,7 @@
 // no workflow is ever dispatched or rerun by this supervisor.
 // Usage: node scripts/supervisors/run.mjs <section>   (env: GITHUB_REPOSITORY, GITHUB_TOKEN, FROZEN_CHECK=ok|fail optional, SITE_JSON optional)
 import fs from "node:fs";
+import { assessVideoQueue } from "./video-queue.mjs";
 
 const ok200 = () => true;
 const json = (f) => (t) => { try { return f(JSON.parse(t)); } catch { return false; } };
@@ -37,7 +38,7 @@ export const SECTIONS = {
   },
   promo: {
     site: [],
-    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 100], ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"], ["claude/free-services-marketplace-h6rwk2"]]],
+    workflows: [["channel-post.yml", "Channel posts", 12], ["promo-remotion.yml", "Promo videos", 80], ["promo-projects.yml", "Promo images", 200, ["schedule", "workflow_dispatch"], ["claude/free-services-marketplace-h6rwk2"]]],
     errorWords: /promo|channel|youtube|video|post/i,
   },
   athar: {
@@ -100,6 +101,9 @@ export function evaluate(d, now = Date.now(), currentRunId = null) {
           ? `latest successful production run is missing, expired or empty: ${missing.join(", ")} (${a.runUrl || "GitHub Actions"})`
           : `all required review artifacts are present and non-empty: ${REQUIRED_PROMO_ARTIFACTS.join(", ")} (${a.runUrl || "GitHub Actions"})`);
     }
+  }
+  if (d.videoQueue?.checks) {
+    for (const check of d.videoQueue.checks) add(check.name, check.level, check.detail);
   }
   if (d.bots) {
     if (d.bots.error) add("Bots: live webhook check", "warn", `could not read /api/ops/bots-health (${d.bots.error})`);
@@ -200,6 +204,26 @@ async function main() {
             data.promoArtifacts = { conclusion: latest.conclusion || latest.status, runUrl: latest.html_url, artifacts: [] };
           }
         }
+      }
+    }
+    if (section === "promo") {
+      const releaseResponse = await gh(`/repos/${repo}/releases?per_page=100`);
+      try {
+        if (releaseResponse.status !== 200 || !Array.isArray(releaseResponse.body)) {
+          data.videoQueue = { checks: [{ name: "Promo video release queue", level: "warn", detail: `could not read GitHub Releases (HTTP ${releaseResponse.status}).` }] };
+        } else {
+          const episodeCatalog = JSON.parse(fs.readFileSync("promo/remotion/episodes.json", "utf8"));
+          data.videoQueue = assessVideoQueue({ episodes: episodeCatalog.episodes || [], releases: releaseResponse.body });
+          data.videoQueue.checks.push({
+            name: "Promo video publishing switch",
+            level: "info",
+            detail: fs.existsSync("promo/PUBLISH_ON")
+              ? "promo/PUBLISH_ON exists; verify Telegram and YouTube delivery separately from the production step logs."
+              : "promo/PUBLISH_ON is absent; generated releases remain review-only unless the owner explicitly enables publishing.",
+          });
+        }
+      } catch (error) {
+        data.videoQueue = { checks: [{ name: "Promo video release queue", level: "warn", detail: `could not evaluate the release queue (${String(error).slice(0, 180)}).` }] };
       }
     }
     if (cfg.botsHealth && process.env.CRON_SECRET) {   // live webhook check of every hosted bot (read-only; the endpoint hides tokens)
