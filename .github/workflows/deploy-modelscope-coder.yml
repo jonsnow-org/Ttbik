@@ -201,6 +201,25 @@ jobs:
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"
           git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
 
+      - name: Reader access to the private head repo (a Studio secret, never printed)
+        env:
+          T: ${{ inputs.site == 'ai' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -u
+          echo "::add-mask::$T"
+          if ! grep -qxF "$REPO" ai-system/modelscope-coder/NOVA_TLDM_READER_STUDIOS 2>/dev/null; then
+            echo "not a T-LDM reader Studio: no head token needed"; exit 0
+          fi
+          # nova2-tldm-head is PRIVATE (train_gguf_head publishes visibility=1): the reader fetches it at boot, so the Studio
+          # needs the account's own read token. It goes in as a secret (settings -> Secret, value never read back), never in the repo.
+          body=$(python3 -c 'import json,os;print(json.dumps({"key":"MODELSCOPE_API_TOKEN","value":os.environ["T"]}))')
+          for m in POST PUT; do          # POST adds it, PUT replaces an existing key
+            code=$(curl -sS -o sec.json -w '%{http_code}' -X $m -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios/$OWNER/$REPO/secrets")
+            echo "$m secret: HTTP $code $(sed "s/${T}/***/g" sec.json | head -c 300)"
+            case "$code" in 2??) exit 0;; esac
+          done
+          echo "::error::the reader Studio could not be given read access to the private head repo"; exit 1
+
       - name: Deploy and show status
         if: github.event_name == 'push' || inputs.redeploy != 'false'
         env:
