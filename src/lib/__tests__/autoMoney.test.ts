@@ -1,6 +1,13 @@
-const db: any = { $executeRawUnsafe: jest.fn(async () => 0), $executeRaw: jest.fn(async () => 1), $queryRaw: jest.fn(async () => []) };
+const db: any = {
+  $executeRawUnsafe: jest.fn(async () => 0),
+  $executeRaw: jest.fn(async () => 1),
+  $queryRaw: jest.fn(async () => []),
+  bot: { findFirst: jest.fn(async () => ({ id: "contest-bot", token: "test-token" })) },
+};
 jest.mock("@/lib/prisma", () => ({ prisma: db }));
-import { chooseGift, MIN_POINTS, pickWinners, prizeFor } from "@/lib/contests/prizes";
+jest.mock("@/lib/khatma/khatma", () => ({ ensureKhatmaTables: jest.fn(async () => {}) }));
+jest.mock("@/lib/contests/contests", () => ({ ensureContestTables: jest.fn(async () => {}) }));
+import { chooseGift, MIN_POINTS, pickWinners, prizeFor, settleDueSponsors, retryPendingPrizes } from "@/lib/contests/prizes";
 import { parseRefCommand } from "@/lib/remit/refLinks";
 import { autoApprove, secretOk, validateApplication } from "@/lib/remit/listings";
 import { botParam, isRemitRequest, PROVIDERS, providerLink, remitAppUrl } from "@/lib/remit/remit";
@@ -20,6 +27,23 @@ describe("automatic contest prizes", () => {
     ]);
     expect(w.map((x) => x.user_id)).toEqual(["b", "a", "e"]);
     expect(w[2].name).toBe("لاعب");
+  });
+  it("casts the day interval to int in settlement expiry and pending-prize retry SQL", async () => {
+    db.$executeRaw.mockClear();
+    db.$queryRaw.mockClear();
+
+    const settled = await settleDueSponsors();
+    expect(settled).toEqual({ settled: 0, prizes: 0 });
+    const expirySql = db.$executeRaw.mock.calls
+      .map((call: any[]) => Array.isArray(call[0]) ? call[0].join("?") : String(call[0]))
+      .find((sql: string) => sql.includes("UPDATE contest_prizes SET status = 'EXPIRED'"));
+    expect(expirySql).toMatch(/make_interval\(days => \?::int\)/);
+
+    expect(await retryPendingPrizes()).toBe(0);
+    const retrySql = db.$queryRaw.mock.calls
+      .map((call: any[]) => Array.isArray(call[0]) ? call[0].join("?") : String(call[0]))
+      .find((sql: string) => sql.includes("FROM contest_prizes p JOIN khatma_sponsors"));
+    expect(retrySql).toMatch(/make_interval\(days => \?::int\)/);
   });
   it("maps ranks to prizes per mode", () => {
     expect(prizeFor("TG", 1)).toBe("PREMIUM3");

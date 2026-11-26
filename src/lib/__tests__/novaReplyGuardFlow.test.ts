@@ -43,16 +43,30 @@ describe("Nova's reply guard runs inside the loop", () => {
     expect((text.match(/هذا جواب كامل/g) || []).length).toBe(1);         // shown once, not twice
   });
 
-  it("replaces a word-for-word copy of the previous answer with the honest line", async () => {
-    const prior = "أهلاً بك! أنا Nova AI، وأساعدك في البرمجة والبحث.";
+  it("replaces a substantive word-for-word copy of the previous answer", async () => {
+    const prior = "هذا شرح تفصيلي لكيفية عمل النظام: يستقبل الطلب، يتحقق من المدخلات، ينفذ الخطوات المطلوبة، ثم يعيد النتيجة مع توضيح الأخطاء المحتملة.";
     studio([prior, prior]);
     const { bot, sent } = fakeBot();
     const db = fakeDb();
-    await handleCoderSections(bot, botRow, msg(7002, "مرحباً"), db);
+    await handleCoderSections(bot, botRow, msg(7002, "اشرح لي بالتفصيل كيف يعمل النظام"), db);
     await new Promise((r) => setTimeout(r, 900));
-    await handleCoderSections(bot, botRow, msg(7003, "أخبرني عن نفسك مرة أخرى بالتفصيل"), db);
+    await handleCoderSections(bot, botRow, msg(7003, "أعد شرح طريقة عمل النظام بالتفصيل"), db);
     await new Promise((r) => setTimeout(r, 900));
     const text = shown(sent);
-    expect(text).toContain("تعذّر تكوين جواب مناسب");                    // the copy was replaced, not delivered again
+    expect(text).toContain("تعذّر تكوين جواب مناسب");                    // a substantive copy is replaced
+  });
+
+  it("keeps a short repeated conversational reply", async () => {
+    const prior = "أنا بخير، شكراً لك.";
+    studio([prior, prior]);
+    const { bot, sent } = fakeBot();
+    const db = fakeDb();
+    await handleCoderSections(bot, botRow, msg(7004, "كيف حالك؟"), db);
+    await new Promise((r) => setTimeout(r, 900));
+    await handleCoderSections(bot, botRow, msg(7005, "هل أنت بخير؟"), db);
+    await new Promise((r) => setTimeout(r, 900));
+    const text = shown(sent);
+    expect(text).toContain(prior);
+    expect(text).not.toContain("تعذّر تكوين جواب مناسب");
   });
 });

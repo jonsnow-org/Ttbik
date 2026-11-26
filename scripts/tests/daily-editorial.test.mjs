@@ -639,6 +639,10 @@ test("16 Days campaign is upcoming and then current only within its official dat
   assert.equal(english.endDate, "2026-12-10");
   assert.equal(arabic.dateLabel, "25 نوفمبر – 10 ديسمبر 2026");
   assert.equal(english.dateLabel, "25 November – 10 December 2026");
+  assert.match(arabic.paragraphs.join(" "), /الحالة بتاريخ 25 نوفمبر 2026: جارية، بدأت اليوم/);
+  assert.match(english.body.join(" "), /Status as of 25 November 2026: ongoing; it began today/);
+  assert.doesNotMatch(arabic.paragraphs.join(" "), /الحالة بتاريخ 24 نوفمبر 2026: قادمة/);
+  assert.doesNotMatch(english.body.join(" "), /Status as of 24 November 2026: upcoming/);
   assert.deepEqual(sourceUrls(arabic), sourceUrls(english));
   assert.ok(arabic.sources.some((source) => source.href.includes("who.int/campaigns/16-days-of-activism-against-gender-based-violence/2026")));
   assert.ok(arabic.sources.some((source) => source.href.includes("unwomen.org/sites/default/files/2026-08")));

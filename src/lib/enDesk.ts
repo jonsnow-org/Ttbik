@@ -16,6 +16,201 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "south-korea-bok-rate-hike-growth-outlook-2026",
+  "title": "Bank of Korea raises base rate to 3.25% and lifts growth forecasts",
+  "date": "26 November 2026",
+  "contextDateLabel": "Monetary Policy Board decision: Thursday, 26 November 2026. The Bank of Korea's official statement is dated 26 November and displays no publication time. Reuters published at 01:05 UTC (04:05 Istanbul) on 26 November; AP's page displays no publication time. Sham AI publication date: 26 November 2026.",
+  "dek": "The Bank of Korea raised its base rate by 25 basis points to 3.25% and lifted its growth forecasts for 2026 and 2027, while warning that inflation would remain above target and household-debt risks persisted.",
+  "body": [
+    "On Thursday, 26 November 2026, the Bank of Korea's Monetary Policy Board raised the base rate by 25 basis points, from 3.00% to 3.25%. The bank said domestic growth had strengthened, inflation was expected to remain above target for a considerable time, and financial-stability risks persisted.",
+    "The decision passed by five votes to two; two board members preferred to keep the rate at 3.00%. The official statement said consumer-price inflation was 2.8% year on year in October, above the bank's 2% target.",
+    "The bank raised its GDP growth forecasts to 3.9% for 2026, from 3.3% in August, and to 4.1% for 2027, from 2.9%. It cited strong exports and investment, particularly in semiconductors linked to demand for AI infrastructure. These are official forecasts, not realised outcomes.",
+    "The bank also raised its 2027 consumer-inflation forecast to 2.4%, from 2.3%, and said inflation could remain above target through next year before gradually converging in 2028. It pointed to faster household-loan growth and continuing financial-imbalance risks linked to housing in Seoul and nearby areas.",
+    "The Bank of Korea published its official decision on 26 November 2026 in Seoul; the page does not display a publication time. Reuters published its report that day at 01:05 UTC (04:05 Istanbul), while AP's page does not show a publication time. The bank's projections are not guarantees of future growth or inflation."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bok.or.kr/eng/bbs/E0000634/view.do?depth=400423&menuNo=400423&nttId=11067086&programType=newsDataEng&relate=Y",
+      "label": "Bank of Korea — Monetary Policy Decision & Opening Remarks, 26 November 2026 (official statement)"
+    },
+    {
+      "href": "https://www.reuters.com/markets/asia/south-koreas-central-bank-resumes-tightening-with-quarter-point-hike-2026-11-26/",
+      "label": "Reuters — South Korea's central bank raises rates and lifts growth forecasts, 26 November 2026, 01:05 UTC"
+    },
+    {
+      "href": "https://apnews.com/article/b9cef57c80c2ceb5e273b71b9a32c9d9",
+      "label": "Associated Press — South Korea's central bank raises key interest rate to fight inflation, 26 November 2026"
+    }
+  ]
+},
+{
+  "slug": "dr-congo-bundibugyo-ebola-outbreak-12021-cases-2026",
+  "title": "Ebola outbreak in eastern Congo passes 12,000 confirmed cases as fighting disrupts response",
+  "date": "26 November 2026",
+  "contextDateLabel": "The outbreak was declared in Ituri in mid-May 2026. Ministry of Health data reported by AP and Reuters on Thursday, 26 November: 12,021 confirmed cases and 5,904 deaths. Reuters published at 05:29 UTC (08:29 Istanbul); the Associated Press published at 08:41 UTC (11:41 Istanbul). Fighting resumed near Iga-Barrière on Thursday morning; AP reported the evacuation of about a dozen people from Akwe hospital to Bunia on Tuesday, 24 November, citing the WHO incident manager.",
+  "dek": "Confirmed cases of Ebola disease caused by Bundibugyo virus have passed 12,000 in eastern Democratic Republic of the Congo, according to Ministry of Health data cited by AP and Reuters. Fighting in Ituri is disrupting access for response teams and the monitoring of exposed people.",
+  "body": [
+    "Ministry of Health data from the Democratic Republic of the Congo, reported by the Associated Press and Reuters on Thursday, 26 November 2026, showed 12,021 confirmed infections and 5,904 deaths in the ongoing outbreak. These are figures reported by health authorities on Thursday, not a forecast or a final tally.",
+    "The outbreak was declared in mid-May 2026 in Ituri province in the country's northeast and is caused by the Bundibugyo species of Ebola virus. Reuters said cases had spread to eight of the country's 26 provinces. Both agencies reported that no treatment or vaccine is approved for this virus species as of their reports.",
+    "The health emergency is unfolding alongside renewed fighting between the Congolese army and fighters from the Convention for the Popular Revolution near Iga-Barrière, about 25 kilometres north of Bunia, on Thursday morning. AP reported new displacement and said clashes had prevented teams from reaching some communities, disrupted monitoring of exposed people and left some treatment centres with fewer staff.",
+    "The AP quoted Catherine Smallwood, the World Health Organization's Ebola incident manager, as saying that about a dozen people, including two WHO personnel and Congolese health officials, were evacuated to Bunia on Tuesday, 24 November, after being trapped for three days in a hospital in Akwe amid crossfire. This account is attributed to the official quoted by AP and does not describe every response team.",
+    "Data date: Thursday, 26 November 2026. Publication times: Reuters at 05:29 UTC (08:29 Istanbul) and AP at 08:41 UTC (11:41 Istanbul). Location: Ituri, Bunia and other areas of eastern Democratic Republic of the Congo. Case and death totals are attributed to the Congolese Ministry of Health as reported by the two agencies."
+  ],
+  "sources": [
+    {
+      "href": "https://apnews.com/article/congo-ebola-outbreak-violence-0a0bc05d76d3278319472178a16be14b",
+      "label": "Associated Press — Ebola outbreak in Congo reaches 12,000 cases as violence forces some responders to evacuate, 26 November 2026, 08:41 UTC"
+    },
+    {
+      "href": "https://www.reuters.com/business/healthcare-pharmaceuticals/congos-ebola-cases-exceed-12000-responders-struggle-contain-outbreak-2026-11-26/",
+      "label": "Reuters — Congo's Ebola cases exceed 12,000 as responders struggle to contain outbreak, 26 November 2026, 05:29 UTC"
+    }
+  ]
+},
+{
+  "slug": "uk-net-migration-june-2026-77000",
+  "title": "UK long-term net migration falls to 77,000 in the year ending June",
+  "date": "26 November 2026",
+  "contextDateLabel": "UK Office for National Statistics release date: 26 November 2026 (no publication time displayed on the release page); Reuters report: 26 November at 09:35 UTC (12:35 Istanbul). Measurement period: the 12 months ending June 2026, not November. Estimates are provisional and may be revised.",
+  "dek": "The UK Office for National Statistics provisionally estimated long-term net migration at 77,000 in the year ending June 2026, compared with a revised 204,000 in the previous year. The office stressed that the figures are provisional and some components carry greater uncertainty.",
+  "body": [
+    "Provisional estimates published by the UK Office for National Statistics on 26 November 2026 put long-term international net migration at 77,000 in the 12 months ending June 2026, compared with an updated estimate of 204,000 for the previous year. The ONS defines long-term migration as a move to or from the UK lasting 12 months or more.",
+    "The ONS estimated 738,000 long-term arrivals and 661,000 departures during the same period; the difference is the 77,000 net figure. It said the annual decline was driven mainly by lower immigration from non-EU nationals, while emigration remained broadly stable.",
+    "By nationality grouping, provisional net migration was 258,000 for non-EU+ nationals, negative 137,000 for British nationals and negative 45,000 for EU+ nationals. These estimates describe the specified 12-month period, not migration during the month or day of publication.",
+    "The ONS warned that the figures are provisional. Some estimates for British nationals used an extended 15-month projection because updated administrative data from the Department for Work and Pensions was delayed. The office is also investigating a data issue affecting family-migration estimates and plans to update the figures in May 2027. It cautioned that comparisons with 1997 are affected by changes in measurement methods, from surveys to administrative records.",
+    "Publication date: ONS, 26 November 2026, with no release time displayed; Reuters, 09:35 UTC (12:35 Istanbul). Data period: the year ending June 2026. Reuters described the figure as the lowest since 1997 outside the pandemic period, subject to the ONS caveats on provisional estimates and methodology changes."
+  ],
+  "sources": [
+    {
+      "href": "https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/internationalmigration/bulletins/longterminternationalmigrationprovisional/yearendingjune2026",
+      "label": "UK Office for National Statistics — Long-term international migration, provisional: year ending June 2026, 26 November 2026"
+    },
+    {
+      "href": "https://blog.ons.gov.uk/2026/11/26/behind-the-numbers-what-is-driving-the-latest-fall-in-net-migration/",
+      "label": "ONS — Behind the numbers: what is driving the latest fall in net migration?, 26 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/world/uk/uk-annual-net-migration-drops-77000-year-june-2026-2026-11-26/",
+      "label": "Reuters — UK net migration falls to almost three-decade low, excluding pandemic slump, 26 November 2026, 09:35 UTC"
+    }
+  ]
+},
+{
+  "slug": "taiwan-ntu-on-device-generative-ai-chips-2026",
+  "title": "Taiwan highlights research chips designed to run generative AI more efficiently on devices",
+  "date": "26 November 2026",
+  "contextDateLabel": "Taiwan's National Science and Technology Council page shows a last-modified date of 25 November 2026; Taipei Times published its report on 26 November 2026, with no time displayed. Results from the first and second generations were presented at IEEE VLSI symposia in 2024 and 2025; the next chip was fabricated on a 16-nanometre process in October 2026. Sham AI publication date: 26 November 2026.",
+  "dek": "Taiwan's NSTC outlined research processors from National Taiwan University intended to reduce the cost of running Transformer models on devices. The published efficiency figures are laboratory results and research comparisons, not evidence that the chips are commercially available.",
+  "body": [
+    "Taiwan's National Science and Technology Council (NSTC) published an update about a National Taiwan University research team led by Professor Chia-Hsiang Yang, which developed two generations of Transformer learning processor chips for on-device generative AI. Taipei Times reported on the work on 26 November 2026; the official NSTC page shows a last-modified date of 25 November.",
+    "The council said the first-generation chip was fabricated using a 40-nanometre process and reached a stated peak efficiency of 99.2 tera operations per second per watt (TOPS/W). In the NSTC's comparison with research published at the time, this exceeded the efficiency of selected Transformer processors designed for inference; the comparison should not be generalised to every chip or operating condition.",
+    "The second generation uses a forward-pass learning approach intended to reduce the need to store backpropagation information, lowering memory and computation requirements during training. The NSTC reported a peak efficiency of 157 TOPS/W and a research comparison of 1.6 to 7.6 times against published Transformer learning processors.",
+    "The council said the team is developing a subsequent design to address memory-bandwidth bottlenecks in inference through data compression and improved external-memory transfers and management. That chip completed fabrication in October 2026 using a 16-nanometre process. The announcement did not say that a commercial product or consumer device had been released.",
+    "The first- and second-generation findings were presented at the IEEE Symposium on VLSI Technology and Circuits in 2024 and 2025. Location: National Taiwan University, Taipei, Taiwan. Newspaper report date: 26 November 2026; official NSTC page last-modified date: 25 November 2026. Performance figures and comparisons are attributed to the NSTC."
+  ],
+  "sources": [
+    {
+      "href": "https://www.nstc.gov.tw/folksonomy/detail/bf85636f-e366-4fee-a801-fc045175506b?l=en",
+      "label": "Taiwan National Science and Technology Council — Breaking Through Generative AI's Energy Bottleneck: NTU Team Develops High-Efficiency Transformer Learning Processor Chips, last modified 25 November 2026"
+    },
+    {
+      "href": "https://www.taipeitimes.com/News/taiwan/archives/2026/11/26/2003868419",
+      "label": "Taipei Times — NTU develops chips for on-device generative AI, 26 November 2026"
+    },
+    {
+      "href": "https://ieeexplore.ieee.org/document/10631391",
+      "label": "IEEE Xplore — VLSI 2024 paper cited by the official announcement"
+    },
+    {
+      "href": "https://ieeexplore.ieee.org/document/11075103",
+      "label": "IEEE Xplore — VLSI 2025 paper cited by the official announcement"
+    }
+  ]
+},
+{
+  "slug": "libya-benghazi-naval-officers-drone-attack-2026",
+  "title": "Two Libyan naval officers die after drone attack on Russian warship in Benghazi",
+  "date": "25 November 2026",
+  "contextDateLabel": "Attack at Benghazi Naval Base: Sunday, 22 November 2026; deaths: Tuesday evening, 24 November, according to the Libyan National Army General Command; Reuters death report: 24 November 2026 at 21:59 UTC (25 November, 00:59 Istanbul); Reuters report on official positions: 24 November at 12:40 UTC; Associated Press: 25 November 2026 (no publication time displayed). Sham AI publication date: 25 November 2026.",
+  "dek": "Eastern Libya's Libyan National Army General Command said two naval officers died from injuries sustained in a drone attack on a Russian corvette at Benghazi Naval Base on 22 November. Details of the attack and the threatened response remain attributed to the sources reporting them.",
+  "body": [
+    "The Libyan National Army General Command based in eastern Libya said two naval officers died on Tuesday evening, 24 November 2026, from injuries sustained in a drone attack on a Russian warship docked at Benghazi Naval Base on Sunday, 22 November. Reuters and the Associated Press both reported the General Command's announcement.",
+    "The attack targeted the Russian corvette Merkury, which Libyan authorities said was at the base to refuel and resupply. Ukrainian President Volodymyr Zelenskyy confirmed Ukraine's responsibility for the operation on Monday, 23 November, and said seven naval drones had been used. The AP, citing local officials, reported that at least four drones were intercepted and two struck the ship; those details remain attributed to the officials rather than an independently verified account of every drone's path.",
+    "The AP reported that at least 10 people, including Libyan and Russian nationals, were wounded, while Ukraine said its forces had not targeted Libyans. These accounts are attributed to the parties cited. Reuters reported that Ukraine's foreign minister described the operation as self-defence, while Libya's internationally recognised Government of National Unity in Tripoli condemned the attack and rejected the use of Libyan territory and waters for foreign military operations.",
+    "The eastern-based General Command vowed to respond at a time, place and by means of its choosing, but announced no specific action or timetable. The statement was a threat of retaliation, not confirmation that a military response had occurred. Eastern Libyan authorities also sought an international investigation, according to published reports.",
+    "Attack date: Sunday, 22 November 2026; deaths: Tuesday evening, 24 November, according to the General Command; Reuters death report: 24 November 2026 at 21:59 UTC (25 November, 00:59 Istanbul); AP report: 25 November 2026, with no publication time displayed. Location: Benghazi Naval Base, eastern Libya. The sources give no date for the threatened response."
+  ],
+  "sources": [
+    {
+      "href": "https://www.reuters.com/world/africa/two-libyan-army-personnel-succumbed-wounds-after-benghazi-port-attack-libyan-2026-11-24/",
+      "label": "Reuters — Two Libyan army personnel die from wounds after Benghazi port attack, 24 November 2026, 21:59 UTC"
+    },
+    {
+      "href": "https://apnews.com/article/russia-ukraine-war-libya-drone-attack-warship-officers-5719d6750c0619695c7f23a373cecd7b",
+      "label": "Associated Press — Libyan army vows retaliation after two naval officers die following Ukrainian drone attack, 25 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/world/europe/ukraine-insists-attack-russian-ships-libya-was-self-defence-2026-11-24/",
+      "label": "Reuters — Ukraine says attack on Russian ships in Libya was self-defence, 24 November 2026, 12:40 UTC"
+    }
+  ]
+},
+
+{
+  "slug": "us-section-301-proposed-tariffs-14-economies-2026",
+  "title": "US proposes new trade tariffs on imports from 14 economies",
+  "date": "25 November 2026",
+  "contextDateLabel": "USTR statement: 25 November 2026 (no publication time shown); Associated Press report: 25 November 2026 (no publication time displayed); Sham AI publication date: 25 November 2026. Written comments are due 5 January 2027; hearings are scheduled for 25 January 2027 (the notice gives no time or venue).",
+  "dek": "The US Trade Representative announced findings in 14 Section 301 investigations and proposed tariffs on imports from 14 economies, including China, the European Union, Japan and India. The measures are open for public comment; they are not tariffs that have taken effect.",
+  "body": [
+    "On 25 November 2026, the Office of the US Trade Representative said it had determined in 14 investigations that certain industrial practices linked to structural excess manufacturing capacity were unreasonable and burdened US commerce. It proposed responsive action under Section 301 of the Trade Act of 1974. The economies include China, the European Union, Japan, India, South Korea, Taiwan and Vietnam, alongside seven others.",
+    "The 14 economies named by USTR are China, the European Union, Singapore, Switzerland, Indonesia, Malaysia, Cambodia, Thailand, South Korea, Vietnam, Taiwan, Bangladesh, Japan and India. The office said it had not made determinations on Mexico or Norway. The AP also reported separate proposed measures concerning Brazil after trade talks stalled; those are not part of the 14-economy list in this USTR notice. Proposed rates vary by economy and product, with exemptions and adjustments for some existing duties and trade commitments; they should not be reduced to one uniform rate.",
+    "USTR said the proposals are subject to public comment. Written comments and requests to appear at hearings, with a summary of testimony, are due by 5 January 2027. Hearings are scheduled to begin on 25 January 2027 and continue as appropriate. The notice does not state a hearing time or venue.",
+    "The Associated Press reported that the US Trade Representative did not expect the tariffs to take effect earlier than a couple of months from the announcement. That is an attributed expectation, not a final legal implementation date; USTR's notice does not announce a definitive start date. The measures therefore remain proposals under consultation, not tariffs currently in force.",
+    "Investigation findings and proposal date: 25 November 2026; AP report date: 25 November 2026. Written-comment deadline: 5 January 2027; hearings: 25 January 2027. The notice gives no hearing time or venue and does not establish that the proposed tariffs have taken effect."
+  ],
+  "sources": [
+    {
+      "href": "https://ustr.gov/about/policy-offices/press-office/press-releases/2026/november/ustr-makes-determinations-and-proposes-actions-14-section-301-investigations-relating-structural",
+      "label": "Office of the US Trade Representative — findings and proposed actions in 14 Section 301 investigations, 25 November 2026"
+    },
+    {
+      "href": "https://apnews.com/article/367083ea32f71fd7f70029ba7df66bf0",
+      "label": "Associated Press — US plans new tariffs on China, the EU and other trading partners, 25 November 2026"
+    }
+  ]
+},
+
+{
+  "slug": "us-q3-gdp-pce-inflation-october-2026",
+  "title": "US Q3 GDP growth revised to 4.3% annualized; October PCE inflation at 3.8%",
+  "date": "25 November 2026",
+  "contextDateLabel": "US Bureau of Economic Analysis (BEA) releases: 25 November 2026 at 8:30 a.m. EST (13:30 UTC; 16:30 Istanbul); Reuters report: 25 November 2026 at 13:45 UTC (16:45 Istanbul). GDP reference period: Q3, July–September 2026; PCE inflation reference period: October 2026; Sham AI publication date: 25 November 2026.",
+  "dek": "The BEA raised its estimate of real GDP growth to a 4.3% annualized pace in the third quarter, while October PCE inflation reached 3.8% year over year and core PCE reached 3.3%. The figures cover different reporting periods and are not an economic forecast.",
+  "body": [
+    "On 25 November 2026, the US Bureau of Economic Analysis released its second estimate of third-quarter gross domestic product, reporting that real GDP grew at a 4.3% annualized rate in July–September. The advance estimate was 3.4%, while the second quarter grew 2.2%. An annualized rate converts the quarterly change into a yearly pace; it does not mean the economy grew 4.3% over the three-month period itself.",
+    "The BEA said the upward revision mainly reflected higher estimates for investment and consumer spending. Real final sales to private domestic purchasers rose at a 5.8% annualized rate in the third quarter. These figures describe third-quarter activity, not October inflation.",
+    "In a separate October personal-income and outlays release, the Personal Consumption Expenditures (PCE) price index rose 0.3% from September and 3.8% from October 2025. The core index, which excludes food and energy, increased 0.3% month over month and 3.3% year over year. The BEA also reported that real personal consumption expenditures fell by US$5.8 billion, or less than 0.1%, during the month.",
+    "Personal income increased 0.7% in October and disposable personal income rose 0.8%; the personal saving rate was 4.1%. Reuters reported that GDP growth was the fastest since the third quarter of 2023 and that annual core inflation was the highest since November 2023. These descriptions refer to published data, not a forecast for prices or interest rates.",
+    "Both BEA releases were issued at 8:30 a.m. Eastern Time on 25 November 2026 (13:30 UTC; 16:30 Istanbul). Reuters published its report at 13:45 UTC (16:45 Istanbul). GDP covers July–September 2026, while the PCE price data cover October 2026. This is a news briefing, not financial or investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://www.bea.gov/news/2026/gdp-second-estimate-and-corporate-profits-3rd-quarter-2026",
+      "label": "US Bureau of Economic Analysis — GDP second estimate and corporate profits, Q3 2026, 25 November 2026"
+    },
+    {
+      "href": "https://www.bea.gov/news/2026/personal-income-and-outlays-october-2026",
+      "label": "US Bureau of Economic Analysis — Personal Income and Outlays, October 2026, 25 November 2026"
+    },
+    {
+      "href": "https://www.reuters.com/business/us-inflation-rises-further-october-2026-11-25/",
+      "label": "Reuters — US economy grows strongly in Q3 as October inflation remains high, 25 November 2026, 13:45 UTC"
+    }
+  ]
+},
+
+{
   "slug": "gaza-meningitis-epidemic-alert-2026",
   "title": "Gaza issues meningitis epidemic alert after 272 cases were reported in October",
   "date": "24 November 2026",
@@ -888,7 +1083,7 @@ export const EN_EVENTS: DeskItem[] = [
     "WHO lists the 2026 16 Days of Activism against Gender-Based Violence campaign among its events for 25 November to 10 December 2026. It begins on the International Day for the Elimination of Violence against Women and ends on Human Rights Day.",
     "UN Women's official 2026 concept note sets the global theme: 'UNiTE to End Violence Against Women and Girls: Ensure Justice, Protect Survivors, End Impunity.'",
     "The campaign is global and multi-country, not a single venue-based conference. Local organizations may hold different events during the period; WHO's listing gives no single start time or time zone.",
-    "Status as of 24 November 2026: upcoming; it begins the following day, 25 November, and runs through 10 December. Location: global. No unified time has been published.",
+    "Status as of 25 November 2026: ongoing; it began today and runs through 10 December. Location: global. No unified time has been published.",
     "Campaign period: 25 November–10 December 2026. This is the global campaign window, not a common timetable for every local activity."
   ],
   "sources": [
