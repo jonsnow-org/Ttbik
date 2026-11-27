@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-27 12:43 UTC",
+  "generated_at": "2026-11-27 23:38 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -269,7 +269,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4235.5,
+      "size_mb": 4233.6,
       "last_updated": "2026-11-27",
       "progress": {},
       "has_key_files": true
@@ -285,8 +285,8 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 790.7,
-      "last_updated": "2026-11-26",
+      "size_mb": 580.1,
+      "last_updated": "2026-11-27",
       "progress": {},
       "has_key_files": true
     },
