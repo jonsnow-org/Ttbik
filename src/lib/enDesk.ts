@@ -16,6 +16,31 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "fao-wfp-hunger-hotspots-2026-outlook",
+  "title": "FAO and WFP warn of worsening hunger across 16 hotspots",
+  "date": "27 November 2026",
+  "contextDateLabel": "WFP report published: 27 November 2026 (no publication time shown); Associated Press coverage published: 27 November 2026 (no publication time shown); outlook period: December 2026–May 2027; Sham AI publication: 27 November 2026.",
+  "dek": "FAO and WFP warn that acute food insecurity could worsen for millions across 16 hotspots from December 2026 to May 2027. Northern Nigeria, Somalia, South Sudan, Sudan and Yemen are listed at the highest level of concern, amid conflict, climate and humanitarian-funding pressures.",
+  "category": "World & Humanitarian Affairs",
+  "body": [
+    "WFP published its joint early-warning report with the Food and Agriculture Organization (FAO) on 27 November 2026, covering December 2026 to May 2027. The agencies warn that acute food insecurity could worsen for millions across 16 hotspots. The WFP page does not display a publication time; this is a forward-looking assessment, not a final account of events already completed.",
+    "The report places northern Nigeria, Somalia, South Sudan, Sudan and Yemen at the highest level of concern by severity and scale of acute food insecurity. This is a hotspot risk classification; it does not mean that every resident of those countries faces the same conditions or that famine has been declared nationwide.",
+    "The pressures covered in reporting on the assessment include conflict, higher fuel costs linked to the war in the Middle East, sharp reductions in humanitarian funding and climate shocks associated with El Niño. The outlook can change as field conditions, funding and new assessments evolve.",
+    "Associated Press reported that the Palestinian territories were moved down one concern level after the Gaza ceasefire, but 67% of Gaza's population still faced crisis-level hunger or worse and the improvement remained fragile. AP also reported that famine risk could persist through January 2027 in 13 areas of North Darfur and South Kordofan, while 1.8 million people in Yemen's government-held areas faced emergency levels of hunger.",
+    "Publication dates: WFP and AP both published on 27 November 2026; neither page displays a publication time in the text reviewed. The outlook period is December 2026–May 2027. Treat the figures as early-warning estimates that may be revised, not as confirmation of famine across every hotspot."
+  ],
+  "sources": [
+    {
+      "href": "https://www.wfp.org/publications/hunger-hotspots-fao-wfp-early-warnings-acute-food-insecurity-december-2026-may-2027",
+      "label": "World Food Programme — FAO-WFP Hunger Hotspots early-warning report, December 2026–May 2027 outlook, 27 November 2026 (official source)"
+    },
+    {
+      "href": "https://apnews.com/article/un-hunger-famine-food-war-sudan-yemen-819ca5f619621b6f3b7ca8ba66b65762",
+      "label": "Associated Press — Food agencies warn hunger could deepen across 16 hotspots, 27 November 2026"
+    }
+  ]
+},
+{
   "slug": "bank-of-england-ai-financing-financial-stability-quantum-risk-2026",
   "title": "Bank of England warns AI financing links deepen financial-system risks",
   "date": "26 November 2026",
