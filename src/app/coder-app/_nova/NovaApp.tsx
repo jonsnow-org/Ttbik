@@ -358,6 +358,9 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
             : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}
           {c.bind.schedules && <Row icon="⏰" title={n.h_sched} sub={n.h_schedSub} onClick={() => go("auto")} />}
+          {/* Mira's Skills are a screen of their own, not a corner of Schedules: one visible row on Home, so opening the app shows
+              where they are without hunting through a tab. */}
+          {c.bind.schedules && <Row icon="🧩" title={n.h_skill} sub={n.h_skillSub} onClick={() => open({ k: "skills" })} />}
           {c.bind.memory === "memories" ? <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={n.h_memSub} onClick={() => open({ k: "memory" })} />
             : <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={lang === "ar" ? "ذاكرة هذا النموذج الخاصة: في الإعدادات" : "This model's own memory: in Settings"} onClick={() => go("settings")} />}
         </Card>
