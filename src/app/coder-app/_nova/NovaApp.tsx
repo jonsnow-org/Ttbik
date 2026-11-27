@@ -814,7 +814,8 @@ function Schedules({ c }: { c: Ctx }) {
 }
 
 // ---------------------------------------------------------------- Skills (Mira: My skills / Explore / Create skill)
-function Skills({ c }: { c: Ctx }) {
+/** Exported so a test can mount the screen itself (src/lib/__tests__/novaSkillsScreen.test.ts); the app renders it the same way. */
+export function Skills({ c }: { c: Ctx }) {
   const { t, n, lang, me, bind } = c;
   const [rows, setRows] = useState<Sched[] | null>(null);
   const [q, setQ] = useState("");
