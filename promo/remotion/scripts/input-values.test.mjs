@@ -22,3 +22,8 @@ test("does not invent input for an empty script value", () => {
   assert.deepEqual(splitInputValues(""), []);
   assert.deepEqual(splitInputValues(null), []);
 });
+
+test("preserves all eleven invoice demo fields in recorder order", () => {
+  const values = ["INV-2026-01","2026-11-27","مؤسسة النور الرقمية","الرياض، السعودية | seller@example.com","متجر الندى","جدة، السعودية | buyer@example.com","تصميم متجر إلكتروني","1","1500","15","بيانات تجريبية — الدفع خلال 7 أيام"];
+  assert.deepEqual(splitInputValues(values.join("\n")), values);
+});
