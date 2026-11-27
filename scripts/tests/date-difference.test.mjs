@@ -48,7 +48,15 @@ test("adds calendar days across year and leap-day boundaries", () => {
 });
 
 
-test("keeps the local calendar day instead of converting it to UTC", () => {
-  const localLateEvening = new Date(2026, 10, 4, 23, 30, 0);
-  assert.equal(formatLocalDate(localLateEvening), "2026-11-04");
+test("keeps the local calendar day when UTC is still on the previous date", () => {
+  const previousTimezone = process.env.TZ;
+  try {
+    process.env.TZ = "Pacific/Kiritimati";
+    const justAfterLocalMidnight = new Date("2026-11-04T10:30:00.000Z");
+    assert.equal(justAfterLocalMidnight.toISOString().slice(0, 10), "2026-11-04");
+    assert.equal(formatLocalDate(justAfterLocalMidnight), "2026-11-05");
+  } finally {
+    if (previousTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimezone;
+  }
 });
