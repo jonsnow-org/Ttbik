@@ -45,6 +45,14 @@ type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDe
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void | Promise<void>; mode: Resolved; bind: MiniAppBinding };
 
 const TABS: Tab[] = ["home", "chats", "computer", "auto", "settings"];
+/**
+ * The bottom nav has the SAME shape on every model. A tab that appears or vanishes with the bound model made the app feel
+ * like it moved (the owner lost "Scheduled tasks" after a model switch), so only a capability the user does not have at all
+ * (the computer) is filtered; "Scheduled tasks" opens on every model and explains itself there.
+ */
+export function navTabs(features: Me["features"]): Tab[] {
+  return TABS.filter((id) => id !== "computer" || Boolean(features?.computer));
+}
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
 const NAV_LABEL: Record<Tab, { ar: string; en: string }> = {
   home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" },
@@ -261,7 +269,8 @@ function PlanCard({ c, b }: { c: Ctx; b: Billing | null }) {
     </Card>
   );
 }
-function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }: { c: Ctx; firstName: string; models: Models | null; modelsError: string; modelsLoading: boolean; reloadModels: () => Promise<boolean> }) {
+/** Exported for the render test (src/lib/__tests__/novaHomeSkillsEntry.test.ts); the app renders it unchanged. */
+export function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }: { c: Ctx; firstName: string; models: Models | null; modelsError: string; modelsLoading: boolean; reloadModels: () => Promise<boolean> }) {
   const { t, n, lang, me, owner, open, go } = c;
   const { b } = useBilling(!owner);
   const [conns, setConns] = useState<ConnView[] | null>(null);
@@ -358,9 +367,9 @@ function Home({ c, firstName, models, modelsError, modelsLoading, reloadModels }
             ? <Row icon="🐙" title={n.h_repo} sub={n.h_repoSub} value={<span dir="ltr">{me.settings.repo || gh.login || "—"}</span>} onClick={() => open({ k: "connect" })} />
             : <Row icon="🐙" title={n.h_gh} sub={fill(n.h_ghSub, { m: modelName(models, lang) })} onClick={() => open({ k: "connect" })} />}
           {c.bind.schedules && <Row icon="⏰" title={n.h_sched} sub={n.h_schedSub} onClick={() => go("auto")} />}
-          {/* Mira's Skills are a screen of their own, not a corner of Schedules: one visible row on Home, so opening the app shows
-              where they are without hunting through a tab. */}
-          {c.bind.schedules && <Row icon="🧩" title={n.h_skill} sub={n.h_skillSub} onClick={() => open({ k: "skills" })} />}
+          {/* Mira's Skills are a screen of their own, and its door is on Home for EVERY model: a model without its own scheduler
+              opens the screen and reads there why the skills cannot run on it, instead of the entry vanishing. */}
+          <Row icon="🧩" title={n.h_skill} sub={n.h_skillSub} onClick={() => open({ k: "skills" })} />
           {c.bind.memory === "memories" ? <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={n.h_memSub} onClick={() => open({ k: "memory" })} />
             : <Row icon="🧠" title={fill(n.h_mem, { m: modelName(models, lang) })} sub={lang === "ar" ? "ذاكرة هذا النموذج الخاصة: في الإعدادات" : "This model's own memory: in Settings"} onClick={() => go("settings")} />}
         </Card>
@@ -760,12 +769,17 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
 }
 
 // ---------------------------------------------------------------- Schedules
-function Schedules({ c }: { c: Ctx }) {
-  const { t, n, lang, me } = c;
+/** Exported for the render test (src/lib/__tests__/novaHomeSkillsEntry.test.ts); the app renders it unchanged. */
+export function Schedules({ c }: { c: Ctx }) {
+  const { t, n, lang, me, bind } = c;
   const [rows, setRows] = useState<Sched[] | null>(null);
   const [form, setForm] = useState<Sched | "new" | null>(null);
   const [menu, setMenu] = useState<Sched | null>(null);
-  const load = useCallback(async () => setRows((await api<{ schedules: Sched[] }>("schedules")).schedules), []);
+  // A model that owns no scheduler is asked nothing: the screen explains itself instead of posting an op the server refuses.
+  const load = useCallback(async () => {
+    if (!bind.schedules) { setRows([]); return; }
+    setRows((await api<{ schedules: Sched[] }>("schedules")).schedules);
+  }, [bind.schedules]);
   useEffect(() => { void load().catch(() => setRows([])); }, [load]);
   const closeForm = useCallback(() => setForm(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -773,12 +787,13 @@ function Schedules({ c }: { c: Ctx }) {
     <div className="n-page">
       <div className="n-ph" lang={lang}>
         <h1>{n.schedTitle}</h1>
-        <button type="button" className="n-fab" aria-label={t.newSchedule} onClick={() => { haptic("light"); setForm("new"); }}>+</button>
+        {bind.schedules && <button type="button" className="n-fab" aria-label={t.newSchedule} onClick={() => { haptic("light"); setForm("new"); }}>+</button>}
       </div>
       <Card>
         <Row icon="⚡" title={n.skillsTitle} sub={n.skillsSub} onClick={() => c.open({ k: "skills" })} />
       </Card>
-      {!rows ? <Loading /> : rows.length === 0 ? (
+      {!bind.schedules ? <Card><div className="n-empty">{n.schedOff}</div></Card>
+        : !rows ? <Loading /> : rows.length === 0 ? (
         <Card>
           <div className="n-empty">
             <div style={{ fontSize: 44, marginBottom: 8 }} aria-hidden="true">🗓️</div>
@@ -853,7 +868,7 @@ export function Skills({ c }: { c: Ctx }) {
       <div style={{ display: "flex", gap: 8, margin: "0 0 10px" }}>
         <input type="search" value={q} placeholder={`🔎 ${n.skillsSearch}`} dir="auto" maxLength={60} aria-label={n.skillsSearch} onChange={(e) => setQ(e.target.value)}
           style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 999, border: "1px solid var(--n-line, rgba(127,127,127,.3))", padding: "0 14px", background: "var(--n-surface)", color: "var(--n-ink)", font: "inherit" }} />
-        <button type="button" className="n-btn" style={{ height: 40, whiteSpace: "nowrap" }} onClick={() => { haptic("light"); setForm("new"); }}>+ {n.skillsCreate}</button>
+        {bind.schedules && <button type="button" className="n-btn" style={{ height: 40, whiteSpace: "nowrap" }} onClick={() => { haptic("light"); setForm("new"); }}>+ {n.skillsCreate}</button>}
       </div>
       <div style={{ display: "flex", gap: 6, margin: "0 0 14px", overflowX: "auto", paddingBottom: 2 }}>
         {cats.map((x) => (
@@ -862,8 +877,18 @@ export function Skills({ c }: { c: Ctx }) {
         ))}
       </div>
       {err && <p className="n-note" dir="auto">⚠️ {err}</p>}
-      {!bind.schedules ? <Card><div className="n-empty">{n.skillsNoSchedules}</div></Card>
-        : !rows ? <Loading />
+      {!bind.schedules ? (
+        <>
+          {/* The door is open on every model; a model without its own scheduler reads why here and can still see what the skills
+              are, instead of an empty page or a hidden entry. */}
+          <Card><div className="n-empty">{n.skillsNoSchedules}</div></Card>
+          <Card title={n.skillsExplore} cap={n.skillsExploreCap}>
+            {explore.length === 0 ? <div className="n-empty">{n.skillsNoMatch}</div> : explore.map((p) => (
+              <Row key={p.id} icon={p.icon} title={p.title[lang]} chevron={false} sub={<>{p.desc[lang]}{p.needsRepo ? " · GitHub" : ""}</>} />
+            ))}
+          </Card>
+        </>
+      ) : !rows ? <Loading />
         : (
           <>
             <Card title={n.skillsMine} cap={n.skillsMineCap}>
@@ -1193,7 +1218,7 @@ export default function NovaApp() {
       </Sheet>
       {!page && ctx && (
         <nav className="n-nav" aria-label="Nova">
-          {TABS.filter((id) => (id !== "computer" || ctx.me.features?.computer) && (id !== "auto" || ctx.bind.schedules)).map((id) => (
+          {navTabs(ctx.me.features).map((id) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => go(id)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={tab === id ? 2.4 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={NAV_ICON[id]} /></svg>
               {NAV_KEY[id] ? n[NAV_KEY[id]!] : NAV_LABEL[id][lang]}
