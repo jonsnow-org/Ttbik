@@ -16,6 +16,56 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
 {
+  "slug": "china-state-council-market-stabilization-funds-2026-11-27",
+  "title": "Beijing calls for a stronger role for state-backed funds in market stabilization",
+  "date": "27 November 2026",
+  "contextDateLabel": "State Council meeting in Beijing: 27 November 2026; Chinese government's English page updated on 27 November at 13:08 without a stated time zone; Reuters: 27 November 2026 at 06:32 UTC (09:32 Istanbul).",
+  "dek": "China's State Council called for stronger capital-market stabilization mechanisms and a larger role for state-backed funds, including Central Huijin. The readout set no intervention amount or timetable and does not guarantee market gains.",
+  "category": "Economy & Markets",
+  "body": [
+    "Chinese Premier Li Qiang chaired a State Council executive meeting in Beijing on Friday, 27 November 2026, which examined further reforms to capital-market investment and financing. The official English government page shows an update time of 13:08 on 27 November but does not label the time zone; Reuters published at 06:32 UTC (09:32 Istanbul).",
+    "The meeting called for stronger market-stabilization mechanisms, fuller use of existing policies and consideration of new measures. It also urged listed companies to increase dividends and share buybacks and called for a greater role for state-backed funds in supporting market stability.",
+    "The official readout singled out state-owned Central Huijin Investment Ltd. and called for it to optimize its role as a quasi-stabilization fund so it can provide sufficient liquidity during market stress. It also urged policies to guide medium- and long-term funds, including insurance funds, enterprise annuities and social-security funds, into the market, while strengthening defenses against external risks.",
+    "Reuters reported that China's main share benchmark rose 4% on Friday, its strongest session in two years, after the government signal. That is a single-session market reaction, not evidence that gains will persist or that investors are assured a return.",
+    "Meeting date and place: 27 November 2026, Beijing. The official English page was updated at 13:08 without a stated time zone; Reuters published at 06:32 UTC (09:32 Istanbul). The readout specified no intervention amount, timetable or guaranteed market outcome. This is reporting, not investment advice."
+  ],
+  "sources": [
+    {
+      "href": "https://english.www.gov.cn/news/202611/27/content_WS6b091065c6d00ca5f9a0ea19.html",
+      "label": "State Council of the People's Republic of China — capital-market reform and Central Huijin readout, 27 November 2026 (official source)"
+    },
+    {
+      "href": "https://www.reuters.com/world/china-strengthen-defense-against-imported-risks-capital-markets-2026-11-27/",
+      "label": "Reuters — Beijing calls for a larger role for state-backed funds in market stabilization, 27 November 2026, 06:32 UTC"
+    }
+  ]
+},
+{
+  "slug": "france-q3-gdp-insee-detailed-accounts-2026-11-27",
+  "title": "INSEE confirms a 0.2% contraction in France's Q3 economy",
+  "date": "27 November 2026",
+  "contextDateLabel": "INSEE detailed national-accounts release: 27 November 2026 (no publication time shown); reference period: Q3 2026, July–September; Reuters: 27 November 2026 at 08:21 UTC (11:21 Istanbul).",
+  "dek": "INSEE's detailed Q3 accounts show real GDP down 0.2% quarter on quarter after a flat Q2. The 2026 growth overhang at the end of Q3 was +0.1%, not a final annual result.",
+  "category": "Economy & Markets",
+  "body": [
+    "INSEE published detailed Q3 2026 national-accounts figures on 27 November. Real GDP fell 0.2% quarter on quarter after a flat 0.0% reading in Q2. The measured period is July–September 2026, not November. INSEE's page shows no publication time; Reuters published at 08:21 UTC (11:21 Istanbul).",
+    "Gross fixed capital formation fell 0.9% after a 0.5% decline in Q2; exports dropped 1.6% after rising 2.9%; household consumption increased 0.3%, and imports edged up 0.1%. Foreign trade subtracted 0.6 percentage points from Q3 growth.",
+    "INSEE said household disposable-income purchasing power per consumption unit rebounded 0.2% after a 0.5% fall, while the household saving rate held at 17.4%. The 2026 growth overhang at the end of Q3 was +0.1%—the carry-over rate if Q4 were unchanged, not the final annual growth result.",
+    "Reuters described the figures as a technical recession after small revisions, noting that the revised Q2 rate of +0.02% rounds to 0.0% in the headline. INSEE's public summary describes Q2 as stable at 0.0%; this briefing therefore attributes the 'technical recession' label to Reuters rather than presenting it as INSEE's formal classification.",
+    "Publication date: 27 November 2026; reference period: Q3 2026 (July–September). INSEE shows no publication time; Reuters published at 08:21 UTC (11:21 Istanbul). These are quarterly, revisable figures and do not mean the economy contracted 0.2% over the full year."
+  ],
+  "sources": [
+    {
+      "href": "https://www.insee.fr/en/statistiques/9167414",
+      "label": "INSEE — detailed quarterly national accounts, Q3 2026, 27 November 2026 (official source)"
+    },
+    {
+      "href": "https://www.reuters.com/markets/europe/french-economy-contracts-more-than-expected-third-quarter-2026-11-27/",
+      "label": "Reuters — revised French GDP figures and recession characterization, 27 November 2026, 08:21 UTC"
+    }
+  ]
+},
+{
   "slug": "fao-wfp-hunger-hotspots-2026-outlook",
   "title": "FAO and WFP warn of worsening hunger across 16 hotspots",
   "date": "27 November 2026",
