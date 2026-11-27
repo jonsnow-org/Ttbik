@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatLocalDate } from "@/lib/dateDifference";
 
 type Item = { desc: string; qty: string; price: string };
 const inp = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm";
@@ -10,7 +11,7 @@ const money = (x: number) => x.toLocaleString("en-US", { minimumFractionDigits: 
 export default function EnInvoice() {
   const [kind, setKind] = useState<"Invoice" | "Service agreement">("Invoice");
   const [no, setNo] = useState("INV-001");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(formatLocalDate(new Date()));
   const [cur, setCur] = useState("USD");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
