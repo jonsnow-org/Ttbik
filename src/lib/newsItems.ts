@@ -37,7 +37,7 @@ export const NEWS_ITEMS: NewsItem[] = [
     },
     {
       "href": "https://apnews.com/article/un-hunger-famine-food-war-sudan-yemen-819ca5f619621b6f3b7ca8ba66b65762",
-      "label": "Associated Press — وكالات الغذاء تحذّر من تفاقم الجوع في 16 بؤرة، 27 نوفمبر 2026"
+      "label": "Associated Press — تغطية مستقلة لتقرير بؤر الجوع، 27 نوفمبر 2026"
     }
   ]
 },
