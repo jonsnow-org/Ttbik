@@ -66,3 +66,23 @@ test("26 November news has matching Arabic and English slugs, dates, source URLs
     assert.ok(ar.sources.length >= 2 && (en.sources || []).length >= 2);
   }
 });
+
+test("27 November FAO-WFP hunger outlook has matching Arabic and English facts and sources", () => {
+  const slug = "fao-wfp-hunger-hotspots-2026-outlook";
+  const ar = getNewsItem(slug);
+  const en = EN_NEWS.find((item) => item.slug === slug);
+  assert.ok(ar, "missing Arabic item");
+  assert.ok(en, "missing English item");
+  assert.equal(ar.dateIso, "2026-11-27");
+  assert.equal(en.date, "27 November 2026");
+  assert.equal(ar.paragraphs.length, 5);
+  assert.equal(ar.paragraphs.length, en.body.length);
+  assert.deepEqual(
+    ar.sources.map((source) => source.href).sort(),
+    (en.sources || []).map((source) => source.href).sort()
+  );
+  assert.equal(ar.sources.length, 2);
+  assert.ok(ar.paragraphs.join(" ").includes("توقعات"));
+  assert.ok(en.body.join(" ").includes("early-warning"));
+  assert.ok(newsSitemapEntries().some((item) => item.path.endsWith(slug)));
+});
