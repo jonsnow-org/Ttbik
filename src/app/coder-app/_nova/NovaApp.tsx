@@ -8,7 +8,7 @@
 // The earlier ?ui=native and ?ui=classic screens were removed 2026-11-09: this is the Mini App's only interface.
 import ComputerHandoffBar, { type HandoffOffer } from "./ComputerHandoffBar";
 import LinkedAccount from "./LinkedAccount";
-import { SKILL_PRESETS, presetEnabled, presetSchedule } from "@/lib/skillPresets";
+import { SKILL_CATS, SKILL_PRESETS, filterPresets, presetEnabled, presetSchedule, type SkillCat, type SkillPreset } from "@/lib/skillPresets";
 import { syncDeviceMesh } from "./deviceMesh";
 import "./nova.css";
 import { useStickToBottom } from "../_tma/scroll";
@@ -34,7 +34,7 @@ import {
 const GraphicalDesktop = dynamic(() => import("./GraphicalDesktop"), { ssr: false, loading: () => <div className="n-card" style={{ minHeight: 220 }} aria-busy="true" /> });
 const FreeComputer = dynamic(() => import("./FreeComputer"), { ssr: false, loading: () => <div className="n-page" aria-busy="true"><div className="n-card" style={{ minHeight: 220 }} /></div> });
 type Tab = "home" | "chats" | "computer" | "auto" | "settings";
-type Page = { k: "billing" | "panel" | "connect" | "memory" | "policy" | "linked" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
+type Page = { k: "billing" | "panel" | "connect" | "memory" | "policy" | "linked" | "skills" } | { k: "thread"; id: string; title: string } | { k: "chat"; model: string; id: string; title: string; pinned: boolean; archived: boolean } | null;
 type ChatItem = { model?: string; id: string; title: string; pinned: boolean; archived: boolean; turns: number; updated_at: string; preview: string; current: boolean };
 type ChatList = { model: string; selected: string; items: ChatItem[]; current: string | null; currentEmpty: boolean };
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
@@ -68,6 +68,7 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "terminal") return { tab: "computer", page: null };
   if (want === "computer") return { tab: "computer", page: null };
   if (want === "schedules" || want === "auto") return { tab: "auto", page: null };
+  if (want === "skills") return { tab: "auto", page: { k: "skills" } };
   if (want === "settings") return { tab: "settings", page: null };
   return { tab: "home", page: null };
 }
@@ -761,7 +762,6 @@ function Schedules({ c }: { c: Ctx }) {
   const [rows, setRows] = useState<Sched[] | null>(null);
   const [form, setForm] = useState<Sched | "new" | null>(null);
   const [menu, setMenu] = useState<Sched | null>(null);
-  const [adding, setAdding] = useState("");
   const load = useCallback(async () => setRows((await api<{ schedules: Sched[] }>("schedules")).schedules), []);
   useEffect(() => { void load().catch(() => setRows([])); }, [load]);
   const closeForm = useCallback(() => setForm(null), []);
@@ -772,6 +772,9 @@ function Schedules({ c }: { c: Ctx }) {
         <h1>{n.schedTitle}</h1>
         <button type="button" className="n-fab" aria-label={t.newSchedule} onClick={() => { haptic("light"); setForm("new"); }}>+</button>
       </div>
+      <Card>
+        <Row icon="⚡" title={n.skillsTitle} sub={n.skillsSub} onClick={() => c.open({ k: "skills" })} />
+      </Card>
       {!rows ? <Loading /> : rows.length === 0 ? (
         <Card>
           <div className="n-empty">
@@ -791,24 +794,6 @@ function Schedules({ c }: { c: Ctx }) {
           ))}
         </Card>
       )}
-      {rows && (
-        <Card title={lang === "ar" ? "⚡ مهارات بنقرة واحدة" : "⚡ One-tap skills"}>
-          {SKILL_PRESETS.filter((p) => !p.needsRepo || me.connections.github.linked).map((p) => {
-            const on = presetEnabled(p, rows.map((r) => r.title));
-            return (
-              <Row key={p.id} icon={p.icon} title={p.title[lang]} sub={p.desc[lang]} chevron={false}
-                badge={on ? <span className="n-chip">✓</span> : undefined}
-                onClick={on || adding ? undefined : async () => {
-                  haptic("light"); setAdding(p.id);
-                  const tz = me.settings.tz || (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } })();
-                  try { await api("schedule_create", presetSchedule(p, lang, tz, me.settings.repo || undefined)); haptic("success"); await load(); }
-                  catch (e: any) { haptic("error"); alert(String(e?.message || e)); }
-                  setAdding("");
-                }} />
-            );
-          })}
-        </Card>
-      )}
       <Sheet open={!!menu} onClose={closeMenu} title={menu?.title}>
         {menu && (
           <div className="n-wrap">
@@ -822,6 +807,95 @@ function Schedules({ c }: { c: Ctx }) {
         )}
       </Sheet>
       <Sheet open={!!form} onClose={closeForm} title={form && form !== "new" ? t.edit : t.newSchedule}>
+        {form && <ScheduleForm t={t} lang={lang} me={me} initial={form === "new" ? null : form} onSaved={() => { setForm(null); void load(); }} />}
+      </Sheet>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Skills (Mira: My skills / Explore / Create skill)
+function Skills({ c }: { c: Ctx }) {
+  const { t, n, lang, me, bind } = c;
+  const [rows, setRows] = useState<Sched[] | null>(null);
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState<SkillCat | "all">("all");
+  const [adding, setAdding] = useState("");
+  const [form, setForm] = useState<Sched | "new" | null>(null);
+  const [menu, setMenu] = useState<Sched | null>(null);
+  const [err, setErr] = useState("");
+  const load = useCallback(async () => {
+    if (!bind.schedules) { setRows([]); return; }
+    try { setRows((await api<{ schedules: Sched[] }>("schedules")).schedules); setErr(""); }
+    catch (e: any) { setErr(String(e?.message || e)); setRows([]); }
+  }, [bind.schedules]);
+  useEffect(() => { void load(); }, [load]);
+  const titles = useMemo(() => (rows || []).map((r) => r.title), [rows]);
+  const mine = useMemo(() => SKILL_PRESETS.filter((p) => presetEnabled(p, titles)), [titles]);
+  const explore = useMemo(() => filterPresets(SKILL_PRESETS, q, cat).filter((p) => !presetEnabled(p, titles) && (!p.needsRepo || me.connections.github.linked)), [q, cat, titles, me.connections.github.linked]);
+  const tz = me.settings.tz || (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } })();
+  const closeForm = useCallback(() => setForm(null), []);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const schedOf = (p: SkillPreset) => (rows || []).find((r) => presetEnabled(p, [r.title])) || null;
+  const install = async (p: SkillPreset) => {
+    if (adding) return;
+    setAdding(p.id); setErr("");
+    try { await api("schedule_create", presetSchedule(p, lang, tz, me.settings.repo || undefined)); haptic("success"); await load(); }
+    catch (e: any) { haptic("error"); setErr(String(e?.message || e)); }
+    setAdding("");
+  };
+  const cats = [{ id: "all" as const, icon: "✨", label: n.skillsAll }, ...SKILL_CATS.map((x) => ({ id: x.id, icon: x.icon, label: x.label[lang] }))];
+  return (
+    <div className="n-page">
+      <div style={{ display: "flex", gap: 8, margin: "0 0 10px" }}>
+        <input type="search" value={q} placeholder={`🔎 ${n.skillsSearch}`} dir="auto" maxLength={60} aria-label={n.skillsSearch} onChange={(e) => setQ(e.target.value)}
+          style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 999, border: "1px solid var(--n-line, rgba(127,127,127,.3))", padding: "0 14px", background: "var(--n-surface)", color: "var(--n-ink)", font: "inherit" }} />
+        <button type="button" className="n-btn" style={{ height: 40, whiteSpace: "nowrap" }} onClick={() => { haptic("light"); setForm("new"); }}>+ {n.skillsCreate}</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, margin: "0 0 14px", overflowX: "auto", paddingBottom: 2 }}>
+        {cats.map((x) => (
+          <button key={x.id} type="button" className={`n-btn${cat === x.id ? "" : " n-ghost"}`} style={{ height: 30, padding: "0 12px", fontSize: 12, whiteSpace: "nowrap" }}
+            aria-pressed={cat === x.id} onClick={() => { haptic("select"); setCat(x.id as SkillCat | "all"); }}>{x.icon} {x.label}</button>
+        ))}
+      </div>
+      {err && <p className="n-note" dir="auto">⚠️ {err}</p>}
+      {!bind.schedules ? <Card><div className="n-empty">{n.skillsNoSchedules}</div></Card>
+        : !rows ? <Loading />
+        : (
+          <>
+            <Card title={n.skillsMine} cap={n.skillsMineCap}>
+              {mine.length === 0 ? <div className="n-empty">{n.skillsNone}</div> : mine.map((p) => {
+                const s = schedOf(p);
+                return (
+                  <Row key={p.id} icon={p.icon} title={p.title[lang]} badge={<span className="n-chip n-on">✓</span>}
+                    sub={s ? <>{s.describe}{!s.paused && s.next_run_at ? ` · ${n.nextRun}: ${fmtTime(s.next_run_at, s.tz, lang)}` : ""}</> : p.desc[lang]}
+                    onClick={s ? () => setMenu(s) : undefined} chevron={Boolean(s)} />
+                );
+              })}
+            </Card>
+            <Card title={n.skillsExplore} cap={n.skillsExploreCap}>
+              {explore.length === 0 ? <div className="n-empty">{n.skillsNoMatch}</div> : explore.map((p) => (
+                <Row key={p.id} icon={p.icon} title={p.title[lang]} chevron={false}
+                  sub={<>{p.desc[lang]}{p.needsRepo ? " · GitHub" : ""}</>}
+                  after={<button type="button" className="n-plus" aria-label={`${n.skillsAdd}: ${p.title[lang]}`} disabled={!!adding}
+                    onClick={(e) => { e.stopPropagation(); void install(p); }}>{adding === p.id ? "…" : "+"}</button>} />
+              ))}
+            </Card>
+          </>
+        )}
+      <Sheet open={!!menu} onClose={closeMenu} title={menu?.title}>
+        {menu && (
+          <div className="n-wrap">
+            <Card>
+              <Row icon="▶" title={t.runNow} chevron={false} onClick={async () => { haptic("medium"); await api("schedule_run", { id: menu.id }); setMenu(null); }} />
+              <Row icon={menu.paused ? "▶️" : "⏸"} title={menu.paused ? t.resume : t.pause} chevron={false}
+                onClick={async () => { await api("schedule_pause", { id: menu.id, paused: !menu.paused }); haptic("success"); setMenu(null); void load(); }} />
+              <Row icon="🗑" title={t.delete} sub={t.deleteQ} tone="var(--n-danger)" chevron={false}
+                onClick={async () => { if (!(await guard(t.delete))) return; await api("schedule_delete", { id: menu.id, confirm: true }); haptic("success"); setMenu(null); void load(); }} />
+            </Card>
+          </div>
+        )}
+      </Sheet>
+      <Sheet open={!!form} onClose={closeForm} title={form && form !== "new" ? t.edit : n.skillsCreate}>
         {form && <ScheduleForm t={t} lang={lang} me={me} initial={form === "new" ? null : form} onSaved={() => { setForm(null); void load(); }} />}
       </Sheet>
     </div>
@@ -1074,7 +1148,7 @@ export default function NovaApp() {
   const ctx: Ctx | null = me ? { t, n, lang, me, owner, go, open, reload, mode: resolved, bind: bindingFor(me.settings.model) } : null;
   const bound = ctx?.bind.model || "coder";
   const pageTitle = !page ? "" : page.k === "thread" || page.k === "chat" ? page.title : page.k === "billing" ? t.billing : page.k === "panel" ? n.s_panel
-    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : page.k === "linked" ? (lang === "ar" ? "الحساب المرتبط والصلاحيات" : "Linked account & permissions") : n.s_policy;
+    : page.k === "connect" ? t.tabConnectors : page.k === "memory" ? fill(n.s_mem, { m: modelName(models, lang) }) : page.k === "linked" ? (lang === "ar" ? "الحساب المرتبط والصلاحيات" : "Linked account & permissions") : page.k === "skills" ? n.skillsTitle : n.s_policy;
   return (
     <AppRoot appearance={appearance} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="nova"
       style={{ ...vars, paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
@@ -1097,6 +1171,7 @@ export default function NovaApp() {
                 : page.k === "connect" ? <div className="n-tg"><ConnectorsTab t={t} me={ctx.me} lang={lang} reload={ctx.reload} /></div>
                 : page.k === "memory" ? <div className="n-tg"><MemoryTab t={t} lang={lang} me={ctx.me} /></div>
                 : page.k === "linked" ? <div className="n-tg"><LinkedAccount ar={lang === "ar"} /></div>
+                : page.k === "skills" ? <Skills c={ctx} />
                 : <div className="n-tg"><List><PolicySection t={t} me={ctx.me} lang={lang} /></List></div>}
             </>
           )

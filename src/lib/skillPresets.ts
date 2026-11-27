@@ -1,35 +1,46 @@
-// One-click Skills (the idea behind Mira's "Daily Briefing" / "Daily Motivation"): ready scheduled tasks a user switches on with one tap from the Mini App.
-// Each preset becomes an ordinary scheduled task of the user's OWN account on the selected Nova-family model (src/lib/coderSchedules.ts): same plan limits,
-// same per-user data, same owner deny-list and approvals as any task the user writes by hand. Pure data, no network.
-export type SkillPreset = { id: string; icon: string; title: { ar: string; en: string }; desc: { ar: string; en: string }; prompt: string; recurrence: string; needsRepo?: boolean };
+// One-click Skills (the idea behind Mira's "Daily Briefing" / "Daily Motivation" and its Explore list): ready scheduled tasks a user
+// switches on with one tap from the Mini App. Each preset becomes an ordinary scheduled task of the user's OWN account on the selected
+// Nova-family model (src/lib/coderSchedules.ts): same plan limits, same per-user data, same owner deny-list and approvals as any task the
+// user writes by hand. Pure data, no network, no invented install counts.
+export type SkillCat = "productivity" | "news" | "dev" | "learning";
+
+/** Mira's category chips, in our words: what kind of work a skill does (not which model it belongs to — every model keeps its own skills). */
+export const SKILL_CATS: { id: SkillCat; icon: string; label: { ar: string; en: string } }[] = [
+  { id: "productivity", icon: "🗂️", label: { ar: "إنتاجية", en: "Productivity" } },
+  { id: "news", icon: "🌍", label: { ar: "أخبار ومتابعة", en: "News & tracking" } },
+  { id: "dev", icon: "🛠️", label: { ar: "تطوير", en: "Development" } },
+  { id: "learning", icon: "📚", label: { ar: "تعلّم", en: "Learning" } },
+];
+
+export type SkillPreset = { id: string; icon: string; cat: SkillCat; title: { ar: string; en: string }; desc: { ar: string; en: string }; prompt: string; recurrence: string; needsRepo?: boolean };
 
 export const SKILL_PRESETS: SkillPreset[] = [
   {
-    id: "daily-briefing", icon: "🗞️", recurrence: "daily 08:00",
+    id: "daily-briefing", icon: "🗞️", cat: "news", recurrence: "daily 08:00",
     title: { ar: "الملخص الصباحي", en: "Morning briefing" },
     desc: { ar: "كل يوم 8:00: أهم أخبار التقنية والعالم العربي بمصادرها", en: "Daily 8:00: top tech and Arab-world news with sources" },
     prompt: "أعطني ملخصًا صباحيًا قصيرًا: أهم 5 أخبار اليوم في التقنية والذكاء الاصطناعي والعالم العربي، سطر لكل خبر مع رابط مصدره. لا تخترع خبرًا: إن لم تجد مصدرًا فاذكر ذلك. ثم نصيحة عملية واحدة لليوم.",
   },
   {
-    id: "daily-motivation", icon: "🌱", recurrence: "daily 09:00",
+    id: "daily-motivation", icon: "🌱", cat: "productivity", recurrence: "daily 09:00",
     title: { ar: "تحفيز يومي", en: "Daily motivation" },
     desc: { ar: "كل يوم 9:00: رسالة تحفيز قصيرة وخطوة صغيرة", en: "Daily 9:00: a short motivation and one small step" },
     prompt: "اكتب لي رسالة تحفيز قصيرة (3 أسطر على الأكثر) ومختلفة عن الأيام السابقة، تنتهي بخطوة صغيرة واحدة أستطيع فعلها اليوم.",
   },
   {
-    id: "weekly-review", icon: "🗓️", recurrence: "weekly sun 19:00",
+    id: "weekly-review", icon: "🗓️", cat: "productivity", recurrence: "weekly sun 19:00",
     title: { ar: "مراجعة الأسبوع", en: "Weekly review" },
     desc: { ar: "كل أحد 19:00: ماذا أنجزنا وخطة الأسبوع القادم", en: "Sundays 19:00: what we did and next week's plan" },
     prompt: "راجع ما عملنا عليه في محادثاتنا هذا الأسبوع: ما أُنجز، وما بقي معلقًا. ثم اقترح خطة قصيرة من 3 أولويات للأسبوع القادم.",
   },
   {
-    id: "github-digest", icon: "🐙", recurrence: "weekdays 09:30", needsRepo: true,
+    id: "github-digest", icon: "🐙", cat: "dev", recurrence: "weekdays 09:30", needsRepo: true,
     title: { ar: "ملخص المستودع", en: "Repository digest" },
     desc: { ar: "أيام العمل 9:30: طلبات الدمج والقضايا الجديدة في مستودعك", en: "Weekdays 9:30: new pull requests and issues in your repo" },
     prompt: "لخّص ما تغيّر في مستودعي منذ أمس: طلبات الدمج الجديدة أو المحدَّثة، والقضايا الجديدة، وأي فحص CI فاشل. اقرأ فقط ولا تغيّر شيئًا.",
   },
   {
-    id: "english-word", icon: "📚", recurrence: "daily 20:00",
+    id: "english-word", icon: "📚", cat: "learning", recurrence: "daily 20:00",
     title: { ar: "كلمة إنجليزية يوميًا", en: "Daily English word" },
     desc: { ar: "كل يوم 20:00: كلمة جديدة بمعناها ومثال", en: "Daily 20:00: a new word, meaning and example" },
     prompt: "علّمني كلمة إنجليزية مفيدة جديدة لم تعلّمني إياها من قبل: الكلمة، النطق التقريبي بالعربية، المعنى، ومثال في جملة مع ترجمتها.",
@@ -42,3 +53,13 @@ export function presetSchedule(p: SkillPreset, lang: "ar" | "en", tz: string, re
 }
 /** A preset is "on" when the user already has a task with its title (in either language). */
 export const presetEnabled = (p: SkillPreset, titles: string[]): boolean => titles.some((t) => t === `${p.icon} ${p.title.ar}` || t === `${p.icon} ${p.title.en}`);
+
+/** The Explore list: the category chip, and the search box match the Arabic or English name, description or id. */
+export function filterPresets(list: SkillPreset[], query = "", cat: SkillCat | "all" = "all"): SkillPreset[] {
+  const needle = String(query || "").trim().toLowerCase();
+  return list.filter((p) => {
+    if (cat !== "all" && p.cat !== cat) return false;
+    if (!needle) return true;
+    return [p.id, p.title.ar, p.title.en, p.desc.ar, p.desc.en].some((s) => s.toLowerCase().includes(needle));
+  });
+}
