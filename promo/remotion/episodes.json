@@ -285,6 +285,21 @@
    "ctaLine": "ttbik-gate.jonsnowx1r.workers.dev",
    "lang": "ar",
    "home": false
+  },
+  {
+   "id": 22,
+   "path": "/free-tools/logo-generator",
+   "title": "مولّد الشعارات النصية",
+   "hook": "شعار مشروعك بالعربية؟",
+   "input": "مقهى الساحة\nقهوة مختصة من قلب المدينة",
+   "channel": "general",
+   "caption": "صمّم شعاراً نصياً عربياً واختر الخط والألوان والتصميم، ثم نزّل PNG أو SVG وصورة مربعة للملف الشخصي. المعاينة تُرسم داخل المتصفح.\nhttps://ttbik-gate.jonsnowx1r.workers.dev/free-tools/logo-generator",
+   "script": "هل تريد شعاراً بسيطاً لاسم مشروعك؟ اكتب الاسم والشعار الفرعي، واختر الخط العربي والألوان والتصميم، وستظهر المعاينة مباشرة داخل المتصفح. يمكنك تنزيل النسخة الكبيرة بصيغة PNG أو SVG، وكذلك صورة مربعة للملف الشخصي. جرّب أكثر من تنسيق قبل اعتماد النسخة النهائية؛ الأداة مجانية ولا تحتاج إلى تسجيل.",
+   "brand": "شام AI",
+   "ctaTitle": "صمّم شعارك",
+   "ctaLine": "ttbik-gate.jonsnowx1r.workers.dev",
+   "lang": "ar",
+   "home": false
   }
  ]
 }
