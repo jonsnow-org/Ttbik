@@ -659,7 +659,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
   // every other command (old habits, menus) answers with the button that opens the app on the right tab.
   const ROUTED: Record<string, string> = {
-    "/mode": "settings", "/think": "settings", "/perms": "settings", "/memory": "memory", "/schedule": "schedules", "/schedules": "schedules",
+    "/mode": "settings", "/think": "settings", "/perms": "settings", "/memory": "memory", "/schedule": "schedules", "/schedules": "schedules", "/skills": "skills", "/skill": "skills",
     "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
     "/stalls": "settings", "/new": "tasks", "/help": "tasks", "/plan": "billing", "/billing": "billing", "/upgrade": "billing", "/connectors": "connect",
   };
@@ -676,7 +676,7 @@ async function handleCoderSectionsInner(bot: TelegramBot, botRow: BotRow, update
   }
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
-    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
+    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والمهارات والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
   if (st.mode === "sham") {
