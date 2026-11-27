@@ -36,7 +36,7 @@ export const EN_NEWS: DeskItem[] = [
     },
     {
       "href": "https://apnews.com/article/un-hunger-famine-food-war-sudan-yemen-819ca5f619621b6f3b7ca8ba66b65762",
-      "label": "Associated Press — Food agencies warn hunger could deepen across 16 hotspots, 27 November 2026"
+      "label": "Associated Press — independent coverage of the hunger-hotspot outlook, 27 November 2026"
     }
   ]
 },
