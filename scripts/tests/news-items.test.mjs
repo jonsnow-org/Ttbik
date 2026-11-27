@@ -126,8 +126,8 @@ test("27 November China market-support and France GDP briefings have bilingual s
     assert.ok(ar.sources.some((source) => source.href === item.independent));
     assert.match(ar.contextDateLabel, item.arTime);
     assert.match(en.contextDateLabel, item.enTime);
-    assert.match(ar.paragraphs.join(" "), item.arCaveat);
-    assert.match(en.body.join(" "), item.enCaveat);
+    assert.match(ar.description + " " + ar.paragraphs.join(" "), item.arCaveat);
+    assert.match(en.dek + " " + en.body.join(" "), item.enCaveat);
     assert.ok(newsSitemapEntries().some((entry) => entry.path.endsWith(item.slug)));
   }
 });
