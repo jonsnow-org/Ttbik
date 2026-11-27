@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatLocalDate } from "@/lib/dateDifference";
 import { parseLocalizedNumber } from "@/lib/numberInput";
 
 type LineItem = { desc: string; qty: string; price: string };
@@ -10,7 +11,7 @@ const emptyItem = (): LineItem => ({ desc: "", qty: "1", price: "" });
 export default function InvoiceGenerator() {
   const [docType, setDocType] = useState<"invoice" | "contract">("invoice");
   const [docNumber, setDocNumber] = useState("");
-  const [docDate, setDocDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [docDate, setDocDate] = useState(() => formatLocalDate(new Date()));
   const [sellerName, setSellerName] = useState("");
   const [sellerInfo, setSellerInfo] = useState("");
   const [buyerName, setBuyerName] = useState("");
