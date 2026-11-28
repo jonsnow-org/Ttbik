@@ -17,15 +17,19 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import ipaddress
 import json
 import importlib.util
 import os
 import re
 import resource
 import shutil
+import socket
+import socketserver
 import subprocess
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(os.environ.get("BOX_STORE", "/mnt/workspace/computer"))
@@ -332,6 +336,7 @@ def clean_env(session: str) -> dict:
         "PIP_TRUSTED_HOST": "mirrors.aliyun.com", "PIP_DEFAULT_TIMEOUT": "20",
         "npm_config_registry": os.environ.get("COMPUTER_NPM_REGISTRY", "https://registry.npmmirror.com"),
     }
+    env.update(egress_proxy_env())              # see egress_gate(): a fallback filter when the kernel firewall above cannot block private ranges here
     extra = getattr(_CALL, "env", None)
     if extra:
         env.update(extra)
@@ -602,6 +607,152 @@ def egress_gate() -> dict | None:
     if os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1" and not egress_secure():
         return {"ok": False, "error": "egress_not_secure: the computer cannot block the host's private network here, so it refuses to run commands (COMPUTER_EGRESS_STRICT=1). " + str(STATE.get("egress", ""))}
     return None
+
+
+# ---------------------------------------------------------------- egress proxy (fallback when the kernel firewall refuses every rule; live 2026-11-28:
+# ModelScope's own container has no CAP_NET_ADMIN, so install_egress_rules() above always reports "9 firewall rules refused by the host" there and
+# egress_secure() is False forever on that host. iptables genuinely cannot help without that capability, so commands get a second line of defense
+# instead: a tiny local HTTP(S) forward proxy that resolves every destination itself and refuses to connect anywhere not globally routable (private
+# ranges, loopback, link-local, multicast, cloud metadata addresses), set as http_proxy/https_proxy for the session. This is NOT equivalent to the
+# kernel block: a command that opens its own raw socket instead of going through the proxy env vars still reaches past it (egress_secure() keeps
+# reporting the real, weaker state; COMPUTER_EGRESS_STRICT is unaffected). It stops the common, realistic case -- curl/wget/pip/npm/git/requests/fetch
+# all honour these variables by default -- which is what a model session actually runs.
+_EGRESS_PROXY_PORT = 8897
+_EGRESS_PROXY_STARTED = False
+_EGRESS_PROXY_NAMES = ("localhost", "metadata.google.internal", "metadata", "instance-data")
+_EGRESS_PROXY_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet")
+
+
+def _egress_ip_public(addr: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr.split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return bool(ip.is_global) and not ip.is_multicast
+
+
+def egress_resolve_public(host: str, port: int) -> str:
+    """The address `host` connects to, after checking EVERY address the name resolves to is public (a name that resolves to even one private
+    address alongside a public one is refused outright, so DNS cannot pick the safe-looking answer for the check and the private one for the
+    connection). Raises ValueError with a readable reason otherwise. The caller connects to THIS address, never re-resolving (no second DNS lookup
+    for an attacker to flip between check and connect)."""
+    h = host.strip("[]").rstrip(".").lower()
+    if not h or h in _EGRESS_PROXY_NAMES or h.endswith(_EGRESS_PROXY_SUFFIXES):
+        raise ValueError(f"{host} is not a public host")
+    try:
+        infos = socket.getaddrinfo(h, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise ValueError(f"cannot resolve {host}: {exc}") from None
+    addrs = sorted({i[4][0] for i in infos})
+    if not addrs:
+        raise ValueError(f"{host} has no address")
+    bad = [a for a in addrs if not _egress_ip_public(a)]
+    if bad:
+        raise ValueError(f"{host} resolves to a non-public address ({bad[0]}): refused")
+    return addrs[0]
+
+
+def _egress_relay(a: socket.socket, b: socket.socket) -> None:
+    try:
+        while True:
+            data = a.recv(65536)
+            if not data:
+                break
+            b.sendall(data)
+    except OSError:
+        pass
+    finally:
+        for s in (a, b):
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+class _EgressProxyHandler(socketserver.StreamRequestHandler):
+    """CONNECT (the path almost everything uses for https) tunnels only to a resolved PUBLIC address; a plain absolute-form HTTP request is
+    rewritten to origin-form and forwarded the same way. Anything unparsable is dropped, never passed through unchecked."""
+
+    def handle(self) -> None:
+        try:
+            line = self.rfile.readline(8192).decode("latin-1", "replace").rstrip("\r\n")
+            parts = line.split(" ")
+            if len(parts) < 3:
+                return
+            method, target = parts[0], parts[1]
+            headers: dict[str, str] = {}
+            while True:
+                h = self.rfile.readline(8192).decode("latin-1", "replace").rstrip("\r\n")
+                if not h:
+                    break
+                if ":" in h:
+                    k, v = h.split(":", 1)
+                    headers[k.strip().lower()] = v.strip()
+            if method == "CONNECT":
+                host, _, port_s = target.partition(":")
+                port = int(port_s or 443)
+            else:
+                u = urllib.parse.urlsplit(target if "://" in target else "http://" + headers.get("host", "") + target)
+                host = u.hostname or headers.get("host", "").split(":")[0]
+                port = u.port or 80
+            try:
+                addr = egress_resolve_public(host, port)
+            except ValueError as exc:
+                self.wfile.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n" + str(exc).encode("latin-1", "replace"))
+                return
+            try:
+                upstream = socket.create_connection((addr, port), timeout=15)
+            except OSError as exc:
+                self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n" + str(exc).encode("latin-1", "replace"))
+                return
+            if method == "CONNECT":
+                self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            else:
+                origin = u.path or "/"
+                if u.query:
+                    origin += "?" + u.query
+                req = f"{method} {origin} HTTP/1.1\r\n"
+                for k, v in headers.items():
+                    if k != "proxy-connection":
+                        req += f"{k}: {v}\r\n"
+                upstream.sendall((req + "\r\n").encode("latin-1", "replace"))
+            t = threading.Thread(target=_egress_relay, args=(upstream, self.connection), daemon=True)
+            t.start()
+            _egress_relay(self.connection, upstream)
+        except Exception:
+            pass
+
+
+def start_egress_proxy() -> bool:
+    """Idempotent. -> True once the proxy is listening on 127.0.0.1:_EGRESS_PROXY_PORT (already running counts as success)."""
+    global _EGRESS_PROXY_STARTED
+    with _LOCK:
+        if _EGRESS_PROXY_STARTED:
+            return True
+        try:
+            server = socketserver.ThreadingTCPServer(("127.0.0.1", _EGRESS_PROXY_PORT), _EgressProxyHandler)
+            server.daemon_threads = True
+            threading.Thread(target=server.serve_forever, daemon=True, name="egress-proxy").start()
+            _EGRESS_PROXY_STARTED = True
+            return True
+        except OSError:
+            return False  # a port already bound by an earlier boot of this same process counts as running, not failed
+
+
+def egress_proxy_env() -> dict[str, str]:
+    """{} when the kernel already blocks private ranges (egress_secure()) or COMPUTER_EGRESS_PROXY=0; otherwise the proxy env vars a session's
+    clean_env() adds, starting the proxy on first use. Honoured by anything that reads http_proxy/https_proxy (most real tools); see the module note
+    above for what it does not cover."""
+    install_egress_rules()                      # safe to call before every clean_env(): a no-op once STATE["egress"] is known
+    if egress_secure() or os.environ.get("COMPUTER_EGRESS_PROXY", "1").strip() == "0":
+        return {}
+    if not start_egress_proxy():
+        return {}
+    base = f"http://127.0.0.1:{_EGRESS_PROXY_PORT}"
+    return {"http_proxy": base, "https_proxy": base, "HTTP_PROXY": base, "HTTPS_PROXY": base,
+            "no_proxy": "127.0.0.1,localhost", "NO_PROXY": "127.0.0.1,localhost"}
 
 
 # ---------------------------------------------------------------- memory watcher (rlimits cannot cap real memory)
@@ -1564,6 +1715,7 @@ def status(session: str = "") -> dict:
              "capacity": {"can_accept": can_accept, "active_jobs": active_jobs, "active_commands": active_commands,
                           "active_desktops": active_desktops, "available_mb": available_mb},
              "egress": STATE["egress"], "egress_secure": egress_secure(), "egress_strict": os.environ.get("COMPUTER_EGRESS_STRICT", "0").strip() == "1",
+             "egress_proxy": bool(egress_proxy_env()),
              "storage_mode": "persistent" if str(ROOT).startswith("/mnt/workspace") else "ephemeral",
              "toolchain": STATE.get("toolchain", "not checked"), "apt_sources": dict(STATE.get("apt_sources", {}))}
     if session:

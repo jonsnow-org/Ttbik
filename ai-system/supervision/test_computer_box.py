@@ -674,6 +674,87 @@ class EgressRules(unittest.TestCase):
         self.assertIn("refused by the host", result)
 
 
+class EgressProxy(unittest.TestCase):
+    """The software fallback used when install_egress_rules() cannot block anything here (no CAP_NET_ADMIN: real, live 2026-11-28 on ModelScope)."""
+
+    def setUp(self):
+        self.old_state = cb.STATE.get("egress", "not checked")
+        self.old_port = cb._EGRESS_PROXY_PORT
+        self.old_started = cb._EGRESS_PROXY_STARTED
+        with cb.socket.socket(cb.socket.AF_INET, cb.socket.SOCK_STREAM) as probe:      # a fresh, free port per test: this shares the sandbox's
+            probe.bind(("127.0.0.1", 0))                                              # network namespace with any stray proxy an earlier run left bound
+            cb._EGRESS_PROXY_PORT = probe.getsockname()[1]
+        cb._EGRESS_PROXY_STARTED = False
+
+    def tearDown(self):
+        cb.STATE["egress"] = self.old_state
+        cb._EGRESS_PROXY_PORT = self.old_port
+        cb._EGRESS_PROXY_STARTED = self.old_started
+
+    def test_ip_classification_matches_the_kernel_rules_destinations(self):
+        for bad in ("100.100.100.200", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.1.1", "127.0.0.1", "::1", "fc00::1", "fe80::1"):
+            self.assertFalse(cb._egress_ip_public(bad), bad)
+        for good in ("8.8.8.8", "1.1.1.1", "2001:4860:4860::8888"):
+            self.assertTrue(cb._egress_ip_public(good), good)
+        self.assertFalse(cb._egress_ip_public("not-an-ip"))
+
+    def test_resolve_public_refuses_reserved_names_and_a_name_that_resolves_private(self):
+        with self.assertRaises(ValueError):
+            cb.egress_resolve_public("localhost", 80)
+        with self.assertRaises(ValueError):
+            cb.egress_resolve_public("box.internal", 80)
+        with patch.object(cb.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", 80))]):
+            with self.assertRaises(ValueError) as ctx:
+                cb.egress_resolve_public("example.test", 80)
+        self.assertIn("non-public", str(ctx.exception))
+        with patch.object(cb.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80))]):
+            self.assertEqual(cb.egress_resolve_public("example.test", 80), "93.184.216.34")
+
+    def test_resolve_public_refuses_a_name_that_resolves_to_both_a_public_and_a_private_address(self):
+        """One bad address among several good ones is still refused outright: DNS must not be able to offer the safe-looking one for the check."""
+        with patch.object(cb.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80)), (2, 1, 6, "", ("10.0.0.5", 80))]):
+            with self.assertRaises(ValueError):
+                cb.egress_resolve_public("example.test", 80)
+
+    def test_env_carries_the_proxy_only_when_the_kernel_cannot_block_and_the_flag_allows_it(self):
+        cb.STATE["egress"] = "partly blocked (9 firewall rules refused by the host)"
+        with patch.dict(os.environ, {"COMPUTER_EGRESS_PROXY": "0"}):
+            self.assertEqual(cb.egress_proxy_env(), {})
+        env = cb.egress_proxy_env()
+        self.assertTrue(env["http_proxy"].startswith("http://127.0.0.1:"))
+        self.assertEqual(env["http_proxy"], env["https_proxy"])
+        cb.STATE["egress"] = "private IPv4/IPv6 ranges and metadata addresses blocked for computer sessions"
+        self.assertEqual(cb.egress_proxy_env(), {})
+
+    def test_the_handler_refuses_a_private_connect_target_and_relays_to_a_resolved_public_one(self):
+        cb.STATE["egress"] = "partly blocked (9 firewall rules refused by the host)"
+        self.assertTrue(cb.start_egress_proxy())
+        with cb.socket.create_connection(("127.0.0.1", cb._EGRESS_PROXY_PORT), timeout=5) as sock:
+            sock.sendall(b"CONNECT 169.254.169.254:80 HTTP/1.1\r\nHost: 169.254.169.254\r\n\r\n")
+            self.assertTrue(sock.recv(200).startswith(b"HTTP/1.1 403"))
+
+        listener = cb.socketserver.TCPServer(("127.0.0.1", 0), type("Echo", (cb.socketserver.BaseRequestHandler,), {
+            "handle": lambda self: self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")}))
+        threading = cb.threading
+        threading.Thread(target=listener.handle_request, daemon=True).start()
+        port = listener.server_address[1]
+        real_getaddrinfo = cb.socket.getaddrinfo
+
+        def fake_getaddrinfo(host, *a, **k):
+            # ONLY the CONNECT target inside the handler is faked; the test's own connection to the proxy (by literal "127.0.0.1") must resolve
+            # for real, or this patch would redirect the test's own socket.create_connection call too (it also calls getaddrinfo).
+            if host == "fake-public.test":
+                return [(2, 1, 6, "", ("127.0.0.1", port))]
+            return real_getaddrinfo(host, *a, **k)
+
+        with cb.socket.create_connection(("127.0.0.1", cb._EGRESS_PROXY_PORT), timeout=5) as sock:
+            with patch.object(cb.socket, "getaddrinfo", side_effect=fake_getaddrinfo), \
+                 patch.object(cb, "_egress_ip_public", return_value=True):          # the test's own target is loopback; stand in for a real public address
+                sock.sendall(f"CONNECT fake-public.test:{port} HTTP/1.1\r\nHost: x\r\n\r\n".encode())
+                self.assertTrue(sock.recv(200).startswith(b"HTTP/1.1 200 Connection Established"))
+                sock.sendall(b"GET / HTTP/1.1\r\n\r\n")
+                self.assertIn(b"hi", sock.recv(200))
+        listener.server_close()
 
 
 class DevTools(unittest.TestCase):
