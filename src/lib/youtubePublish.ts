@@ -99,3 +99,26 @@ export async function uploadVideo(bytes: Uint8Array, o: { title: string; descrip
   const j = up ? await up.json().catch(() => null) : null;
   return j?.id ? { ok: true, id: String(j.id) } : { ok: false, reason: `youtube-upload-${up?.status ?? "unreachable"}: ${String(j?.error?.message || "").slice(0, 120)}` };
 }
+
+/** Posts a top-level comment with the topic link. Needs a broader scope than youtube.upload (youtube.force-ssl).
+ *  Non-fatal: if the stored consent cannot comment, returns a reason and the video still stays published. */
+export async function commentWithLink(videoId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const a = await accessTokenOrReason();
+  if (!("token" in a)) return { ok: false, reason: `youtube-comment-not-authorised (${a.why})` };
+  const body = {
+    snippet: {
+      videoId,
+      topLevelComment: { snippet: { textOriginal: text.slice(0, 1000) } },
+    },
+  };
+  const r = await fetch("https://www.googleapis.com/youtube/v3/commentThreads?part=snippet", {
+    method: "POST",
+    headers: { authorization: `Bearer ${a.token}`, "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "youtube-comment-unreachable" };
+  const j = await r.json().catch(() => null);
+  if (r.ok && j?.id) return { ok: true };
+  const msg = String(j?.error?.message || "").slice(0, 160);
+  return { ok: false, reason: `youtube-comment-${r.status}: ${msg}` };
+}

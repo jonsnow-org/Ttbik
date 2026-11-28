@@ -13,9 +13,11 @@ INTV=$(python3 -c "import json;print('0' if json.load(open('episode.json')).get(
 RATE=$(python3 -c "import json;print(json.load(open('episode.json'))['rate'])")
 mkdir -p out rec
 node scripts/record.mjs "$SITE" "$P" "$IN" rec "$LANGV" "$HOMEV" "$RECV" "$INTV"
-# drop the blank first ~1.5s of page load, encode to h264 for Remotion
-ffmpeg -y -loglevel error -ss 1.5 -i rec/screen.webm -vf "fps=30,scale=720:1280:flags=lanczos" -c:v libx264 -pix_fmt yuv420p -crf 18 -an public/screen.mp4
+# drop the blank first ~1.5s of page load, encode to h264 for Remotion (1080x1920, sharp)
+ffmpeg -y -loglevel error -ss 1.5 -i rec/screen.webm -vf "fps=30,scale=1080:1920:flags=lanczos" -c:v libx264 -pix_fmt yuv420p -crf 16 -an public/screen.mp4
 python3 scripts/tts.py "$TXT" "$VOICE" "$RATE" public
+# Normalize voice so narration stays clear over the music bed
+ffmpeg -y -loglevel error -i public/voice.mp3 -af "loudnorm=I=-16:TP=-1.5:LRA=11" public/voice-norm.mp3 && mv public/voice-norm.mp3 public/voice.mp3
 sh scripts/music.sh
 python3 scripts/finalize_words.py
 npx remotion render Promo out/promo.mp4 --props=props.json

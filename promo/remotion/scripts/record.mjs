@@ -7,7 +7,8 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({
   ...devices["Pixel 7"],
   viewport: { width: 412, height: 732 },
-  recordVideo: { dir: out, size: { width: 412, height: 732 } },
+  deviceScaleFactor: 2,
+  recordVideo: { dir: out, size: { width: 1080, height: 1920 } },
   locale: lang === "en" ? "en-US" : "ar",
 });
 const page = await ctx.newPage();

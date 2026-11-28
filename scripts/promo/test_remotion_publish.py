@@ -32,7 +32,10 @@ class RemotionPublishTests(unittest.TestCase):
             caption="A keepsake only; no promise of any return.",
             script="This is a keepsake, not an investment.",
         )
-        self.assertEqual(public_caption(episode), episode["caption"])
+        self.assertEqual(
+            public_caption(episode),
+            episode["caption"] + "\n\nhttps://example.com/tool",
+        )
 
     def test_coins_channel_rejects_arabic_in_any_public_field(self):
         episode = self.base(
