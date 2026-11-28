@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
-from . import tools
+from . import governance, tools
 
 NAME = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
 BANNED_IMPORTS = {"os", "sys", "subprocess", "socket", "shutil", "ctypes", "multiprocessing", "threading", "importlib", "pathlib", "urllib", "http", "requests", "pickle", "marshal", "signal", "resource", "builtins", "inspect", "gc"}
@@ -77,8 +77,13 @@ class SkillLibrary:
         f = self._dir(name) / "meta.json"
         return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"active": 0, "versions": []}
 
-    def propose(self, name: str, code: str, tests: str, description: str = "") -> tuple[bool, str]:
-        """Register a new version ONLY if it screens clean and its tests pass. The previous active version stays until then."""
+    def propose(self, name: str, code: str, tests: str, description: str = "", external: bool = False, approved: bool = False) -> tuple[bool, str]:
+        """Register a new version ONLY if it screens clean and its tests pass. The previous active version stays until then. A skill that acts on the outside world
+        (`external=True`: e-mail, posting, orders, anything beyond the workspace) is activated only with a person's approval (`governance.classify`)."""
+        if external:
+            v = governance.classify("skill_activate_external", approved=approved)
+            if not v.allowed:
+                return False, v.reason
         if not NAME.match(name):
             return False, "name must be lowercase letters, digits, underscore (3-41 chars)"
         if name in tools.REGISTRY:

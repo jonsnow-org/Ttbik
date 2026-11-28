@@ -32,7 +32,7 @@ class Qalam(nn.Module):
         self.compressor = CrossAttention(cfg.width, cfg.heads)
         self.reader = CrossAttention(cfg.width, cfg.heads)
         for axis, length, pairs in zip(("seq", "row", "col", "time"), (cfg.max_seq, cfg.max_grid, cfg.max_grid, cfg.max_time), cfg.rope_split()):
-            cos, sin = rope_tables(length, pairs, cfg.rope_theta)
+            cos, sin = rope_tables(length, pairs, cfg.rope_theta, cfg.rope_factor if axis == "seq" else 1.0)
             self.register_buffer(f"rope_{axis}_cos", cos, persistent=False)
             self.register_buffer(f"rope_{axis}_sin", sin, persistent=False)
         self.apply(self._init)
@@ -93,12 +93,13 @@ class Qalam(nn.Module):
         return c
 
     def forward_causal(self, ids: torch.Tensor, cache: list[KV] | None = None, cycles: int | None = None,
-                       grid: torch.Tensor | None = None, segments: torch.Tensor | None = None) -> tuple[torch.Tensor, list[KV]]:
+                       grid: torch.Tensor | None = None, segments: torch.Tensor | None = None, start: int | None = None) -> tuple[torch.Tensor, list[KV]]:
         """Hidden states of `ids` (continuing `cache` if given) and the grown cache: one (K, V) per cycle x block application.
         `segments` ([batch, length] document numbers) packs several documents into one row: a token attends only to earlier tokens of its own document."""
         self._check_ids(ids)
         cyc = self._cycles(cycles)
-        start = 0 if cache is None else cache[0][0].shape[2]
+        if start is None:                                             # the position of the first new token: the cache length, unless the cache was trimmed (then the caller passes it)
+            start = 0 if cache is None else cache[0][0].shape[2]
         if start + ids.shape[1] > self.cfg.max_seq:
             raise ValueError("sequence exceeds max_seq")
         x = self.embed(ids)
@@ -118,19 +119,47 @@ class Qalam(nn.Module):
                 new.append(kv)
         return self.final_norm(x), new
 
+    def reset_aux(self) -> None:
+        for b in self.blocks:
+            b.moe.terms = []
+
     def aux_loss(self) -> torch.Tensor:
-        return torch.stack([b.moe.aux for b in self.blocks]).mean()
+        """The expert-balance loss averaged over EVERY application of every block since the last `reset_aux` (all cycles, not just the last one)."""
+        terms = [t for b in self.blocks for t in b.moe.terms] or [b.moe.aux for b in self.blocks]
+        return torch.stack(terms).mean()
+
+    def prefill(self, ids: torch.Tensor, cycles: int | None = None, chunk: int = 1024, tail: int = 4096) -> tuple[torch.Tensor, list[KV]]:
+        """A long prompt in bounded-memory chunks: identical to one forward pass (exact), but the activations never exceed one chunk. Returns the last `tail`
+        hidden states (all the T-LDM compressor needs) and the full cache."""
+        if chunk < 1:
+            raise ValueError("chunk must be positive")
+        cache, hid = None, []
+        for a in range(0, ids.shape[1], chunk):
+            h, cache = self.forward_causal(ids[:, a:a + chunk], cache, cycles)
+            hid.append(h[:, -tail:])
+            hid = [torch.cat(hid, dim=1)[:, -tail:]]
+        return hid[0], cache
+
+    @staticmethod
+    def trim_cache(cache: list[KV], sinks: int = 4, window: int = 4096) -> list[KV]:
+        """Keep the first `sinks` positions (attention sinks) and the last `window`: memory stays bounded however long the stream. Keys keep their original rotation,
+        so relative offsets stay right; the caller passes `start=` (the absolute position) to the next forward_causal. This is lossy by design (the middle is gone)."""
+        n = cache[0][0].shape[2]
+        if n <= sinks + window:
+            return cache
+        return [(torch.cat([k[:, :, :sinks], k[:, :, -window:]], dim=2), torch.cat([v[:, :, :sinks], v[:, :, -window:]], dim=2)) for k, v in cache]
 
     def forward(self, ids: torch.Tensor, cycles: int | None = None, segments: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        self.reset_aux()
         h, _ = self.forward_causal(ids, None, cycles, segments=segments)
         return self.lm_head(h), self.aux_loss()
 
     # ------------------------------------------------------------------ native T-LDM
-    def compress(self, hidden: torch.Tensor, window: int = 256) -> torch.Tensor:
-        """The latent compressor: learned queries read (the last `window` of) the prefix states."""
+    def compress(self, hidden: torch.Tensor, window: int = 4096, key_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """The latent compressor: learned queries read (the last `window` of) the prefix states. `key_mask` [batch, prefix] keeps packed documents apart."""
         mem = hidden[:, -window:]
         q = self.latent_queries.unsqueeze(0).expand(hidden.shape[0], -1, -1)
-        return q + self.compressor(q, mem)
+        return q + self.compressor(q, mem, None if key_mask is None else key_mask[:, -window:])
 
     def think(self, latents: torch.Tensor, cycles: int | None = None) -> torch.Tensor:
         cyc = self._cycles(cycles)
@@ -143,7 +172,7 @@ class Qalam(nn.Module):
         return x
 
     def write(self, block_ids: torch.Tensor, cache: list[KV], latents: torch.Tensor, cycles: int | None = None,
-              grid: torch.Tensor | None = None) -> torch.Tensor:
+              grid: torch.Tensor | None = None, prefix_allow: torch.Tensor | None = None) -> torch.Tensor:
         """Logits for a (partly masked) block that follows the cached prefix. Bidirectional inside the block; the prefix is read from the cache."""
         cyc = self._cycles(cycles)
         start = cache[0][0].shape[2]
@@ -153,25 +182,48 @@ class Qalam(nn.Module):
             x = x + self.cycle_embed.weight[c]
             x = x + self.reader(x, latents)
             for i, blk in enumerate(self.blocks):
-                x, _ = blk(x, rope, False, cache[c * len(self.blocks) + i])
+                x, _ = blk(x, rope, False, cache[c * len(self.blocks) + i], None, prefix_allow)
         return self.lm_head(self.final_norm(x))
 
-    def tldm_loss(self, ids: torch.Tensor, block: int = 16, cycles: int | None = None, generator: torch.Generator | None = None) -> torch.Tensor:
-        """Masked-block diffusion loss at a random split: the prefix is encoded causally, the block is masked at a random ratio and rebuilt."""
+    def tldm_loss(self, ids: torch.Tensor, block: int = 16, cycles: int | None = None, generator: torch.Generator | None = None,
+                  loss_mask: torch.Tensor | None = None, segments: torch.Tensor | None = None) -> torch.Tensor:
+        """Masked-block diffusion loss at a random split: the prefix is encoded causally, the block is masked at a random ratio and rebuilt.
+        It obeys the same rules as the causal loss: PAD and tokens with `loss_mask` 0 (a user's words) are never predicted, and with `segments` (packed documents) the
+        block, the latents and the prefix it reads all belong to ONE document. `generator` must live on CPU or on ids' device."""
         self._check_ids(ids)
         b, t = ids.shape
         if t < block + 1:
             raise ValueError("sequence shorter than block + 1")
         cyc = self._cycles(cycles)
-        split = int(torch.randint(1, t - block + 1, (1,), generator=generator))
-        h, cache = self.forward_causal(ids[:, :split], None, cyc)
-        latents = self.think(self.compress(h), cyc)
+        dev = ids.device
+        gdev = generator.device if generator is not None else dev
+        split = int(torch.randint(1, t - block + 1, (1,), generator=generator, device=gdev))
+        pad, mask_id = self.cfg.special_id("PAD"), self.cfg.special_id("MASK")
         target = ids[:, split:split + block]
-        ratio = 0.15 + 0.85 * torch.rand((b, 1), generator=generator)
-        mask = torch.rand((b, block), generator=generator) < ratio
-        mask[:, 0] |= ~mask.any(dim=1)                               # at least one masked position per row
-        inp = torch.where(mask, torch.full_like(target, self.cfg.special_id("MASK")), target)
-        logits = self.write(inp, cache, latents, cyc)
+        trainable = target != pad
+        if loss_mask is not None:
+            trainable &= loss_mask[:, split:split + block].bool()
+        key_mask = prefix_allow = None
+        if segments is not None:
+            bseg, first = segments[:, split:split + block], segments[:, split:split + 1]
+            same = bseg == first
+            trainable &= same
+            key_mask = segments[:, :split] == first
+            key_mask[~key_mask.any(dim=1)] = True                       # a row with nothing readable reads everything (it is not trained: no NaN)
+            prefix_allow = key_mask[:, None, None, :]
+            target = torch.where(same, target, torch.full_like(target, pad))
+        self.reset_aux()
+        h, cache = self.forward_causal(ids[:, :split], None, cyc, segments=None if segments is None else segments[:, :split])
+        latents = self.think(self.compress(h, key_mask=key_mask), cyc)
+        ratio = 0.15 + 0.85 * torch.rand((b, 1), generator=generator, device=gdev).to(dev)
+        mask = (torch.rand((b, block), generator=generator, device=gdev).to(dev) < ratio) & trainable
+        need = ~mask.any(dim=1) & trainable.any(dim=1)                 # at least one masked trainable position in every row that has one
+        first_idx = trainable.float().argmax(dim=1)
+        mask[need, first_idx[need]] = True
+        inp = torch.where(mask, torch.full_like(target, mask_id), target)
+        logits = self.write(inp, cache, latents, cyc, prefix_allow=prefix_allow)
+        if not bool(mask.any()):
+            return logits.float().sum() * 0.0                           # nothing here may be trained: a zero that keeps the graph
         return F.cross_entropy(logits[mask].float(), target[mask])
 
     @torch.no_grad()
@@ -213,7 +265,7 @@ class Qalam(nn.Module):
         was = self.training
         self.eval()
         try:
-            h, cache = self.forward_causal(prefix, None, cyc)
+            h, cache = self.prefill(prefix, cyc)
             return self._draft(cache, h, block, steps, allowed, cyc)
         finally:
             self.train(was)
@@ -232,12 +284,13 @@ class Qalam(nn.Module):
             raise ValueError("max_new must be positive")
         cyc = self._cycles(cycles)
         allowed = allowed or self.cfg.text_and_end_ids()
-        keep = torch.full((self.cfg.vocab_size,), float("-inf"), dtype=self.embed.weight.dtype)
+        dev = prefix.device
+        keep = torch.full((self.cfg.vocab_size,), float("-inf"), dtype=self.embed.weight.dtype, device=dev)
         keep[allowed] = 0.0
         was = self.training
         self.eval()
         try:
-            hid, cache = self.forward_causal(prefix, None, cyc)
+            hid, cache = self.prefill(prefix, cyc)
             pending = int((self.lm_head(hid[:, -1]) + keep).argmax())
             out: list[int] = [pending]
             passes, accepted = 1, 0
@@ -245,7 +298,7 @@ class Qalam(nn.Module):
                 k = min(block, max_new - len(out), self.cfg.max_seq - cache[0][0].shape[2] - 1)
                 if k < 1:
                     break
-                fixed = torch.tensor([[pending]])
+                fixed = torch.tensor([[pending]], device=dev)
                 chunk = self._draft(cache, hid, k + 1, steps, allowed, cyc, fixed=fixed)            # [pending, d1..dk]
                 chunk_h, chunk_cache = self.forward_causal(chunk, cache, cyc)
                 passes += 1
@@ -255,13 +308,13 @@ class Qalam(nn.Module):
                 accepted += m
                 keep_len = cache[0][0].shape[2] + 1 + m
                 cache = [(kk[:, :, :keep_len], vv[:, :, :keep_len]) for kk, vv in chunk_cache]
-                hid = torch.cat([hid, chunk_h[:, :1 + m]], dim=1)
+                hid = torch.cat([hid, chunk_h[:, :1 + m]], dim=1)[:, -4096:]
                 out.extend(int(t) for t in chunk[0, 1:1 + m])
                 pending = int(preds[m])
                 out.append(pending)
             if stop_id is not None and stop_id in out:
                 out = out[:out.index(stop_id) + 1]
             out = out[:max_new]
-            return torch.tensor([out]), {"tokens": len(out), "passes": passes, "accepted_draft_tokens": accepted}
+            return torch.tensor([out], device=dev), {"tokens": len(out), "passes": passes, "accepted_draft_tokens": accepted}
         finally:
             self.train(was)

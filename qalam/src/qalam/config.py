@@ -34,8 +34,10 @@ class ModelConfig:
     audio_codes: int = 1024      # per residual codebook
     motion_codes: int = 512
     tool_codes: int = 256        # one token per tool: a call is [TOOL_BEGIN, <tool id>, arguments..., TOOL_END] (shorter and exact, no spelled names)
-    max_seq: int = 2048
+    max_seq: int = 131072        # positions the model can address (128K tokens): a capacity, reached by a TRAINING curriculum (4K -> 32K -> 128K, notebooks N04/N23), not by the architecture alone
+    train_seq: int = 4096        # the length the base is trained at first; beyond it `rope_factor` > 1 stretches the sequence axis (NTK-aware) before the long-context fine-tune
     rope_theta: float = 500000.0
+    rope_factor: float = 1.0     # sequence-axis stretch for context extension (1.0 = none); the media axes are never stretched
     latents: int = 16
     max_grid: int = 1024         # rows / columns addressable by the 2-D position axes (any image size up to max_grid x max_grid tokens)
     max_time: int = 16384        # time steps addressable by the time axis (video frames / audio frames per window)
@@ -61,6 +63,8 @@ class ModelConfig:
             raise ValueError("shared_hidden must be >= 0")
         if min(self.image_patch, self.audio_sample_rate, self.audio_frame_rate, self.audio_books, self.video_stride) < 1 or self.audio_sample_rate % self.audio_frame_rate:
             raise ValueError("codec contract values must be positive and the sample rate must divide by the frame rate")
+        if self.rope_factor < 1.0 or not 1 <= self.train_seq <= self.max_seq:
+            raise ValueError("rope_factor must be >= 1 and train_seq must be within max_seq")
         if min(self.unique_blocks, self.cycles, self.latents, self.max_seq, self.max_grid, self.max_time) < 1:
             raise ValueError("unique_blocks, cycles, latents and max_seq must be positive")
 
@@ -139,7 +143,7 @@ def small_config() -> ModelConfig:
 def tiny_config() -> ModelConfig:
     """Plumbing and tests only."""
     return ModelConfig(width=64, heads=4, kv_heads=2, unique_blocks=2, cycles=2, experts=4, top_k=2, expert_hidden=96, shared_hidden=48,
-                       text_vocab=288, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=192, max_seq=128, latents=4, max_grid=64, max_time=64)
+                       text_vocab=288, image_codes=16, audio_codes=16, motion_codes=16, tool_codes=192, max_seq=128, train_seq=128, latents=4, max_grid=64, max_time=64)
 
 
 def config_hash(cfg: ModelConfig) -> str:
@@ -149,4 +153,4 @@ def config_hash(cfg: ModelConfig) -> str:
 
 
 # The architecture is FROZEN for training (2026-11-23). Changing a value changes the hash: update these constants only on purpose, and expect to retrain.
-FROZEN_HASH = {"base": "05b2525ceed06f5b", "small": "d815d34b307ac024"}
+FROZEN_HASH = {"base": "54e320828a703cc5", "small": "69f1dcf2ddcbc45f"}   # re-frozen 2026-11-28: 128K positions + rope_factor (nothing had been trained yet, so no retraining cost)

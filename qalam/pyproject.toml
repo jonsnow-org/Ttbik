@@ -3,11 +3,12 @@ name = "qalam"
 version = "0.1.0"
 description = "Qalam: a from-scratch native model (MoE + recurrent depth + native T-LDM)"
 requires-python = ">=3.10"
-dependencies = ["torch>=2.5", "pyyaml>=6"]
+dependencies = ["torch>=2.5", "numpy>=1.26", "pyyaml>=6", "tokenizers>=0.19"]
 
 [project.optional-dependencies]
 files = ["openpyxl", "python-docx", "python-pptx", "pillow", "pypdf", "reportlab"]   # fileops: each format needs its own library (and pandoc / LibreOffice / ffmpeg for conversions)
 test = ["pytest"]
+arabic = ["arabic-reshaper", "python-bidi"]   # PDF output in Arabic (letter shaping and right-to-left order)
 
 [tool.setuptools.packages.find]
 where = ["src"]

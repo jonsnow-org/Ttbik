@@ -20,8 +20,11 @@ class RMSNorm(nn.Module):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
 
 
-def rope_tables(length: int, pairs: int, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
-    """cos/sin [length, pairs] for positions 0..length-1 on ONE axis, computed once in float64 (the model keeps them as buffers)."""
+def rope_tables(length: int, pairs: int, theta: float, factor: float = 1.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """cos/sin [length, pairs] for positions 0..length-1 on ONE axis, computed once in float64 (the model keeps them as buffers).
+    `factor` > 1 is NTK-aware context extension: the base grows by factor^(d/(d-2)), so low frequencies stretch to cover a longer window while high ones keep local resolution."""
+    if factor != 1.0:
+        theta = theta * factor ** (pairs / max(pairs - 1, 1))
     inv = 1.0 / (theta ** (torch.arange(pairs, dtype=torch.float64) / pairs))
     ang = torch.arange(length, dtype=torch.float64)[:, None] * inv[None, :]
     return ang.cos(), ang.sin()
@@ -47,7 +50,7 @@ class Attention(nn.Module):
         self.o = nn.Linear(self.h * self.hd, cfg.width, bias=False)
 
     def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None,
-                segment_mask: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
+                segment_mask: torch.Tensor | None = None, prefix_allow: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
         b, t, _ = x.shape
         q = self.q(x).view(b, t, self.h, self.hd).transpose(1, 2)
         k = self.k(x).view(b, t, self.kv, self.hd).transpose(1, 2)
@@ -68,6 +71,9 @@ class Attention(nn.Module):
                 p = prefix_kv[0].shape[2]
                 mask = torch.ones(t, p + t, dtype=torch.bool, device=x.device)
                 mask[:, p:] = torch.tril(torch.ones(t, t, dtype=torch.bool, device=x.device))
+        elif prefix_kv is not None and prefix_allow is not None:       # the T-LDM writer: bidirectional inside its block, and it may read only the prefix tokens of ITS document
+            p = prefix_kv[0].shape[2]
+            mask = torch.cat([prefix_allow.expand(b, 1, t, p), torch.ones(b, 1, t, t, dtype=torch.bool, device=x.device)], dim=-1)
         y = F.scaled_dot_product_attention(q, k_all, v_all, attn_mask=mask, is_causal=is_causal, enable_gqa=self.h != self.kv)
         return self.o(y.transpose(1, 2).reshape(b, t, self.h * self.hd)), (k_all, v_all)
 
@@ -94,6 +100,12 @@ class MoE(nn.Module):
         self.experts = nn.ModuleList(SwiGLU(cfg.width, cfg.expert_hidden) for _ in range(cfg.experts))
         self.shared = SwiGLU(cfg.width, cfg.shared_hidden) if cfg.shared_hidden else None
         self.aux: torch.Tensor = torch.zeros(())
+        self.terms: list[torch.Tensor] = []                       # the balance loss of EVERY application in training (the blocks run once per cycle: keeping only the last would balance only the last cycle)
+
+    def _record(self, aux: torch.Tensor) -> None:
+        self.aux = aux
+        if self.training and torch.is_grad_enabled():
+            self.terms.append(aux)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, t, d = x.shape
@@ -109,7 +121,7 @@ class MoE(nn.Module):
                 for j in range(self.k):
                     out[n] += top_p[n, j] * self.experts[int(top_i[n, j])](flat[n:n + 1])[0]
             load = F.one_hot(top_i, self.e).sum(dim=1).to(probs.dtype).mean(dim=0) / self.k
-            self.aux = self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z
+            self._record(self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z)
             if self.shared is not None:
                 out = out + self.shared(flat)
             return out.view(b, t, d)
@@ -118,7 +130,7 @@ class MoE(nn.Module):
             if rows.numel():
                 out.index_add_(0, rows, expert(flat[rows]) * top_p[rows, slot].unsqueeze(-1))
         load = F.one_hot(top_i, self.e).sum(dim=1).to(probs.dtype).mean(dim=0) / self.k      # share of assignments per expert (sums to 1)
-        self.aux = self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z
+        self._record(self.e * (load * probs.mean(dim=0)).sum() + 1e-3 * z)
         if self.shared is not None:
             out = out + self.shared(flat)
         return out.view(b, t, d)
@@ -133,8 +145,8 @@ class Block(nn.Module):
         self.norm2, self.moe = RMSNorm(cfg.width), MoE(cfg)
 
     def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], causal: bool, prefix_kv: KV | None = None,
-                segment_mask: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
-        y, kv = self.attn(self.norm1(x), rope, causal, prefix_kv, segment_mask)
+                segment_mask: torch.Tensor | None = None, prefix_allow: torch.Tensor | None = None) -> tuple[torch.Tensor, KV]:
+        y, kv = self.attn(self.norm1(x), rope, causal, prefix_kv, segment_mask, prefix_allow)
         x = x + y
         return x + self.moe(self.norm2(x)), kv
 
@@ -148,12 +160,13 @@ class CrossAttention(nn.Module):
         self.q, self.k, self.v, self.o = (nn.Linear(width, width, bias=False) for _ in range(4))
         self.norm_q, self.norm_m = RMSNorm(width), RMSNorm(width)
 
-    def forward(self, queries: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
+    def forward(self, queries: torch.Tensor, memory: torch.Tensor, key_mask: torch.Tensor | None = None) -> torch.Tensor:
+        """`key_mask` [batch, memory length] (True = may be read) keeps the latents of one document from reading another's tokens."""
         b, tq, w = queries.shape
         tm = memory.shape[1]
         q = self.q(self.norm_q(queries)).view(b, tq, self.h, self.hd).transpose(1, 2)
         m = self.norm_m(memory)
         k = self.k(m).view(b, tm, self.h, self.hd).transpose(1, 2)
         v = self.v(m).view(b, tm, self.h, self.hd).transpose(1, 2)
-        y = F.scaled_dot_product_attention(q, k, v)
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=None if key_mask is None else key_mask[:, None, None, :])
         return self.o(y.transpose(1, 2).reshape(b, tq, w))

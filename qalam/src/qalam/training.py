@@ -17,13 +17,17 @@ def joint_loss(model: Qalam, ids: torch.Tensor, tldm_weight: float = 0.15, aux_w
     logits, aux = model(ids[:, :-1], cycles=cyc, segments=None if segments is None else segments[:, :-1])
     lf = logits.reshape(-1, logits.shape[-1]).float()
     per = F.cross_entropy(lf, ids[:, 1:].reshape(-1), reduction="none")
+    valid = ids[:, 1:] != model.cfg.special_id("PAD")                    # padding is never a target
+    if segments is not None:
+        valid &= segments[:, 1:] == segments[:, :-1]                      # the first token of a packed document is not predicted from the previous document
     if loss_mask is not None:                                           # train only where it is 1 (e.g. the assistant's tokens, never the user's)
-        w = loss_mask[:, 1:].reshape(-1).float()
-        causal = (per * w).sum() / w.sum().clamp(min=1.0)
-    else:
-        causal = per.mean()
+        valid &= loss_mask[:, 1:].bool()
+    w = valid.reshape(-1).float()
+    causal = (per * w).sum() / w.sum().clamp(min=1.0)
     zloss = torch.logsumexp(lf, dim=-1).pow(2).mean()                    # output z-loss: keeps the output logits from drifting
-    diffusion = model.tldm_loss(ids, block=min(block, ids.shape[1] - 1), cycles=cyc, generator=generator) if tldm_weight > 0 else causal.new_zeros(())
+    diffusion = (model.tldm_loss(ids, block=min(block, ids.shape[1] - 1), cycles=cyc, generator=generator, loss_mask=loss_mask, segments=segments)
+                 if tldm_weight > 0 else causal.new_zeros(()))
+    aux = model.aux_loss()                                               # balance over every application of the causal AND the T-LDM passes
     total = causal + tldm_weight * diffusion + aux_weight * aux + z_weight * zloss
     return total, {"causal": float(causal.detach()), "tldm": float(diffusion.detach()), "aux": float(aux.detach()), "cycles": cyc}
 

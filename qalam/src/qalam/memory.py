@@ -57,19 +57,24 @@ class EpisodicMemory:
 
 
 @torch.no_grad()
-def memorize(model: Qalam, mem: EpisodicMemory, ids: torch.Tensor, tag: str = "", last: int = 0) -> int:
-    """Write what `ids` says: every position's context -> the token that follows it. `last` > 0 stores only the final `last` transitions (the new fact)."""
+def memorize(model: Qalam, mem: EpisodicMemory, ids: torch.Tensor, tag: str = "", last: int = 0, allowed: list[int] | None = None) -> int:
+    """Write what `ids` says: every position's context -> the token that follows it, for EVERY row of the batch. `last` > 0 stores only the final `last` transitions
+    of each row (the new fact). A continuation that generation may not produce (a special, tool or media token) is never stored."""
     was = model.training
     model.eval()
     try:
         h, _ = model.forward_causal(ids)
     finally:
         model.train(was)
-    keys, vals = h[0, :-1], ids[0, 1:]
+    ok = torch.zeros(model.cfg.vocab_size, dtype=torch.bool, device=ids.device)
+    ok[allowed or model.cfg.text_and_end_ids()] = True
+    keys, vals = h[:, :-1], ids[:, 1:]
     if last:
-        keys, vals = keys[-last:], vals[-last:]
-    mem.add(keys, vals, tag)
-    return int(vals.shape[0])
+        keys, vals = keys[:, -last:], vals[:, -last:]
+    keys, vals = keys.reshape(-1, keys.shape[-1]), vals.reshape(-1)
+    keep = ok[vals]
+    mem.add(keys[keep], vals[keep], tag)
+    return int(keep.sum())
 
 
 @torch.no_grad()
@@ -78,12 +83,13 @@ def generate_with_memory(model: Qalam, prefix: torch.Tensor, mem: EpisodicMemory
     """Greedy decoding where a stored continuation overrides the model when the context matches a stored one with cosine >= tau. Returns (tokens, how many came from memory)."""
     cfg = model.cfg
     allowed = allowed or cfg.text_and_end_ids()
-    keep = torch.full((cfg.vocab_size,), float("-inf"), dtype=model.embed.weight.dtype)
+    dev = prefix.device
+    keep = torch.full((cfg.vocab_size,), float("-inf"), dtype=model.embed.weight.dtype, device=dev)
     keep[allowed] = 0.0
     was = model.training
     model.eval()
     try:
-        h, cache = model.forward_causal(prefix)
+        h, cache = model.prefill(prefix)
         out, used = [], 0
         for _ in range(max_new):
             logits = model.lm_head(h[:, -1])[0] + keep
@@ -94,10 +100,12 @@ def generate_with_memory(model: Qalam, prefix: torch.Tensor, mem: EpisodicMemory
                 knn = torch.zeros_like(p)
                 knn.index_add_(0, vals.to(p.device), w)
                 p = (1 - lam) * p + lam * knn
+                p = p * (keep == 0)                                      # the mix may never leave the allowed ids (a stored special or tool token cannot win)
+                p = p / p.sum().clamp(min=1e-12)
                 used += 1
             t = int(p.argmax())
             out.append(t)
-            h, cache = model.forward_causal(torch.tensor([[t]]), cache)
+            h, cache = model.forward_causal(torch.tensor([[t]], device=dev), cache)
         return out, used
     finally:
         model.train(was)

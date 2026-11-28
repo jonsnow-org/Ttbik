@@ -90,7 +90,11 @@ class Workspace:
 
     def edit_text(self, rel: str, old: str, new: str) -> str:
         p = self.path(rel, True)
+        if p.stat().st_size > MAX_BYTES:
+            raise FileError("file is larger than the editing limit")
         text = p.read_text(encoding="utf-8")
+        if len(new) > MAX_BYTES:
+            raise FileError("replacement is larger than the editing limit")
         if text.count(old) != 1:
             raise FileError(f"old text must occur exactly once (found {text.count(old)})")
         p.write_text(text.replace(old, new), encoding="utf-8")
@@ -197,15 +201,7 @@ class Workspace:
             k = o.get("op")
             if k == "replace":
                 for para in d.paragraphs:
-                    if o["old"] in para.text:
-                        full = para.text.replace(o["old"], o["new"])
-                        for r in para.runs[1:]:
-                            r.text = ""
-                        if para.runs:
-                            para.runs[0].text = full
-                        else:
-                            para.add_run(full)
-                        done += 1
+                    done += _replace_in_runs(para, o["old"], o["new"])
             elif k == "append":
                 d.add_paragraph(o["text"], style=o.get("style"))
                 done += 1
@@ -242,7 +238,10 @@ class Workspace:
         wb = _lib("openpyxl").load_workbook(self.path(rel, True), data_only=False)
         ws = wb[sheet] if sheet else wb.active
         cells = ws[cell_range] if cell_range else ws.iter_rows()
-        rows = cells if cell_range and isinstance(cells[0], tuple) else (cells if not cell_range else (cells,))
+        if cell_range and hasattr(cells, "value"):                    # a single cell such as "A1" is a Cell, not a tuple of rows
+            rows = [(cells,)]
+        else:
+            rows = [r if isinstance(r, tuple) else (r,) for r in cells]
         return "\n".join("\t".join("" if c.value is None else str(c.value) for c in r) for r in rows)[:20000]
 
     def sheet_edit(self, rel: str, ops: list) -> str:
@@ -335,20 +334,51 @@ class Workspace:
 
     # ------------------------------------------------------------------ PDF
     def pdf_create(self, rel: str, blocks: list) -> str:
+        """Blocks -> PDF. Arabic text is SHAPED (letters joined into their contextual forms) and ordered right-to-left, with an Arabic-capable font embedded; if the shaping
+        libraries or such a font are missing it refuses instead of writing a PDF with disconnected, reversed letters."""
         _lib("reportlab")
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.enums import TA_RIGHT
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table
         from xml.sax.saxutils import escape
         st = getSampleStyleSheet()
+        needs_ar = any(_ARABIC.search(str(b.get("text", "")) + "".join(str(c) for r in b.get("rows", []) for c in r)) for b in blocks)
+        font = None
+        if needs_ar:
+            try:
+                import arabic_reshaper
+                from bidi.algorithm import get_display
+            except ImportError:
+                raise FileError("Arabic PDF needs arabic-reshaper and python-bidi (pip install qalam[arabic])") from None
+            path = _arabic_font()
+            if not path:
+                raise FileError("no Arabic-capable font is installed (Noto Naskh Arabic, Amiri or DejaVu Sans)")
+            pdfmetrics.registerFont(TTFont("QalamArabic", path))
+            font = "QalamArabic"
+
+        def shape(t: str) -> str:
+            return get_display(arabic_reshaper.reshape(t)) if needs_ar and _ARABIC.search(t) else t
+
+        def style(base: str, text: str):
+            if font and _ARABIC.search(text):
+                return ParagraphStyle(base + "AR", parent=st[base], fontName=font, alignment=TA_RIGHT)
+            return st[base]
         story = []
         for b in blocks:
             t = b.get("type", "paragraph")
             if t == "heading":
-                story.append(Paragraph(escape(b["text"]), st["Heading%d" % min(3, max(1, int(b.get("level", 1))))]))
+                base = "Heading%d" % min(3, max(1, int(b.get("level", 1))))
+                story.append(Paragraph(escape(shape(b["text"])), style(base, b["text"])))
             elif t == "paragraph":
-                story.append(Paragraph(escape(b["text"]), st["BodyText"]))
+                story.append(Paragraph(escape(shape(b["text"])), style("BodyText", b["text"])))
             elif t == "table":
-                story.append(Table([[str(c) for c in r] for r in b["rows"]]))
+                rows = [[shape(str(c)) for c in r] for r in b["rows"]]
+                tb = Table(rows)
+                if font:
+                    tb.setStyle([("FONTNAME", (0, 0), (-1, -1), font)])
+                story.append(tb)
             elif t == "spacer":
                 story.append(Spacer(1, int(b.get("height", 12))))
             elif t == "page_break":
@@ -557,6 +587,47 @@ class Workspace:
                     safe(m.name)
                 t.extractall(dest, filter="data")
         return f"extracted {count} entries to {dest.relative_to(self.root)}"
+
+
+def _replace_in_runs(para, old: str, new: str) -> int:
+    """Replace every `old` in a paragraph WITHOUT flattening its formatting: the new text goes into the run where the match starts (keeping that run's bold/italic/font);
+    the other runs the match touched lose only the matched characters and keep their own formatting."""
+    n, start = 0, 0
+    while old:
+        runs = para.runs
+        full = "".join(r.text for r in runs)
+        i = full.find(old, start)
+        if i < 0:
+            break
+        j = i + len(old)
+        pos, first = 0, True
+        for r in runs:
+            a, b = pos, pos + len(r.text)
+            pos = b
+            if b <= i or a >= j:
+                continue
+            lo, hi = max(i, a) - a, min(j, b) - a
+            if first:
+                r.text = r.text[:lo] + new + r.text[hi:]
+                first = False
+            else:
+                r.text = r.text[:lo] + r.text[hi:]
+        n += 1
+        start = i + len(new)                                        # continue after the replacement (a replacement that contains the pattern cannot loop forever)
+    return n
+
+
+def _arabic_font() -> str | None:
+    import glob
+    for pat in ("/usr/share/fonts/**/NotoNaskhArabic-Regular.ttf", "/usr/share/fonts/**/NotoSansArabic-Regular.ttf", "/usr/share/fonts/**/Amiri-Regular.ttf",
+                "/usr/share/fonts/**/DejaVuSans.ttf", "/usr/local/share/fonts/**/*.ttf", "/Library/Fonts/**/Arial Unicode.ttf", "C:/Windows/Fonts/tahoma.ttf"):
+        hits = glob.glob(pat, recursive=True)
+        if hits:
+            return hits[0]
+    return None
+
+
+_ARABIC = __import__("re").compile("[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]")
 
 
 def _page_list(spec: str, n: int) -> list[int]:

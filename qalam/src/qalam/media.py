@@ -105,7 +105,7 @@ def parse_video(cfg: ModelConfig, ids: torch.Tensor) -> torch.Tensor:
 def delay_codes(codes: torch.Tensor, pad: int) -> torch.Tensor:
     """Residual codebooks of one audio frame depend on the coarser ones, so codebook k is delayed by k steps: [frames, books] -> [frames + books - 1, books]."""
     f, k = codes.shape
-    out = torch.full((f + k - 1, k), pad, dtype=codes.dtype)
+    out = torch.full((f + k - 1, k), pad, dtype=codes.dtype, device=codes.device)
     for b in range(k):
         out[b:b + f, b] = codes[:, b]
     return out
@@ -139,7 +139,13 @@ def parse_audio(cfg: ModelConfig, ids: torch.Tensor, books: int, frames: int) ->
     body = ids.tolist()[1:-1]
     if ids[0] != cfg.special_id("AUD_BEGIN") or ids[-1] != cfg.special_id("AUD_END") or len(body) != (frames + books - 1) * books:
         raise ValueError("not an audio stream of that shape")
-    steps = torch.tensor([[cfg.audio_codes if t == cfg.special_id("PAD") else t - cfg.audio_base for t in body[i * books:(i + 1) * books]]
+    if books < 1 or frames < 1:
+        raise ValueError("books and frames must be positive")
+    pad = cfg.special_id("PAD")
+    bad = [t for t in body if t != pad and not cfg.audio_base <= t < cfg.audio_base + cfg.audio_codes]
+    if bad:
+        raise ValueError(f"audio stream holds a token that is neither an audio code nor PAD (id {bad[0]})")
+    steps = torch.tensor([[cfg.audio_codes if t == pad else t - cfg.audio_base for t in body[i * books:(i + 1) * books]]
                           for i in range(frames + books - 1)], dtype=torch.long)
     return undelay_codes(steps, frames)
 
@@ -158,8 +164,9 @@ def generate_image_codes(model: Qalam, prefix: torch.Tensor, rows: int, columns:
     for r in range(rows):
         body += [mask] * columns + [row_end]
         grid += [(r, c, 0) for c in range(columns)] + [(r, columns, 0)]
-    template = torch.tensor([[cfg.special_id("IMG_BEGIN")] + body], dtype=torch.long).expand(prefix.shape[0], -1).contiguous()
-    gridt = torch.tensor([(0, 0, 0)] + grid, dtype=torch.long)
+    dev = prefix.device
+    template = torch.tensor([[cfg.special_id("IMG_BEGIN")] + body], dtype=torch.long, device=dev).expand(prefix.shape[0], -1).contiguous()
+    gridt = torch.tensor([(0, 0, 0)] + grid, dtype=torch.long, device=dev)
     if prefix.shape[1] + template.shape[1] > cfg.max_seq:
         raise ValueError("prefix + image exceeds max_seq")
     allowed = list(range(cfg.image_base, cfg.image_base + cfg.image_codes))          # only masked positions are written, and only with image codes
@@ -167,7 +174,7 @@ def generate_image_codes(model: Qalam, prefix: torch.Tensor, rows: int, columns:
     model.eval()
     try:
         cyc = model._cycles(cycles)
-        h, cache = model.forward_causal(prefix, None, cyc)
+        h, cache = model.prefill(prefix, cyc)
         out = model._draft(cache, h, template.shape[1], steps, allowed, cyc, template=template, grid=gridt)
     finally:
         model.train(was)

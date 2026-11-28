@@ -231,7 +231,19 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "mcp_call": ("server", "tool"), "connector_api": ("server", "method", "path"), "view_image": ("path",), "view_video": ("path",), "listen_audio": ("path",),
 }
 
-_PRIVATE = re.compile(r"^(https?://)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0|\[?::1\]?)", re.I)
+_PRIVATE = re.compile(r"^(https?://)?(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.|\[?::|\[?f[cd][0-9a-f]{2}:|\[?fe80:|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)", re.I)
+_PRIVATE_NAME = re.compile(r"^https?://[^/?#]*?(\.local|\.localhost|\.internal|\.lan|\.corp|\.intranet)(:\d+)?([/?#]|$)", re.I)
+# A first, cheap screen only. The authority is `netguard.fetch`, which resolves the name, checks EVERY address, connects to the checked one and re-checks redirects.
+
+_DESTRUCTIVE_CMD = re.compile(
+    r"(\brm\s+(-\w*[rf]|--recursive|--force)|\brmdir\b|\bmkfs|\bdd\s+if=|\bshred\b|\btruncate\b|\bgit\s+(push\s+.*(--force|-f\b|--delete|:\S)|reset\s+--hard|clean\s+-\w*[fdx]|"
+    r"branch\s+-D|checkout\s+(--\s|\.)|restore\s+\.|stash\s+(drop|clear)|rebase\b|filter-branch|reflog\s+expire|gc\s+--prune)|\bdrop\s+(table|database|schema)|\bdelete\s+from\b|"
+    r"\bchmod\s+-R|\bchown\s+-R|\bkill(all)?\s+-9|\bshutdown\b|\breboot\b|\bpkill\b|\bnpm\s+(unpublish|deprecate)|\btwine\s+upload|\bdocker\s+(rm|rmi|system\s+prune)|\bterraform\s+destroy|\|\s*(sh|bash)\b)", re.I)
+
+
+def classify_command(command: str) -> str:
+    """'destructive' for commands that delete, overwrite history, publish or run piped code (typed confirmation); otherwise 'exec'."""
+    return "destructive" if _DESTRUCTIVE_CMD.search(command or "") else "exec"
 _BAD_PATH = re.compile(r"(^/|^~|(^|/)\.\.(/|$)|\x00)")
 
 
@@ -252,7 +264,7 @@ def _check_arg(a: Arg, v: object) -> str | None:
         return f"{a.name} is too long"
     if k == "path" and _BAD_PATH.search(v):
         return f"{a.name} leaves the workspace"
-    if k == "url" and (not re.match(r"^https?://", v, re.I) or _PRIVATE.match(v)):
+    if k == "url" and (not re.match(r"^https?://", v, re.I) or _PRIVATE.match(v) or _PRIVATE_NAME.match(v)):
         return f"{a.name} is not a public http(s) address"
     if k == "enum" and v not in a.choices:
         return f"{a.name} must be one of {'|'.join(a.choices)}"
@@ -298,6 +310,8 @@ def validate(name: str, args: dict, loaded: set[str] | frozenset[str] = frozense
         risk = "read"
     if name == "computer_bank" and args.get("action") in ("search", "list"):
         risk = "read"
+    if name in ("computer_run", "sandbox_exec", "build", "lint", "format", "run_tests", "computer_test", "serve_preview") and classify_command(str(args.get("command", ""))) == "destructive":
+        risk = "destructive"
     needs_conf = risk == "destructive"
     needs_app = risk in ("write", "external", "destructive", "secret") or (risk == "exec" and name in ("generate_video",))
     if name == "computer_batch":

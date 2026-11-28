@@ -27,20 +27,39 @@ class Experience:
     verifier: str
     user: str = ""
     provenance: str = "executor_verified"
+    consent: bool = False     # the person agreed that this exchange may be learned from; without it nothing enters the log
 
 
 class ExperienceLog:
-    """Only verified successes enter, anonymised, deduplicated, and capped per user so one person cannot steer the model."""
+    """Only CONSENTED, verified successes enter, with the user replaced by a salted one-way pseudonym (the raw id is never stored), deduplicated, and capped per
+    user so one person cannot steer the model. `forget_user` deletes everything one person contributed (the right to be forgotten)."""
 
-    def __init__(self, per_user_cap: int = 50) -> None:
+    def __init__(self, per_user_cap: int = 50, salt: str = "") -> None:
         self.items: list[Experience] = []
         self.cap = per_user_cap
+        self._salt = salt or hashlib.sha256(str(time.time_ns()).encode()).hexdigest()
         self._seen: set[str] = set()
         self._count: dict[str, int] = {}
+        self._keys: dict[str, str] = {}                               # pseudonym -> dedup key of its items (to free them on forget)
+
+    def pseudonym(self, user: str) -> str:
+        return hashlib.sha256((self._salt + "|" + user).encode()).hexdigest()[:16] if user else ""
+
+    def forget_user(self, user: str) -> int:
+        who = self.pseudonym(user)
+        gone = [e for e in self.items if e.user == who]
+        self.items = [e for e in self.items if e.user != who]
+        self._count.pop(who, None)
+        for e in gone:
+            self._seen.discard(hashlib.sha256((e.task.strip().lower() + "\x00" + e.response.strip()).encode()).hexdigest())
+        return len(gone)
 
     def add(self, e: Experience) -> tuple[bool, str]:
+        if not e.consent:
+            return False, "no consent to learn from this exchange"
         if not e.verified or not e.verifier:
             return False, "not verified by an executor"
+        e = Experience(e.task, e.response, e.verified, e.verifier, self.pseudonym(e.user), e.provenance, True)
         ok, why = admit(Record(e.task + "\n" + e.response, "experience", e.provenance, "owner"))
         if not ok:
             return False, why
@@ -139,7 +158,7 @@ def self_improve_cycle(model: torch.nn.Module, curriculum: list, *, train_fn: Ca
     model.eval()
     baseline = {s: eval_fn(model, s) for s in suites}                       # adapters (if any) off for the baseline
     lora.attach(model, adapter, rank=rank)
-    lora.freeze_base(model)
+    trainable_before = lora.freeze_base(model)
     try:
         train_fn(model, lora.adapter_parameters(model, adapter), list(curriculum) + list(replay or []), steps)
         model.eval()
@@ -148,6 +167,7 @@ def self_improve_cycle(model: torch.nn.Module, curriculum: list, *, train_fn: Ca
     except Exception:
         lora.detach(model, adapter)
         lora.unwrap(model)
+        lora.restore_trainable(model, trainable_before)
         raise
     g = gate(cand, baseline, held, regression, floor, max_regression)
     lineage = Path(lineage_dir)
@@ -170,6 +190,7 @@ def self_improve_cycle(model: torch.nn.Module, curriculum: list, *, train_fn: Ca
         lora.unwrap(model)
         assert lora.weights_hash(model) == parent, "rollback changed the base weights"
         res = CycleResult("rejected", g, adapter, g.reasons, parent)
+    lora.restore_trainable(model, trainable_before)                         # the base weights are trainable again exactly as they were before the cycle
     with open(lineage / "lineage.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, sort_keys=True) + "\n")
     if audit is not None:

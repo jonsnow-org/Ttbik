@@ -80,11 +80,20 @@ def _layers(model: nn.Module) -> list[tuple[str, LoRALinear]]:
     return [(n, m) for n, m in model.named_modules() if isinstance(m, LoRALinear)]
 
 
-def freeze_base(model: nn.Module) -> None:
-    """Only adapter parameters train. (The tied embedding, the router, the norms and every base weight stay fixed.)"""
+def freeze_base(model: nn.Module) -> dict[int, bool]:
+    """Only adapter parameters train. (The tied embedding, the router, the norms and every base weight stay fixed.) Returns the previous `requires_grad` state
+    (by parameter id) so `restore_trainable` can undo it: a self-improvement cycle must not leave the model frozen for the next full training."""
+    before = {id(p): p.requires_grad for p in model.parameters()}
     adapters = {id(p) for _, m in _layers(model) for p in list(m.a.values()) + list(m.b.values())}
     for p in model.parameters():
         p.requires_grad = id(p) in adapters
+    return before
+
+
+def restore_trainable(model: nn.Module, before: dict[int, bool]) -> None:
+    for p in model.parameters():
+        if id(p) in before:
+            p.requires_grad = before[id(p)]
 
 
 def adapter_parameters(model: nn.Module, name: str) -> list[nn.Parameter]:

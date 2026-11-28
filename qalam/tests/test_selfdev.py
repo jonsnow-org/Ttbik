@@ -167,10 +167,11 @@ def test_protected_paths_cover_the_model_s_own_limits():
 # ------------------------------------------------------------------------------------------------------- experience and the gate
 def test_experience_only_verified_clean_unique_and_capped():
     log = evolve.ExperienceLog(per_user_cap=2)
-    ok = lambda t, r, u="u1", **k: log.add(evolve.Experience(t, r, k.get("verified", True), k.get("verifier", "pytest"), u))   # noqa: E731
+    ok = lambda t, r, u="u1", **k: log.add(evolve.Experience(t, r, k.get("verified", True), k.get("verifier", "pytest"), u, consent=k.get("consent", True)))   # noqa: E731
     assert ok("add two numbers", "def f(a,b): return a+b")[0]
     assert not ok("add two numbers", "def f(a,b): return a+b")[0]                              # duplicate
     assert not ok("x", "y", verified=False)[0] and not ok("x", "y", verifier="")[0]
+    assert not ok("no consent", "r", consent=False)[0]
     assert not ok("mail me", "to bob@example.com")[0]                                           # PII
     assert ok("second", "r2")[0] and not ok("third", "r3")[0]                                  # per-user cap of 2
     assert ok("third", "r3", u="u2")[0]
