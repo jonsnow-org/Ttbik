@@ -32,3 +32,4 @@ console.log("studio-guard worker test OK");
 // owner 2026-11-25: no trainer on the international site; Nova's reader is kept warm there
 assert.ok(!STUDIOS.some(([s, , m, r]) => s === "ai" && r === "train" && m !== "sham-trainer-2"));   // ai sham-trainer-2 = Nova's computer hub (kept up like a trainer), not a trainer
 for (const n of ["sham-tldm-writer", "sham-trainer-tools"]) assert.ok(STUDIOS.some(([s, , m, r]) => s === "cn" && m === n && r === "train"), n);
+assert.ok(STUDIOS.some(([s, , m, r]) => s === "ai" && m === "nova-tldm-reader" && r === "warm"));

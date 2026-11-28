@@ -1,2 +1,2 @@
-# Nova's OWN T-LDM reader Studios, one per line. EMPTY since 2026-11-28: the owner did not approve a second Studio holding Nova's 35B body, so nova-tldm-reader is retired
-# (delete it in the ModelScope console). The reader code (app.py _reader_only, nova_tldm_serve.py) and the published head are kept, so a reader can return by listing a Studio here.
+# Nova's OWN T-LDM reader Studios (owner decision 2026-11-25, T-5 option 2): one per line. Such a Studio serves generate_tldm only (no chat), on Nova's own body file.
+nova-tldm-reader
