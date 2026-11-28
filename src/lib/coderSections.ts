@@ -2970,7 +2970,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       const turns = arabic && lastUserIdx >= 0 ? plain.map((m, i) => (i === lastUserIdx ? { ...m, content: `${m.content}\n\n${LITE_ARABIC_NOTE}` } : m)) : plain;
       messages.splice(0, messages.length, { role: "system", content: withModelIdentity(prof.liteSystem, novaModelOf(st.model)) + langRule }, ...example, ...turns);
     }
-    const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
+    // First-byte wait: how long the Studio may hold the FIRST response inline. While it holds that one HTTP call the bot
+    // cannot ask for partial text, so a slow answer sits in dead air for up to `waitS` s before the first word can be shown.
+    // The job keeps generating server-side, so answering `pending` sooner only moves the wait into polling that STREAMS the
+    // growing answer. CODER_FIRST_BYTE_WAIT_S caps it (default 4 s); the submit and the T-LDM head keep their own floor below.
+    const firstByteCap = Math.max(1, Math.min(20, Number(process.env.CODER_FIRST_BYTE_WAIT_S) || 4));
+    const waitS = Math.max(1, Math.min(firstByteCap, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
@@ -2989,12 +2994,12 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     // The tool schemas must fit what is left of a small window (16,384 on Nova's Studio) after the conversation and the answer: see coderToolsFor's budgetTokens.
     // ctxOverBy: what the Studio said the last attempt overflowed by, so a retry really is smaller (live 2026-11-24: six identical retries, six identical 400s).
     const toolBudget = toolGroupsLazy() ? Math.max(1200, ctxTokens() - Math.ceil(estimateTokens(messages.map((m) => (m.content || "") + JSON.stringify((m as { tool_calls?: unknown }).tool_calls || "")).join("\n")) * 1.15) - (run.step === 0 && !run.agent && prof.maxTokens > 0 ? prof.maxTokens : 2048) - 384 - (run.ctxOverBy || 0)) : undefined;
-    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite || dropTools ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    const plainChat = () => coderChat(messages, { priority: queuePrio, affinity: `${chatId}:${run.slot || ""}`, model: novaModelOf(st.model), tools: run.agent ? (agentLast ? [] : run.agentRole === "worker" ? coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget).filter((t) => agentToolAllowed(t.function.name, "worker", run.agentDepth || 1)) : agentToolDefs(github, run.agentRole)) : softLast || lite || dropTools ? [] : coderToolsFor(github, connected.length > 0, messages, keepAll, toolBudget), think: ((run.step === 0 ? prof.think : prof.thinkAct) || knobs.think) && !run.thinkOff, thinkCap: Math.max(prof.thinkCapChars, knobs.think ? 1200 : 0), maxTokens: run.step === 0 && !run.agent ? prof.maxTokens : 0, accuracy: prof.mode, avoidHome: run.avoidHome || undefined, tag: run.agent ? "agent" : "step", temperature, waitS, timeoutMs: Math.max(30000, waitS * 1000 + 9000) });
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", async () => {
       if (!tldmModel) return plainChat();
       // this model's OWN T-LDM head, on its own Studio; a failure is an honest error, never a quiet switch to another model. The head sees the task (and the result of a tool it asked for), not the system prompt.
       const turn = tldmTurnFrom(messages);
-      const r = await withNovaTldmModel(tldmModel, () => novaGenerateTldm(turn.messages, novaTldmSessionId(chatId, tldmModel), waitS * 1000 + 9000, { owner: tierFor(chatId) === "owner", resumeTool: turn.resumeTool }));
+      const r = await withNovaTldmModel(tldmModel, () => novaGenerateTldm(turn.messages, novaTldmSessionId(chatId, tldmModel), Math.max(30000, waitS * 1000 + 9000), { owner: tierFor(chatId) === "owner", resumeTool: turn.resumeTool }));
       if ((r as { error?: string }).error === "body") return plainChat();          // the head has nothing for this task: the same model's own body answers
       return { reply: r } as CoderOutcome;                                         // an error is the model's OWN honest line, shown as-is
     });

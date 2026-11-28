@@ -453,14 +453,20 @@ async function shamAgentRunInner(opts: {
   };
   const defaultMedia = async (k: "image" | "audio" | "video", pr: string, mediaOpts: { scenes?: string[]; narration?: string; seconds?: number } = {}): Promise<ShamReply | null> =>
     generateShamMediaThroughRoute(k, pr, { ...mediaOpts, timeoutMs: Math.min(240000, Math.max(20000, left() - 3000)), bypassContentHeuristics: Boolean(opts.ctx.owner) });
-  // what Sham Pro already taught ITSELF: one short line, so a saved skill is reachable (and claimable truthfully) instead of being guessed
-  let selfNote = "";
-  if (v2) {
-    try { selfNote = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { selfNote = ""; }
+  // what Sham Pro already taught ITSELF: one short line, so a saved skill is reachable (and claimable truthfully) instead of being guessed.
+  // Read lazily: it is only used when a step actually sends tools, so a greeting/plain-answer first step (bare, no tool block) does not
+  // pay a database round-trip before the model call. One read per request, at the first step that needs it.
+  let selfNote: string | null = null;
+  const selfNoteOf = async (): Promise<string> => {
+    if (selfNote !== null) return selfNote;
+    let n = "";
+    try { n = await savedSkillsNote(opts.ctx.db, opts.ctx.modelId); } catch { n = ""; }
     // A self-review request must read its own record: live probe 2026-11-26 called skill_list (twice) and never reached self_review, so the report the owner
     // asked for never existed. The routing line is only for these turns; the tool list itself is unchanged.
-    if (selfDev) selfNote = ["طلب عمل على نفسك: نفّذ self_review مرة واحدة للأرقام الحقيقية ثم اكتب التقرير، ولا تستدعِ الأداة نفسها مرتين.", selfNote].filter(Boolean).join("\n");
-  }
+    if (selfDev) n = ["طلب عمل على نفسك: نفّذ self_review مرة واحدة للأرقام الحقيقية ثم اكتب التقرير، ولا تستدعِ الأداة نفسها مرتين.", n].filter(Boolean).join("\n");
+    selfNote = n;
+    return n;
+  };
   const tail = messages[messages.length - 1] as { role?: string; tool_calls?: CoderToolCall[] } | undefined;
   const pendingMedia = opts.resume && tail?.role === "assistant" ? tail.tool_calls?.find((c) => c.function.name === "make_media") : undefined;
   if (pendingMedia) return runMedia(pendingMedia, ["make_media"], 1);       // the earlier leg asked for it: run it now, with the long wait
@@ -498,7 +504,7 @@ async function shamAgentRunInner(opts: {
     // a greeting or a plain code question: no tool block in the prompt (about 1,000 tokens fewer to read); only on the very first step of a fresh request
     const bare = prof.lite && !selfDev && steps === 0 && !opts.resume && recoveries === 0;
     const toolsNow = bare ? [] : opts.tools;
-    const head = [k.note, selfNote && toolsNow.length ? selfNote : ""].filter(Boolean).join("\n");
+    const head = [k.note, toolsNow.length && v2 ? await selfNoteOf() : ""].filter(Boolean).join("\n");
     const prompt = head ? `${head}\n${shamToolConversation(messages, toolsNow, lim)}` : shamToolConversation(messages, toolsNow, lim);
     let reply = await stepAsk(prompt, maxNew, Math.min(opts.askMs ?? 90000, left() - 1000), toolsNow);
     if (await isStopped()) return { kind: "stopped", used, steps: steps + 1 };
