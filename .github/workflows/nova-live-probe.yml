@@ -47,8 +47,12 @@ jobs:
                   try:
                       return urllib.request.urlopen(req, timeout=t).read().decode()
                   except urllib.error.HTTPError as e:
+                      body = e.read(300)
                       h = {a: b for a, b in e.headers.items() if a.lower().startswith(("retry", "x-ratelimit", "x-request"))}
-                      print(f"   HTTP {e.code} {req.full_url.rsplit('/', 2)[-2]} body={e.read(300)!r} headers={h}", flush=True)
+                      print(f"   HTTP {e.code} {req.full_url.rsplit('/', 2)[-2]} body={body!r} headers={h}", flush=True)
+                      if e.code == 404 and b"DomainNameNotFound" in body:
+                          print("   => the Studio is Sleeping (ModelScope has no domain for it right now): wake it on the panel or wait for keep-wake, then run this probe again -- it is not a model failure", flush=True)
+                          raise SystemExit(4)
                       if e.code != 429: raise
                       time.sleep(5 * (k + 1))
               raise SystemExit("still 429")

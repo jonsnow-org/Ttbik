@@ -46,6 +46,11 @@ def unwrap_line(line: str):
     return value
 
 
+class StudioBusy(RuntimeError):
+    """The Studio answered 'شام مشغول بطلب آخر الآن' — it has ONE slot, so a second probe (or the owner's chat) made
+    every check fail at once and the run looked like a broken model. That is a wait, not a failure."""
+
+
 def call(api: str, payload: dict, timeout: int = 180):
     submitted = request_json(f"{BASE}/gradio_api/call/v2/{api}", "POST", payload, timeout=40)
     event_id = submitted.get("event_id")
@@ -62,11 +67,26 @@ def call(api: str, payload: dict, timeout: int = 180):
                         break
                     value = unwrap_line(line.decode("utf-8", errors="replace"))
                     if value is not None:
+                        if isinstance(value, dict) and value.get("type") == "busy":
+                            raise StudioBusy(str(value.get("text") or "busy")[:200])
                         return value
         except (TimeoutError, URLError, OSError):
             pass
         time.sleep(1)
     raise TimeoutError(f"{api}: timed out after {timeout}s")
+
+
+def retry_busy(check, attempts: int = 4, wait: int = 20):
+    """Run a check; when the single-slot Studio is busy with someone else's request, wait and try again a few times."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return check()
+        except StudioBusy as exc:
+            if attempt == attempts:
+                raise
+            print(f"   Studio busy ({exc}) — waiting {wait}s, attempt {attempt + 1}/{attempts}", flush=True)
+            time.sleep(wait)
+
 
 
 def chat(messages: list[dict], max_new_tokens: int = 256) -> str:
@@ -309,7 +329,7 @@ def main() -> int:
     if context < 4096:
         raise RuntimeError(f"v2 context did not reach 4096 tokens before the 300s deadline (reported {context}); check the Studio deploy logs")
 
-    identity = chat([{"role": "user", "content": "من أنت؟"}], 160)
+    identity = retry_busy(lambda: chat([{"role": "user", "content": "من أنت؟"}], 160))
     if not identity or not identity.strip():
         raise RuntimeError("Sham v2 identity prompt returned an empty answer")
     # The live self-name is Sham Pro / «شام برو», from the identity LoRA in the published head (applied to the body at start, every chat).
@@ -327,7 +347,7 @@ def main() -> int:
     # every check runs (one failure does not hide the others); the script fails at the end
     for check in (factual_and_multiturn_smoke, streaming_smoke, native_model_terminal_smoke, lambda: tldm_smoke(status)):
         try:
-            check()
+            retry_busy(check)
         except Exception as exc:  # noqa: BLE001 - reported, then the next check runs
             failures.append(f"{type(exc).__name__}: {str(exc)[:300]}")
             print("FAIL " + failures[-1])
