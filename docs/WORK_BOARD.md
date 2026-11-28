@@ -109,6 +109,7 @@
 - **الإصلاح:** `publish_dataset` يرفع `PublishError` ويقيّد المحاولة في `PUBLISH_LEDGER` (/kaggle/working/publish_failures.json) بدل التحذير الصامت (رفع حالة المُعيد تُرك `strict=False`). الخليّة 13 في `sham_image_tokenizer_track.ipynb` (المصدر) صارت `publish_dataset(...)`، وأُعيد بناء `sham_chat_image_in_one.ipynb` و`sham_cell_updates.json` كي يصل الإصلاح إلى النسخ الحيّة في Kaggle.
 - **النسخ المنشورة فعلًا اليوم (من جرد Kaggle، 12:41 UTC):** `sham-chat-checkpoint` **v63 — 2026-11-28 12:11:59 UTC — 0.58 GB**، و`sham-image-tokenizer-checkpoint` **v74 — 2026-11-28 12:26:24 UTC — 0.15 GB**. وتقدّم `sham-checkpoint` إلى v50 (12:16:07، 2.42 GB) من مساره الخاص.
 - **ما بقي متأخرًا وسببه تدريب لا نشر:** `sham-multimodal-checkpoint` (2026-11-05) و`sham-audio-tokenizer-checkpoint` (2026-11-07) — دفتر ترميز الصوت في حالة error منذ 2026-10-11 والمرحلة الثانية لا تكتب؛ و`sham-motion-tokenizer-checkpoint` غير موجودة أصلًا. هذه مسارات تدريب مقطوعة، وليست نشرًا صامتًا.
+- **اللقطة المنشورة:** `sham-status` (2026-11-28 12:45 UTC) لم تعد تنبّه على `sham-chat-checkpoint` ولا `sham-image-tokenizer-checkpoint`؛ بقي تنبيه `sham-multimodal-checkpoint` (23 يومًا) و`sham-audio-tokenizer-checkpoint` (20 يومًا)، وهما مسارا التدريب المقطوعان أعلاه، لا نشرٌ صامت.
 - **أدوات الفحص:** `sham_publish_probe.py check-creds` صار يستخدم `dataset_list(mine=True)` (الإصدار 2 من kaggle لا يقبل `page_size`)، و`inventory` يطبع لكل مجموعة: النسخة وتاريخ آخر تحديث والحجم — سطر واحد يُثبت النشر بلا انتظار جلسة.
 
 ## معلّق على المالك (قرارات)
