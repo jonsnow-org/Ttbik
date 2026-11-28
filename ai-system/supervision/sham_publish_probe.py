@@ -13,6 +13,8 @@ that matter, with evidence instead of a theory:
                      the version says exactly what it is. The full API answer (or exception body) is printed.
   repair-creds       refresh sham-runtime-creds/kaggle.json from this runner's credentials (the private dataset the
                      pushed kernels read), keeping whatever else that dataset holds.
+  kernel-probe       push a one-minute kernel with no secrets and runtime-creds attached, then print its log: what a
+                     pushed training notebook's credentials really do.
 
   python sham_publish_probe.py check-creds
 Needs KAGGLE_USERNAME + KAGGLE_API_TOKEN/KAGGLE_KEY (the repository's own Kaggle secrets).
@@ -64,7 +66,7 @@ def _api(creds: dict | None = None):
 
 
 def _account() -> str:
-    return os.environ.get("KAGGLE_USERNAME") or ""
+    return os.environ.get("KAGGLE_USERNAME") or "jonsnowjonsnow"   # the account every sham dataset lives under
 
 
 def _find_kaggle_json(root: Path) -> dict | None:
@@ -80,8 +82,10 @@ def _find_kaggle_json(root: Path) -> dict | None:
 
 def check_creds() -> int:
     api = _api()
-    print(f"runner account: {_account()} | KAGGLE_API_TOKEN set: {bool(os.environ.get('KAGGLE_API_TOKEN'))} "
-          f"| KAGGLE_KEY set: {bool(os.environ.get('KAGGLE_KEY'))}", flush=True)
+    has_token = bool(os.environ.get("KAGGLE_API_TOKEN"))
+    has_legacy_key = bool(os.environ.get("KAGGLE_KEY"))
+    print("runner account:", _account(), "| repository token present:", has_token,
+          "| legacy key present:", has_legacy_key, flush=True)
     tmp = Path(tempfile.mkdtemp(prefix="creds_"))
     ref = f"{_account()}/{CREDS_DATASET}"
     try:
@@ -98,9 +102,16 @@ def check_creds() -> int:
         return 2
     print(f"kaggle.json: username={'set' if creds.get('username') else 'EMPTY'} key_length={len(str(creds['key']))} "
           f"token_form={str(creds['key']).startswith('KGAT_')} same_account={creds.get('username') == _account()}", flush=True)
+    api = _api(creds)
+    # a real authenticated call, whichever listing method this CLI version exposes
     try:
-        mine = _api(creds).datasets_list(mine=True, page_size=1)
-        print(f"✅ sham-runtime-creds credentials still authenticate (list returned {len(mine or [])} row(s))", flush=True)
+        if hasattr(api, "datasets_list"):
+            mine = api.datasets_list(mine=True, page_size=1)
+        elif hasattr(api, "dataset_list"):
+            mine = api.dataset_list(mine=True, page_size=1)
+        else:
+            mine = [api.dataset_metadata(ref)]
+        print(f"✅ sham-runtime-creds credentials still authenticate (authenticated call returned {len(mine or [])} row(s))", flush=True)
         return 0
     except Exception as exc:
         print(f"❌ sham-runtime-creds credentials are REJECTED by Kaggle: {_why(exc)}\n"
@@ -171,12 +182,62 @@ def publish(names: list[str]) -> int:
     return 1 if bad else 0
 
 
+KERNEL_ID = "jonsnowjonsnow/sham-creds-probe"
+
+
+def kernel_probe(timeout_min: int = 25) -> int:
+    """Push a one-minute kernel that has NO Kaggle secrets (exactly how every API-pushed training notebook starts) and
+    see what its credentials do: secrets reach it or not, sham-runtime-creds/kaggle.json reaches it or not, and whether
+    `kaggle datasets list` authenticates there. This is the only cheap way to settle the kernel side -- the training
+    notebooks' own logs stay empty until a 5-11 hour session ends."""
+    api = _api()
+    src = Path(__file__).resolve().parent / "creds_probe_kernel"
+    work = Path(tempfile.mkdtemp(prefix="creds_probe_kernel_"))
+    for p in src.iterdir():
+        (work / p.name).write_bytes(p.read_bytes())
+    (work / "kernel-metadata.json").write_text(json.dumps({
+        "id": KERNEL_ID, "title": "sham-creds-probe", "code_file": "probe.py", "language": "python",
+        "kernel_type": "script", "is_private": "true", "enable_gpu": "false", "enable_tpu": "false",
+        "enable_internet": "true", "dataset_sources": [f"{_account()}/{CREDS_DATASET}"],
+        "competition_sources": [], "kernel_sources": [], "model_sources": [],
+    }), encoding="utf-8")
+    print(f"pushing {KERNEL_ID} (no secrets, runtime-creds attached) …", flush=True)
+    try:
+        api.kernels_push(str(work))
+    except Exception as exc:
+        print(f"❌ push failed: {_why(exc)}", flush=True)
+        return 1
+    for i in range(max(1, timeout_min) * 2):
+        time.sleep(30)
+        try:
+            status = api.kernels_status(KERNEL_ID)
+            state = getattr(status, "status", str(status))
+        except Exception as exc:
+            state = f"status error: {_why(exc)}"
+        print(f"  [{i * 30}s] {state}", flush=True)
+        if str(state).lower().endswith(("complete", "error", "cancel")) or "complete" in str(state).lower() or "error" in str(state).lower():
+            break
+    out = Path(tempfile.mkdtemp(prefix="creds_probe_out_"))
+    try:
+        api.kernels_output(KERNEL_ID, path=str(out), quiet=True)
+    except Exception as exc:
+        print(f"❌ no output: {_why(exc)}", flush=True)
+        return 1
+    logs = sorted(out.rglob("*.log"))
+    for log in logs:
+        text = log.read_text(encoding="utf-8", errors="replace")
+        print(f"\n===== {log.name} (last 4000 chars) =====\n{text[-4000:]}", flush=True)
+    return 0 if logs else 1
+
+
 def main(argv: list[str]) -> int:
     cmd = (argv[1] if len(argv) > 1 else "check-creds").strip()
     if cmd == "check-creds":
         return check_creds()
     if cmd == "repair-creds":
         return repair_creds()
+    if cmd == "kernel-probe":
+        return kernel_probe()
     if cmd == "publish":
         names = [a.strip() for a in argv[2:] if a.strip()]
         if not names:

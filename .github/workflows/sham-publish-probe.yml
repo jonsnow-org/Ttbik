@@ -6,6 +6,8 @@ name: Sham Publish Probe (diagnose + one real publish)
 #   * check-creds  -> are the credentials inside sham-runtime-creds (what every API-pushed notebook reads) still valid?
 #   * repair-creds -> rewrite that kaggle.json from the repository secret (only when asked).
 #   * publish      -> one real re-version of the named datasets (previous files + publish_probe.json), proving the path.
+#   * kernel-probe -> pushes a 1-minute kernel with no secrets and runtime-creds attached, then prints its log: what the
+#                     credentials actually do INSIDE a pushed kernel (the training notebooks' logs stay empty for hours).
 # Nothing runs unless it is dispatched, and the upload only happens with confirm=PUBLISH.
 
 on:
@@ -23,6 +25,11 @@ on:
         default: "sham-chat-checkpoint sham-image-tokenizer-checkpoint"
       repair_creds:
         description: "1 = أعد نشر kaggle.json في sham-runtime-creds من أسرار المستودع"
+        type: string
+        required: false
+        default: "0"
+      probe_kernel:
+        description: "1 = ادفع دفترًا صغيرًا (دقيقة واحدة) ليُظهر ما تفعله بيانات الدخول داخل kernel مرفوع فعلاً"
         type: string
         required: false
         default: "0"
@@ -64,6 +71,14 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: python ai-system/supervision/sham_publish_probe.py publish ${{ inputs.datasets }}
+
+      - name: دفتر الفحص (kernel مرفوع، بلا أسرار)
+        if: ${{ inputs.probe_kernel == '1' }}
+        continue-on-error: true
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_publish_probe.py kernel-probe
 
       - name: جرد كاكل وآخر سطور السجلات
         if: ${{ always() }}

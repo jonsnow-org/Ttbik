@@ -722,6 +722,14 @@
       "reads": [],
       "writes": []
     },
+    "sham_publish_probe": {
+      "file": ".github/workflows/sham-publish-probe.yml",
+      "title": "فحص النشر (تشغيل يدوي): بيانات دخول النسخ المرفوعة، ودفتر فحص بدقيقة داخل kernel، ورفع حقيقي عند طلب المالكة",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "ms_studio_trainer": {
       "file": "ai-system/modelscope-trainer/app.py",
       "title": "مدرّب شام الحي داخل استوديو ModelScope (GPU إن وُجد وإلا CPU)، ينشر نسله الخاص",
