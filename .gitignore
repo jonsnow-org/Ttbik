@@ -25,3 +25,6 @@ media-bot/**/*.pyc
 ai-system/colab/sham_small/*.db
 
 __pycache__/
+
+# Qalam training artifacts (tokenizers, packed data, checkpoints, cached downloads)
+qalam/artifacts/

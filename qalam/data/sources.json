@@ -1,0 +1,1110 @@
+{
+ "built": "2026-11-28",
+ "note": "no data downloaded; licences marked 'verify' are unverified",
+ "summary": {
+  "media_later": {
+   "media": 35
+  },
+  "owner_review": {
+   "arabic": 2,
+   "math": 1,
+   "multilingual": 4,
+   "tools": 1
+  },
+  "ready_check_license": {
+   "arabic": 19,
+   "code": 2,
+   "english": 5,
+   "math": 2,
+   "multilingual": 9,
+   "tools": 1
+  }
+ },
+ "sources": [
+  {
+   "id": "ArVoice",
+   "repo": "MBZUAI/ArVoice",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "ClArTTS",
+   "repo": "MBZUAI/ClArTTS",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "arabic_speech_corpus",
+   "repo": "tunis-ai/arabic_speech_corpus",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 150
+  },
+  {
+   "id": "cc3m-wds",
+   "repo": "pixparse/cc3m-wds",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "coco-karpathy",
+   "repo": "yerevann/coco-karpathy",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "common_voice_17_0",
+   "repo": "fixie-ai/common_voice_17_0",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "common_voice_ar_17",
+   "repo": "mozilla-foundation/common_voice_17_0",
+   "config": "ar",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 300
+  },
+  {
+   "id": "conceptual_captions_12m",
+   "repo": "laion/conceptual-captions-12m-webdataset",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 300
+  },
+  {
+   "id": "coyo_700m",
+   "repo": "kakaobrain/coyo-700m",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "finevideo",
+   "repo": "HuggingFaceFV/finevideo",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 150
+  },
+  {
+   "id": "fleurs",
+   "repo": "google/fleurs",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "fleurs_ar",
+   "repo": "google/fleurs",
+   "config": "ar_eg",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "flickr30k",
+   "repo": "nlphuji/flickr30k",
+   "config": "",
+   "domain": "media",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen"
+  },
+  {
+   "id": "flickr30k_visual_test",
+   "repo": "nlphuji/flickr30k",
+   "config": "TEST",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true
+  },
+  {
+   "id": "gigaspeech2_multilingual",
+   "repo": "speechcolab/gigaspeech2",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 300
+  },
+  {
+   "id": "gigaspeech3_arabic",
+   "repo": "speechcolab/gigaspeech3",
+   "config": "EGY",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "gigaspeech_bench_eval",
+   "repo": "speechcolab/GigaSpeechBench",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false
+  },
+  {
+   "id": "gigaspeech_english",
+   "repo": "speechcolab/gigaspeech",
+   "config": "xl",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 300
+  },
+  {
+   "id": "hdvila_100m_manifest",
+   "repo": "TempoFunk/hdvila-100M",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false,
+   "onecore_train_limit": 2500
+  },
+  {
+   "id": "internvid_10m_flt",
+   "repo": "OpenGVLab/InternVid",
+   "config": "InternVid-10M-FLT",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "laion_bvd_audio_10m",
+   "repo": "laion/BVD-A-10M",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "laion_bvd_image_300m",
+   "repo": "laion/BVD-I-300M",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "laion_bvd_video_55m",
+   "repo": "laion/BVD-V-55M",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "msrvtt_video",
+   "repo": "NTQAI/MSR-VTT-Video-Captioning-Vi",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "open_images_v7",
+   "repo": "bitmind/open-images-v7",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 250
+  },
+  {
+   "id": "openimages_finedet_v1",
+   "repo": "finedet/openimages",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 250
+  },
+  {
+   "id": "panda70m_video_manifest",
+   "repo": "multimodalart/panda-70m",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false,
+   "onecore_train_limit": 1000
+  },
+  {
+   "id": "sard_arabic_documents",
+   "repo": "riotu-lab/SARD",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 250
+  },
+  {
+   "id": "sharegpt4v_images",
+   "repo": "Lin-Chen/ShareGPT4V",
+   "config": "ShareGPT4V",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false,
+   "onecore_train_limit": 400
+  },
+  {
+   "id": "sharegpt4video_temporal_manifest",
+   "repo": "ShareGPT4Video/ShareGPT4Video",
+   "config": "ShareGPT4Video",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false,
+   "onecore_train_limit": 2500
+  },
+  {
+   "id": "videos4camera_bench",
+   "repo": "syCen/Videos4CameraBench",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 60
+  },
+  {
+   "id": "wavcaps_audio_language",
+   "repo": "txya900619/wavcaps-10s-16k",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 250
+  },
+  {
+   "id": "wavcaps_original",
+   "repo": "cvssp/WavCaps",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false
+  },
+  {
+   "id": "webvid_10m_video",
+   "repo": "TempoFunk/webvid-10M",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": true,
+   "onecore_train_limit": 200
+  },
+  {
+   "id": "youcook2_temporal_manifest",
+   "repo": "lmms-eval/YouCook2",
+   "config": "default",
+   "domain": "media",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "media_later",
+   "why": "for the media codec notebooks (N13-N19), after the text model's architecture is frozen",
+   "onecore_enabled": false,
+   "onecore_train_limit": 1500
+  },
+  {
+   "id": "arabic_openhermes",
+   "repo": "2A2I/Arabic-OpenHermes-2.5",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "tiny_aya_arabic_reasoning",
+   "repo": "CohereLabs/tiny-aya-l2-thinker-multilingual-reasoning",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "openr1_math",
+   "repo": "open-r1/OpenR1-Math-220k",
+   "config": "",
+   "domain": "math",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "cosmopedia",
+   "repo": "HuggingFaceTB/cosmopedia",
+   "config": "",
+   "domain": "multilingual",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "mixture_of_thoughts",
+   "repo": "open-r1/Mixture-of-Thoughts",
+   "config": "",
+   "domain": "multilingual",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "openhermes_25",
+   "repo": "teknium/OpenHermes-2.5",
+   "config": "",
+   "domain": "multilingual",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "ultrachat_200k",
+   "repo": "HuggingFaceH4/ultrachat_200k",
+   "config": "",
+   "domain": "multilingual",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule"
+  },
+  {
+   "id": "saxo_function_calling",
+   "repo": "Saxo/alpaca_function_calling_dataset",
+   "config": "default",
+   "domain": "tools",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "owner_review",
+   "why": "text written by other models: needs the owner's decision under the no-commercial-model-outputs rule",
+   "onecore_enabled": true,
+   "onecore_train_limit": 9000
+  },
+  {
+   "id": "arabic_eou_conversations",
+   "repo": "Reverb/arabic-eou-conversations",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "arabictext_large",
+   "repo": "Jr23xd23/ArabicText-Large",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "aya_collection_arabic",
+   "repo": "CohereLabs/aya_collection_language_split",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "aya_human_annotations",
+   "repo": "CohereLabs/aya_dataset",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "c4_ar",
+   "repo": "allenai/c4",
+   "config": "ar",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "clusterlab_arabic_101b",
+   "repo": "ClusterlabAi/101_billion_arabic_words_dataset",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "fineweb2_full_ar",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "arb_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 20000
+  },
+  {
+   "id": "fineweb2_full_ar_algerian",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "arq_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 8000
+  },
+  {
+   "id": "fineweb2_full_ar_egyptian",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "arz_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 10000
+  },
+  {
+   "id": "fineweb2_full_ar_iraqi",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "acm_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 8000
+  },
+  {
+   "id": "fineweb2_full_ar_moroccan",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "ary_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 10000
+  },
+  {
+   "id": "fineweb2_full_ar_saudi",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "ars_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 10000
+  },
+  {
+   "id": "fineweb2_hq_ar",
+   "repo": "epfml/FineWeb2-HQ-Plus",
+   "config": "arb_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify (derived from FineWeb-2)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 2000
+  },
+  {
+   "id": "fineweb2_hq_ar_egyptian",
+   "repo": "epfml/FineWeb2-HQ-Plus",
+   "config": "arz_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify (derived from FineWeb-2)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "fineweb2_hq_ar_moroccan",
+   "repo": "epfml/FineWeb2-HQ-Plus",
+   "config": "ary_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify (derived from FineWeb-2)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 600
+  },
+  {
+   "id": "fineweb2_hq_ar_saudi",
+   "repo": "epfml/FineWeb2-HQ-Plus",
+   "config": "ars_Arab",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify (derived from FineWeb-2)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 400
+  },
+  {
+   "id": "jais3_arabic",
+   "repo": "IFM/Jais-3-Data",
+   "config": "",
+   "domain": "arabic",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "oscar_ar",
+   "repo": "oscar-corpus/OSCAR-2301",
+   "config": "ar",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 1000
+  },
+  {
+   "id": "wikipedia_ar",
+   "repo": "wikimedia/wikipedia",
+   "config": "20231101.ar",
+   "domain": "arabic",
+   "origin": [
+    "onecore"
+   ],
+   "license": "CC BY-SA 3.0 / GFDL (share-alike: keep attribution)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 1000
+  },
+  {
+   "id": "stack_v2_code",
+   "repo": "bigcode/the-stack-v2",
+   "config": "",
+   "domain": "code",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 10000
+  },
+  {
+   "id": "stack_v2_edu",
+   "repo": "common-pile/stackv2_edu_filtered",
+   "config": "default",
+   "domain": "code",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "fineweb2_full_en",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "eng_Latn",
+   "domain": "english",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": false,
+   "onecore_train_limit": 1000
+  },
+  {
+   "id": "fineweb2_hq_en",
+   "repo": "epfml/FineWeb2-HQ-Plus",
+   "config": "eng_Latn",
+   "domain": "english",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify (derived from FineWeb-2)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": false,
+   "onecore_train_limit": 1500
+  },
+  {
+   "id": "fineweb_edu",
+   "repo": "HuggingFaceFW/fineweb-edu",
+   "config": "",
+   "domain": "english",
+   "origin": [
+    "sham"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "smollm_corpus",
+   "repo": "HuggingFaceTB/smollm-corpus",
+   "config": "",
+   "domain": "english",
+   "origin": [
+    "sham"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "wikipedia_en",
+   "repo": "wikimedia/wikipedia",
+   "config": "20231101.en",
+   "domain": "english",
+   "origin": [
+    "onecore"
+   ],
+   "license": "CC BY-SA 3.0 / GFDL (share-alike: keep attribution)",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 500
+  },
+  {
+   "id": "open_web_math_pro",
+   "repo": "gair-prox/open-web-math-pro",
+   "config": "default",
+   "domain": "math",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 800
+  },
+  {
+   "id": "proof_pile_2",
+   "repo": "EleutherAI/proof-pile-2",
+   "config": "default",
+   "domain": "math",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 1000
+  },
+  {
+   "id": "fineweb-2",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "",
+   "domain": "multilingual",
+   "origin": [
+    "sham"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit"
+  },
+  {
+   "id": "fineweb2_full_de",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "deu_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_es",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "spa_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_fr",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "fra_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_id",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "ind_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_ja",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "jpn_Jpan",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_pt",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "por_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_ru",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "rus_Cyrl",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "fineweb2_full_tr",
+   "repo": "HuggingFaceFW/fineweb-2",
+   "config": "tur_Latn",
+   "domain": "multilingual",
+   "origin": [
+    "onecore"
+   ],
+   "license": "ODC-By 1.0 + Common Crawl terms",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  },
+  {
+   "id": "turkish_mobile_function_calling",
+   "repo": "BTX24/turkish-mobile-function-calling-dataset",
+   "config": "default",
+   "domain": "tools",
+   "origin": [
+    "onecore"
+   ],
+   "license": "verify",
+   "status": "ready_check_license",
+   "why": "public corpus: verify the licence on its dataset card, then admit through data.admit",
+   "onecore_enabled": true,
+   "onecore_train_limit": 5000
+  }
+ ]
+}
