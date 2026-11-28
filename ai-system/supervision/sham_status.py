@@ -46,6 +46,18 @@ STALE_HOURS = 24 * 5
 STALE_ERROR_DAYS = 7
 
 
+def restarter_state(here: Path = HERE) -> dict:
+    """Is the outside-Kaggle restarter live, or only a dry run? It reads the SAME switch the restarter reads
+    (`ai-system/supervision/RESTARTER_LIVE` or SHAM_RESTART_LIVE=1), because that is the difference between "a notebook
+    stopped, something will push it again" and "a notebook stopped and nothing ever will" — the stale main-line alerts
+    below cannot be read without it."""
+    flag = here / "RESTARTER_LIVE"
+    file_value = flag.read_text(encoding="utf-8").strip() if flag.exists() else ""
+    return {"live": os.environ.get("SHAM_RESTART_LIVE", "") == "1" or file_value == "1",
+            "switch": "SHAM_RESTART_LIVE" if os.environ.get("SHAM_RESTART_LIVE", "") else "RESTARTER_LIVE",
+            "value": os.environ.get("SHAM_RESTART_LIVE", "") or file_value or "0"}
+
+
 def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -283,14 +295,25 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
         if name not in data.get("workflows", {}):
             alerts.append(f"⚠ لا تشغيلات مسجلة لسير العمل «{name}» (لم يبدأ بعد؟)")
     by_name = {d["name"]: d for d in data.get("datasets", [])}
+    rest = data.get("restarter") or {}
+    # who writes a main-line dataset (CONTRACT.json), so a missing/stale one names the notebook to start, not just the harm
+    def writer_of(ds: str) -> str:
+        w = (contract.get("datasets", {}).get(ds) or {}).get("writer")
+        return ((contract.get("components", {}).get(w) or {}).get("title") or w or "غير معلن") if w else "غير معلن"
+    if rest and not rest.get("live"):
+        alerts.append(f"ℹ المُعيد في الوضع التجريبي ({rest.get('switch')}={rest.get('value') or '0'}): لا يعيد تشغيل أي دفتر بنفسه "
+                      "(لا تُقرأ تنبيهات «لم تُحدَّث» كعطل في الدفتر)، ويُشغَّل يدوياً بـ live=1")
     for ds in MAIN_LINE:
         d = by_name.get(ds)
         if not d:
-            alerts.append(f"⚠ مجموعة الخط الرئيسي {ds} غير موجودة في الحساب")
+            alerts.append(f"⚠ مجموعة الخط الرئيسي {ds} غير موجودة في الحساب — يكتبها: {writer_of(ds)}")
             continue
         t = _parse(d["updated"])
         if t and (now - t).total_seconds() / 3600 > STALE_HOURS:
-            alerts.append(f"⚠ {ds} لم تُحدَّث منذ {int((now - t).total_seconds() / 86400)} أيام")
+            line = f"⚠ {ds} لم تُحدَّث منذ {int((now - t).total_seconds() / 86400)} أيام (يكتبها: {writer_of(ds)})"
+            if rest and not rest.get("live"):
+                line += " — ولن يعيد تشغيل كاتبها شيء تلقائياً ما دام المُعيد تجريبياً"
+            alerts.append(line)
     for name, dg in (data.get("dataset_diag") or {}).items():
         if dg.get("error"):
             continue
@@ -309,7 +332,7 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
 def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: dict | None = None) -> dict:
     import sham_registry as reg
     contract = contract or json.loads((HERE / "CONTRACT.json").read_text(encoding="utf-8"))
-    data: dict = {"generated_at": _now().strftime("%Y-%m-%d %H:%M UTC"), "errors": []}
+    data: dict = {"generated_at": _now().strftime("%Y-%m-%d %H:%M UTC"), "errors": [], "restarter": restarter_state()}
     try:
         if api is None:
             from kaggle.api.kaggle_api_extended import KaggleApi
@@ -390,6 +413,10 @@ def render_md(data: dict, contract: dict) -> str:
          "> تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.", ""]
     L += ["## التنبيهات (ابدأ منها)"]
     L += [f"- {a}" for a in data["alerts"]] or ["- لا تنبيهات ✅"]
+    rest = data.get("restarter")
+    if rest:
+        L += ["", f"**المُعيد التلقائي لدفاتر كاكل:** {'حي' if rest.get('live') else 'تجريبي (لا يدفع شيئاً)'} "
+                  f"— المفتاح {rest.get('switch')}={rest.get('value') or '0'}"]
     if data.get("errors"):
         L += ["", "## أخطاء جمع الحالة نفسها (قد تعني أن الصورة ناقصة)"] + [f"- {e}" for e in data["errors"]]
     pipe = data.get("pipeline")
@@ -545,13 +572,20 @@ if __name__ == "__main__":
         alerts = "\n".join(data["alerts"])
         assert "فشل في آخر تشغيلين" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
         assert "other-stuff" not in alerts and "Sham Collector" not in alerts.split("لم يعمل")[0], alerts
+        # the restarter switch decides whether a stale/missing main-line dataset means "a notebook stopped" or "nothing will
+        # ever restart it": the alert names both, plus the notebook that writes the dataset (CONTRACT.json)
+        assert data["restarter"]["live"] is False and "المُعيد في الوضع التجريبي" in alerts, data["restarter"]
+        assert "يكتبها:" in alerts and "لن يعيد تشغيل كاتبها" in alerts, alerts
+        live_alerts = build_alerts(dict(data, restarter={"live": True, "switch": "RESTARTER_LIVE", "value": "1"}), contract)
+        assert not any("لن يعيد تشغيل كاتبها" in a or "الوضع التجريبي" in a for a in live_alerts), live_alerts
+        assert restarter_state()["switch"] == "RESTARTER_LIVE" and restarter_state()["value"] == "0"
         out = Path(tempfile.mkdtemp())
         write_outputs(data, out, contract)
         md = (out / "STATUS.md").read_text(encoding="utf-8")
         assert "التنبيهات" in md and "| sham-checkpoint |" in md and "mystery" in md and "me/" not in md and "nb1" not in md
         assert "registry_private" not in (out / "status.json").read_text(encoding="utf-8")
         assert (out / "sham-registry.json").exists()
-        assert "آخر أخطاء مصنع GitHub" in md
+        assert "آخر أخطاء مصنع GitHub" in md and "المُعيد التلقائي" in md
         # a main-line dataset that is pending / empty is flagged, and an undocumented one is described by its file kinds
         assert "حالة Kaggle «pending»" in alerts and "بلا أي ملف" in alerts, alerts
         assert "مجموعات غير جاهزة أو فارغة" in md and "audio 2" in md and "text 1" in md, md
@@ -598,6 +632,7 @@ if __name__ == "__main__":
         assert "حُدِّث" in post_alerts(A + ["⚠ جديد"], "t", fake_request, "o/r")
         assert "أُغلق" in post_alerts(["ℹ فقط"], "t", fake_request, "o/r") and store["issues"][0]["state"] == "closed"
         assert post_alerts(A, None, fake_request, "o/r").startswith("لا توكن")
+        print("—— اختبار ذاتي على بيانات وهمية، وليس حالة الحساب الحيّة ——")
         print(md[:600])
         print("sham_status self-test OK")
     else:
