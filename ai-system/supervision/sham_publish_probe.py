@@ -15,6 +15,7 @@ that matter, with evidence instead of a theory:
                      pushed kernels read), keeping whatever else that dataset holds.
   kernel-probe       push a one-minute kernel with no secrets and runtime-creds attached, then print its log: what a
                      pushed training notebook's credentials really do.
+  inventory NAME ... one line per dataset: version number, lastUpdated date, size (the proof that a version is new).
 
   python sham_publish_probe.py check-creds
 Needs KAGGLE_USERNAME + KAGGLE_API_TOKEN/KAGGLE_KEY (the repository's own Kaggle secrets).
@@ -103,20 +104,22 @@ def check_creds() -> int:
     print(f"kaggle.json: username={'set' if creds.get('username') else 'EMPTY'} key_length={len(str(creds['key']))} "
           f"token_form={str(creds['key']).startswith('KGAT_')} same_account={creds.get('username') == _account()}", flush=True)
     api = _api(creds)
-    # a real authenticated call, whichever listing method this CLI version exposes
-    try:
-        if hasattr(api, "datasets_list"):
-            mine = api.datasets_list(mine=True, page_size=1)
-        elif hasattr(api, "dataset_list"):
-            mine = api.dataset_list(mine=True, page_size=1)
-        else:
-            mine = [api.dataset_metadata(ref)]
-        print(f"✅ sham-runtime-creds credentials still authenticate (authenticated call returned {len(mine or [])} row(s))", flush=True)
+    # a real authenticated call, whichever listing method this CLI version exposes (2.x has dataset_list, no page_size)
+    for label, call in (("dataset_list(mine=True)", lambda: api.dataset_list(mine=True)),
+                        ("dataset_list()", lambda: api.dataset_list()),
+                        ("datasets_list(mine=True)", lambda: api.datasets_list(mine=True))):
+        try:
+            mine = call()
+        except (AttributeError, TypeError):
+            continue                      # this CLI version does not have that call with those arguments: try the next one
+        except Exception as exc:
+            print(f"❌ sham-runtime-creds credentials are REJECTED by Kaggle ({label}): {_why(exc)}\n"
+                  "   -> that is why API-pushed notebooks cannot publish. Fix: `repair-creds` (this workflow).", flush=True)
+            return 3
+        print(f"✅ sham-runtime-creds credentials still authenticate ({label} returned {len(mine or [])} row(s))", flush=True)
         return 0
-    except Exception as exc:
-        print(f"❌ sham-runtime-creds credentials are REJECTED by Kaggle: {_why(exc)}\n"
-              "   -> that is why API-pushed notebooks cannot publish. Fix: `repair-creds` (this workflow).", flush=True)
-        return 3
+    print("❌ this kaggle version exposes no authenticated listing call; the credentials themselves are unjudged", flush=True)
+    return 3
 
 
 def repair_creds() -> int:
@@ -185,6 +188,26 @@ def publish(names: list[str]) -> int:
 KERNEL_ID = "jonsnowjonsnow/sham-creds-probe"
 
 
+def inventory(names: list[str]) -> int:
+    """One compact line per dataset: the version number and the date Kaggle last updated it. This is the proof line --
+    'v62 2026-11-08' turning into today's version -- without the notebooks' own 5-hour sessions."""
+    api = _api()
+    for name in names:
+        ref = f"{_account()}/{name}"
+        tmp = Path(tempfile.mkdtemp(prefix="inv_"))
+        try:
+            api.dataset_metadata(ref, path=str(tmp))
+            meta = json.loads((tmp / "dataset-metadata.json").read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"❌ {ref}: {_why(exc)}", flush=True)
+            continue
+        version = meta.get("versionNumber") or meta.get("currentVersionNumber") or "?"
+        updated = meta.get("lastUpdated") or "?"
+        size = meta.get("totalBytes") or 0
+        print(f"{name:34s} v{version} | lastUpdated {updated} | {float(size) / 1e9:.2f} GB", flush=True)
+    return 0
+
+
 def kernel_probe(timeout_min: int = 25) -> int:
     """Push a one-minute kernel that has NO Kaggle secrets (exactly how every API-pushed training notebook starts) and
     see what its credentials do: secrets reach it or not, sham-runtime-creds/kaggle.json reaches it or not, and whether
@@ -238,6 +261,10 @@ def main(argv: list[str]) -> int:
         return repair_creds()
     if cmd == "kernel-probe":
         return kernel_probe()
+    if cmd == "inventory":
+        return inventory(argv[2:] or ["sham-chat-checkpoint", "sham-image-tokenizer-checkpoint",
+                                      "sham-checkpoint", "sham-multimodal-checkpoint",
+                                      "sham-audio-tokenizer-checkpoint", "sham-merged-checkpoint"])
     if cmd == "publish":
         names = [a.strip() for a in argv[2:] if a.strip()]
         if not names:

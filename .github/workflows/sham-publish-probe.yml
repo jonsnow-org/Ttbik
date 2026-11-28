@@ -33,6 +33,11 @@ on:
         type: string
         required: false
         default: "0"
+      inventory:
+        description: "1 = اطبع رقم نسخة وتاريخ آخر تحديث لكل مجموعة (سطر لكل واحدة، دليل النشر)"
+        type: string
+        required: false
+        default: "1"
 
 permissions:
   contents: read
@@ -71,6 +76,14 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: python ai-system/supervision/sham_publish_probe.py publish ${{ inputs.datasets }}
+
+      - name: جرد المجموعات (نسخة وتاريخ)
+        if: ${{ inputs.inventory == '1' }}
+        continue-on-error: true
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_publish_probe.py inventory
 
       - name: دفتر الفحص (kernel مرفوع، بلا أسرار)
         if: ${{ inputs.probe_kernel == '1' }}
