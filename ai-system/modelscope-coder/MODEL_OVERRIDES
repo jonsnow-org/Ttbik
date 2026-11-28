@@ -6,4 +6,3 @@
 # first token 5.0 s, 8 tok/s. Peak memory 13.8 GB at ctx 16k, so ctx is 16384 not 32768
 # (32k risks OOM on the 16 GB tier). This Studio is not in the cn STUDIOS list and is not in any Nova 4B pool.
 coder-inference-server-16 unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf 16384
-nova-tldm-reader unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf 512

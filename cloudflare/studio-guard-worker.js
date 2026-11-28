@@ -20,7 +20,6 @@ export const STUDIOS = [
   ["ai", "Jonjithup", "sham-trainer-2", "train"],              // Nova's computer hub despite the name (browserComputer.ts): kept up like a trainer
   ["ai", "Jonjithup", "sham-runner-1", "runner"],
   ["ai", "Jonjithup", "coder-inference-server-16", "warm"],
-  ["ai", "Jonjithup", "nova-tldm-reader", "warm"],             // Nova's own T-LDM reader (owner option 2, 2026-11-25): generate_tldm only
 ];
 
 export function norm(s) {

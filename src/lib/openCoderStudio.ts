@@ -68,7 +68,8 @@ export function nova2Urls(): string[] {
 // The reader + head sat beside the chat server on one 16 GB box and thrashed it (#1225), so they moved to a Studio of their own (ai-system/modelscope-coder/
 // NOVA_TLDM_READER_STUDIOS: app.py serves generate_tldm only there). Nova's T-LDM calls go to that Studio ONLY: no failover to the chat Studio, no other model;
 // a missing reader is an honest error (novaTldm.ts). NOVA_TLDM_READER_URL replaces the address; "off" = the old in-Studio head (the chat pool).
-export const NOVA_TLDM_READER_DEFAULT = "https://studio-jonjithup-nova-tldm-reader.api-inference.modelscope.ai";
+// 2026-11-28: no default reader. The owner never approved a second Nova Studio (two copies of the 35B); nova-tldm-reader is retired. Set NOVA_TLDM_READER_URL to bring a reader back.
+export const NOVA_TLDM_READER_DEFAULT = "";
 export function novaTldmReaderUrl(): string {
   // 2026-11-26: the reader Studio exists now and is live (deployed, and a real generate_tldm call answered: run 45765990789), so its address is the built-in
   // default: Oracle and the backup sites build from this repo, and Vercel's variables are not needed for Nova's T-LDM. NOVA_TLDM_READER_URL still replaces the
