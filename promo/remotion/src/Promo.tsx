@@ -72,7 +72,7 @@ const Phone: React.FC = () => {
       <div style={{ width: 760, height: 1351, borderRadius: 64, overflow: "hidden", border: "14px solid #0a0f1a",
         boxShadow: "0 40px 120px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.15)",
         transform: `translateY(${(1 - inP) * 900}px) scale(${drift}) rotate(${tilt * 0.4}deg) perspective(1600px) rotateY(${tilt}deg)` }}>
-        <OffthreadVideo src={staticFile("screen.mp4")} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        <OffthreadVideo src={staticFile("screen.mp4")} muted style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0b1f3a" }} />
       </div>
     </AbsoluteFill>
   );
@@ -152,7 +152,7 @@ export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = 
       <Sequence from={ctaStart} layout="none"><CTA ctaTitle={ctaTitle} ctaLine={ctaLine} brand={brand} /></Sequence>
       <Audio src={staticFile("voice.mp3")} />
       <Audio src={staticFile("music.mp3")} volume={(f) => {
-        const base = interpolate(f, [0, 6, voiceEndF, voiceEndF + 12], [0.28, 0.07, 0.07, 0.3], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+        const base = interpolate(f, [0, 6, voiceEndF, voiceEndF + 12], [0.12, 0.035, 0.035, 0.16], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
         return base * interpolate(f, [durationInFrames - 20, durationInFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
       }} />
     </AbsoluteFill>

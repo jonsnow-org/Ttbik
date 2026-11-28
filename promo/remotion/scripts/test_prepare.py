@@ -1,4 +1,6 @@
+import json
 import unittest
+from pathlib import Path
 
 from prepare import is_ready, no_episode_reason, select_episode
 
@@ -32,6 +34,33 @@ class EpisodeQueueTests(unittest.TestCase):
         reason = no_episode_reason(self.episodes[1:], set(), launched=False, opened=False)
         self.assertIn("NO_READY_EPISODE", reason)
         self.assertIn("2, 3", reason)
+
+
+    def test_daily_queue_refill_contains_two_distinct_ready_existing_tools(self):
+        catalog_path = Path(__file__).resolve().parents[1] / "episodes.json"
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        episodes = catalog["episodes"]
+        ids = [int(item["id"]) for item in episodes]
+        self.assertEqual(len(ids), len(set(ids)))
+
+        by_id = {int(item["id"]): item for item in episodes}
+        invoice = by_id[20]
+        analytics = by_id[21]
+        logo = by_id[22]
+        self.assertTrue(is_ready(invoice))
+        self.assertTrue(is_ready(analytics))
+        self.assertTrue(is_ready(logo))
+        self.assertEqual(invoice["path"], "/free-tools/invoice-generator")
+        self.assertEqual(len(invoice["input"].splitlines()), 11)
+        self.assertEqual(analytics["path"], "/free-tools/behavior-analytics")
+        self.assertEqual(analytics["input"], "")
+        self.assertEqual(logo["path"], "/free-tools/logo-generator")
+        self.assertEqual(len(logo["input"].splitlines()), 2)
+
+        done = set(range(1, 20))
+        self.assertEqual(select_episode(episodes, done)["id"], 20)
+        self.assertEqual(select_episode(episodes, done | {20})["id"], 21)
+        self.assertEqual(select_episode(episodes, done | {20, 21})["id"], 22)
 
     def test_forced_episode_preserves_explicit_rerender_behavior(self):
         self.assertEqual(select_episode(self.episodes, {1, 2, 3}, forced_id="2")["id"], 2)

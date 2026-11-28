@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { formatLocalDate } from "@/lib/dateDifference";
 import { parseLocalizedNumber } from "@/lib/numberInput";
 
 type LineItem = { desc: string; qty: string; price: string };
@@ -10,7 +11,7 @@ const emptyItem = (): LineItem => ({ desc: "", qty: "1", price: "" });
 export default function InvoiceGenerator() {
   const [docType, setDocType] = useState<"invoice" | "contract">("invoice");
   const [docNumber, setDocNumber] = useState("");
-  const [docDate, setDocDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [docDate, setDocDate] = useState("");
   const [sellerName, setSellerName] = useState("");
   const [sellerInfo, setSellerInfo] = useState("");
   const [buyerName, setBuyerName] = useState("");
@@ -20,6 +21,10 @@ export default function InvoiceGenerator() {
   const [notes, setNotes] = useState("");
   const [currency, setCurrency] = useState("ر.س");
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setDocDate(formatLocalDate(new Date()));
+  }, []);
 
   function updateItem(i: number, field: keyof LineItem, val: string) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: val } : it)));
