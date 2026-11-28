@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_sham_v2_studio import patch_staged_sham_v2_download, stage_sham_v2, stage_tldm_serving, write_sham_v2_wrapper
+from stage_sham_v2_studio import patch_staged_sham_v2_download, render_wrapper, stage_sham_v2, stage_tldm_serving, write_sham_v2_wrapper
 
 
 class StagedShamV2Runtime(unittest.TestCase):
@@ -77,6 +77,29 @@ class StagedShamV2Runtime(unittest.TestCase):
             self.assertFalse((studio / "tldm" / "training").exists())
             wrapper = (studio / "app.py").read_text(encoding="utf-8")
             self.assertIn('os.environ.setdefault("SHAM_TLDM", "0")', wrapper)
+
+
+class StagedOnTheInternationalSite(unittest.TestCase):
+    def test_ai_wrapper_reads_the_mirrored_repos_and_the_international_hub_and_cn_is_unchanged(self):
+        ai, cn = render_wrapper("ai"), render_wrapper("cn")
+        self.assertIn('os.environ["SHAM_MS_MODEL"] = "Jonjithup/sham-v2"', ai)
+        self.assertIn('"SHAM_TLDM_REPO", "Jonjithup/sham2-tldm-head"', ai)
+        self.assertIn('os.environ.setdefault("MODELSCOPE_DOMAIN", "www.modelscope.ai")', ai)
+        self.assertIn('os.environ.setdefault("MODELSCOPE_ENDPOINT", "https://www.modelscope.ai")', ai)
+        self.assertNotIn("novaai2026", ai)                                       # nothing of the cn account leaks into the served copy
+        self.assertIn('os.environ["SHAM_MS_MODEL"] = "novaai2026/sham-v2"', cn)
+        self.assertNotIn("MODELSCOPE_DOMAIN", cn)                                 # the default is exactly what it always was
+        self.assertNotIn("@OWNER@", ai + cn)
+        self.assertNotIn("@DOMAIN@", ai + cn)
+        compile(ai, "wrapper_ai", "exec")
+        compile(cn, "wrapper_cn", "exec")                                         # both are valid Python
+        with self.assertRaises(ValueError):
+            render_wrapper("mars")
+
+    def test_the_domain_is_set_before_anything_imports_the_hub(self):
+        ai = render_wrapper("ai")
+        self.assertLess(ai.index("MODELSCOPE_DOMAIN"), ai.index("import sham_mesh_node"))
+        self.assertLess(ai.index("MODELSCOPE_DOMAIN"), ai.index("runpy.run_path"))
 
 
 class StagedTldmImports(unittest.TestCase):

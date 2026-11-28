@@ -14,11 +14,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ai-system" / "modelscope-sham"))
 import sync_to_modelscope as s  # noqa: E402
 
+# One Studio per site: cn (training, novaai2026) or ai (serving, Jonjithup; owner's platform decision 2026-11-25/28). `SHAM_SITE=ai` makes the staged app read Jonjithup's mirrored private
+# repos and talk to modelscope.ai; the default (cn) is byte-for-byte what it always was.
+SITES = {"cn": ("novaai2026", ""), "ai": ("Jonjithup", 'os.environ.setdefault("MODELSCOPE_DOMAIN", "www.modelscope.ai")          # this Studio lives on the international site (both names: the SDKs read one or the other)\nos.environ.setdefault("MODELSCOPE_ENDPOINT", "https://www.modelscope.ai")\n')}
+
 SHAM_V2_WRAPPER = '''import os
 import runpy
-
+@DOMAIN@
 os.environ["SHAM_TEXT_VOCAB"] = "151936"          # the donor's own text vocabulary (Qwen3); Sham's image / audio / special ranges sit above it
-os.environ["SHAM_MS_MODEL"] = "novaai2026/sham-v2"
+os.environ["SHAM_MS_MODEL"] = "@OWNER@/sham-v2"
 # Sham v2's donor supports a longer RoPE context. This extends the usable context window without changing learned weights.
 # setdefault preserves any explicit Studio operator setting.
 os.environ.setdefault("SHAM_LIMITS", "open")
@@ -35,7 +39,7 @@ os.environ.setdefault("SHAM_NATIVE_TOOL_CALLS", "1")
 os.environ.setdefault("SHAM_TOOLCALL_GUARD", "1")    # v2 constrained tool-call decoding
 # T-LDM is off until the trained Sham 2 head exists and the owner turns it on (never a silent fallback to Sham 1).
 os.environ.setdefault("SHAM_TLDM", "0")
-os.environ.setdefault("SHAM_TLDM_REPO", "novaai2026/sham2-tldm-head")
+os.environ.setdefault("SHAM_TLDM_REPO", "@OWNER@/sham2-tldm-head")
 # Training-admission only (experience.deny_reason). Does not restrict work-time commands.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SHAM_TLDM_DENYLIST", os.path.join(_HERE, "tldm", "evolution", "owner_denylist.txt"))
@@ -165,8 +169,15 @@ def stage_mesh(studio: pathlib.Path) -> None:
             shutil.copy2(f, term / name)
 
 
-def write_sham_v2_wrapper(studio: pathlib.Path) -> None:
-    (studio / "app.py").write_text(SHAM_V2_WRAPPER, encoding="utf-8")
+def render_wrapper(site: str = "cn") -> str:
+    if site not in SITES:
+        raise ValueError("site is cn or ai")
+    owner, domain_line = SITES[site]
+    return SHAM_V2_WRAPPER.replace("@OWNER@", owner).replace("@DOMAIN@", domain_line)
+
+
+def write_sham_v2_wrapper(studio: pathlib.Path, site: str | None = None) -> None:
+    (studio / "app.py").write_text(render_wrapper(site or os.environ.get("SHAM_SITE", "cn")), encoding="utf-8")
     # status() reports this as "build": the deploy compares it with the commit it pushed (ModelScope's runner can ship a cached old build)
     (studio / "BUILD_STAMP").write_text(os.environ.get("GITHUB_SHA", "")[:12] + "\n", encoding="utf-8")
 
