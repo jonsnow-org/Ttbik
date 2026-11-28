@@ -254,7 +254,7 @@ def main() -> int:
         (up / STATE_FILE).write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         for old in (root.rglob("accelerator_state.json") if root else []):
             (up / old.name).write_bytes(old.read_bytes())          # the keeper notebook's own file in the same dataset stays
-        publish_dataset(up, STATE_DATASET, "restarter state")
+        publish_dataset(up, STATE_DATASET, "restarter state", strict=False)   # bookkeeping: a rejected state upload must not abort the push cycle it records
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         Path(summary).write_text("## مراقب إعادة التشغيل\n" + "\n".join(f"- {n}" for n in notes) + "\n", encoding="utf-8")

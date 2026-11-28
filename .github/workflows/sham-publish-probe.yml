@@ -1,0 +1,75 @@
+name: Sham Publish Probe (diagnose + one real publish)
+
+# 2026-11-28: sham-chat-checkpoint (v62 @2026-11-08 05:24) and sham-image-tokenizer-checkpoint stopped getting new
+# versions while their notebook kept RUNNING. This job answers why, from outside the kernel, where the repository's
+# Kaggle secrets exist:
+#   * check-creds  -> are the credentials inside sham-runtime-creds (what every API-pushed notebook reads) still valid?
+#   * repair-creds -> rewrite that kaggle.json from the repository secret (only when asked).
+#   * publish      -> one real re-version of the named datasets (previous files + publish_probe.json), proving the path.
+# Nothing runs unless it is dispatched, and the upload only happens with confirm=PUBLISH.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "PUBLISH = رفع حقيقي؛ أي قيمة أخرى = فحص بيانات الدخول فقط"
+        type: string
+        required: true
+        default: "check"
+      datasets:
+        description: "المجموعات المفصولة بفراغ"
+        type: string
+        required: false
+        default: "sham-chat-checkpoint sham-image-tokenizer-checkpoint"
+      repair_creds:
+        description: "1 = أعد نشر kaggle.json في sham-runtime-creds من أسرار المستودع"
+        type: string
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: claude/free-services-marketplace-h6rwk2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -q kaggle six requests
+
+      - name: بيانات الدخول التي تقرأها الدفاتر المرفوعة
+        continue-on-error: true
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_publish_probe.py check-creds
+
+      - name: إصلاح sham-runtime-creds
+        if: ${{ inputs.repair_creds == '1' }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_publish_probe.py repair-creds
+
+      - name: رفع حقيقي (نسخة تحقّق)
+        if: ${{ inputs.confirm == 'PUBLISH' }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_publish_probe.py publish ${{ inputs.datasets }}
+
+      - name: جرد كاكل وآخر سطور السجلات
+        if: ${{ always() }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          SHAM_RESTART_KERNELS: ${{ secrets.SHAM_RESTART_KERNELS }}
+          SHAM_RESTART_TRACKS: ${{ vars.SHAM_RESTART_TRACKS || 'all_in_one,ab_in_one,chat_image_in_one' }}
+        run: python ai-system/supervision/sham_kaggle_inspect.py || true

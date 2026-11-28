@@ -832,27 +832,78 @@ def _run_limited(cmd: list, limit: float):
         return subprocess.CompletedProcess(cmd, 124, "", "timed out (SHAM_KAGGLE_PUBLISH_TIMEOUT)")
 
 
-def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
+PUBLISH_LEDGER = Path("/kaggle/working/publish_failures.json")   # part of the kernel's Output: readable after the session with kernels_output
+_LAST_FAILURE: dict = {}
+
+
+class PublishError(RuntimeError):
+    """A finished cycle that never reached its dataset (or ModelScope repo).
+
+    2026-11-28: sham-chat-checkpoint/image-tokenizer froze on 2026-11-08 while their notebook kept running and
+    publishing a warning to a log nobody reads during a session -- the upload returned None and the kernel ended
+    COMPLETE, so the supervisor saw "20 days old" with no reason anywhere. A lost upload must now fail the step,
+    record its cause in PUBLISH_LEDGER (the session Output) and print it, so the kernel is ERROR and the restarter
+    and the status snapshot see it instead of silently losing a 5-hour cycle."""
+
+
+def _publish_strict(strict: bool | None) -> bool:
+    if strict is not None:
+        return strict
+    return os.environ.get("SHAM_PUBLISH_STRICT", "1") != "0"      # strict by default; SHAM_PUBLISH_STRICT=0 restores the old quiet return-None
+
+
+def _record_publish_failure(name: str, reason: str, detail: str) -> None:
+    import time
+
+    global _LAST_FAILURE
+    entry = {"at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()), "dataset": str(name), "reason": reason,
+             "detail": (detail or "")[-4000:], "kernel": os.environ.get("KAGGLE_KERNEL_RUN_TYPE", ""),
+             "session": os.environ.get("KAGGLE_KERNEL_REF") or os.environ.get("KAGGLE_URL_BASE", "")}
+    _LAST_FAILURE = entry
+    try:
+        ledger = json.loads(PUBLISH_LEDGER.read_text(encoding="utf-8")) if PUBLISH_LEDGER.exists() else []
+        if not isinstance(ledger, list):
+            ledger = []
+        ledger.append(entry)
+        PUBLISH_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        PUBLISH_LEDGER.write_text(json.dumps(ledger[-50:], ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception as exc:                                  # the ledger is best-effort; the printed banner never is
+        print(f"  ⚠ تعذّر كتابة {PUBLISH_LEDGER}: {type(exc).__name__}")
+    print(f"\n❌ فشل نشر {name}: {reason}\n{(detail or '').strip()[-1500:]}\n(سُجّل في {PUBLISH_LEDGER})\n", flush=True)
+
+
+def publish_dataset(upload_dir: str | Path, name: str, message: str, strict: bool | None = None) -> str | None:
     """Publish a track's output where the merge reads it. On a ModelScope Studio (cn trainers) the PRIVATE ModelScope model repo is tried FIRST (fast from there) and
     Kaggle second with a time limit: uploads to Kaggle from cn kept failing, so a finished 5-hour cycle never reached the merge (inventory 2026-11-14: no dataset
-    sham-crawl-ms1). Returns the Kaggle slug, else "modelscope:<repo>", else None (the files stay in this session's Output / on the Studio's disk either way).
-    Text corpora (name ends with "corpus") go to Kaggle only."""
+    sham-crawl-ms1). Returns the Kaggle slug, else "modelscope:<repo>". Text corpora (name ends with "corpus") go to Kaggle only.
+
+    If neither door took the files it raises PublishError (strict, the default) instead of returning None: the caller's
+    cycle did not reach the merge, and a COMPLETE session that lost its output is a lie. strict=False keeps the quiet
+    None for bookkeeping publishes (the restarter's own state) that must not abort the job that produces them."""
     ms = None
     if _on_modelscope() and not str(name).endswith("corpus"):
         ms = publish_modelscope(upload_dir, name, message)
     slug = _publish_kaggle(upload_dir, name, message)
-    return slug or ms
+    if slug or ms:
+        return slug or ms
+    if _publish_strict(strict):
+        reason = _LAST_FAILURE.get("reason") or "لم يقبل Kaggle ولا ModelScope الملفات"
+        detail = _LAST_FAILURE.get("detail") or ""
+        raise PublishError(f"نشر {name} فشل: {reason}\n{detail.strip()[-1500:]}\n(السجل: {PUBLISH_LEDGER})")
+    return None
 
 
 def _publish_kaggle(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
-    slug on success, None on failure (the files stay in this session's
-    Output either way)."""
+    slug on success, None on failure with the reason recorded by
+    _record_publish_failure (the files stay in this session's Output)."""
     import json
 
     user = _ensure_credentials()
     if not user:
+        _record_publish_failure(name, "لا بيانات دخول Kaggle في هذه الجلسة (KAGGLE_USERNAME/KAGGLE_KEY و kaggle.json من sham-runtime-creds)",
+                                "دفاتر كاكل المرفوعة آلياً لا تحصل على أسرار كاكل (HTTP 400)، فتقرأ kaggle.json من مجموعة sham-runtime-creds.")
         return None
     if not shutil.which("kaggle"):
         subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
@@ -870,10 +921,17 @@ def _publish_kaggle(upload_dir: str | Path, name: str, message: str) -> str | No
         exists = True
         r = _run_limited(version_cmd, limit)
         out = (r.stdout or "") + (r.stderr or "")
+    if r.returncode != 0 and ("429" in out or "too many" in out.lower() or r.returncode == 124):
+        import time
+        print(f"  ⏳ رفض كاكل الرفع مؤقتاً ({'مهلة' if r.returncode == 124 else '429'}) — محاولة ثانية بعد 45 ثانية")
+        time.sleep(45)
+        r = _run_limited(version_cmd if exists else create_cmd, limit)
+        out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "error" not in out.lower():
         print(f"{'نُشرت نسخة جديدة إلى' if exists else 'أُنشئت'} {slug} — التشغيل القادم يلتقطها تلقائياً.")
         return slug
-    print(f"تنبيه: فشل النشر إلى {slug} — الملفات آمنة في Output هذه الجلسة.\n{out}")
+    _record_publish_failure(name, f"kaggle datasets {'version' if exists else 'create'} أعاد {r.returncode}",
+                            f"{slug}\n$ {' '.join(str(c) for c in r.args)}\n{out}")
     return None
 
 
