@@ -25,7 +25,10 @@ def request_json(url: str, method: str = "GET", payload: dict | None = None, tim
             with urlopen(req, timeout=timeout) as res:
                 return json.loads(res.read().decode("utf-8"))
         except HTTPError as exc:
-            if exc.code not in (429, 502, 503, 504) or attempt == len(waits):
+            # 404 here means ModelScope has no domain for the Studio yet (it is restarting), and 500/502-504 mean the worker
+            # or gateway is coming back. A live run showed exactly that: two checks passed, then 500 and three 404s while the
+            # Studio restarted -- reported as "the model failed" though nothing was wrong with the model. Still bounded.
+            if exc.code not in (404, 429, 500, 502, 503, 504) or attempt == len(waits):
                 raise
             time.sleep(waits[attempt])
 
