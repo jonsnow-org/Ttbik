@@ -120,7 +120,19 @@ class SkillLibrary:
         meta = self._meta(name)
         return (self._dir(name) / f"v{meta['active']}.py").read_text(encoding="utf-8") if meta["active"] else None
 
+    def record(self, name: str, ok: bool) -> None:
+        """Every real use of a skill is an outcome: a skill that keeps failing sinks in the ranking and, past a threshold, is flagged for rework."""
+        meta = self._meta(name)
+        meta.setdefault("uses", {"ok": 0, "fail": 0})["ok" if ok else "fail"] += 1
+        (self._dir(name) / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    def stats(self, name: str) -> dict:
+        u = self._meta(name).get("uses", {"ok": 0, "fail": 0})
+        n = u["ok"] + u["fail"]
+        return {"uses": n, "success_rate": (u["ok"] + 1) / (n + 2), "needs_rework": n >= 5 and u["fail"] / n > 0.4}      # smoothed (Laplace): a new skill starts at 0.5
+
     def search(self, query: str, limit: int = 5) -> list[tuple[str, str]]:
+        """Skills that fit the task, best first: word overlap, weighted by how often the skill has actually worked (the library learns which of its tools to trust)."""
         words = set(re.findall(r"\w+", query.lower()))
         scored = []
         for d in sorted(self.root.iterdir()):
@@ -130,5 +142,5 @@ class SkillLibrary:
             desc = next((x["description"] for x in m["versions"] if x["v"] == m["active"]), "")
             hay = set(re.findall(r"\w+", (d.name.replace("_", " ") + " " + desc).lower()))
             if words & hay:
-                scored.append((len(words & hay), d.name, desc))
+                scored.append((len(words & hay) * self.stats(d.name)["success_rate"], d.name, desc))
         return [(n, d) for _, n, d in sorted(scored, reverse=True)[:limit]]

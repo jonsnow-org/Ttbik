@@ -286,6 +286,46 @@ class Qalam(nn.Module):
         finally:
             self.train(was)
 
+    @torch.no_grad()
+    def generate(self, prefix: torch.Tensor, max_new: int, temperature: float = 0.0, top_p: float = 1.0, allowed: list[int] | None = None, stop_id: int | None = None,
+                 seed: int | None = None, cycles: int | None = None) -> torch.Tensor:
+        """Causal decoding for ONE sequence: greedy at temperature 0, otherwise nucleus sampling (a seed makes it reproducible). Diverse samples are what self-consistency,
+        best-of-n and search need; only `allowed` ids can be produced. Runs on the prefix's device."""
+        if prefix.shape[0] != 1 or max_new < 1 or temperature < 0 or not 0 < top_p <= 1:
+            raise ValueError("batch 1, max_new >= 1, temperature >= 0, 0 < top_p <= 1")
+        cyc = self._cycles(cycles)
+        dev = prefix.device
+        allowed = allowed or self.cfg.text_and_end_ids()
+        keep = torch.full((self.cfg.vocab_size,), float("-inf"), dtype=self.embed.weight.dtype, device=dev)
+        keep[allowed] = 0.0
+        gen = None if seed is None else torch.Generator(device="cpu").manual_seed(int(seed))
+        was = self.training
+        self.eval()
+        try:
+            h, cache = self.prefill(prefix, cyc)
+            out: list[int] = []
+            for _ in range(max_new):
+                logits = (self.lm_head(h[:, -1])[0] + keep).float()
+                if temperature == 0:
+                    t = int(logits.argmax())
+                else:
+                    p = torch.softmax(logits / temperature, dim=-1)
+                    if top_p < 1:
+                        sp, si = p.sort(descending=True)
+                        cut = sp.cumsum(0) - sp > top_p
+                        sp[cut] = 0
+                        p = torch.zeros_like(p).scatter(0, si, sp / sp.sum())
+                    t = int(torch.multinomial(p.cpu(), 1, generator=gen))
+                out.append(t)
+                if stop_id is not None and t == stop_id:
+                    break
+                if cache[0][0].shape[2] + 1 >= self.cfg.max_seq:
+                    break
+                h, cache = self.forward_causal(torch.tensor([[t]], device=dev), cache, cyc)
+            return torch.tensor([out], device=dev)
+        finally:
+            self.train(was)
+
     # ------------------------------------------------------------------ self-speculative decoding
     @torch.no_grad()
     def generate_speculative(self, prefix: torch.Tensor, max_new: int, block: int = 8, steps: int = 2, cycles: int | None = None,

@@ -54,6 +54,7 @@ class Runtime:
     transport: Callable[..., tuple[int, dict, bytes, str]] = netguard.fetch         # swapped in tests
     dry_run_installs: bool = False
     jobs: dict = field(default_factory=dict)
+    delegate: Callable[[str, list, int], str] | None = None          # (task, tool names, step budget) -> the sub-agent's summary; built on orchestrator.Orchestrator by the host
 
     def __post_init__(self) -> None:
         self.root = Path(self.root).resolve()
@@ -443,6 +444,9 @@ def run_tool(rt: Runtime, name: str, args: dict, loaded: set[str] | None = None)
             ok, text = _memory(rt, name, args)
         elif name in _SCHED:
             ok, text = _schedule(rt, name, args)
+        elif name == "delegate" and rt.delegate is not None:
+            narrower = list(args.get("tools") or [])
+            ok, text = True, rt.delegate(args["task"], narrower, int(args.get("budget", 8)))
         elif name in _FINANCE:
             ok, text = finance.run_finance_tool(rt.root, name, args, rt.audit, rt.stop)
         elif name in ("mcp_call", "connector_api") and args.get("server") in rt.connectors:
