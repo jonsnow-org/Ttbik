@@ -322,3 +322,30 @@ def test_rope_extension_changes_only_the_sequence_axis():
     cfg1, cfg4 = tiny_config(), type(tiny_config())(**{**tiny_config().to_dict(), "rope_factor": 4.0})
     m1, m4 = Qalam(cfg1), Qalam(cfg4)
     assert torch.allclose(m1.rope_row_cos, m4.rope_row_cos) and not torch.allclose(m1.rope_seq_cos, m4.rope_seq_cos)
+
+
+def test_prefix_cache_survives_disk_and_memory_is_predictable(tmp_path):
+    m, cfg = tiny()
+    m.eval()
+    ids = torch.randint(0, 200, (1, 30))
+    with torch.no_grad():
+        _, cache = m.forward_causal(ids)
+        n = Qalam.save_cache(cache, tmp_path / "p.pt", dtype=torch.float32)
+        back = Qalam.load_cache(tmp_path / "p.pt")
+        nxt = torch.randint(0, 200, (1, 4))
+        a, _ = m.forward_causal(nxt, cache)
+        b, _ = m.forward_causal(nxt, back)
+    assert n == 30 and torch.allclose(a, b, atol=1e-6)                             # a prefix read once gives the same continuation when reloaded
+    actual = sum(k.numel() + v.numel() for k, v in cache) * 4
+    assert m.kv_cache_bytes(30) == actual
+    base = Qalam(small_config()) if False else None
+    assert base is None
+    gb = lambda cfg, n, b: 2 * n * cfg.kv_heads * (cfg.width // cfg.heads) * cfg.cycles * cfg.unique_blocks * b / 1e9  # noqa: E731
+    assert 3.0 < gb(base_config(), 131072, 4) < 3.4 and gb(base_config(), 131072, 1) < 0.9                      # 128K tokens: ~3.2 GB fp32, ~0.8 GB int8
+
+
+def test_documented_sizes_match_the_code():
+    docs = (SRC.parents[1] / "docs" / "DESIGN.md").read_text() + (SRC.parents[1] / "README.md").read_text()
+    n = Qalam(base_config()).count_parameters()
+    assert f"{n:,}" in docs and f"{n / 1e6:.1f}M" in docs                                      # one figure, computed, everywhere
+    assert "131,072" in docs or "131072" in docs

@@ -149,6 +149,22 @@ class Qalam(nn.Module):
             return cache
         return [(torch.cat([k[:, :, :sinks], k[:, :, -window:]], dim=2), torch.cat([v[:, :, :sinks], v[:, :, -window:]], dim=2)) for k, v in cache]
 
+    @staticmethod
+    def save_cache(cache: list[KV], path, dtype: torch.dtype = torch.bfloat16) -> int:
+        """A prompt prefix (system text, tool list, a long document) read ONCE and reused by every later request: the cache is just tensors, so it can live on disk.
+        Stored in bf16 by default (half the size). Returns the number of cached positions."""
+        torch.save([(k.to(dtype), v.to(dtype)) for k, v in cache], path)
+        return int(cache[0][0].shape[2])
+
+    @staticmethod
+    def load_cache(path, dtype: torch.dtype = torch.float32, device: str | torch.device = "cpu") -> list[KV]:
+        return [(k.to(device=device, dtype=dtype), v.to(device=device, dtype=dtype)) for k, v in torch.load(path, map_location="cpu", weights_only=True)]
+
+    def kv_cache_bytes(self, tokens: int, bytes_per_value: int = 4) -> int:
+        """Memory the K/V cache needs for `tokens` positions: 2 (K and V) x kv_heads x head_dim x (cycles x blocks) applications x bytes."""
+        c = self.cfg
+        return 2 * tokens * c.kv_heads * (c.width // c.heads) * c.cycles * c.unique_blocks * bytes_per_value
+
     def forward(self, ids: torch.Tensor, cycles: int | None = None, segments: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         self.reset_aux()
         h, _ = self.forward_causal(ids, None, cycles, segments=segments)
