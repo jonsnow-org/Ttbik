@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { channelBotToken, isSafeForChannel } from "@/lib/channelPublisher";
 import { ensureEnglishFirst, isEnglishOnlyPublicText } from "@/lib/publicChannelPolicy";
 import { posterToken } from "@/lib/coinsChannel";
-import { uploadVideo, youtubeReady } from "@/lib/youtubePublish";
+import { uploadVideo, youtubeReady, commentWithLink } from "@/lib/youtubePublish";
 
 export const maxDuration = 60;
 
@@ -39,8 +39,13 @@ export async function GET(req: NextRequest) {
 
   if (yt) {
     const title = (q.get("title") || "").slice(0, 80) || "Palmyra Launch";
-    const r = await uploadVideo(bytes, { title: `${title} #Shorts`, description: `${caption}\n\n#Shorts`, privacy: process.env.YOUTUBE_PRIVACY === "unlisted" ? "unlisted" : "public", lang: q.get("lang") || "en" });
-    return NextResponse.json(r.ok ? { ok: true, to, id: r.id } : r);
+    const link = (q.get("link") || "").trim();
+    const description = [caption, link && !caption.includes(link) ? link : "", "#Shorts"].filter(Boolean).join("\n\n");
+    const r = await uploadVideo(bytes, { title: `${title} #Shorts`, description, privacy: process.env.YOUTUBE_PRIVACY === "unlisted" ? "unlisted" : "public", lang: q.get("lang") || "en" });
+    if (!r.ok) return NextResponse.json(r);
+    const commentText = link ? `الرابط: ${link}` : caption.slice(0, 200);
+    const c = await commentWithLink(r.id, commentText).catch((e) => ({ ok: false as const, reason: String(e).slice(0, 80) }));
+    return NextResponse.json({ ok: true, to, id: r.id, comment: c.ok ? "posted" : c.reason });
   }
   const form = new FormData();
   form.append("chat_id", CHANNELS[to]());

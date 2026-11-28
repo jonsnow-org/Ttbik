@@ -102,10 +102,11 @@ jobs:
           ID=${{ steps.pick.outputs.id }}
           TITLE=$(python3 -c "import json;e=json.load(open('episode.json'));print(e['title']+' | '+e.get('brand','Sham AI'))")
           LANGC=$(python3 -c "import json;print(json.load(open('episode.json')).get('lang','ar'))")
+          LINK=$(python3 -c "import json;e=json.load(open('episode.json'));print((e.get('site') or '').rstrip('/')+(e.get('path') or ''))")
           CAP=$(python3 ../../scripts/promo/remotion_publish.py episode.json)
           code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" -H "Authorization: Bearer ${CRON_SECRET}" \
             --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
-            --data-urlencode "to=youtube" --data-urlencode "title=$TITLE" --data-urlencode "lang=$LANGC" --data-urlencode "caption=$CAP") || true
+            --data-urlencode "to=youtube" --data-urlencode "title=$TITLE" --data-urlencode "lang=$LANGC" --data-urlencode "caption=$CAP" --data-urlencode "link=$LINK") || true
           echo "HTTP $code"; cat resp.json; echo
           if [ "$code" = "200" ]; then
             if grep -q '"ok":true' resp.json; then echo "YouTube upload accepted by the authorized site integration."

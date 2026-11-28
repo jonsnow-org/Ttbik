@@ -75,6 +75,13 @@ def public_caption(episode: dict[str, Any]) -> str:
     if any(has_earnings_claim(value) for value in fields):
         raise ValueError("Public promo copy contains a profit or returns promise.")
 
+    # Always include the topic URL so the published description (YouTube / Telegram) links to the page the video shows.
+    site = str(episode.get("site") or "").rstrip("/")
+    path = str(episode.get("path") or "")
+    topic = (site + path) if site and path else ""
+    if topic and topic not in caption:
+        caption = str(caption).rstrip() + "\n\n" + topic
+
     if channel == "coins":
         if str(episode.get("lang") or "").lower() != "en":
             raise ValueError("Coins-channel episodes must declare lang=en.")
