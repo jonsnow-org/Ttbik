@@ -463,7 +463,8 @@ def cv_dtype():
     """Use BF16 when the CPU advertises native AVX512-BF16/AMX support; otherwise use FP32."""
     import torch
     try:
-        flags = open("/proc/cpuinfo", encoding="utf-8").read()
+        with open("/proc/cpuinfo", encoding="utf-8") as _fh:
+            flags = _fh.read()
     except OSError:
         flags = ""
     forced = __import__("os").environ.get("CPU_VIDEO_DTYPE", "").lower()
