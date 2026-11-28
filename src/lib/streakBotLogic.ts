@@ -350,6 +350,11 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
       await handleTodayCallback(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
       return;
     }
+    if (String(cq.data || "") === "dr") {
+      const { handleDailyReadCallback } = await import("@/lib/streakDailyRead");
+      await handleDailyReadCallback(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
+      return;
+    }
     if (String(cq.data || "").startsWith("sk|")) {
       const { handleBoardTap } = await import("@/lib/streakWidget");
       await handleBoardTap(bot, botRow, cq).catch(() => bot.api.answerCallbackQuery(cq.id).catch(() => null));
@@ -453,7 +458,12 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
   if (chosenCategory) {
     await setPending(tgUserId, { mode: "category", categoryId: chosenCategory.id } as any);
     const entry = await getOrCreateEntry(tgUserId, chosenCategory.id);
-    await bot.api.sendMessage(chatId, entryStatusText(chosenCategory, entry), { reply_markup: categoryMenu() });
+    let body = entryStatusText(chosenCategory, entry);
+    if (chosenCategory.id === "reading") {
+      const { dailyReadText } = await import("@/lib/streakDailyRead");
+      body = `${dailyReadText()}\n\n${body}`;
+    }
+    await bot.api.sendMessage(chatId, body, { reply_markup: categoryMenu() });
     return;
   }
 
@@ -479,6 +489,8 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
 
   if (text === TODAY_LABEL || text === "/today") {
     await setPending(tgUserId, null);
+    const { dailyReadText } = await import("@/lib/streakDailyRead");
+    await bot.api.sendMessage(chatId, dailyReadText(), { reply_markup: new InlineKeyboard().text("✅ قرأت اليوم", "dr") });
     const { sendToday } = await import("@/lib/streakToday");
     await sendToday(bot, chatId, tgUserId);
     return;

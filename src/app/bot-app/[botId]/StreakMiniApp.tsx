@@ -8,7 +8,8 @@ import KhatmaSection from "./Khatma";
 import ContestsSection from "./Contests";
 
 type Streak = { id: string; emoji: string; title: string; current: number; longest: number; today: boolean; atRisk: boolean };
-type Init = { ok: boolean; error?: string; gate: { channel: string } | null; user: { id: string; firstName: string; username: string }; bot: { username: string }; streaks: Streak[] };
+type DailyRead = { id: string; kind: "ayah" | "hadith" | "tip"; kicker: string; title: string; body: string; takeaway: string };
+type Init = { ok: boolean; error?: string; gate: { channel: string } | null; user: { id: string; firstName: string; username: string }; bot: { username: string }; streaks: Streak[]; read?: DailyRead };
 
 export default function StreakMiniApp({ botId, section, khatma }: { botId: string; section: "home" | "khatma" | "contests"; khatma: string | null }) {
   const [ready, setReady] = useState(false);
@@ -103,9 +104,39 @@ function Home({ init, onChange }: { init: Init; onChange: (s: Streak[]) => void 
     const url = init.bot.username ? `https://t.me/${init.bot.username}` : "";
     open(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
   };
+  const reading = init.streaks.find((s) => s.id === "reading");
+  const readCard = init.read;
+  const markRead = async () => {
+    if (!reading) return;
+    await checkIn(reading);
+  };
   return (
     <>
       <div className="mb-3 text-sm font-bold" style={{ color: "var(--app-hint)" }}>أهلاً{init.user.firstName ? ` ${init.user.firstName}` : ""} 👋</div>
+      {readCard && (
+        <article className="mb-4 overflow-hidden rounded-3xl" style={{ background: "var(--app-card)" }}>
+          <div className="px-5 pb-4 pt-5" style={{ background: "linear-gradient(160deg,#1c1917,#44403c)", color: "#faf7f2" }}>
+            <div className="text-[12px] font-bold tracking-wide opacity-80">{readCard.kicker}</div>
+            <h2 className="mt-1 text-[22px] font-black leading-snug">{readCard.title}</h2>
+          </div>
+          <div className="px-5 py-4">
+            <p className="whitespace-pre-wrap text-[16px] font-semibold leading-8">{readCard.body}</p>
+            <p className="mt-3 text-[13.5px] leading-7" style={{ color: "var(--app-hint)" }}>{readCard.takeaway}</p>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              {reading?.today ? (
+                <span className="rounded-xl px-3 py-2 text-xs font-extrabold" style={{ background: "#dcfce7", color: "#166534" }}>قرأت اليوم · {reading.current} يوم</span>
+              ) : (
+                <Btn onClick={() => void markRead()} disabled={busy === "reading"}>{busy === "reading" ? "…" : "قرأت اليوم"}</Btn>
+              )}
+              <Btn small kind="ghost" onClick={() => {
+                const text = `${readCard.title}\n\n${readCard.body}\n\n${readCard.takeaway}`;
+                const url = init.bot.username ? `https://t.me/${init.bot.username}` : "";
+                open(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
+              }}>مشاركة</Btn>
+            </div>
+          </div>
+        </article>
+      )}
       <div className="relative mb-4 overflow-hidden rounded-3xl p-5" style={{ background: "linear-gradient(135deg,#f97316,#b45309)", color: "#fff" }}>
         <div className="text-[13px] font-bold opacity-85">🔥 سلاسلك اليومية</div>
         <div className="mt-1 flex items-end gap-2"><span className="text-5xl font-black leading-none">{doneToday}</span><span className="pb-1 text-sm font-bold opacity-90">/ {init.streaks.length} سجّلت اليوم</span></div>
@@ -147,9 +178,9 @@ function Home({ init, onChange }: { init: Init; onChange: (s: Streak[]) => void 
       </div>
       <div className="mt-5" />
       <Section title="كيف تعمل السلاسل؟">
-        <Row icon="1️⃣" title="اختر عادتك" sub="الصيام، الصلاة، القراءة أو الرياضة." />
-        <Row icon="2️⃣" title="سجّل كل يوم" sub="ضغطة واحدة يومياً تزيد سلسلتك يوماً." />
-        <Row icon="3️⃣" title="شارك وحفّز أصدقاءك" sub="أرسل بطاقة سلسلتك لمن تحب." />
+        <Row icon="1️⃣" title="اقرأ بطاقة اليوم" sub="آية أو حديث أو فائدة قصيرة، تتغير كل يوم." />
+        <Row icon="2️⃣" title="اضغط قرأت اليوم" sub="تُحسب سلسلة القراءة. باقي العادات تُسجَّل من بطاقاتها." />
+        <Row icon="3️⃣" title="عد غداً" sub="فوات يوم بلا تسجيل يعيد تلك السلسلة إلى البداية." />
       </Section>
     </>
   );
