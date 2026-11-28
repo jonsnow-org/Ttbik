@@ -64,7 +64,7 @@ def _t(group: str, risk: str, names: str, args: str = "", doc: str = "", batchab
 
 _ALL: list[ToolSpec] = []
 # ------------------------------------------------------------------ core: always visible (planning, asking, loading, thinking)
-_ALL += _t("core", "read", "load_tools", "group:str", "make a tool group visible: github computer worker web media memory schedule connectors")
+_ALL += _t("core", "read", "load_tools", "group:str", "make a tool group visible: github computer worker web media memory schedule connectors files dev finance")
 _ALL += _t("core", "read", "plan", "steps:list", "write or update the step list of the task")
 _ALL += _t("core", "read", "ask_user", "question:str, options?:list", "ask the person a short question")
 _ALL += _t("core", "read", "think", "budget?:int=256", "private reasoning inside the token budget; never executed, never the answer")
@@ -158,6 +158,29 @@ _ALL += _t("web", "read", "rss_read", "url:url, limit?:int=20")
 _ALL += _t("web", "exec", "screenshot_url", "url:url, width?:int=1280, height?:int=800, path?:path")
 _ALL += _t("web", "external", "send_email", "to:str, subject:str, body:str, attachments?:list", "a message to a real person: approval every time")
 _ALL += _t("web", "external", "form_submit", "url:url, fields:json", "submit a web form (approval)")
+
+# ------------------------------------------------------------------ finance: markets, risk, honest backtests, paper trading, and a guarded live-order gate (see finance.py)
+# Analysis tools only read files in the workspace and compute. Paper trading is a simulated account (no money). A REAL order is `destructive`: a typed confirmation that names the
+# side, size and symbol, and finance.check_order must pass (owner's limits file, stop loss, size, price sanity, loss budget, emergency stop). No tool here predicts the market.
+_ALL += _t("finance", "exec", "market_data", "symbol:str, path:path, interval?:enum(1m|5m|15m|1h|1d|1wk)=1d, range?:str=5y, source?:str", "download OHLCV history into a CSV in the workspace (public sources or the owner's data connector)")
+_ALL += _t("finance", "read", "fin_indicators", "path:path, indicators:list, tail?:int=30", "sma ema rsi macd bollinger atr stochastic adx roc obv donchian zscore (causal)")
+_ALL += _t("finance", "read", "fin_stats", "path:path, periods?:int=252, risk_free?:float=0", "return, CAGR, volatility, Sharpe, Sortino, drawdown, Calmar, tail shape")
+_ALL += _t("finance", "read", "fin_risk", "path:path, level?:float=0.95, method?:enum(historical|parametric)=historical, horizon?:int=1", "Value at Risk and expected shortfall")
+_ALL += _t("finance", "read", "fin_size", "method:enum(fixed_fractional|atr|kelly|volatility_target), equity:float, entry:float, stop?:float, risk_pct?:float, win_rate?:float, payoff?:float, atr_value?:float, atr_mult?:float, target_vol?:float, asset_vol?:float, max_leverage?:float, lot?:float", "position size from a risk budget (capped, rounded down)")
+_ALL += _t("finance", "exec", "fin_backtest", "path:path, strategy:str, params?:json, fee_bps?:float, slippage_bps?:float, allow_short?:bool, stop_loss_pct?:float", "no look-ahead, costs, benchmark, warnings: buy_hold sma_cross ema_cross rsi_reversion bollinger_reversion breakout macd momentum trend_filter")
+_ALL += _t("finance", "exec", "fin_backtest_split", "path:path, strategy:str, params?:json, train_frac?:float=0.7, fee_bps?:float, slippage_bps?:float, allow_short?:bool, stop_loss_pct?:float", "in-sample vs out-of-sample with an overfit verdict")
+_ALL += _t("finance", "exec", "fin_walk_forward", "path:path, strategy:str, grid:json, train_bars?:int=500, test_bars?:int=125, fee_bps?:float, slippage_bps?:float, allow_short?:bool, stop_loss_pct?:float", "re-fit on each window, trade the next unseen one: the honest curve")
+_ALL += _t("finance", "exec", "fin_montecarlo", "path:path, strategy?:str, params?:json, horizon?:int=252, paths?:int=2000, ruin_drawdown?:float=0.3, seed?:int=0", "the range of outcomes by block bootstrap, chance of ruin")
+_ALL += _t("finance", "read", "fin_portfolio", "paths:list, method?:enum(equal|inverse_vol|min_variance|risk_parity|max_sharpe)=risk_parity, periods?:int=252, max_weight?:float=1.0", "long-only weights, risk contributions, correlation")
+_ALL += _t("finance", "read", "fin_option", "spot:float, strike:float, t:float, rate?:float=0, vol?:float, kind?:enum(call|put)=call, div?:float=0, price?:float", "Black-Scholes price and Greeks, or implied volatility when `price` is given")
+_ALL += _t("finance", "read", "fin_bond", "face:float, coupon_rate:float, years:float, freq?:int=2, ytm?:float, price?:float", "bond price from yield or yield from price, duration, convexity")
+_ALL += _t("finance", "read", "fin_cashflow", "op:enum(npv_irr|loan), cashflows?:list, rate?:float, principal?:float, years?:float, freq?:int=12", "NPV / IRR of cash flows, or a loan schedule")
+_ALL += _t("finance", "exec", "paper_account", "action?:enum(summary|mark|new_day)=summary, prices?:json, account?:path, cash?:float=10000", "the simulated account (no real money)")
+_ALL += _t("finance", "exec", "paper_order", "symbol:str, side:enum(buy|sell), qty:float, price:float, stop_loss?:float, account?:path", "a simulated order under the same risk rules as a live one")
+_ALL += _t("finance", "read", "trade_live_check", "symbol:str, side:enum(buy|sell), qty:float, price:float, account_state:json, stop_loss?:float, confirmation?:str", "would this REAL order pass the owner's limits? sends nothing")
+_ALL += _t("finance", "read", "trade_live_positions trade_live_balance", "connector:str", "read the broker account through the owner's connector")
+_ALL += _t("finance", "write", "trade_live_cancel", "connector:str, order_id:str", "cancel a working order through the owner's connector")
+_ALL += _t("finance", "destructive", "trade_live_order", "connector:str, symbol:str, side:enum(buy|sell), qty:float, price:float, account_state:json, stop_loss?:float, confirmation:str", "a REAL order: typed confirmation + the limits gate + the emergency stop, every time")
 
 REGISTRY: dict[str, ToolSpec] = {}
 for _s in _ALL:

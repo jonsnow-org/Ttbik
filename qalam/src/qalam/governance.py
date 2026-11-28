@@ -19,7 +19,7 @@ MAX_ADAPTER_STEPS = 50_000
 # Matched against the path relative to the repository root, anywhere in it.
 PROTECTED = (
     "qalam/src/qalam/governance.py", "qalam/src/qalam/evolve.py", "qalam/src/qalam/agent.py", "qalam/src/qalam/fileops.py", "qalam/src/qalam/data.py",
-    "qalam/src/qalam/checkpoint.py", "qalam/src/qalam/config.py", "qalam/tests/*", "qalam/eval/*", "qalam/artifacts/heldout/*", "qalam/notebooks/N24*",
+    "qalam/src/qalam/checkpoint.py", "qalam/src/qalam/config.py", "qalam/src/qalam/finance.py", "*/finance/limits.json", "finance/limits.json", "qalam/tests/*", "qalam/eval/*", "qalam/artifacts/heldout/*", "qalam/notebooks/N24*",
     ".github/*", "deploy/*", "athar/*", "cloudflare/*", "CLAUDE.md", "*secret*", "*.env", "*.env.*", "*credential*", "*.pem", "*.key",
 )
 
