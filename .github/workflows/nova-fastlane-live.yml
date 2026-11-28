@@ -32,6 +32,9 @@ jobs:
           # NOVA_MEDIA_STUDIO_URL is deliberately NOT set: the code's built-in default Studio must work on a runtime without the variable (the 2026-10-28 15:33 failure)
           PROBE_TEXT: ${{ inputs.text }}
           OPEN_CODER_STUDIO_URL: https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net
+          # Nova runs on its international 35B Studio (2026-11-22). Without these two lines the test environment falls back to the old cn pool and 'Nova green' meant the stale 4B.
+          NOVA2_STUDIO_URLS: https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai
+          NOVA2_STUDIO_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
           PROBE_OUT: ${{ runner.temp }}
         run: |
           cd athar

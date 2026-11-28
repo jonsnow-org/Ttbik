@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
     inputs:
       studio:
-        description: "Studio number 1-5"
-        default: "1"
+        description: "Studio number 1-5 (the old cn pool), 'big' (cn 16 GB), or '16' = Nova's REAL Studio today: Jonjithup/coder-inference-server-16 on modelscope.ai (Qwen3.6-35B-A3B)"
+        default: "16"
       prompt_tokens:
         description: "approximate prompt size in tokens"
         default: "1700"
@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: one request, timeline
         env:
-          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          T: ${{ inputs.studio == '16' && secrets.MODELSCOPE_AI_TOKEN || secrets.MODELSCOPE_TOKEN }}
           N: ${{ inputs.studio }}
           P: ${{ inputs.prompt_tokens }}
           CACHE: ${{ inputs.cache }}
@@ -37,8 +37,9 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.request
-          n = os.environ["N"]; sfx = "" if n == "1" else f"-{n}"
+          n = os.environ["N"]; sfx = "" if n == "1" else f"-{n}"   # n == "16" is overridden below
           base = f"https://studio-novaai2026-coder-inference-server{sfx}.api-inference.modelscope.net/gradio_api"
+          if n == "16": base = "https://studio-jonjithup-coder-inference-server-16.api-inference.modelscope.ai/gradio_api"      # Nova's real Studio (international, the 35B); the others are the old cn pool
           if n == "big": base = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net/gradio_api"      # the 16 GB Studio (big model trial)
           hdr = {"Authorization": "Bearer " + os.environ["T"], "content-type": "application/json"}
           import urllib.error
