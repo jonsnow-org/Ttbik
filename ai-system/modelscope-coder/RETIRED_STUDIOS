@@ -1,0 +1,6 @@
+# One Studio name per line: that Studio loads no model and never tries to (app.py _retired(), deploy-modelscope-coder.yml writes retired.flag).
+# Owner order 2026-11-28: no trace of the deleted 4B model. coder-inference-server (cn, 8 GB/9.8 GB disk) is the orphaned primary Studio, never redeployed
+# since the cn pool emptied on 2026-11-22 (ai-system/modelscope-coder/STUDIOS); it kept its OLD files on disk and answered as Qwen3.5-4B on every restart.
+# Its hardware cannot fit the one remaining Nova model either (13.8 GB peak; the GGUF alone is ~12.3 GB), so clearing its stale model.override alone would
+# only trade one bug for another: a doomed multi-GB download retried every ~60s forever instead of an honest, quiet "retired".
+coder-inference-server

@@ -184,6 +184,8 @@ jobs:
           if grep -qxF "${REPO}" ai-system/modelscope-coder/NOVA_TLDM_STUDIOS 2>/dev/null; then echo on > ms-studio/nova_tldm.on; else rm -f ms-studio/nova_tldm.on; fi
           # a Studio listed in NOVA_TLDM_READER_STUDIOS is Nova's dedicated T-LDM reader: generate_tldm only, no chat server (app.py _reader_only)
           if grep -qxF "${REPO}" ai-system/modelscope-coder/NOVA_TLDM_READER_STUDIOS 2>/dev/null; then echo on > ms-studio/tldm_reader.on; else rm -f ms-studio/tldm_reader.on; fi
+          # a Studio listed in RETIRED_STUDIOS loads no model, ever (app.py _retired()): see that file for why
+          if grep -qxF "${REPO}" ai-system/modelscope-coder/RETIRED_STUDIOS 2>/dev/null; then echo on > ms-studio/retired.flag; else rm -f ms-studio/retired.flag; fi
           # MODEL_OVERRIDES: one line per Studio: "<studio> <model repo> <gguf file> [ctx]" -> that Studio runs ONLY that model (no fallback to another model)
           line=$(grep -E "^${REPO} " ai-system/modelscope-coder/MODEL_OVERRIDES 2>/dev/null | head -1 || true)
           if [ -n "$line" ]; then echo "$line" | cut -d' ' -f2- > ms-studio/model.override; else rm -f ms-studio/model.override; fi
@@ -199,6 +201,7 @@ jobs:
           if [ -f nova_tldm.on ]; then git add nova_tldm.on; else git rm -q --cached --ignore-unmatch nova_tldm.on; fi
           git add app.py requirements.txt nova_tldm_serve.py tldm .gitattributes llama-${LLAMA_BUILD}.part*
           if [ -f tldm_reader.on ]; then git add tldm_reader.on; else git rm -q --cached --ignore-unmatch tldm_reader.on; fi
+          if [ -f retired.flag ]; then git add retired.flag; else git rm -q --cached --ignore-unmatch retired.flag; fi
           if [ -f vision.on ]; then git add vision.on; else git rm -q --cached --ignore-unmatch vision.on; fi
           if [ -f model.override ]; then git add model.override; else git rm -q --cached --ignore-unmatch model.override; fi
           git diff --cached --quiet && echo "no change" || git commit -m "coder: app + llama.cpp ${LLAMA_BUILD} (${GITHUB_SHA::8})"

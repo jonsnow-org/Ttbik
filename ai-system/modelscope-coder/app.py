@@ -336,6 +336,16 @@ def _reader_only() -> bool:
     return (HERE / "tldm_reader.on").exists() or os.environ.get("NOVA_TLDM_READER", "").strip() == "1"
 
 
+# Owner order 2026-11-28: no trace of the deleted 4B model. A cn Studio outside both NOVA_TLDM_READER_STUDIOS and MODEL_OVERRIDES (e.g. the orphaned primary
+# coder-inference-server, never redeployed since the cn pool emptied on 2026-11-22) still had its OLD files on disk and kept answering as Qwen3.5-4B on every
+# restart. Its hardware (8 GB RAM, ~9.8 GB disk) cannot fit the one remaining Nova model either (13.8 GB peak; the GGUF alone is ~12.3 GB), so simply clearing
+# its stale model.override and falling through to the default would not serve 4B again, but WOULD retry a doomed multi-GB download every ~60s forever
+# (_supervisor()'s own retry delay) instead of answering once. A Studio with `retired.flag` next to app.py loads nothing and never tries to: `status` reports
+# phase="retired" honestly, with no download, no llama-server, no retry loop.
+def _retired() -> bool:
+    return (HERE / "retired.flag").exists()
+
+
 def _reader_supervisor() -> None:
     """Reader Studio: fetch the body + llama.cpp, start the embedding reader and the head; restart the reader if it exits."""
     import nova_tldm_serve as nt
@@ -363,6 +373,10 @@ def _reader_supervisor() -> None:
 
 def _supervisor() -> None:
     """Brings the server up, and back up if it ever exits. Never crashes the app: the reason is in `status`."""
+    if _retired():
+        STATE.update(phase="retired", detail="this Studio serves no model (retired.flag); see app.py _retired()", ready_at=time.time())
+        _log("retired: no model will be loaded")
+        return
     if _reader_only():
         return _reader_supervisor()
     while True:
@@ -955,7 +969,7 @@ def status() -> str:
 
 def start_background() -> None:
     threading.Thread(target=_supervisor, daemon=True).start()
-    if not _reader_only():
+    if not _reader_only() and not _retired():
         threading.Thread(target=_runner, daemon=True).start()
 
 
