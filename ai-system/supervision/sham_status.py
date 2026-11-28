@@ -569,6 +569,10 @@ if __name__ == "__main__":
             def dataset_download_file(self, *a, **k):
                 pass
         data = collect(api=FakeApi(), get_json=lambda url: runs, fetch=lambda n: None, run=fake_run, contract=contract)
+        # the fixture is scored as a DRY-RUN restarter whatever the repository switch says, so the test checks the wording, not
+        # today's setting; the switch's own reading is checked against a throwaway directory below
+        data["restarter"] = {"live": False, "switch": "RESTARTER_LIVE", "value": "0"}
+        data["alerts"] = build_alerts(data, contract)
         alerts = "\n".join(data["alerts"])
         assert "فشل في آخر تشغيلين" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
         assert "other-stuff" not in alerts and "Sham Collector" not in alerts.split("لم يعمل")[0], alerts
@@ -578,7 +582,11 @@ if __name__ == "__main__":
         assert "يكتبها:" in alerts and "لن يعيد تشغيل كاتبها" in alerts, alerts
         live_alerts = build_alerts(dict(data, restarter={"live": True, "switch": "RESTARTER_LIVE", "value": "1"}), contract)
         assert not any("لن يعيد تشغيل كاتبها" in a or "الوضع التجريبي" in a for a in live_alerts), live_alerts
-        assert restarter_state()["switch"] == "RESTARTER_LIVE" and restarter_state()["value"] == "0"
+        if not os.environ.get("SHAM_RESTART_LIVE"):       # the switch is read from the repository file unless the env overrides it
+            with tempfile.TemporaryDirectory() as _d:
+                assert restarter_state(Path(_d))["live"] is False and restarter_state(Path(_d))["value"] == "0"
+                (Path(_d) / "RESTARTER_LIVE").write_text("1\n", encoding="utf-8")
+                assert restarter_state(Path(_d))["live"] is True and restarter_state(Path(_d))["value"] == "1"
         out = Path(tempfile.mkdtemp())
         write_outputs(data, out, contract)
         md = (out / "STATUS.md").read_text(encoding="utf-8")
