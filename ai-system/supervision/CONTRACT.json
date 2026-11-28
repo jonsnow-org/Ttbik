@@ -1098,6 +1098,38 @@
         "Jonjithup/sham-v2",
         "Jonjithup/sham2-tldm-head"
       ]
+    },
+    "nova_image_gen": {
+      "file": "ai-system/colab/generate_image_model.ipynb",
+      "title": "دفتر بناء مولّدي صورة/فيديو نوفا (diffusers) ورفعهما إلى Hugging Face وModelScope",
+      "kind": "notebook (بناء نوفا)",
+      "accelerator": "GPU (Colab)",
+      "reads": [],
+      "writes": []
+    },
+    "nova_vl_merge_finetune": {
+      "file": "ai-system/colab/merge_and_finetune.ipynb",
+      "title": "دفتر دمج/ضبط نوفا للرؤية 7B (LoRA ← دمغ 16bit) وتصدير GGUF ورفع بيانات DPO إلى Hugging Face/ModelScope",
+      "kind": "notebook (بناء نوفا)",
+      "accelerator": "GPU (Colab)",
+      "reads": [],
+      "writes": []
+    },
+    "nova_video_queue": {
+      "file": "ai-system/colab/process_video_queue.ipynb",
+      "title": "دفتر معالجة طابور الفيديو (يتحقق أولاً فلا يحمّل شيئاً إن لم يوجد عمل)",
+      "kind": "notebook (أداة نوفا)",
+      "accelerator": "CPU/GPU (Kaggle)",
+      "reads": [],
+      "writes": []
+    },
+    "sham_small_training_colab": {
+      "file": "ai-system/colab/sham_small/colab_notebooks/sham_small_training_colab.ipynb",
+      "title": "دفتر كولاب الأصلي لتدريب شام الصغير (يقرأ ويكيبيديا ويكتب نقاط الحفظ في Google Drive)",
+      "kind": "notebook (كولاب)",
+      "accelerator": "GPU (Colab، كتابة على Drive)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [

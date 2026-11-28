@@ -57,7 +57,7 @@ def check(root: Path = ROOT) -> tuple[list[str], list[str]]:
     for key, comp in c["components"].items():
         if not (root / comp["file"]).exists():
             bad.append(f"المكوّن {key}: الملف {comp['file']} غير موجود")
-    for d in sorted((root / "ai-system/colab/sham_small/kaggle_notebooks").glob("*.ipynb")):
+    for d in sorted((root / "ai-system/colab").rglob("*.ipynb")):
         rel = str(d.relative_to(root)).replace("\\", "/")
         if rel not in files:
             bad.append(f"الدفتر {rel} غير موصوف في CONTRACT.json")
