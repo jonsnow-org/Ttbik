@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-28 12:53 UTC",
+  "generated_at": "2026-11-28 17:45 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -104,8 +104,8 @@
     {
       "alias": "المرحلة الأولى 7",
       "track": "text_stage1",
-      "status": "running",
-      "role": "primary",
+      "status": "error",
+      "role": "duplicate",
       "last_run": "2026-11-28",
       "gpu": false,
       "failure": ""
@@ -122,7 +122,7 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "complete",
+      "status": "queued",
       "role": "primary",
       "last_run": "2026-11-28",
       "gpu": true,
@@ -140,7 +140,7 @@
     {
       "alias": "دفتر المحادثة والمرمزات 1",
       "track": "chat_image_in_one",
-      "status": "running",
+      "status": "queued",
       "role": "primary",
       "last_run": "2026-11-28",
       "gpu": true,
@@ -194,7 +194,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-11-28",
       "gpu": false,
@@ -213,7 +213,7 @@
       "alias": "المرحلة الأولى 2",
       "track": "text_stage1",
       "status": "complete",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-10-10",
       "gpu": false,
       "failure": ""
@@ -269,7 +269,7 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 4235.8,
+      "size_mb": 4234.3,
       "last_updated": "2026-11-28",
       "progress": {},
       "has_key_files": true
@@ -381,7 +381,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
