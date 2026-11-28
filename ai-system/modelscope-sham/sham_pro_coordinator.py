@@ -74,11 +74,12 @@ def start(goal: str, session: str, functions: dict, owner: bool, coordinator_fac
             return {"type": "busy", "text": "مهمة أخرى تعمل الآن؛ انتظر انتهاءها."}
         folder = _folder(session)
         folder.mkdir(parents=True, exist_ok=True)
-        rec = {"id": uuid.uuid4().hex[:10], "goal": goal, "status": "planning", "folder": str(folder), "session": session, "task": None}
+        rec = {"id": uuid.uuid4().hex[:10], "goal": goal, "status": "planning", "folder": str(folder), "session": session, "task": None, "t": time.time()}
         _TASKS[rec["id"]] = rec
+        # "t" must be set before this sort: an older bug sorted the just-created rec in with .get("t", 0), so it looked oldest and
+        # was evicted from _TASKS before this call returned -- status() then reported "no such task" although it was running.
         for old in sorted(_TASKS, key=lambda k: _TASKS[k].get("t", 0))[:-MAX_KEPT]:
             _TASKS.pop(old, None)
-        rec["t"] = time.time()
 
     def work():
         try:

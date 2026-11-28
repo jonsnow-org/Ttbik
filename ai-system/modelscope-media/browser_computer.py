@@ -445,11 +445,11 @@ class _Worker(threading.Thread):
                 return self.browser
             except Exception as exc:
                 STATE["sandbox"] = False
-                _note("chromium sandbox unavailable here, using --no-sandbox: " + str(exc)[-300:])
+                _note("chromium sandbox unavailable here, using --no-sandbox: " + str(exc)[:300])
         try:
             self.browser = p.chromium.launch(**launch_options)
         except Exception as exc:
-            _note("worker browser launch failed (" + str(channel or "headless-shell") + "): " + str(exc)[-1400:])
+            _note("worker browser launch failed (" + str(channel or "headless-shell") + "): " + str(exc)[:1400])
             raise
         return self.browser
 
