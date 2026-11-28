@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the CPU image
         run: hosting/sham-v2/build.sh sham-v2:cpu
       - name: Image size and an import check (no weights, no network to the model repo)

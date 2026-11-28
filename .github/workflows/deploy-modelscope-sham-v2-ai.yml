@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90   # the video smoke writes a real 6 s clip (~3000 motion tokens on 2 CPUs)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Account, free hardware and existing Studio (read-only)
         env:

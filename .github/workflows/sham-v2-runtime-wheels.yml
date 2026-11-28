@@ -46,7 +46,7 @@ jobs:
       - name: Load in a plain Debian python:3.11 (the Studio's userland)
         run: |
           docker run --rm -v "$PWD/wheels:/w" -e WHEEL="$WHEEL" python:3.11-slim bash -c 'set -e; pip install -q "/w/$WHEEL" gguf numpy; python -c "import llama_cpp; print(\"llama_cpp\", llama_cpp.__version__, \"loaded\"); print(llama_cpp.llama_print_system_info().decode()[:300])"'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Upload into novaai2026/sham-v2 (runtime_wheels/ only)

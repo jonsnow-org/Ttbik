@@ -41,7 +41,7 @@ jobs:
         run: python ai-system/tldm/data/sham2_snapshots.py tools --out snapshot --train "${{ inputs.tools_train }}" --heldout "${{ inputs.tools_heldout }}"
       - name: Counts
         run: wc -l snapshot/*.jsonl && cat snapshot/manifest_*.json | head -80
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sham2-data-snapshot
           path: snapshot/
