@@ -135,19 +135,23 @@ def test_memory_capacity_save_load_and_validation(model, tmp_path):
 from qalam import evolve, governance, star
 
 
-def test_governance_free_approval_and_forbidden():
+def test_governance_free_gated_approval_and_forbidden():
     c = governance.classify
     assert c("memory_write", amount=10).allowed and not c("memory_write", amount=10).needs_approval
     assert not c("memory_write", amount=10**7).allowed
     assert c("adapter_train", amount=100).allowed and not c("adapter_train", amount=0).allowed
-    assert not c("adapter_promote", gate_passed=False, approved=True).allowed                 # approval cannot replace the gate
-    v = c("adapter_promote", gate_passed=True, approved=False)
-    assert not v.allowed and v.needs_approval
-    assert c("adapter_promote", gate_passed=True, approved=True).allowed
-    assert c("package_install").needs_approval and c("code_merge").needs_approval
+    assert c("package_install").allowed and not c("package_install").needs_approval                 # owner decision: it needs packages to grow
+    # promotion / new tools / merging unprotected code: the GATE decides, no human click (owner decision 2026-11-23)
+    for kind in ("adapter_promote", "weights_promote", "tool_register"):
+        assert c(kind, gate_passed=True).allowed and not c(kind, gate_passed=True).needs_approval, kind
+        assert not c(kind, gate_passed=False, approved=True).allowed, kind                           # approval can never replace the gate
+    assert c("code_merge", "workspace/app.py", gate_passed=True).allowed and not c("code_merge", "workspace/app.py", gate_passed=False).allowed
+    assert not c("code_merge", "qalam/src/qalam/governance.py", gate_passed=True).allowed           # protected files never merge
+    v = c("schedule_create")
+    assert not v.allowed and v.needs_approval and c("schedule_create", approved=True).allowed        # scheduling work for itself needs approval
     for kind in ("policy_edit", "gate_edit", "eval_edit", "test_edit", "approval_edit", "confinement_edit", "ci_edit", "secret_access", "something_new"):
         v = c(kind, approved=True, gate_passed=True)
-        assert not v.allowed and not v.needs_approval, kind                                    # no approval unlocks these
+        assert not v.allowed and not v.needs_approval, kind                                         # no approval unlocks these
 
 
 def test_protected_paths_cover_the_model_s_own_limits():
@@ -244,25 +248,68 @@ def suites():
     return lambda model, name: accuracy(model, make_suite(*table[name]))
 
 
-def test_a_good_update_passes_the_gate_and_waits_for_approval(pretrained, tmp_path):
+def test_a_good_update_passes_the_gate_and_is_promoted_automatically_and_can_be_reverted_exactly(pretrained, tmp_path):
     import copy
     import json
+    from qalam.audit import AuditLog
     m = copy.deepcopy(pretrained)
     cur = make_suite("C", (0, 1, 2))
     replay = make_suite("A", (0, 1, 2)) + make_suite("B", (0, 1, 2))                       # what must not be forgotten
     h0 = lora.weights_hash(m)
+    audit = AuditLog(tmp_path / "audit.jsonl")
     res = evolve.self_improve_cycle(m, cur, train_fn=lambda *a: fit(*a, lr=5e-3), eval_fn=suites(), held=["C_held1", "C_held2"], regression=["A_guard", "B_guard"],
-                                    adapter="c1", lineage_dir=tmp_path, steps=250, rank=8, replay=replay)
-    assert res.status == "promotable" and res.needs_approval and res.gate.passed, res.reasons
-    assert lora.weights_hash(m) == h0                                                      # promotable is still NOT live: base weights untouched
-    assert accuracy(m, make_suite("C", (3,)))[0] <= 3                                       # adapter switched off: the model does not know C yet
-    with pytest.raises(PermissionError):
-        evolve.promote(m, res, approved=False)                                              # no approval, no promotion
-    new_hash = evolve.promote(m, res, approved=True)
-    assert new_hash != h0 and accuracy(m, make_suite("C", (3,)))[0] >= 10 and accuracy(m, make_suite("A", (3,)))[0] >= 10      # learned C, kept A
+                                    adapter="c1", lineage_dir=tmp_path, steps=250, rank=8, replay=replay, audit=audit)
+    assert res.status == "promoted" and res.gate.passed and not res.needs_approval, res.reasons          # no human click
+    assert res.new_hash != h0 and lora.weights_hash(m) == res.new_hash
+    assert accuracy(m, make_suite("C", (3,)))[0] >= 10 and accuracy(m, make_suite("A", (3,)))[0] >= 10      # learned C, kept A
     assert all(not isinstance(x, lora.LoRALinear) for x in m.modules())
     line = [json.loads(x) for x in (tmp_path / "lineage.jsonl").read_text().splitlines()]
-    assert line[-1]["passed"] and line[-1]["parent_weights"] == h0
+    assert line[-1]["passed"] and line[-1]["promoted"] and line[-1]["parent_weights"] == h0
+    assert audit.entries()[-1]["status"] == "promoted" and audit.verify() == (True, -1)
+    # the "back to the last trusted point" button: exact, bit for bit
+    restored = evolve.revert(m, tmp_path, audit=audit)
+    assert restored == h0 and accuracy(m, make_suite("C", (3,)))[0] <= 3 and accuracy(m, make_suite("A", (3,)))[0] >= 10
+    with pytest.raises(ValueError):
+        evolve.revert(m, tmp_path)                                                         # nothing left to revert
+
+
+def test_with_auto_promotion_off_a_good_candidate_waits_and_promotes_without_approval(pretrained, tmp_path):
+    import copy
+    m = copy.deepcopy(pretrained)
+    replay = make_suite("A", (0, 1, 2)) + make_suite("B", (0, 1, 2))
+    h0 = lora.weights_hash(m)
+    res = evolve.self_improve_cycle(m, make_suite("C", (0, 1, 2)), train_fn=lambda *a: fit(*a, lr=5e-3), eval_fn=suites(), held=["C_held1", "C_held2"],
+                                    regression=["A_guard", "B_guard"], adapter="c2", lineage_dir=tmp_path, steps=250, rank=8, replay=replay, auto_promote=False)
+    assert res.status == "promotable" and lora.weights_hash(m) == h0 and accuracy(m, make_suite("C", (3,)))[0] <= 3      # not live
+    assert evolve.promote(m, res) != h0 and accuracy(m, make_suite("C", (3,)))[0] >= 10                                  # promotion needs the gate, not a person
+
+
+def test_the_emergency_stop_halts_the_cycle_and_the_agent_loop(pretrained, tmp_path):
+    from qalam.agent import run_agent
+    from qalam.audit import EmergencyStop
+    stop = EmergencyStop(tmp_path / "STOP")
+    stop.engage("owner pressed stop")
+    res = evolve.self_improve_cycle(pretrained, make_suite("C", (0,)), train_fn=fit, eval_fn=suites(), held=["C_held1", "C_held2"], regression=[], adapter="s",
+                                    lineage_dir=tmp_path, steps=10, stop=stop)
+    assert res.status == "stopped"
+    cfg = tiny_config()
+    steps, _ = run_agent(cfg, lambda s, n: [65], lambda ids: "", lambda t: [], [1], lambda k, t: (True, ""), lambda k, t: True, stop=stop)
+    assert [x.kind for x in steps] == ["stopped"]
+    stop.release()
+    assert not stop.engaged()
+
+
+def test_the_audit_log_detects_tampering(tmp_path):
+    from qalam.audit import AuditLog
+    log = AuditLog(tmp_path / "a.jsonl")
+    for i in range(4):
+        log.append("step", n=i)
+    assert log.verify() == (True, -1) and len(log.entries()) == 4
+    lines = (tmp_path / "a.jsonl").read_text().splitlines()
+    (tmp_path / "a.jsonl").write_text("\n".join([lines[0], lines[1].replace('"n": 1', '"n": 9'), lines[2], lines[3]]) + "\n")
+    assert log.verify() == (False, 1)                                                        # an edited line is found
+    (tmp_path / "a.jsonl").write_text("\n".join([lines[0], lines[2], lines[3]]) + "\n")
+    assert log.verify()[0] is False                                                          # a deleted line is found
 
 
 def test_learning_a_new_skill_without_replay_forgets_the_old_ones_and_the_gate_catches_it(pretrained, tmp_path):
@@ -287,6 +334,7 @@ def test_a_harmful_update_is_rejected_and_the_base_is_bit_identical(pretrained, 
     assert not (tmp_path / "bad.pt").exists()
     with pytest.raises(PermissionError):
         evolve.promote(m, res, approved=True)                                                # a rejected candidate can never be promoted, approved or not
+    assert lora.weights_hash(m) == h0
 
 
 def test_the_cycle_refuses_training_beyond_the_policy(pretrained, tmp_path):

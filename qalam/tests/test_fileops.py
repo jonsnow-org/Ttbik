@@ -184,5 +184,5 @@ def test_tools_group_needs_loading_and_dangerous_ones_still_need_approval():
     assert tools.validate("send_email", {"to": "a@b.c", "subject": "s", "body": "b"}, {"web"}).needs_approval
     assert tools.validate("download_file", {"url": "https://example.com/f", "path": "f"}, {"web"}).needs_approval
     assert not tools.validate("download_file", {"url": "http://127.0.0.1/f", "path": "f"}, {"web"}).ok
-    assert tools.validate("install_packages", {"manager": "pip", "packages": ["x"]}, {"dev"}).needs_approval
+    assert not tools.validate("install_packages", {"manager": "pip", "packages": ["x"]}, {"dev"}).needs_approval         # owner decision: packages install in its sandbox freely
     assert tools.validate("project_scaffold", {"kind": "web", "name": "site"}, {"dev"}).ok

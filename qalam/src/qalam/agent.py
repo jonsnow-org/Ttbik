@@ -59,7 +59,8 @@ class Step:
 def run_agent(cfg: ModelConfig, generate: Callable[[list[int], int], list[int]], decode: Callable[[list[int]], str], encode: Callable[[str], list[int]],
               prompt: list[int], execute: Callable[[str, str], tuple[bool, str]], approve: Callable[[str, str], bool],
               max_steps: int = 12, think_budget: int = 256, max_new: int = 256,
-              confirm: Callable[[str, str], bool] | None = None, loaded: set[str] | None = None) -> tuple[list[Step], list[int]]:
+              confirm: Callable[[str, str], bool] | None = None, loaded: set[str] | None = None,
+              audit=None, stop=None) -> tuple[list[Step], list[int]]:
     """The terminal loop of T-LDM: the model writes ONE command line (CMD_BEGIN..CMD_END) or one tool call (TOOL_BEGIN <tool id> {json} TOOL_END) or an answer;
     the result goes back into the stream (RESULT_BEGIN .. OK|FAIL .. RESULT_END) and the model continues. `generate(stream, max_new)` returns new ids
     (it stops at a closing special). The model's text is only checked here; `execute(kind, text)` is the caller's sandbox; `approve` is a person's click for
@@ -69,6 +70,11 @@ def run_agent(cfg: ModelConfig, generate: Callable[[list[int], int], list[int]],
     loaded = set(loaded or ())
     stream, steps = list(prompt), []
     for _ in range(max_steps):
+        if stop is not None and stop.engaged():                               # the emergency stop: nothing more runs
+            steps.append(Step("stopped", "emergency stop engaged"))
+            if audit is not None:
+                audit.append("stopped", reason="emergency stop")
+            return steps, stream
         new = generate(stream, max_new)
         if sp("THINK_BEGIN") in new:                                           # thinking is private reasoning: cut to the budget, never run, never shown as the answer
             a = new.index(sp("THINK_BEGIN"))
@@ -114,6 +120,8 @@ def run_agent(cfg: ModelConfig, generate: Callable[[list[int], int], list[int]],
             ok, out = execute(kind, body)
             steps.append(Step(kind, body, out))
             result = (ok, out)
+        if audit is not None:
+            audit.append("agent_step", step_kind=steps[-1].kind, text=body[:300], ok=result[0])
         stream += [sp("RESULT_BEGIN")] + encode(tools.shape_result(result[1])) + [sp("OK") if result[0] else sp("FAIL"), sp("RESULT_END")]
     steps.append(Step("budget", "step budget reached"))
     return steps, stream

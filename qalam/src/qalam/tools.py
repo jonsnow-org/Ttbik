@@ -147,7 +147,7 @@ _ALL += _t("files", "exec", "archive_extract", "path:path, to?:path", "zip / tar
 _ALL += _t("files", "exec", "data_transform", "path:path, op:enum(to_json|to_csv|to_yaml|query|set), expr?:str, out?:path", "csv / tsv / json / yaml conversion, dotted-path query and set")
 # ------------------------------------------------------------------ dev: make software (any language), build, package, preview, ship
 _ALL += _t("dev", "exec", "project_scaffold", "kind:enum(python|node|web|static|cli|api|library|android|bot), name:str, path?:path")
-_ALL += _t("dev", "external", "install_packages", "manager:enum(pip|npm|apt|cargo|go), packages:list", "downloads software: needs approval")
+_ALL += _t("dev", "exec", "install_packages", "manager:enum(pip|npm|apt|cargo|go), packages:list", "installs software INSIDE its sandbox (owner decision 2026-11-23: no approval; logged)")
 _ALL += _t("dev", "exec", "build lint format run_tests", "command?:str, cwd?:path", "the project's own build / lint / format / test commands (allowlisted programs only)")
 _ALL += _t("dev", "exec", "serve_preview", "cwd?:path, port?:int=8000, command?:str", "a local preview server, never exposed publicly by the model")
 _ALL += _t("dev", "exec", "package_release", "path:path, format?:enum(zip|tar.gz|apk|wheel|docker)=zip")

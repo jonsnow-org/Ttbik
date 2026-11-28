@@ -1,8 +1,10 @@
 """What the model may change about itself, and what it may NEVER change. This module is itself protected: a model that can edit its own limits, its own
 tests, its own evaluation sets or its own approval logic has no limits, and nothing it reports about its own progress could be trusted.
 
-  free (inside a sandbox copy)       memory writes, training an adapter, proposing a skill, editing code outside the protected set
-  needs a person's approval          promoting weights, installing packages, adding a tool, merging code
+  free (inside a sandbox copy)       memory writes, training an adapter, proposing a skill, installing packages in its sandbox, editing code outside the protected set
+  allowed once the GATE passes       promoting weights, adding a tool, merging unprotected code (owner decision 2026-11-23: no human click when the fixed metrics pass;
+                                     every promotion is logged and can be reverted exactly)
+  needs a person's approval          scheduling work for itself, activating a skill that acts on the outside world
   forbidden, always                  editing this policy, the gate, the tests, the held-out sets, the approval or confinement code, CI, secrets
 """
 from __future__ import annotations
@@ -22,9 +24,9 @@ PROTECTED = (
 )
 
 ALWAYS_FORBIDDEN = {"policy_edit", "gate_edit", "eval_edit", "test_edit", "approval_edit", "confinement_edit", "ci_edit", "secret_access"}
-FREE = {"memory_write", "adapter_train", "skill_propose", "code_edit_dev"}
-APPROVAL = {"adapter_promote", "weights_promote", "package_install", "tool_register", "code_merge", "skill_activate_external"}
-NEEDS_GATE = {"adapter_promote", "weights_promote", "tool_register"}
+FREE = {"memory_write", "adapter_train", "skill_propose", "code_edit_dev", "package_install"}
+GATED = {"adapter_promote", "weights_promote", "tool_register", "code_merge"}          # allowed when the gate (metrics / tests / CI) passed - no human needed
+APPROVAL = {"skill_activate_external", "schedule_create"}
 
 
 @dataclass(frozen=True)
@@ -45,9 +47,9 @@ def classify(kind: str, target: str = "", amount: int = 0, gate_passed: bool = F
     """May this self-change happen now? `approved` is a person's decision (it can only come from outside the model)."""
     if kind in ALWAYS_FORBIDDEN:
         return Verdict(False, False, f"{kind} is never allowed: the model cannot change its own limits")
-    if kind not in FREE | APPROVAL:
+    if kind not in FREE | GATED | APPROVAL:
         return Verdict(False, False, f"unknown self-change {kind!r}")
-    if kind == "code_edit_dev" and is_protected(target):
+    if kind in ("code_edit_dev", "code_merge") and is_protected(target):
         return Verdict(False, False, f"{target} is protected")
     if kind == "memory_write" and not 0 <= amount <= MAX_MEMORY_WRITE:
         return Verdict(False, False, "too many memory entries in one write")
@@ -55,8 +57,8 @@ def classify(kind: str, target: str = "", amount: int = 0, gate_passed: bool = F
         return Verdict(False, False, "training steps outside the allowed range")
     if kind in FREE:
         return Verdict(True, False, "ok (sandbox copy only)")
-    if kind in NEEDS_GATE and not gate_passed:
-        return Verdict(False, False, "the evaluation gate has not passed")
+    if kind in GATED:
+        return Verdict(True, False, "gate passed") if gate_passed else Verdict(False, False, "the gate (metrics / tests / CI) has not passed")
     if not approved:
         return Verdict(False, True, "needs a person's approval")
     return Verdict(True, False, "approved")
