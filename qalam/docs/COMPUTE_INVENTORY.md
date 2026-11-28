@@ -1,46 +1,35 @@
-# جرد حوسبة ModelScope لتدريب قلم (2026-11-28، قراءة فقط)
+# جرد حوسبة ModelScope لتدريب قلم، مقسَّمًا بحسب النموذج الذي يستعمل كل استوديو (2026-11-28، قراءة فقط)
 
-المصدر: سير عمل `modelscope-studios-list` للحسابين (cn: التشغيلان `46149540786`، ai: `46149543510`) والأدوار من `docs/STUDIOS.md` و`WORK_BOARD.md`. لم يُغيَّر شيء ولم تُطبع أسرار. **لا يبدأ أي تدريب قبل اعتماد قلم النهائي.**
+**المصادر:** قائمة الحسابين (cn: التشغيل `46149540786`، ai: `46149543510`) + مسح المستودع كله (كود، سير عمل، `.env.example`، `cloudflare/studio-guard-worker.js` الذي يوقظ الاستوديوهات المسجّلة كل 10 دقائق، `keep-warm-chat-studios.yml`، `STUDIOS.md`، `WORK_BOARD.md`). لم يُغيَّر شيء ولم يُطبع سر. **لا تدريب قبل اعتماد قلم النهائي.**
+**قاعدة الاختيار:** استوديو لا يذكره أي كود أو سير عمل أو حارس هو المرشَّح. «نائم» وحده لا يكفي (قد يكون مستعملًا بين الطلبات).
 
-## ما تقوله القائمة وما لا تقوله
-القائمة تعطي **الحالة والعتاد فقط** (Running / Sleeping / Stopped). لا تقول إن كان الاستوديو «فارغًا». «نائم» يعني غير مُنادى الآن لا أنه بلا محتوى. التأكد من الفراغ الفعلي يحتاج جرد التطبيق نفسه (قيد القراءة) أو موافقتك. والعتاد: **كل استوديو cn بمعالجين و8 GB، وكل استوديو ai بمعالجين و16 GB، بلا GPU في أي منها.**
-
-## الحساب cn (novaai2026): 31 استوديو
-**أ) مستخدم أو محجوز: لا يُمَسّ** (14)
-| الاستوديو | الحالة | الدور |
+## 1) ما يستعمله كل نموذج: ابتعد عنه
+| النموذج | الاستوديوهات | الدليل |
 |---|---|---|
-| coder-inference-server، -2، -3 | Running | نوفا؛ و-3 مدرّب الحركة، و-2 مدرّب شام برو T-LDM (من لوحة العمل) |
-| nova-media-server | Running | وسائط نوفا |
-| sham-v1-server | Running | شام v1 |
-| sham-v2-server، sham-v2-overflow-server | Running | شام v2 |
-| sham-trainer-1 | Running | مدرّب شام (cn، دورة 6 ~87.9k خطوة) |
-| nova-inference-server (16 GB) | Sleeping | **حاسوب مركزي محجوز؛ ممنوع لمسه** (قاعدة المالك) |
-| epicrealism-image-test | Running | مرتبط بنشر v1 (`redeploy-studio` يقبل `epicrealism-*` فقط) |
-| sham-donor-gemma4-e4b-test، sham-donor-minicpmo45-test، sham-donor-qwen35-9b-test | Running | مرشَّحات مانح شام (تُنادى حاليًا) |
+| **نوفا** (cn) | `coder-inference-server` (4B، يخدم الآن) · `-2` (نسخة، وتعمل الآن مدرّب T-LDM لشام برو sham2-cn2) · `-3` (نسخة، ومدرّب الحركة) · `-4` · `-5` (نسخ؛ -5 للرؤية) · `nova-media-server` · `epicrealism-image-test` (**مولّد صور نوفا**) · `nova-inference-server` (**حاسوب مركزي محجوز**، لا يُدرج في أي حارس) | `OPEN_CODER_STUDIO_URLS`، `NOVA_IMAGE_STUDIO_URL`، `NOVA_MEDIA_STUDIO_URL`، `COMPUTER_STUDIO_URL` |
+| **نوفا 2 / حاسوبها** (ai) | `coder-inference-server-16` · `nova-tldm-reader` (قارئ T-LDM) · `sham-trainer-2` (**حاسوب نوفا المركزي رغم اسمه**) | `NOVA_TLDM_READER_STUDIOS`، الحارس |
+| **شام برو = شام v2** (cn) | `sham-v2-server` · `sham-v2-overflow-server` · `sham-v2-video-server` (ما زال في `SHAM_V2_VIDEO_URL`) · `sham2-tldm` و`sham-tldm-writer` (مدرّبا T-LDM والرأس) · `sham-donor-qwen35-9b-test` و`sham-donor-gemma4-e4b-test` و`sham-donor-minicpmo45-test` (مانحون، **يُوقَظون كل 10 دقائق**) · `sham-donor-gemma4-e4b-media` (مذكور في أداة حالة المدرّبين) | `SHAM_V2_URL`، `SHAM_V2_VIDEO_URL`، الحارس |
+| **شام v1** (cn) | `sham-v1-server` · `sham-trainer-1` (مدرّب، Running) · `sham-trainer-tools` (مدرّب ms3) | `SHAM_MODELSCOPE_URL`، الحارس، `sham_trainer_status.py` |
+| **LFM 2.5** (cn) | `lfm25-inference-server` (يُوقَظ بالحارس) | الحارس |
+| **بنية مشتركة** (ai) | `sham-runner-1` = **مشغّل GitHub ذاتي الاستضافة (`studio`)** يشغّل سير عمل المستودع | `ci.yml`، `deploy-studio-runner.yml` |
 
-**ب) نائمة بدور مسجَّل (قد تُستعمل): اسأل قبل نقلها** (9)
-coder-inference-server-4 و-5 (نسختان احتياطيتان لنوفا) · sham-trainer-tools · sham-trainer-nb1 · sham-tldm-writer · sham2-tldm · sham-v2-video-server (مدرّب 6، مرمّز صور) · lfm25-inference-server · lfm25-media-server · nova-computer-hub (اسم غير مذكور في الوثائق)
-
-**ج) مرشَّحة لقلم: بقايا تجارب صور/مانح** (8): هذه تُنسب إلى تجارب انتهت أو معلّقة، ولا ذِكر لدور حي لها في الوثائق
-| الاستوديو | الحالة | ملاحظة |
+## 2) لا يذكرها أي كود أو سير عمل أو حارس: المرشَّحة لقلم (9 في cn)
+| الاستوديو | الحالة | ما وجدته |
 |---|---|---|
-| cyberrealistic-final-test | **Stopped** | الأوضح فراغًا |
-| umranz-sd15-image-test | **Stopped** | الأوضح فراغًا |
-| gemma4-realistic-vision-v6-test | **Stopped** | الأوضح فراغًا |
-| realistic-vision-v6-test | Sleeping | تجربة صور |
-| juggernaut-ragnarok-image-test | Sleeping | الوثائق: «تجربة صور منفصلة» |
-| sham-donor-gemma4-e4b-media، sham-donor-minicpmo45-media، sham-donor-qwen35-9b-media | Sleeping | أزواج وسائط للمانحين |
+| `umranz-sd15-image-test` | Stopped | **صفر إشارات** |
+| `gemma4-realistic-vision-v6-test` | Stopped | **صفر إشارات** |
+| `cyberrealistic-final-test` | Stopped | إشارة واحدة في اختبار (نص مستودع نموذجه) |
+| `realistic-vision-v6-test` | Sleeping | تعليق في الكود يقول إنه «كان» استوديو أُزيل؛ وصف في README تجربة |
+| `sham-donor-qwen35-9b-media` | Sleeping | **صفر إشارات** (مانحه `-test` مستعمل، هذا لا) |
+| `sham-donor-minicpmo45-media` | Sleeping | **صفر إشارات** |
+| `lfm25-media-server` | Sleeping | **صفر إشارات** |
+| `sham-trainer-nb1` | Sleeping | **صفر إشارات** |
+| `nova-computer-hub` | Sleeping | **صفر إشارات** (غير `nova-inference-server`: لا تخلط) |
 
-## الحساب ai (Jonjithup): 4 استوديوهات (كلها 2 معالج و16 GB)
-| الاستوديو | الحالة | الدور |
-|---|---|---|
-| coder-inference-server-16 | Running | تجربة نوفا 35B (T-LDM مطفأ فيه) |
-| sham-trainer-2 | Running | **حاسوب نوفا المركزي** (16 GB) |
-| nova-tldm-reader | Running | قارئ T-LDM لنوفا (أُنشئ بعد ملاحظتي الأخيرة؛ لا ذِكر له في STUDIOS.md بعد) |
-| sham-runner-1 | Running | غير مذكور في الوثائق التي قرأتها: **دوره مجهول، اسأل** |
-**لا استوديو فارغ في ai،** وسقف الحساب كان 5/5 (يظهر الآن 4).
+**عاشر بشرط:** `juggernaut-ragnarok-image-test` (له سير نشر خاص، ووثيقة تقول «تجربة صور منفصلة»؛ لا نموذج يوجّه إليه): قرارك.
+**الحساب الدولي (ai): لا فارغ.** كل استوديوهاته الأربعة مستعملة (§1).
 
-## الخلاصة والتوصية
-- **الأقوى مرشحًا لقلم الآن:** الثلاثة Stopped في cn (cyberrealistic-final-test وumranz-sd15-image-test وgemma4-realistic-vision-v6-test)، ثم الخمسة النائمة في الفئة ج. بحد أقصى ~8 استوديوهات cn بمعالجين و8 GB.
-- **حدود واقعية:** بلا GPU، المعالجان أبطأ من هذا الجهاز (274 رمز/ث لـ`base`)، ولا مزامنة تدرّج بين الاستوديوهات (لا تدريب موزَّع). المتاح: **تجارب مستقلة** (مثل تدريب `small` على مراحل مختلفة، أو تقييم محجوز)، لا تدريب `base` الكبير. وهذا يحتاج مصدر GPU (قرارك المنتظر).
-- **قبل التخصيص أحتاج:** (1) تأكيدك أن الفئة ج متروكة، (2) جردًا أعمق لمحتوى الاستوديوهات الثمانية (قيد التشغيل، قراءة فقط)، (3) حدّ ما إذا كانت الاستوديوهات النائمة تستيقظ تلقائيًا أو يدويًا.
+## 3) ما يعنيه هذا لقلم
+- **9 استوديوهات cn بمعالجين و8 GB** (لا GPU)، ولا مزامنة تدرّج بينها: تجارب مستقلة لا تدريب موزَّع. `base` (142M) على معالجين أبطأ من الجهاز الذي قسنا عليه (274 رمز/ث) يحتاج مصدر GPU.
+- **قبل أي نشر:** أتحقق (قراءة) من أن الاستوديو بلا تطبيق حيّ، وأضيفه إلى حارس خاص بقلم لا إلى قوائم نوفا/شام، وأبني استوديو قلم بنظام نشر منفصل كي لا يكسر `keep-warm` ولا الحارس.
+- **ما لم أتحقق منه:** محتويات الاستوديوهات الداخلية (جرد التطبيق العميق `46149854518` ما زال يعمل ببطء)، وهل الاستوديو النائم يستيقظ آليًا. تأكيدك لـ§2 يكفي لاعتمادها.
