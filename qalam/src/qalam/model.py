@@ -287,7 +287,7 @@ class Qalam(nn.Module):
             self.train(was)
 
     @torch.no_grad()
-    def generate(self, prefix: torch.Tensor, max_new: int, temperature: float = 0.0, top_p: float = 1.0, allowed: list[int] | None = None, stop_id: int | None = None,
+    def generate(self, prefix: torch.Tensor, max_new: int, temperature: float = 0.0, top_p: float = 1.0, allowed: list[int] | None = None, stop_id: int | set[int] | None = None,
                  seed: int | None = None, cycles: int | None = None) -> torch.Tensor:
         """Causal decoding for ONE sequence: greedy at temperature 0, otherwise nucleus sampling (a seed makes it reproducible). Diverse samples are what self-consistency,
         best-of-n and search need; only `allowed` ids can be produced. Runs on the prefix's device."""
@@ -317,7 +317,7 @@ class Qalam(nn.Module):
                         p = torch.zeros_like(p).scatter(0, si, sp / sp.sum())
                     t = int(torch.multinomial(p.cpu(), 1, generator=gen))
                 out.append(t)
-                if stop_id is not None and t == stop_id:
+                if stop_id is not None and t in ({stop_id} if isinstance(stop_id, int) else stop_id):
                     break
                 if cache[0][0].shape[2] + 1 >= self.cfg.max_seq:
                     break
