@@ -103,6 +103,14 @@
 - **درس العمل:** لا تدمج ولا تنشر أثناء مهمة نوفا حية؛ `redeploy-studio.yml` لا يقبل إلا `epicrealism-*` (نشر v1 عبر `sham-modelscope.yml`)؛ أداة قائمة التشغيلات تحترم `perPage` فقط.
 
 
+## النشر المتوقف: الجذر، والدليل، والنسخ الجديدة (2026-11-28)
+- **ما كان مكسورًا:** خليّة النشر في دفتر المحادثة كانت تطلب بيانات الدخول من `UserSecretsClient` وحده، وإن فشلت تطبع تحذيرًا وتُكمل — فتنتهي الجلسة `COMPLETE` بلا نسخة. `_publish_kaggle` في `sham_inputs.py` كان مثلها: `None` + تحذير. لذلك ظلّت `sham-chat-checkpoint` على v62 (2026-11-08 05:24) و`sham-image-tokenizer-checkpoint` على v73 (2026-11-08 08:03) عشرين يومًا.
+- **دليل أن Kaggle ليست المانع (لا تخمين):** دُفع دفتر فحص دقيقة واحدة **بلا أسرار** إلى Kaggle (`creds_probe_kernel/probe.py`، تشغيل 46144629843) فطبع: `SECRETS: FAIL ConnectionError` (أسرار Kaggle لا تصل دفاتر تُدفع عبر API)، لكنه وجد `kaggle.json` في `/kaggle/input/datasets/jonsnowjonsnow/sham-runtime-creds/` ثم `kaggle datasets list` rc=0 و`kaggle datasets create` rc=0. أي أن بيانات `sham-runtime-creds` تعمل للكتابة **داخل** kernel مرفوع؛ المشكلة كانت في الخليّة لا في الحساب ولا الحصة.
+- **الإصلاح:** `publish_dataset` يرفع `PublishError` ويقيّد المحاولة في `PUBLISH_LEDGER` (/kaggle/working/publish_failures.json) بدل التحذير الصامت (رفع حالة المُعيد تُرك `strict=False`). الخليّة 13 في `sham_image_tokenizer_track.ipynb` (المصدر) صارت `publish_dataset(...)`، وأُعيد بناء `sham_chat_image_in_one.ipynb` و`sham_cell_updates.json` كي يصل الإصلاح إلى النسخ الحيّة في Kaggle.
+- **النسخ المنشورة فعلًا اليوم (من جرد Kaggle، 12:41 UTC):** `sham-chat-checkpoint` **v63 — 2026-11-28 12:11:59 UTC — 0.58 GB**، و`sham-image-tokenizer-checkpoint` **v74 — 2026-11-28 12:26:24 UTC — 0.15 GB**. وتقدّم `sham-checkpoint` إلى v50 (12:16:07، 2.42 GB) من مساره الخاص.
+- **ما بقي متأخرًا وسببه تدريب لا نشر:** `sham-multimodal-checkpoint` (2026-11-05) و`sham-audio-tokenizer-checkpoint` (2026-11-07) — دفتر ترميز الصوت في حالة error منذ 2026-10-11 والمرحلة الثانية لا تكتب؛ و`sham-motion-tokenizer-checkpoint` غير موجودة أصلًا. هذه مسارات تدريب مقطوعة، وليست نشرًا صامتًا.
+- **أدوات الفحص:** `sham_publish_probe.py check-creds` صار يستخدم `dataset_list(mine=True)` (الإصدار 2 من kaggle لا يقبل `page_size`)، و`inventory` يطبع لكل مجموعة: النسخة وتاريخ آخر تحديث والحجم — سطر واحد يُثبت النشر بلا انتظار جلسة.
+
 ## معلّق على المالك (قرارات)
 1. (محسوم 2026-11-17) لا قيد على مسار التدريب: ما ينجح يُقبل. **قاعدة المالك الوحيدة: شام نموذجنا بحقوقنا ولا يُدخل فيه حقّ لأحد.** مراجعة مصادر المحادثة المقطَّرة (`openhermes_ar`, `alpaca_gpt4_ar`, `smoltalk`) تُقاس بهذه القاعدة، لا بسياسة غيرها.
 2. توسعة سطح المكتب المدمج للمستخدمين العاديين (الآن للمالك فقط).
