@@ -8,6 +8,7 @@ import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { STREAK_CATEGORIES, checkInCore, ensureStreakUser, todayKey, yesterdayKey } from "@/lib/streakBotLogic";
+import { dailyReadFor } from "@/lib/streakDailyRead";
 import {
   INTENTS, MAX_OPEN_PER_USER, MEMORIAL_TIERS, SPONSOR_PRODUCTS, TG_PRIZE_TEXT, activeSponsorRow, checkSponsorUsdt, createMemorialOrderCore, createSponsorOrder, khatmaForApp,
   khatmaView, myKhatmas, openMemorials, paySponsor, refreshGroupBoard, sponsorByCode, tapJuzCore,
@@ -99,6 +100,7 @@ export async function handleStreakAppAction(botRow: BotRow, tg: TgWebAppUser, ac
       ok: true, gate: joined ? null : { channel: String(botRow.requiredChannel || "").replace(/^@/, "") },
       user: { id: uid, firstName: tg.firstName || "", username: tg.username || "" }, bot: { username },
       streaks: await streaksOf(uid),
+      read: dailyReadFor(),
     };
   }
   if (!(await passesChannelGate(bot, botRow, uid))) return fail("انضم إلى قناة البوت أولاً.", "gate");
