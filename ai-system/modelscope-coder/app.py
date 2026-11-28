@@ -74,7 +74,8 @@ JOB_TTL = 6 * 3600
 def _cpu_info() -> dict:
     """What this box's processor offers llama.cpp (model name + the vector features that decide prompt-reading speed); read-only, from /proc/cpuinfo."""
     try:
-        txt = open("/proc/cpuinfo").read()
+        with open("/proc/cpuinfo") as _fh:
+            txt = _fh.read()
         name = next((l.split(":", 1)[1].strip() for l in txt.splitlines() if l.startswith("model name")), "")
         flags = next((l.split(":", 1)[1].split() for l in txt.splitlines() if l.startswith("flags")), [])
         keep = [f for f in flags if f in ("avx", "avx2", "fma", "f16c", "avx512f", "avx512bw", "avx512vl", "avx512_vnni", "avx512_bf16", "avx_vnni", "amx_tile", "amx_int8", "amx_bf16")]
@@ -607,15 +608,18 @@ def _llama_faults() -> dict:
     p = _PROC.get("p")
     out = {}
     try:
-        f = open(f"/proc/{p.pid}/stat").read().rsplit(")", 1)[1].split()
+        with open(f"/proc/{p.pid}/stat") as fh:
+            f = fh.read().rsplit(")", 1)[1].split()
         out["majflt"] = int(f[9])                                   # field 12 of /proc/<pid>/stat
-        out["rss_gb"] = round(int(open(f"/proc/{p.pid}/statm").read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2 ** 30, 2)
+        with open(f"/proc/{p.pid}/statm") as fh:
+            out["rss_gb"] = round(int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2 ** 30, 2)
     except Exception:
         pass
     for name, path in (("cg_max_gb", "/sys/fs/cgroup/memory.max"), ("cg_now_gb", "/sys/fs/cgroup/memory.current"),
                        ("cg_max_gb", "/sys/fs/cgroup/memory/memory.limit_in_bytes"), ("cg_now_gb", "/sys/fs/cgroup/memory/memory.usage_in_bytes")):
         try:
-            v = open(path).read().strip()
+            with open(path) as fh:
+                v = fh.read().strip()
             if v.isdigit() and name not in out:
                 out[name] = round(int(v) / 2 ** 30, 2)
         except Exception:
@@ -924,7 +928,8 @@ def status() -> str:
                        max_tokens=j.get("max_tokens", 0)) for j in JOBS.values() if j["status"] in ("queued", "running")][:8]
     mem = {}
     try:      # the box's real memory, so the context size can be checked against it (kB -> GB)
-        info = dict(l.split(":", 1) for l in open("/proc/meminfo").read().splitlines() if ":" in l)
+        with open("/proc/meminfo") as _fh:
+            info = dict(l.split(":", 1) for l in _fh.read().splitlines() if ":" in l)
         mem = {"mem_total_gb": round(int(info["MemTotal"].split()[0]) / 1048576, 2), "mem_available_gb": round(int(info["MemAvailable"].split()[0]) / 1048576, 2)}
     except Exception:
         pass
