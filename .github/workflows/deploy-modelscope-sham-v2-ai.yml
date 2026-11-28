@@ -1,0 +1,370 @@
+name: "Deploy the Sham Pro Studio on the INTERNATIONAL site (modelscope.ai, Jonjithup): serving copy of Sham v2; the cn Studio keeps training and stays as it is"
+
+# Owner 2026-11-28: Sham Pro is SERVED on modelscope.ai and TRAINED on modelscope.cn. This Studio (Jonjithup/sham-v2-server, private, free 16 GB CPU, created here when missing: the owner approved ONE new international Studio)
+# serves the mirrored private repos Jonjithup/sham-v2 and Jonjithup/sham2-tldm-head (sham-v2-mirror-ai.yml copies them from cn every 2 h and after each publish). It never touches the cn Studio.
+# The app is the existing Sham Studio app (ai-system/modelscope-sham) behind a small wrapper that sets the text vocabulary and the model repo. Uses MODELSCOPE_TOKEN; nothing secret is printed; never deletes anything.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      # app.py and requirements are deployed directly. Runtime modules from sham_small/
+      # must first update the signed studio_code/ in the private model repo, then deploy
+      # through the workflow_run below.
+      - ai-system/modelscope-sham/app.py
+      - ai-system/modelscope-sham/requirements.txt
+      # Sham Pro serving modules staged by stage_sham_v2_studio.py (owner-approved 2026-11-25: deploy automatically, no manual deploy)
+      - ai-system/modelscope-sham/sham_tldm_serve.py
+      - ai-system/modelscope-sham/sham_tldm_experience.py
+      - ai-system/modelscope-sham/sham_pro_coordinator.py
+      - ai-system/modelscope-sham/sham_mesh_node.py
+      # the loop head's serving code: the delex/relex slots must match the head the trainer publishes
+      - ai-system/tldm/data/augment.py
+      - ai-system/tldm/sham_tldm/**
+      - ai-system/supervision/sham_v2_chat_smoke.py
+      - scripts/transplant/stage_sham_v2_studio.py
+  # Also redeploy after the ready media bundle is copied into novaai2026/sham-v2.
+  workflow_run:
+    workflows:
+      - "Sham v2 media weights (ready picture model + Arabic voice into Sham's own model repo)"
+      - "Sham v2 mirror to the international site (model + T-LDM head, cn -> ai)"
+      - "Sham v2 signed runtime code sync"
+      - "Sham v2 runtime wheels (mirror llama-cpp-python into Sham's own model repo)"
+      - "Sham v2 motion tokenizer (train on real clips, publish next to the checkpoint)"
+      - "Sham v2 motion rows (train Sham's own motion tokens on real clips, publish next to the checkpoint)"
+    types: [completed]
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+
+env:
+  MS: https://www.modelscope.ai
+  OWNER: Jonjithup
+  REPO: sham-v2-server
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Job-level (2026-11-11): at workflow level, a workflow_run whose job is then SKIPPED (the sync it follows was cancelled) still cancelled the
+    # running deploy (runs 42948472775, 42949165293 died mid-build). Only a deploy that really runs replaces a stalled one now.
+    concurrency:
+      group: deploy-modelscope-sham-v2-ai
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 90   # the video smoke writes a real 6 s clip (~3000 motion tokens on 2 CPUs)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Account, free hardware and existing Studio (read-only)
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -u
+          api() { curl -sS -H "Authorization: Bearer $T" "$MS/openapi/v1$1"; }
+          echo "user:";      api /users/me | python3 -c "import json,sys;d=json.load(sys.stdin);x=d.get('data') or d.get('Data') or d;print({k:x.get(k) for k in ('username','name','level') if isinstance(x,dict)})" || true
+          echo "hardware:";  api "/studios/hardware?sdk_type=gradio" | tee hw.json | head -c 3000; echo
+          echo "sdk:";       api "/studios/sdk-versions?sdk_type=gradio" | tee sdk.json | head -c 1500; echo
+          code=$(curl -sS -o studio.json -w '%{http_code}' -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO")
+          echo "studio http $code"; head -c 1500 studio.json; echo
+          echo "STUDIO_HTTP=$code" >> "$GITHUB_ENV"
+
+      - name: Create the Studio if missing (private, free CPU; the ONE new international Studio the owner approved on 2026-11-28)
+        if: env.STUDIO_HTTP != '200'
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          HW=$(python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("hw.json"))
+          except Exception:
+              d = {}
+          items = d.get("data") or d.get("Data") or d.get("items") or []
+          if isinstance(items, dict):
+              items = items.get("items") or items.get("hardware") or []
+          free = [i for i in items if isinstance(i, dict) and str(i.get("resource_type", "")).lower() != "paid" and not str(i.get("name", "")).startswith("paid/")]
+          cpu = [i for i in free if "cpu" in str(i.get("name", "")).lower()]
+          print(((cpu or free or [{"name": "platform/2v-cpu-16g-mem"}])[-1]).get("name"))
+          PY
+          )
+          echo "hardware pick: $HW"
+          case "$HW" in paid/*) echo "refusing paid hardware"; exit 1;; esac
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
+          code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
+          echo "create http $code"; head -c 2000 create.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above: quota / verification)"; exit 1; }
+
+      - name: Push the app into the Studio repo
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          git config --global user.name "sham v2 CI"
+          git config --global user.email "ci@sham-v2.local"
+          git clone "https://oauth2:${T}@www.modelscope.ai/studios/${OWNER}/${REPO}.git" ms-studio 2>&1 | sed "s/${T}/***/g"
+          SHAM_SITE=ai python3 scripts/transplant/stage_sham_v2_studio.py ms-studio
+          cd ms-studio
+          git add -A
+          git diff --cached --quiet && echo "no change" || git commit -m "sham v2: app (${GITHUB_SHA::8})"
+          git push origin HEAD:master 2>&1 | sed "s/${T}/***/g"
+
+      - name: Set and verify the Studio model/token secrets (never print values; no external media tokens)
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          SHAM_CODE_SIGNING_KEY: ${{ secrets.SHAM_CODE_SIGNING_KEY }}
+          STUDIO_ID: ${{ env.OWNER }}/${{ env.REPO }}
+        run: |
+          set -eu
+          test -n "$T" || { echo "::error::MODELSCOPE_TOKEN secret is empty"; exit 1; }
+          # Use the documented ModelScope OpenAPI directly. The legacy HubApi
+          # secret helpers did not result in the running Studio receiving a
+          # token that could read the private model repository (runtime 403).
+          set_secret() {
+            key="$1"; value="$2"
+            printf '%s' "$value" | python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":sys.stdin.read()}))' "$key" > secret.json
+            code=$(curl -sS -o secret-response.json -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+              --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              code=$(curl -sS -o secret-response.json -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+            fi
+            if [ "$code" = "409" ]; then
+              # POST says the key already exists, so the PUT above failed only transiently (run 42749220811): retry the update.
+              for i in 1 2 3; do
+                sleep $((i * 10))
+                code=$(curl -sS -o secret-response.json -w '%{http_code}' -X PUT \
+                  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+                  --data-binary @secret.json "$MS/openapi/v1/studios/$STUDIO_ID/secrets")
+                if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then break; fi
+              done
+            fi
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              echo "::error::ModelScope rejected secret update for $key (HTTP $code)"
+              head -c 500 secret-response.json; echo
+              exit 1
+            fi
+            echo "updated Studio secret key: $key"
+          }
+          set_secret MODELSCOPE_API_TOKEN "$T"
+          set_secret MODELSCOPE_TOKEN "$T"
+          # The runtime code signer and Studio verifier must always share one key.
+          # When no separate signing key is configured, both use the ModelScope token.
+          set_secret SHAM_CODE_SIGNING_KEY "${SHAM_CODE_SIGNING_KEY:-$T}"
+          set_secret SHAM_MS_MODEL "Jonjithup/sham-v2"
+          set_secret SHAM_NATIVE_TOOL_CALLS "1"
+          rm -f secret.json secret-response.json
+
+      - name: Deploy and show status
+        env:
+          T: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+        run: |
+          set -uo pipefail
+          API="https://studio-${OWNER}-${REPO}.api-inference.modelscope.ai"
+
+          # Bound the deploy request. A timeout is ambiguous (ModelScope may have accepted
+          # the POST), so continue by observing Studio state rather than blindly posting again.
+          deploy_code=$(curl -sS --connect-timeout 8 --max-time 25 -o deploy-response.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true)
+          if [[ "$deploy_code" =~ ^[0-9]{3}$ ]] && [ "$deploy_code" != "000" ]; then
+            echo "deploy request HTTP $deploy_code"
+            head -c 1200 deploy-response.json || true
+            echo
+            if [ "$deploy_code" -ge 400 ]; then
+              echo "::error::ModelScope rejected the Studio deploy request (HTTP $deploy_code)"
+              exit 1
+            fi
+          else
+            echo "deploy request response was not confirmed (HTTP ${deploy_code:-000}); observing current Studio state"
+          fi
+
+          show_logs() {
+            for kind in build run; do
+              body=$(curl -sS --connect-timeout 5 --max-time 12 \
+                -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/$kind" || true)
+              echo "Studio $kind logs:"
+              echo "$body" | tail -c 4000 || true
+              echo
+              # The tail is often only the previous container's request lines: also show every line that names a failure (what the NEW app printed if it could not start).
+              echo "Studio $kind log lines that name a failure:"
+              echo "$body" | sed 's/\\n/\n/g; s/","/\n/g' | grep -Ei 'Traceback|Error|error:|failed|Exception|ModuleNotFound|No module|killed|out of memory|exit code|crash' | grep -v 'Layer already exists' | tail -n 40 | cut -c1-300 || true
+              echo
+            done
+          }
+
+          # ModelScope's build runner can keep a stale cached checkout: its build log then says "The last commitId was not fetched"
+          # and it builds an OLD "add build dockerfile" commit (live 2026-11-11: every build since Oct 29 on that runner shipped the
+          # Oct 29 code, so model.py had no MOTION_VOCAB_BASE and chat died with ImportError). The Dockerfile bakes the code in
+          # (COPY . .), so a stale build = stale app. Check the commit the build used and redeploy (another runner) when it is old.
+          DEPLOY_EPOCH=$(date +%s)
+          redeploys=0
+          build_checked=0
+          stale_build() {
+            curl -sS --connect-timeout 5 --max-time 15 -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/logs/build" > build-log.json || return 1
+            # live 2026-11-11 (inspector run 42959011500): the runner builds ModelScope's own branch sbuild-<id>-<epoch> = our
+            # master + an "add build dockerfile" commit whose date is a FIXED template date (Thu Oct 29 10:00:13 2026), so the
+            # commit date alone flagged every fresh build as stale. Ask git instead: is the commit we pushed inside that branch?
+            branch=$(python3 -c "import re,sys;m=re.findall(r'input branch is (sbuild-[A-Za-z0-9_-]+)',open('build-log.json',encoding='utf-8',errors='replace').read());print(m[-1] if m else '')")
+            pushed=$(git -C ms-studio rev-parse HEAD 2>/dev/null || true)
+            if [ -z "$branch" ] || [ -z "$pushed" ]; then echo "build log: no build branch found (cannot tell; treating as fresh)"; return 1; fi
+            if ! git -C ms-studio fetch -q origin "$branch" 2>/dev/null; then echo "build branch $branch not fetchable (treating as fresh)"; return 1; fi
+            if git -C ms-studio merge-base --is-ancestor "$pushed" FETCH_HEAD; then
+              echo "build branch $branch contains our commit ${pushed::8} -> fresh build"; return 1
+            fi
+            echo "build branch $branch does NOT contain our commit ${pushed::8} -> STALE cached checkout"; return 0
+          }
+
+          # At most 40 minutes of readiness polling; every network operation has a deadline.
+          SECONDS=0
+          while [ "$SECONDS" -lt 2400 ]; do
+            studio_code=$(curl -sS --connect-timeout 5 --max-time 12 \
+              -o studio-status.json -w '%{http_code}' \
+              -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO" || true)
+            status=""
+            if [ "$studio_code" = "200" ]; then
+              status=$(python3 -c "import json,sys;d=json.load(sys.stdin).get('data') or {};print((d.get('runtime') or {}).get('status') or d.get('status') or '')" < studio-status.json 2>/dev/null || true)
+            fi
+            echo "$(date -u +%H:%M:%S) studio HTTP $studio_code; status=${status:-unknown}; elapsed=${SECONDS}s"
+
+            case "$status" in
+              *ail*|*rror*|*topped*)
+                # live 2026-11-11 (run 42952822641): the redeploy that replaces a STALE build ended "BuildFailed" — try again (same 3-redeploy budget)
+                if [ "$redeploys" -gt 0 ] && [ "$redeploys" -lt 3 ]; then
+                  redeploys=$((redeploys + 1))
+                  echo "::warning::$status after a stale-build redeploy; redeploying again (attempt $redeploys)"
+                  show_logs
+                  curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                  DEPLOY_EPOCH=$(date +%s); build_checked=0
+                  sleep 30
+                  continue
+                fi
+                echo "::error::ModelScope Studio reported terminal state: $status"
+                show_logs
+                exit 1
+                ;;
+              Running|running|Ready|ready)
+                if [ "$build_checked" = "0" ]; then
+                  build_checked=1
+                  if stale_build; then
+                    if [ "$redeploys" -ge 3 ]; then
+                      echo "::error::ModelScope built a stale cached commit 4 times in a row; the Studio runs old code"
+                      exit 1
+                    fi
+                    redeploys=$((redeploys + 1))
+                    echo "::warning::stale ModelScope build; redeploying (attempt $redeploys)"
+                    curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                    DEPLOY_EPOCH=$(date +%s); build_checked=0
+                    sleep 30
+                    continue
+                  fi
+                fi
+                event_code=$(curl -sS --connect-timeout 5 --max-time 12 \
+                  -o status-event.json -w '%{http_code}' -X POST \
+                  -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}' \
+                  "$API/gradio_api/call/v2/status" || true)
+                event_id=""
+                if [ "$event_code" = "200" ]; then
+                  event_id=$(python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" < status-event.json 2>/dev/null || true)
+                fi
+                response=""
+                if [ -n "$event_id" ]; then
+                  result_code=$(curl -sS --connect-timeout 5 --max-time 20 \
+                    -o status-result.txt -w '%{http_code}' \
+                    -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                  response=$(cat status-result.txt 2>/dev/null || true)
+                  echo "status API HTTP $result_code: $(echo "$response" | head -c 1000)"
+                  if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"|phase[^,]*ready'; then
+                    # A redeploy keeps the PREVIOUS container answering until the new one is up, and the
+                    # pre-2026-10-30 app reports "ready" WITHOUT context_tokens. Accepting that lets this
+                    # gate pass while the new app is still starting, so the chat smoke then fails on a
+                    # context window of 0. context_tokens is emitted only by the current app (the v2
+                    # wrapper sets SHAM_MAX_SEQ_LEN=4096), so require it before declaring readiness.
+                    # `|| true`: under this step's `bash -e`, a failing grep in the assignment would
+                    # otherwise abort the whole deploy with no message.
+                    ctx=$(echo "$response" | grep -oE '\\?"context_tokens\\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
+                    built=$(echo "$response" | grep -oE '\\?"build\\?"[[:space:]]*:[[:space:]]*\\?"[0-9a-f]*' | grep -oE '[0-9a-f]+$' | head -1 || true)
+                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && [ "$built" = "${GITHUB_SHA::12}" ]; then
+                      echo "Sham v2 Studio model server is ready (context_tokens=$ctx, build=$built)."
+                      exit 0
+                    fi
+                    if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ]; then
+                      # live 2026-11-11: the runner reused a cached checkout and shipped an old app.py (chat ImportError, agent_step arg mismatch).
+                      # The container reports the commit it was built from; wait 6 min for the new one, then redeploy (same budget of 3).
+                      [ -z "${mismatch_since:-}" ] && mismatch_since=$SECONDS
+                      echo "ready, but container build=${built:-none} != pushed ${GITHUB_SHA::12} (old container or stale cached build)"
+                      if [ $((SECONDS - mismatch_since)) -ge 360 ]; then
+                        if [ "$redeploys" -ge 3 ]; then echo "::error::ModelScope kept serving a stale build (build=${built:-none})"; exit 1; fi
+                        redeploys=$((redeploys + 1)); mismatch_since=""
+                        echo "::warning::stale build served; redeploying (attempt $redeploys)"
+                        curl -sS --connect-timeout 8 --max-time 25 -o /dev/null -X POST -H "Authorization: Bearer $T" "$MS/openapi/v1/studios/$OWNER/$REPO/deploy" || true
+                        DEPLOY_EPOCH=$(date +%s); build_checked=0
+                        sleep 30
+                        continue
+                      fi
+                    fi
+                    echo "status says ready but without a fresh context window (context_tokens=${ctx:-none}); waiting for the new app"
+                  fi
+                  if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"error"|phase[^,]*error'; then
+                    echo "::error::Studio is running but its model server is in error phase"
+                    show_logs
+                    exit 1
+                  fi
+                else
+                  echo "status probe did not return an event id (HTTP $event_code); retrying"
+                fi
+                ;;
+              *)
+                # Includes starting/loading/queued and temporary status API failures.
+                # live 2026-11-17 (run 44093204286): OpenAPI stayed "Building" after the new
+                # app was already phase=ready with ctx=4096, and the job failed. Probe Gradio
+                # during Building, but accept ONLY a matching BUILD_STAMP (never the old container,
+                # and never redeploy just because the previous app is still answering).
+                if [ "$status" = "Building" ] || [ "$status" = "building" ] || [ "$status" = "Deploying" ] || [ "$status" = "deploying" ]; then
+                  event_code=$(curl -sS --connect-timeout 5 --max-time 12                     -o status-event.json -w '%{http_code}' -X POST                     -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{}'                     "$API/gradio_api/call/v2/status" || true)
+                  event_id=""
+                  if [ "$event_code" = "200" ]; then
+                    event_id=$(python3 -c "import json,sys;print(json.load(sys.stdin).get('event_id',''))" < status-event.json 2>/dev/null || true)
+                  fi
+                  if [ -n "$event_id" ]; then
+                    result_code=$(curl -sS --connect-timeout 5 --max-time 20                       -o status-result.txt -w '%{http_code}'                       -H "Authorization: Bearer $T" "$API/gradio_api/call/status/$event_id" || true)
+                    response=$(cat status-result.txt 2>/dev/null || true)
+                    echo "building-status API HTTP $result_code: $(echo "$response" | head -c 400)"
+                    ctx=$(echo "$response" | grep -oE '\?"context_tokens\?"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
+                    built=$(echo "$response" | grep -oE '\?"build\?"[[:space:]]*:[[:space:]]*\?"[0-9a-f]*' | grep -oE '[0-9a-f]+$' | head -1 || true)
+                    if echo "$response" | grep -Eiq '"phase"[[:space:]]*:[[:space:]]*"ready"|phase[^,]*ready'; then
+                      if [ -n "$ctx" ] && [ "$ctx" -ge 4096 ] && [ "$built" = "${GITHUB_SHA::12}" ]; then
+                        echo "Sham v2 Studio model server is ready during Building (context_tokens=$ctx, build=$built)."
+                        exit 0
+                      fi
+                      echo "Building, live status ready but build=${built:-none} != pushed ${GITHUB_SHA::12} (old container still answering; waiting for the new app)"
+                    fi
+                  fi
+                fi
+                ;;
+            esac
+            sleep 20
+          done
+
+          echo "::error::Studio/model did not report ready within 40 minutes"
+          show_logs
+          exit 1
+
+      - name: Install what the content checks need (numpy, pillow; ffmpeg ships on the runner)
+        run: python3 -m pip install -q numpy pillow
+      - name: Live text and media smoke tests
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_AI_TOKEN }}
+          SHAM_V2_URL: https://studio-jonjithup-sham-v2-server.api-inference.modelscope.ai
+          SHAM_V2_EXPECTED_MODEL: Jonjithup/sham-v2
+        run: |
+          set +e
+          python ai-system/supervision/sham_v2_chat_smoke.py
+          chat=$?
+          python ai-system/supervision/sham_v2_media_smoke.py
+          media=$?
+          set -e
+          if [ "$chat" -ne 0 ]; then echo "chat smoke failed (exit $chat)"; fi
+          if [ "$media" -ne 0 ]; then echo "media smoke failed (exit $media)"; fi
+          if [ "$media" -ne 0 ]; then exit "$media"; fi
+          if [ "$chat" -ne 0 ]; then exit "$chat"; fi

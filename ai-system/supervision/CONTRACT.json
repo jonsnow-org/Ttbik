@@ -1138,6 +1138,17 @@
       "accelerator": "GPU (Colab، كتابة على Drive)",
       "reads": [],
       "writes": []
+    },
+    "deploy_sham_v2_ai": {
+      "file": ".github/workflows/deploy-modelscope-sham-v2-ai.yml",
+      "title": "نشر استوديو شام برو للتشغيل على المنصة الدولية (Jonjithup/sham-v2-server): ينشئه مرة واحدة إن لم يوجد (قرار المالك 2026-11-28)، يقرأ النسخ المرآة، ولا يلمس استوديو cn",
+      "kind": "workflow",
+      "accelerator": "CPU (ModelScope Studio 16 GB)",
+      "reads": [
+        "Jonjithup/sham-v2",
+        "Jonjithup/sham2-tldm-head"
+      ],
+      "writes": []
     }
   },
   "lineage": [

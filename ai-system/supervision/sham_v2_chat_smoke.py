@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 
 BASE = (os.environ.get("SHAM_V2_URL") or "https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net").strip().rstrip("/")
 TOKEN = (os.environ.get("MODELSCOPE_TOKEN") or os.environ.get("MODELSCOPE_API_TOKEN") or "").strip()
-EXPECTED_MODEL = "novaai2026/sham-v2"
+EXPECTED_MODEL = os.environ.get("SHAM_V2_EXPECTED_MODEL", "novaai2026/sham-v2")      # the international serving copy is Jonjithup/sham-v2
 def request_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 45):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = json.dumps(payload or {}, ensure_ascii=False).encode("utf-8") if payload is not None else None
