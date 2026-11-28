@@ -94,6 +94,17 @@ class Coordinator(unittest.TestCase):
         self.assertEqual(second["type"], "busy")
         wait(first["id"], "sess-d")
 
+    def test_the_9th_task_does_not_evict_itself_before_start_returns(self):
+        # Fill _TASKS with 8 old, already-timestamped entries (MAX_KEPT), then start one more: the bug sorted the brand-new
+        # rec in with t=0 (not yet set) ahead of these real timestamps, so eviction dropped the new task, not an old one.
+        for i in range(C.MAX_KEPT):
+            C._TASKS[f"old{i}"] = {"id": f"old{i}", "goal": "x", "status": "done", "folder": "/tmp", "session": "s", "task": None, "t": time.time() - 1000 + i}
+        r = C.start("report", "sess-f", fns(), owner=True)
+        self.assertEqual(r["type"], "coordinator")
+        self.assertIn(r["id"], C._TASKS)
+        self.assertEqual(C.status(r["id"], "sess-f")["type"], "coordinator")
+        wait(r["id"], "sess-f")
+
     def test_a_garbage_plan_is_refused_not_run(self):
         r = C.start("x", "sess-e", fns(plan=[{"id": "s", "kind": "shell", "args": {"command": "ls"}}]), owner=True)     # a shell step with no check is refused by the coordinator
         done = wait(r["id"], "sess-e")
