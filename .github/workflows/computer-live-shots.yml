@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Shoot each model's own screen
@@ -32,7 +32,7 @@ jobs:
           SHAM_V2_URL: https://studio-novaai2026-sham-v2-server.api-inference.modelscope.net
           COMPUTER_STUDIO_URL: https://studio-jonjithup-sham-trainer-2.api-inference.modelscope.ai
         run: python3 scripts/ops/computer_live_shots.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: computer-shots

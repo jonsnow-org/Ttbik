@@ -32,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install
@@ -47,7 +47,7 @@ jobs:
           args="--minutes ${{ inputs.minutes || '45' }} --clips ${{ inputs.clips || '160' }} --out ${{ runner.temp }}/motion"
           if [ "${{ inputs.publish || 'true' }}" = "true" ]; then args="$args --publish"; fi
           python scripts/transplant/train_sham_v2_motion.py $args
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sham-v2-motion-tokenizer
